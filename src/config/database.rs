@@ -11,9 +11,10 @@ pub async fn create_pool(database_url: &str, max_size: usize) -> anyhow::Result<
 
     let pool = cfg.create_pool(Some(Runtime::Tokio1), NoTls)?;
 
-    // Test connection
+    // Smoke-test the pool with a trivial query so a misconfigured DATABASE_URL
+    // fails fast at startup instead of on the first request.
     let client = pool.get().await?;
-    client.check_connection().await?;
+    client.simple_query("SELECT 1").await?;
 
     Ok(pool)
 }
