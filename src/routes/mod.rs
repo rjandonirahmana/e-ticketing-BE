@@ -22,6 +22,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     let public = Router::new()
         .route("/health", get(health))
         .route("/auth/register", post(auth::register))
+        .route("/auth/verify", post(auth::verify_register))
         .route("/auth/login", post(auth::login))
         .route("/events", get(events::list))
         .route("/events/:id", get(events::get_one));

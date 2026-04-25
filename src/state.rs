@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use deadpool_postgres::Pool;
+use redis::aio::ConnectionManager;
 
+use crate::config::config::WahaConfig;
 use crate::repository::{
     event::PgEventRepository, merchant::PgMerchantRepository, order::PgOrderRepository,
     ticket::PgTicketRepository, user::PgUserRepository,
@@ -27,7 +29,14 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(pool: Pool, jwt_secret: &str, bcrypt_cost: u32, jwt_expiry_hours: i64) -> Self {
+    pub fn new(
+        pool: Pool,
+        jwt_secret: &str,
+        bcrypt_cost: u32,
+        jwt_expiry_hours: i64,
+        waha: Arc<WahaConfig>,
+        redis: ConnectionManager,
+    ) -> Self {
         let jwt = JwtService::new(jwt_secret);
 
         let user_repo = Arc::new(PgUserRepository::new(pool.clone()));
@@ -41,6 +50,8 @@ impl AppState {
             jwt.clone(),
             bcrypt_cost,
             jwt_expiry_hours,
+            waha,
+            redis,
         ));
         let merchant_svc = Arc::new(MerchantService::new(merchant_repo));
         let event_svc = Arc::new(EventService::new(event_repo));

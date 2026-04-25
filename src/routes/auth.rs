@@ -14,30 +14,49 @@ use crate::utils::error::{AppError, AppResult};
 /// on purpose so the server-side User struct never carries it).
 #[derive(Debug, Deserialize, Validate)]
 pub struct RegisterPayload {
-    #[validate(email(message = "Invalid email format"))]
-    pub email: String,
-    #[validate(length(min = 5, message = "Password must be at least 5 characters"))]
-    pub password: String,
-    #[validate(length(min = 2, max = 255))]
+    pub email: Option<String>,
     pub name: String,
-    pub phone: Option<String>,
+    #[validate(length(min = 8, message = "phone must be at least 8 characters"))]
+    pub phone: String,
     pub role: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct VerifyRegisterPayload {
+    #[validate(length(min = 9, message = "phone must be at least 9 characters"))]
+    pub phone: String,
+    #[validate(length(min = 6, max = 10))]
+    pub otp: String,
 }
 
 pub async fn register(
     State(state): State<Arc<AppState>>,
     Json(body): Json<RegisterPayload>,
-) -> AppResult<Json<AuthResponse>> {
+) -> AppResult<Json<()>> {
     body.validate()
         .map_err(|e| AppError::UnprocessableEntity(format!("{e}")))?;
-    let req = RegisterRequest {
+    let req: RegisterRequest = RegisterRequest {
         email: body.email,
         name: body.name,
         phone: body.phone,
         role: body.role,
     };
-    let resp = state.auth_svc.register(req, &body.password).await?;
-    Ok(Json(resp))
+    state.auth_svc.initiate_register(req).await?;
+    Ok(Json(()))
+}
+
+pub async fn verify_register(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<VerifyRegisterPayload>,
+) -> AppResult<Json<AuthResponse>> {
+    body.validate()
+        .map_err(|e| AppError::UnprocessableEntity(format!("{e}")))?;
+
+    let data = state
+        .auth_svc
+        .verify_register(&body.phone, &body.otp)
+        .await?;
+    Ok(Json(data))
 }
 
 pub async fn login(

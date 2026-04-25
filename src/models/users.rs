@@ -34,9 +34,9 @@ impl From<&str> for UserRole {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub id: String, // ULID as hex string
-    pub email: String,
+    pub email: Option<String>,
     pub name: String,
-    pub phone: Option<String>,
+    pub phone: String,
     pub role: UserRole,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -45,14 +45,12 @@ pub struct User {
 /// Request: Register new user
 #[derive(Debug, Deserialize, Validate)]
 pub struct RegisterRequest {
-    #[validate(email(message = "Invalid email format"))]
-    pub email: String,
+    pub email: Option<String>,
 
     #[validate(length(min = 2, max = 255, message = "Name must be 2-255 characters"))]
     pub name: String,
 
-    pub phone: Option<String>,
-
+    pub phone: String,
     /// "customer" or "merchant" (admin cannot self-register)
     pub role: Option<String>,
 }
@@ -60,8 +58,7 @@ pub struct RegisterRequest {
 /// Request: Login
 #[derive(Debug, Deserialize, Validate)]
 pub struct LoginRequest {
-    #[validate(email)]
-    pub email: String,
+    pub phone: String,
     #[validate(length(min = 5, message = "Password must be at least 5 characters"))]
     pub password: String,
 }
@@ -78,9 +75,9 @@ pub struct UpdateProfileRequest {
 #[derive(Debug, Serialize)]
 pub struct UserResponse {
     pub id: String,
-    pub email: String,
+    pub email: Option<String>,
     pub name: String,
-    pub phone: Option<String>,
+    pub phone: String,
     pub role: String,
     pub created_at: DateTime<Utc>,
 }

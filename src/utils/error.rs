@@ -34,6 +34,12 @@ pub enum AppError {
 
     #[error("Pool error: {0}")]
     Pool(#[from] deadpool_postgres::PoolError),
+
+    #[error("Redis error: {0}")]
+    Redis(#[from] redis::RedisError), // Menambahkan redis error
+
+    #[error("Redis error: {0}")]
+    Bcrpyt(String), // Menambahkan redis error
 }
 
 impl IntoResponse for AppError {
@@ -46,7 +52,7 @@ impl IntoResponse for AppError {
             AppError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
             AppError::UnprocessableEntity(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg.clone()),
             AppError::Internal(e) => {
-                tracing::error!("Internal error: {:?}", e);
+                tracing::error!("Internal error: {:?}", e.to_string());
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Internal server error".into(),
@@ -71,6 +77,21 @@ impl IntoResponse for AppError {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Connection pool error".into(),
+                )
+            }
+
+            AppError::Redis(e) => {
+                tracing::error!("Redis error: {:?}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal cache/queue error".into(),
+                )
+            }
+            AppError::Bcrpyt(e) => {
+                tracing::error!("Bcrypt error: {:?}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal cache/queue error".into(),
                 )
             }
         };

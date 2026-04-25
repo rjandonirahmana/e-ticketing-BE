@@ -8,13 +8,10 @@ use super::db::{exec_drop, exec_first, exec_one};
 use crate::models::users::{RegisterRequest, User, UserRole};
 use crate::utils::ulid::{bin_to_ulid, id_to_vec, new_ulid, ulid_to_vec};
 
-/// Internal struct returned by the repo for login flows — includes the
-/// password hash so the service layer can verify it. Never expose this to API
-/// responses.
 #[derive(Debug, Clone)]
 pub struct UserWithPassword {
     pub user: User,
-    pub password_hash: String,
+    pub password_hash: Option<String>,
 }
 
 // ── Static query strings ──────────────────────────────────────────────────────
@@ -32,6 +29,9 @@ static USER_COLS: &str = r#"
 
 static FIND_BY_ID: LazyLock<String> =
     LazyLock::new(|| format!("SELECT {} FROM users WHERE id = $1", USER_COLS));
+
+static FIND_BY_PHONE: LazyLock<String> =
+    LazyLock::new(|| format!("SELECT {} FROM users WHERE phone = $1", USER_COLS));
 
 static FIND_BY_EMAIL: LazyLock<String> =
     LazyLock::new(|| format!("SELECT {} FROM users WHERE email = $1", USER_COLS));
@@ -51,6 +51,12 @@ static UPDATE_PROFILE: &str = r#"
      WHERE id = $1
 "#;
 
+static UPDATE_PASSWORD_HASH: &str = r#"
+    UPDATE users
+       SET password_hash = $2
+     WHERE id = $1
+"#;
+
 // ── Trait ─────────────────────────────────────────────────────────────────────
 
 #[async_trait]
@@ -58,7 +64,7 @@ pub trait UserRepository: Send + Sync {
     async fn create(
         &self,
         req: &RegisterRequest,
-        password_hash: &str,
+        password_hash: Option<&str>,
         role: UserRole,
     ) -> Result<User>;
 
@@ -68,6 +74,11 @@ pub trait UserRepository: Send + Sync {
 
     async fn update_profile(&self, id: &str, name: Option<&str>, phone: Option<&str>)
     -> Result<()>;
+
+    async fn update_password_hash(&self, id: &str, new_hash: &str) -> Result<()>;
+
+    async fn find_by_phone(&self, phone: &str) -> Result<Option<User>>;
+    async fn find_by_phone_with_password(&self, email: &str) -> Result<Option<UserWithPassword>>;
 }
 
 // ── Postgres impl ─────────────────────────────────────────────────────────────
@@ -102,25 +113,31 @@ impl UserRepository for PgUserRepository {
     async fn create(
         &self,
         req: &RegisterRequest,
-        password_hash: &str,
+        password_hash: Option<&str>,
         role: UserRole,
     ) -> Result<User> {
         let id = new_ulid();
         let id_vec = ulid_to_vec(&id)?;
         let role_str = role.to_string();
+
+        // email dari RegisterRequest adalah Option<String>
+        let email: Option<&str> = req.email.as_deref();
+
         let row = exec_one(
             &self.pool,
             &INSERT_USER,
             &[
                 &id_vec,
-                &req.email,
-                &password_hash,
+                &email,         // Option<&str> → NULL jika None
+                &password_hash, // Option<&str> → NULL jika None
                 &req.name,
                 &req.phone,
                 &role_str,
             ],
         )
         .await?;
+
+        // Gunakan row dari RETURNING — bukan konstruksi manual
         Self::row_to_user(&row)
     }
 
@@ -134,7 +151,25 @@ impl UserRepository for PgUserRepository {
         let row = exec_first(&self.pool, &FIND_BY_EMAIL, &[&email]).await?;
         let Some(row) = row else { return Ok(None) };
         let user = Self::row_to_user(&row)?;
-        let password_hash: String = row.try_get("password_hash")?;
+        let password_hash: Option<String> =
+            row.try_get("password_hash").context("password_hash")?;
+        Ok(Some(UserWithPassword {
+            user,
+            password_hash,
+        }))
+    }
+
+    async fn find_by_phone(&self, phone: &str) -> Result<Option<User>> {
+        let row = exec_first(&self.pool, &FIND_BY_PHONE, &[&phone]).await?;
+        row.as_ref().map(Self::row_to_user).transpose()
+    }
+
+    async fn find_by_phone_with_password(&self, phone: &str) -> Result<Option<UserWithPassword>> {
+        let row = exec_first(&self.pool, &FIND_BY_PHONE, &[&phone]).await?;
+        let Some(row) = row else { return Ok(None) };
+        let user = Self::row_to_user(&row)?;
+        let password_hash: Option<String> =
+            row.try_get("password_hash").context("password_hash")?;
         Ok(Some(UserWithPassword {
             user,
             password_hash,
@@ -149,6 +184,12 @@ impl UserRepository for PgUserRepository {
     ) -> Result<()> {
         let id_vec = id_to_vec(id)?;
         exec_drop(&self.pool, UPDATE_PROFILE, &[&id_vec, &name, &phone]).await?;
+        Ok(())
+    }
+
+    async fn update_password_hash(&self, id: &str, new_hash: &str) -> Result<()> {
+        let id_vec = id_to_vec(id)?;
+        exec_drop(&self.pool, UPDATE_PASSWORD_HASH, &[&id_vec, &new_hash]).await?;
         Ok(())
     }
 }

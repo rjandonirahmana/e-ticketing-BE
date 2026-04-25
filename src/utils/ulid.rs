@@ -1,29 +1,27 @@
-// ULID helpers — a couple of variants are kept available for future repos
-// (e.g. nullable joins) even when not every consumer is wired yet.
-#![allow(dead_code)]
-
 use anyhow::Result;
 use ulid::Ulid;
 
-/// Generate a new ULID as canonical 26-char Crockford string.
 pub fn new_ulid() -> String {
     Ulid::new().to_string()
 }
 
-/// Encode a ULID string into 16 raw bytes (for BYTEA params).
 pub fn ulid_to_bytes(s: &str) -> Result<[u8; 16]> {
     s.parse::<Ulid>()
         .map(|u| u.to_bytes())
         .map_err(|e| anyhow::anyhow!("Invalid ULID '{}': {}", s, e))
 }
 
-/// Same as `ulid_to_bytes` but returns a `Vec<u8>` (handy for tokio-postgres bind).
+/// Untuk bind ke tokio-postgres BYTEA parameter.
+/// Kembalikan Vec<u8> — bisa deref ke &[u8] yang impl ToSql.
 pub fn ulid_to_vec(s: &str) -> Result<Vec<u8>> {
     ulid_to_bytes(s).map(|b| b.to_vec())
 }
 
-/// Accept either a 26-char ULID or a 32-char hex string and return the 16 raw bytes.
-/// Useful when an id can come from a JWT (ULID) or from an old hex column.
+/// Handle kedua format id:
+///   - ULID 26 char  (misal "01ARZ3NDEKTSV4RRFFQ69G5FAV") → parse via ulid_to_vec
+///   - Hex  32 char  (misal "019d4942f47000ee70983c1090bc616b") → decode via hex::decode
+///
+/// Gunakan ini di repository yang menerima id dari JWT / request luar.
 pub fn id_to_vec(s: &str) -> Result<Vec<u8>> {
     match s.len() {
         26 => ulid_to_vec(s),
@@ -36,7 +34,12 @@ pub fn id_to_vec(s: &str) -> Result<Vec<u8>> {
     }
 }
 
-/// Decode 16 raw bytes from BYTEA back into a ULID string.
+pub fn ulid_to_hex(s: &str) -> Result<String> {
+    let ulid = Ulid::from_string(s)?;
+    Ok(ulid.to_string().to_lowercase()) // atau hex? Ulid::to_string() sebenarnya string ULID, bukan hex.
+    // Jika butuh hex: hex::encode(ulid.to_bytes())
+}
+
 pub fn bin_to_ulid(raw: Vec<u8>) -> Result<String> {
     let arr: [u8; 16] = raw
         .try_into()
@@ -44,10 +47,21 @@ pub fn bin_to_ulid(raw: Vec<u8>) -> Result<String> {
     Ok(Ulid::from_bytes(arr).to_string())
 }
 
-/// Optional variant of `bin_to_ulid` for nullable columns.
 pub fn bin_to_ulid_opt(val: Option<Vec<u8>>) -> Result<Option<String>> {
     match val {
         None => Ok(None),
         Some(b) => Ok(Some(bin_to_ulid(b)?)),
+    }
+}
+
+pub fn mime_to_type(mime: &str) -> &'static str {
+    if mime.starts_with("image/") {
+        "image"
+    } else if mime.starts_with("video/") {
+        "video"
+    } else if mime.starts_with("audio/") {
+        "audio"
+    } else {
+        "file"
     }
 }

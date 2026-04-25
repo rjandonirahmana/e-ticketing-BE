@@ -1,4 +1,5 @@
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use serde::{Deserialize, Serialize};
 
 use crate::models::auth::Claims;
 
@@ -20,11 +21,18 @@ impl JwtService {
         }
     }
 
-    pub fn sign(&self, user_id: &str, email: &str, role: &str) -> anyhow::Result<String> {
+    pub fn sign(
+        &self,
+        user_id: &str,
+        name: &str,
+        phone: &str,
+        role: &str,
+    ) -> anyhow::Result<String> {
         let claims = Claims {
             user_id: user_id.to_string(),
             role: role.to_string(),
-            email: email.to_string(),
+            name: name.to_string(),
+            phone: phone.to_string(),
             exp: (chrono::Utc::now() + chrono::Duration::days(100)).timestamp(),
         };
 
