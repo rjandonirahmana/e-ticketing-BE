@@ -30,3 +30,63 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique
 
 -- 3) password_hash juga nullable — akun OTP-only mungkin belum punya hash
 ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+
+
+
+-- ── Group Chat Tables ─────────────────────────────────────────────────────────
+-- Jalankan setelah migrations existing (users, events, orders, tickets sudah ada)
+
+-- 1 event = 1 group room
+CREATE TABLE IF NOT EXISTS group_rooms (
+    id          BYTEA        PRIMARY KEY,           -- ULID as 16-byte binary
+    event_id    BYTEA        NOT NULL UNIQUE        -- FK ke events.id, satu event satu room
+                             REFERENCES events(id) ON DELETE CASCADE,
+    name        TEXT         NOT NULL,
+    cover_url   TEXT,
+    created_by  BYTEA        NOT NULL REFERENCES users(id),
+    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_group_rooms_event   ON group_rooms(event_id);
+CREATE INDEX IF NOT EXISTS idx_group_rooms_creator ON group_rooms(created_by);
+
+-- Member room
+CREATE TABLE IF NOT EXISTS group_members (
+    room_id   BYTEA  NOT NULL REFERENCES group_rooms(id) ON DELETE CASCADE,
+    user_id   BYTEA  NOT NULL REFERENCES users(id)       ON DELETE CASCADE,
+    role      TEXT   NOT NULL DEFAULT 'member'
+                     CHECK (role IN ('owner','member')),
+    joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (room_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_id);
+
+-- Pesan grup
+CREATE TABLE IF NOT EXISTS group_messages (
+    id          BYTEA        PRIMARY KEY,
+    room_id     BYTEA        NOT NULL REFERENCES group_rooms(id) ON DELETE CASCADE,
+    sender_id   BYTEA        NOT NULL REFERENCES users(id),
+    sender_name TEXT         NOT NULL DEFAULT '',
+    msg_type    TEXT         NOT NULL DEFAULT 'text'
+                             CHECK (msg_type IN ('text','image','shared_ticket','system')),
+    content     TEXT         NOT NULL DEFAULT '',
+    media_url   TEXT,
+    ticket_card JSONB,                              -- TicketCard JSON null kalau bukan shared_ticket
+    is_system   BOOLEAN      NOT NULL DEFAULT FALSE,
+    sent_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+-- Index utama: history per room, cursor-based pagination
+CREATE INDEX IF NOT EXISTS idx_group_messages_room_sent
+    ON group_messages(room_id, sent_at DESC, id DESC);
+
+-- Index count per sender di room (untuk enforce customer 1-msg limit)
+CREATE INDEX IF NOT EXISTS idx_group_messages_sender
+    ON group_messages(room_id, sender_id) WHERE is_system = FALSE;
+
+-- System user placeholder (sender_id untuk system messages)
+-- Pastikan ada di tabel users — atau comment kalau schema users berbeda
+-- INSERT INTO users (id, name, phone, role, created_at, updated_at)
+-- VALUES (decode('00000000000000000000000000000000', 'hex'), 'System Pulse', '+000000000000', 'admin', NOW(), NOW())
+-- ON CONFLICT (id) DO NOTHING;
