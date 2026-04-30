@@ -1,5 +1,4 @@
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
-use serde::{Deserialize, Serialize};
 
 use crate::models::auth::Claims;
 

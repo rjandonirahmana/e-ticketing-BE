@@ -59,13 +59,13 @@ pub async fn require_auth(
     Ok(next.run(req).await)
 }
 
-#[axum::async_trait]
 impl<S> FromRequestParts<S> for AuthUser
 where
     S: Send + Sync,
 {
     type Rejection = (StatusCode, &'static str);
 
+    // Hier kein Makro nötig, einfach async fn
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         parts
             .extensions

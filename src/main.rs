@@ -13,16 +13,19 @@ mod routes;
 mod service;
 mod state;
 mod utils;
+mod ws;
 
 use config::{config::AppConfig, database::create_pool};
 use state::AppState;
+use ws::handler::WsAppState;
+use ws::routes::chat_router;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("Failed to install rustls crypto provider");
-    // ── Logging ────────────────────────────────────────────────────────────
+
     tracing_subscriber::registry()
         .with(
             EnvFilter::try_from_default_env()
@@ -33,16 +36,13 @@ async fn main() -> Result<()> {
 
     dotenvy::dotenv().ok();
 
-    // ── Config ────────────────────────────────────────────────────────────
     let cfg = AppConfig::from_env()?;
-    tracing::info!(host = %cfg.host, port = cfg.port, "Config loaded");
+    tracing::info!(host=%cfg.host, port=cfg.port, "Config loaded");
 
-    // ── Postgres pool ─────────────────────────────────────────────────────
     let pool = create_pool(&cfg.database_url, cfg.db_pool_max_size).await?;
     tracing::info!("Postgres pool ready (max={})", cfg.db_pool_max_size);
 
     let redis_url = format!("{}/1", cfg.redis_url.trim_end_matches('/'));
-
     let redis_client = redis::Client::open(redis_url.as_str())?;
     let redis_conn = redis::aio::ConnectionManager::new_with_config(
         redis_client.clone(),
@@ -52,14 +52,12 @@ async fn main() -> Result<()> {
             .set_number_of_retries(3),
     )
     .await?;
-
     tracing::info!("Redis connected to DB 1");
 
-    // NOTE: dulu di sini ada `FLUSHDB` setiap startup — itu menghapus SEMUA
-    // OTP & sesi pending tiap proses restart. Dihapus karena destructive.
-    // Kalau memang butuh flush manual, lakukan via redis-cli, bukan otomatis.
+    // Redis terpisah untuk WS (DB 2 agar tidak bentrok dengan OTP)
+    let ws_redis_url = format!("{}/2", cfg.redis_url.trim_end_matches('/'));
+    let ws_redis_client = redis::Client::open(ws_redis_url.as_str())?;
 
-    // ── App state + router ────────────────────────────────────────────────
     let state = Arc::new(AppState::new(
         pool,
         &cfg.jwt_secret,
@@ -67,13 +65,28 @@ async fn main() -> Result<()> {
         cfg.jwt_expiry_hours,
         Arc::new(cfg.waha),
         redis_conn,
+        ws_redis_client,
     ));
-    let app = routes::build_router(state);
 
-    // ── Bind + serve ──────────────────────────────────────────────────────
+    // Wire OrderService dengan GroupChatService (setelah state dibuat)
+    // Note: Rust ownership membuat ini sedikit verbose — kita set after init via Arc::new
+    // Solusi sederhana: state.order_svc clone dan re-wrap sudah cukup karena Arc.
+
+    // WS app state (terpisah dari main AppState untuk router isolation)
+    let ws_state = Arc::new(WsAppState {
+        jwt: state.jwt.clone(),
+        ws_mgr: state.ws_mgr.clone(),
+        group_svc: state.group_chat_svc.clone(),
+    });
+
+    // Build router
+    let app = routes::build_router(state.clone())
+        // Mount chat routes (WS + REST) — /ws/chat sudah include di sini
+        .merge(chat_router(ws_state.clone()));
+
     let addr = format!("{}:{}", cfg.host, cfg.port);
     let listener = TcpListener::bind(&addr).await?;
-    tracing::info!("KINETIC API listening on http://{}", addr);
+    tracing::info!("KINETIC API + WS listening on http://{}", addr);
 
     axum::serve(listener, app).await?;
     Ok(())
