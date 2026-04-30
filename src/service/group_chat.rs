@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::sync::Arc;
 
 use crate::{
@@ -13,7 +13,7 @@ use crate::{
 const CUSTOMER_MSG_LIMIT: i64 = 1;
 
 pub struct GroupChatService {
-    pub repo:   Arc<GroupChatRepository>,
+    pub repo: Arc<GroupChatRepository>,
     pub ws_mgr: Arc<WsManager>,
 }
 
@@ -33,7 +33,9 @@ impl GroupChatService {
         cover_url: Option<&str>,
         merchant_id: &str,
     ) -> Result<GroupRoom> {
-        self.repo.upsert_event_room(event_id, event_name, cover_url, merchant_id).await
+        self.repo
+            .upsert_event_room(event_id, event_name, cover_url, merchant_id)
+            .await
     }
 
     pub async fn get_user_rooms(&self, user_id: &str) -> Result<Vec<GroupRoom>> {
@@ -46,16 +48,17 @@ impl GroupChatService {
     /// event_id diambil dari order items.
     pub async fn auto_join_after_payment(
         &self,
-        event_id:   &str,
-        user_id:    &str,
-        user_name:  &str,
+        event_id: &str,
+        user_id: &str,
+        user_name: &str,
     ) -> Result<()> {
         let room = match self.repo.find_by_event(event_id).await? {
             Some(r) => r,
             None => {
                 // Room belum dibuat merchant — buat dengan nama placeholder
                 tracing::warn!(
-                    event_id, user_id,
+                    event_id,
+                    user_id,
                     "No group room found for event, skipping auto-join"
                 );
                 return Ok(());
@@ -67,10 +70,15 @@ impl GroupChatService {
             return Ok(());
         }
 
-        self.repo.add_member(&room.id, user_id, MemberRole::Member).await?;
+        self.repo
+            .add_member(&room.id, user_id, MemberRole::Member)
+            .await?;
 
         // Kirim system message ke room
-        let sys = self.build_system_msg(&room.id, &format!("{user_name} bergabung ke grup setelah membeli tiket"));
+        let sys = self.build_system_msg(
+            &room.id,
+            &format!("{user_name} bergabung ke grup setelah membeli tiket"),
+        );
         self.repo.save_message(&sys).await?;
         self.fanout(&room.id, &sys).await;
 
@@ -87,11 +95,11 @@ impl GroupChatService {
     /// `role` = Claims.role ("customer" | "merchant" | "admin")
     pub async fn send_text(
         &self,
-        room_id:     &str,
-        sender_id:   &str,
+        room_id: &str,
+        sender_id: &str,
         sender_name: &str,
-        role:        &str,
-        content:     &str,
+        role: &str,
+        content: &str,
     ) -> Result<GroupMessage> {
         if content.trim().is_empty() {
             bail!("Pesan tidak boleh kosong");
@@ -99,16 +107,16 @@ impl GroupChatService {
         self.authorize_can_send(room_id, sender_id, role).await?;
 
         let msg = GroupMessage {
-            id:          new_ulid(),
-            room_id:     room_id.to_string(),
-            sender_id:   sender_id.to_string(),
+            id: new_ulid(),
+            room_id: room_id.to_string(),
+            sender_id: sender_id.to_string(),
             sender_name: sender_name.to_string(),
-            msg_type:    MsgType::Text,
-            content:     content.to_string(),
-            media_url:   None,
+            msg_type: MsgType::Text,
+            content: content.to_string(),
+            media_url: None,
             ticket_card: None,
-            sent_at:     chrono::Utc::now(),
-            is_system:   false,
+            sent_at: chrono::Utc::now(),
+            is_system: false,
         };
 
         self.repo.save_message(&msg).await?;
@@ -120,26 +128,26 @@ impl GroupChatService {
     /// Juga menggunakan send-limit yang sama dengan pesan teks.
     pub async fn share_ticket(
         &self,
-        room_id:     &str,
-        sender_id:   &str,
+        room_id: &str,
+        sender_id: &str,
         sender_name: &str,
-        role:        &str,
-        ticket:      TicketCard,
-        caption:     &str,
+        role: &str,
+        ticket: TicketCard,
+        caption: &str,
     ) -> Result<GroupMessage> {
         self.authorize_can_send(room_id, sender_id, role).await?;
 
         let msg = GroupMessage {
-            id:          new_ulid(),
-            room_id:     room_id.to_string(),
-            sender_id:   sender_id.to_string(),
+            id: new_ulid(),
+            room_id: room_id.to_string(),
+            sender_id: sender_id.to_string(),
             sender_name: sender_name.to_string(),
-            msg_type:    MsgType::SharedTicket,
-            content:     caption.to_string(),
-            media_url:   None,
+            msg_type: MsgType::SharedTicket,
+            content: caption.to_string(),
+            media_url: None,
             ticket_card: Some(ticket),
-            sent_at:     chrono::Utc::now(),
-            is_system:   false,
+            sent_at: chrono::Utc::now(),
+            is_system: false,
         };
 
         self.repo.save_message(&msg).await?;
@@ -149,9 +157,9 @@ impl GroupChatService {
 
     pub async fn get_history(
         &self,
-        room_id:   &str,
-        user_id:   &str,
-        limit:     i64,
+        room_id: &str,
+        user_id: &str,
+        limit: i64,
         before_id: Option<&str>,
     ) -> Result<(Vec<GroupMessage>, bool)> {
         if !self.repo.is_member(room_id, user_id).await? {
@@ -171,9 +179,7 @@ impl GroupChatService {
     /// Enforce aturan:
     /// - Customer: maks CUSTOMER_MSG_LIMIT pesan per room
     /// - Merchant/Admin: unlimited
-    async fn authorize_can_send(
-        &self, room_id: &str, user_id: &str, role: &str,
-    ) -> Result<()> {
+    async fn authorize_can_send(&self, room_id: &str, user_id: &str, role: &str) -> Result<()> {
         if !self.repo.is_member(room_id, user_id).await? {
             bail!("Bukan member room ini");
         }
@@ -197,29 +203,29 @@ impl GroupChatService {
 
     fn build_system_msg(&self, room_id: &str, content: &str) -> GroupMessage {
         GroupMessage {
-            id:          new_ulid(),
-            room_id:     room_id.to_string(),
-            sender_id:   "00000000000000000000000000".to_string(),
+            id: new_ulid(),
+            room_id: room_id.to_string(),
+            sender_id: "00000000000000000000000000".to_string(),
             sender_name: "System Pulse".to_string(),
-            msg_type:    MsgType::System,
-            content:     content.to_string(),
-            media_url:   None,
+            msg_type: MsgType::System,
+            content: content.to_string(),
+            media_url: None,
             ticket_card: None,
-            sent_at:     chrono::Utc::now(),
-            is_system:   true,
+            sent_at: chrono::Utc::now(),
+            is_system: true,
         }
     }
 
     /// Broadcast pesan ke semua member yang online
     async fn fanout(&self, room_id: &str, msg: &GroupMessage) {
         let ids = match self.repo.get_member_ids(room_id).await {
-            Ok(v)  => v,
+            Ok(v) => v,
             Err(e) => {
                 tracing::error!(room_id, error=%e, "fanout: get_member_ids failed");
                 return;
             }
         };
         let event = WsEvent::NewMessage(WsMessage::from_model(msg));
-        self.ws_mgr.broadcast_to(&ids, event).await;
+        self.ws_mgr.broadcast_room(room_id, &ids, event).await;
     }
 }

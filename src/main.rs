@@ -58,15 +58,18 @@ async fn main() -> Result<()> {
     let ws_redis_url = format!("{}/2", cfg.redis_url.trim_end_matches('/'));
     let ws_redis_client = redis::Client::open(ws_redis_url.as_str())?;
 
-    let state = Arc::new(AppState::new(
-        pool,
-        &cfg.jwt_secret,
-        cfg.bcrypt_cost,
-        cfg.jwt_expiry_hours,
-        Arc::new(cfg.waha),
-        redis_conn,
-        ws_redis_client,
-    ));
+    let state = Arc::new(
+        AppState::new(
+            pool,
+            &cfg.jwt_secret,
+            cfg.bcrypt_cost,
+            cfg.jwt_expiry_hours,
+            Arc::new(cfg.waha),
+            redis_conn,
+            ws_redis_client,
+        )
+        .await,
+    );
 
     // Wire OrderService dengan GroupChatService (setelah state dibuat)
     // Note: Rust ownership membuat ini sedikit verbose — kita set after init via Arc::new

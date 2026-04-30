@@ -65,7 +65,10 @@ pub enum WsEvent {
     /// Welcome saat pertama connect
     Hello { user_id: String, rooms: Vec<String> },
 
-    /// Pong
+    /// Server-initiated Ping untuk heartbeat
+    Ping,
+
+    /// Pong response ke client Ping
     Pong,
 }
 
