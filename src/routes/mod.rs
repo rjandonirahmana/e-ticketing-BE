@@ -25,7 +25,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/auth/verify", post(auth::verify_register))
         .route("/auth/login", post(auth::login))
         .route("/events", get(events::list))
-        .route("/events/:id", get(events::get_one));
+        .route("/events/{id}", get(events::get_one));
 
     // Protected routes — JWT required
     let protected = Router::new()
@@ -37,22 +37,22 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/merchant/profile", put(merchant::update_profile))
         // event management (merchant)
         .route("/events", post(events::create))
-        .route("/events/:id", put(events::update))
-        .route("/events/:id", delete(events::delete_event))
+        .route("/events/{id}", put(events::update))
+        .route("/events/{id}", delete(events::delete_event))
         .route("/merchant/events", get(events::list_mine))
         // ticket variants
-        .route("/events/:id/variants", post(events::create_variant))
-        .route("/variants/:id", put(events::update_variant))
-        .route("/variants/:id", delete(events::delete_variant))
+        .route("/events/{id}/variants", post(events::create_variant))
+        .route("/variants/{id}", put(events::update_variant))
+        .route("/variants/{id}", delete(events::delete_variant))
         // orders (customer)
         .route("/orders", post(orders::create))
         .route("/orders", get(orders::list_mine))
-        .route("/orders/:id", get(orders::get_one))
-        .route("/orders/:id/pay", post(orders::pay))
-        .route("/orders/:id/cancel", post(orders::cancel))
+        .route("/orders/{id}", get(orders::get_one))
+        .route("/orders/{id}/pay", post(orders::pay))
+        .route("/orders/{id}/cancel", post(orders::cancel))
         // tickets
         .route("/tickets", get(tickets::list_mine))
-        .route("/tickets/:id", get(tickets::get_one))
+        .route("/tickets/{id}", get(tickets::get_one))
         .route("/tickets/validate", post(tickets::validate))
         .route_layer(from_fn_with_state(state.clone(), require_auth));
 
@@ -70,5 +70,5 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 }
 
 async fn health() -> &'static str {
-    "ok"
+    "/ok"
 }

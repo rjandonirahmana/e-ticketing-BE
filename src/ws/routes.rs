@@ -2,9 +2,9 @@
 //!
 //! GET  /ws/chat?token=...          WebSocket upgrade
 //! GET  /chat/rooms                 List rooms user yang sudah join
-//! GET  /chat/events/:event_id/room Get/buat room untuk event
-//! POST /chat/rooms/:room_id/join   Join room (dipanggil setelah bayar)
-//! GET  /chat/rooms/:room_id/history  History pesan
+//! GET  /chat/events/{event_id}/room Get/buat room untuk event
+//! POST /chat/rooms/{room_id}/join   Join room (dipanggil setelah bayar)
+//! GET  /chat/rooms/{room_id}/history  History pesan
 
 use std::sync::Arc;
 
@@ -46,7 +46,7 @@ async fn list_rooms(
     Ok(ok(rooms))
 }
 
-/// GET /chat/events/:event_id/room — merchant memanggil ini saat create event
+/// GET /chat/events/{event_id}/room — merchant memanggil ini saat create event
 /// agar room dibuat sebelum ada buyer.
 async fn get_or_create_event_room(
     auth: AuthUser,
@@ -67,7 +67,7 @@ async fn get_or_create_event_room(
     Ok(ok(room))
 }
 
-/// POST /chat/rooms/:room_id/join — dipanggil manual atau dari frontend setelah bayar
+/// POST /chat/rooms/{room_id}/join — dipanggil manual atau dari frontend setelah bayar
 async fn join_room(
     auth: AuthUser,
     State(state): State<Arc<WsAppState>>,
@@ -94,7 +94,7 @@ async fn join_room(
     Ok(ok(json!({ "room_id": room_id, "joined": true })))
 }
 
-/// GET /chat/rooms/:room_id/history
+/// GET /chat/rooms/{room_id}/history
 async fn get_history(
     auth: AuthUser,
     State(state): State<Arc<WsAppState>>,
@@ -110,7 +110,7 @@ async fn get_history(
     Ok(ok(json!({ "messages": msgs, "has_more": has_more })))
 }
 
-/// GET /chat/rooms/:room_id/sent_count — berapa pesan user sudah kirim (untuk UI)
+/// GET /chat/rooms/{room_id}/sent_count — berapa pesan user sudah kirim (untuk UI)
 async fn sent_count(
     auth: AuthUser,
     State(state): State<Arc<WsAppState>>,
@@ -133,9 +133,12 @@ pub fn chat_router(ws_state: Arc<WsAppState>) -> Router {
     Router::new()
         .route("/ws/chat", get(ws_chat))
         .route("/chat/rooms", get(list_rooms))
-        .route("/chat/events/:event_id/room", get(get_or_create_event_room))
-        .route("/chat/rooms/:room_id/join", post(join_room))
-        .route("/chat/rooms/:room_id/history", get(get_history))
-        .route("/chat/rooms/:room_id/sent_count", get(sent_count))
+        .route(
+            "/chat/events/{event_id}/room",
+            get(get_or_create_event_room),
+        )
+        .route("/chat/rooms/{room_id}/join", post(join_room))
+        .route("/chat/rooms/{room_id}/history", get(get_history))
+        .route("/chat/rooms/{room_id}/sent_count", get(sent_count))
         .with_state(ws_state)
 }
