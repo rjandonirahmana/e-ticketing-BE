@@ -11,7 +11,6 @@ use axum::{
     middleware::from_fn_with_state,
     routing::{delete, get, post, put},
 };
-use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use crate::middleware::auth::require_auth;
@@ -59,12 +58,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .merge(public)
         .merge(protected)
-        .layer(
-            CorsLayer::new()
-                .allow_methods(Any)
-                .allow_headers(Any)
-                .allow_origin(Any),
-        )
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }

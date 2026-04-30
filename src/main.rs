@@ -82,10 +82,15 @@ async fn main() -> Result<()> {
         group_svc: state.group_chat_svc.clone(),
     });
 
-    // Build router
+    // Build router — CorsLayer di sini agar cover semua route termasuk /ws/chat
     let app = routes::build_router(state.clone())
-        // Mount chat routes (WS + REST) — /ws/chat sudah include di sini
-        .merge(chat_router(ws_state.clone()));
+        .merge(chat_router(ws_state.clone()))
+        .layer(
+            tower_http::cors::CorsLayer::new()
+                .allow_methods(tower_http::cors::Any)
+                .allow_headers(tower_http::cors::Any)
+                .allow_origin(tower_http::cors::Any),
+        );
 
     let addr = format!("{}:{}", cfg.host, cfg.port);
     let listener = TcpListener::bind(&addr).await?;
