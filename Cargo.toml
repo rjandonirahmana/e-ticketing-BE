@@ -72,6 +72,7 @@ tokio-util = "0.7.18"
 
 [build-dependencies]
 tonic-prost-build = "0.14"
+tonic-build = "0.14.5"
 anyhow = "1"
 
 # ─────────────────────────────────────────────────────────────────────────────

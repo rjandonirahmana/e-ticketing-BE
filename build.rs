@@ -3,5 +3,5 @@ fn main() {
         .build_server(true)
         .build_client(true)
         .compile_protos(&["proto/auth.proto"], &["proto"])
-        .unwrap();
+        .expect("Failed to compile protos");
 }
