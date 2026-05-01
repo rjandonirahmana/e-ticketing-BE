@@ -28,7 +28,8 @@ RUN mkdir src && echo "fn main(){}" > src/main.rs && \
     rm -rf target/x86_64-unknown-linux-musl/release/build/e-ticketing-*
 
 COPY src/ ./src/
-RUN cargo build --release --target x86_64-unknown-linux-musl
+RUN touch build.rs && \
+    cargo build --release --target x86_64-unknown-linux-musl
 
 # Stage 2: Runtime
 FROM scratch
