@@ -18,19 +18,15 @@ ENV OPENSSL_LIB_DIR=/usr/lib
 ENV OPENSSL_INCLUDE_DIR=/usr/include
 ENV PKG_CONFIG_ALLOW_CROSS=1
 
-# Copy Cargo files + build.rs + proto DULU sebelum dummy build
-# supaya protoc bisa jalan dan generate auth.rs saat cache deps
 COPY Cargo.toml Cargo.lock ./
 COPY build.rs ./
 COPY proto/ ./proto/
 
-# Dummy main agar cargo bisa compile deps + jalankan build.rs (protoc)
 RUN mkdir src && echo "fn main(){}" > src/main.rs && \
     cargo build --release --target x86_64-unknown-linux-musl && \
-    rm src/main.rs
+    rm src/main.rs && \
+    rm -rf target/x86_64-unknown-linux-musl/release/build/e-ticketing-*
 
-# Copy source asli dan build ulang
-# deps sudah ter-cache, hanya recompile e-ticketing saja
 COPY src/ ./src/
 RUN cargo build --release --target x86_64-unknown-linux-musl
 
