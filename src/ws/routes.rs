@@ -1,17 +1,19 @@
 //! ws/routes.rs — REST routes untuk group room management
 //!
-//! GET  /ws/chat?token=...          WebSocket upgrade
-//! GET  /chat/rooms                 List rooms user yang sudah join
-//! GET  /chat/events/{event_id}/room Get/buat room untuk event
-//! POST /chat/rooms/{room_id}/join   Join room (dipanggil setelah bayar)
-//! GET  /chat/rooms/{room_id}/history  History pesan
+//! GET  /api/ws/chat?token=...               WebSocket upgrade (auth via token)
+//! GET  /api/chat/rooms                      List rooms user yang sudah join
+//! GET  /api/chat/events/{event_id}/room     Get/buat room untuk event
+//! POST /api/chat/rooms/{room_id}/join       Join room
+//! GET  /api/chat/rooms/{room_id}/history    History pesan
+//! GET  /api/chat/rooms/{room_id}/sent_count Berapa pesan user sudah kirim
 
 use std::sync::Arc;
 
 use axum::{
     Json, Router,
-    extract::{Extension, Path, Query, State},
+    extract::{Path, Query, State},
     http::StatusCode,
+    middleware::from_fn_with_state,
     response::IntoResponse,
     routing::{get, post},
 };
@@ -19,9 +21,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::{
-    middleware::auth::AuthUser,
+    middleware::auth::{AuthUser, require_auth},
     models::group_chat::HistoryQuery,
     service::group_chat::GroupChatService,
+    state::AppState,
     utils::error::AppError,
     ws::handler::{WsAppState, ws_chat},
 };
@@ -129,16 +132,23 @@ async fn sent_count(
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-pub fn chat_router(ws_state: Arc<WsAppState>) -> Router {
-    Router::new()
+pub fn chat_router(ws_state: Arc<WsAppState>, app_state: Arc<AppState>) -> Router {
+    // WS — auth via token query param, tidak pakai require_auth middleware
+    let ws_route = Router::new()
         .route("/api/ws/chat", get(ws_chat))
+        .with_state(ws_state.clone());
+
+    // REST chat routes — WAJIB require_auth agar AuthUser extractor dapat claims
+    let chat_routes = Router::new()
         .route("/api/chat/rooms", get(list_rooms))
-        .route(
-            "/api/chat/events/{event_id}/room",
-            get(get_or_create_event_room),
-        )
+        .route("/api/chat/events/{event_id}/room", get(get_or_create_event_room))
         .route("/api/chat/rooms/{room_id}/join", post(join_room))
         .route("/api/chat/rooms/{room_id}/history", get(get_history))
         .route("/api/chat/rooms/{room_id}/sent_count", get(sent_count))
-        .with_state(ws_state)
+        .route_layer(from_fn_with_state(app_state, require_auth))
+        .with_state(ws_state);
+
+    Router::new()
+        .merge(ws_route)
+        .merge(chat_routes)
 }

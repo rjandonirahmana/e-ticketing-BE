@@ -20,13 +20,14 @@ COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo "fn main(){}" > src/main.rs && \
     cargo build --release --target x86_64-unknown-linux-musl && \
     rm -rf src/ \
+           target/x86_64-unknown-linux-musl/release/build/e-ticketing-* \
            target/x86_64-unknown-linux-musl/release/deps/e_ticketing-* \
            target/x86_64-unknown-linux-musl/release/e_ticketing*
 
 # 2. Copy full source (build.rs + proto + src)
 COPY . .
 
-# 3. Final build (build.rs jalan normal, protoc generate auth.rs)
+# 3. Final build — build.rs jalan, protoc generate auth.rs
 RUN cargo build --release --target x86_64-unknown-linux-musl
 
 # Stage 2: Runtime

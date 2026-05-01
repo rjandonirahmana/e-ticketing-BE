@@ -84,7 +84,7 @@ async fn main() -> Result<()> {
 
     // Build router — CorsLayer di sini agar cover semua route termasuk /ws/chat
     let app = routes::build_router(state.clone())
-        .merge(chat_router(ws_state.clone()))
+        .merge(chat_router(ws_state.clone(), state.clone()))
         .layer(
             tower_http::cors::CorsLayer::new()
                 .allow_methods(tower_http::cors::Any)
