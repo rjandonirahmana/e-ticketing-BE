@@ -1,4 +1,4 @@
-# Stage 1: Builder
+# Stage 1
 FROM rustlang/rust:nightly-alpine AS builder
 
 RUN apk add --no-cache \
@@ -18,25 +18,14 @@ ENV OPENSSL_LIB_DIR=/usr/lib
 ENV OPENSSL_INCLUDE_DIR=/usr/include
 ENV PKG_CONFIG_ALLOW_CROSS=1
 
+# 1. Cache deps only
 COPY Cargo.toml Cargo.lock ./
-COPY build.rs ./
-COPY proto/ ./proto/
+RUN mkdir src && echo "fn main(){}" > src/main.rs
+RUN cargo build --release --target x86_64-unknown-linux-musl
+RUN rm -rf src
 
-RUN mkdir src && echo "fn main(){}" > src/main.rs && \
-    cargo build --release --target x86_64-unknown-linux-musl && \
-    rm src/main.rs && \
-    rm -rf target/x86_64-unknown-linux-musl/release/build/e-ticketing-*
+# 2. Copy full source (including proto + build.rs)
+COPY . .
 
-COPY src/ ./src/
-RUN touch build.rs && \
-    cargo build --release --target x86_64-unknown-linux-musl
-
-# Stage 2: Runtime
-FROM scratch
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/e-ticketing /e-ticketing
-
-EXPOSE 8080
-ENV BIND_HOST=0.0.0.0
-ENV BIND_PORT=8080
-CMD ["/e-ticketing"]
+# 3. Build final (build.rs WILL run)
+RUN cargo build --release --target x86_64-unknown-linux-musl
