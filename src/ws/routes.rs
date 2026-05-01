@@ -131,14 +131,14 @@ async fn sent_count(
 
 pub fn chat_router(ws_state: Arc<WsAppState>) -> Router {
     Router::new()
-        .route("/ws/chat", get(ws_chat))
-        .route("/chat/rooms", get(list_rooms))
+        .route("/api/ws/chat", get(ws_chat))
+        .route("/api/chat/rooms", get(list_rooms))
         .route(
-            "/chat/events/{event_id}/room",
+            "/api/chat/events/{event_id}/room",
             get(get_or_create_event_room),
         )
-        .route("/chat/rooms/{room_id}/join", post(join_room))
-        .route("/chat/rooms/{room_id}/history", get(get_history))
-        .route("/chat/rooms/{room_id}/sent_count", get(sent_count))
+        .route("/api/chat/rooms/{room_id}/join", post(join_room))
+        .route("/api/chat/rooms/{room_id}/history", get(get_history))
+        .route("/api/chat/rooms/{room_id}/sent_count", get(sent_count))
         .with_state(ws_state)
 }
