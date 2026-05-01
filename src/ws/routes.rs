@@ -141,14 +141,15 @@ pub fn chat_router(ws_state: Arc<WsAppState>, app_state: Arc<AppState>) -> Route
     // REST chat routes — WAJIB require_auth agar AuthUser extractor dapat claims
     let chat_routes = Router::new()
         .route("/api/chat/rooms", get(list_rooms))
-        .route("/api/chat/events/{event_id}/room", get(get_or_create_event_room))
+        .route(
+            "/api/chat/events/{event_id}/room",
+            get(get_or_create_event_room),
+        )
         .route("/api/chat/rooms/{room_id}/join", post(join_room))
         .route("/api/chat/rooms/{room_id}/history", get(get_history))
         .route("/api/chat/rooms/{room_id}/sent_count", get(sent_count))
         .route_layer(from_fn_with_state(app_state, require_auth))
         .with_state(ws_state);
 
-    Router::new()
-        .merge(ws_route)
-        .merge(chat_routes)
+    Router::new().merge(ws_route).merge(chat_routes)
 }

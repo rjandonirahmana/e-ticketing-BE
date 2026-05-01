@@ -218,14 +218,7 @@ impl GroupChatService {
 
     /// Broadcast pesan ke semua member yang online
     async fn fanout(&self, room_id: &str, msg: &GroupMessage) {
-        let ids = match self.repo.get_member_ids(room_id).await {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::error!(room_id, error=%e, "fanout: get_member_ids failed");
-                return;
-            }
-        };
         let event = WsEvent::NewMessage(WsMessage::from_model(msg));
-        self.ws_mgr.broadcast_room(room_id, &ids, event).await;
+        self.ws_mgr.broadcast_room(room_id, event).await;
     }
 }

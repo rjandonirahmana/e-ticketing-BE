@@ -1,15 +1,10 @@
-//! ws/handler.rs — HTTP upgrade → WebSocket per-connection handler.
+//! ws/handler.rs — Per-connection handler. Production scale.
 //!
-//! ## Fixes dari versi sebelumnya
-//! 1. write_task di-abort tanpa `await` → task bisa linger setelah socket tutup.
-//!    Sekarang pakai `CancellationToken` + `select!` agar bersih.
-//! 2. Tidak ada heartbeat → stale connections tidak terdeteksi.
-//!    Sekarang spawn heartbeat task via `WsManager::spawn_heartbeat`.
-//! 3. Pong dari client tidak dihandle → heartbeat tidak bisa konfirmasi hidup.
-//!    Sekarang `Message::Pong` forward ke pong_tx.
-//! 4. Semua dispatch di-await di read loop → jika DB lambat, message backlog
-//!    menumpuk. Sekarang dispatch di-spawn sebagai task terpisah dengan
-//!    semaphore untuk limit concurrency.
+//! - try_connect() → tolak jika server penuh (503)
+//! - WsTx = Arc<str> → zero-copy fanout
+//! - write_task graceful shutdown via CancellationToken
+//! - Semaphore per-koneksi limit concurrent DB ops
+//! - Semaphore permit di-drop otomatis saat disconnect
 
 use std::sync::Arc;
 
@@ -18,7 +13,8 @@ use axum::{
         Query, State, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
-    response::Response,
+    http::StatusCode,
+    response::{IntoResponse, Response},
 };
 use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
@@ -35,11 +31,8 @@ use crate::{
     },
 };
 
-// ── Concurrency limit untuk dispatch ─────────────────────────────────────────
-/// Max concurrent DB operations per connection.
+/// Max concurrent DB ops per koneksi.
 const MAX_CONCURRENT_OPS: usize = 4;
-
-// ── Shared state ──────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
 pub struct WsAppState {
@@ -60,15 +53,18 @@ pub async fn ws_chat(
     Query(q): Query<WsQuery>,
     State(state): State<Arc<WsAppState>>,
 ) -> Response {
-    use axum::response::IntoResponse;
-
     let claims = match state.jwt.verify(&q.token) {
         Ok(c) => c,
         Err(e) => {
             tracing::warn!(error=%e, "WS rejected: invalid JWT");
-            return (axum::http::StatusCode::UNAUTHORIZED, "Invalid token").into_response();
+            return (StatusCode::UNAUTHORIZED, "Invalid token").into_response();
         }
     };
+
+    // Tolak jika server sudah penuh — lebih baik 503 daripada OOM
+    if state.ws_mgr.online_count() >= 10_000 {
+        return (StatusCode::SERVICE_UNAVAILABLE, "Server at capacity").into_response();
+    }
 
     ws.on_upgrade(move |socket| handle_socket(socket, state, claims))
 }
@@ -76,24 +72,25 @@ pub async fn ws_chat(
 // ── Socket handler ────────────────────────────────────────────────────────────
 
 async fn handle_socket(socket: WebSocket, state: Arc<WsAppState>, claims: Claims) {
-    use axum::response::IntoResponse;
-
     let user_id = claims.user_id.clone();
     let user_name = claims.name.clone();
     let role = claims.role.clone();
 
     tracing::info!(user_id, role, "WS opened");
 
-    // CancellationToken per koneksi — dicancel oleh heartbeat timeout atau close
-    let conn_cancel = CancellationToken::new();
+    // Acquire slot — non-blocking, return jika penuh
+    let (mut outbound_rx, conn_cancel, _permit) = match state.ws_mgr.try_connect(&user_id) {
+        Some(v) => v,
+        None => {
+            tracing::warn!(user_id, "WS rejected: connection limit reached");
+            return;
+        }
+    };
+    // _permit di-drop saat function ini selesai → slot dibebaskan otomatis
 
-    // Register session → dapat outbound receiver
-    let (mut outbound_rx, _) = state.ws_mgr.connect(&user_id);
-
-    // Split socket
     let (mut sink, mut stream) = socket.split();
 
-    // ── 1. Send Hello ─────────────────────────────────────────────────────────
+    // ── Hello ─────────────────────────────────────────────────────────────────
     let rooms: Vec<String> = state
         .group_svc
         .get_user_rooms(&user_id)
@@ -116,52 +113,43 @@ async fn handle_socket(socket: WebSocket, state: Arc<WsAppState>, claims: Claims
         return;
     }
 
-    // ── 2. Clone tx untuk heartbeat ───────────────────────────────────────────
-    // Kita butuh tx untuk heartbeat task tapi manager sudah simpan tx.
-    // Buat channel kedua kecil khusus heartbeat.
-    let (hb_tx, mut hb_rx) = tokio::sync::mpsc::channel::<String>(4);
+    // ── Heartbeat channel (hb_tx → write_task → sink) ────────────────────────
+    let (hb_tx, mut hb_rx) = tokio::sync::mpsc::channel::<Arc<str>>(4);
     let pong_tx = state
         .ws_mgr
         .spawn_heartbeat(user_id.clone(), hb_tx, conn_cancel.clone());
 
-    // ── 3. Write task ─────────────────────────────────────────────────────────
-    // Forward outbound_rx + heartbeat channel → WS sink.
+    // ── Write task ────────────────────────────────────────────────────────────
     let cancel_w = conn_cancel.clone();
     let write_task = tokio::spawn(async move {
         loop {
             tokio::select! {
                 _ = cancel_w.cancelled() => break,
 
-                // Pesan dari manager (fanout/direct)
-                msg = outbound_rx.recv() => {
-                    match msg {
-                        Some(json) => {
-                            if sink.send(Message::Text(json.into())).await.is_err() {
-                                break;
-                            }
+                msg = outbound_rx.recv() => match msg {
+                    Some(json) => {
+                        // Arc<str> → konversi String hanya sekali di sini
+                        if sink.send(Message::Text(json.to_string().into())).await.is_err() {
+                            break;
                         }
-                        None => break, // channel closed
                     }
-                }
+                    None => break,
+                },
 
-                // Pesan dari heartbeat task (Ping)
-                hb_msg = hb_rx.recv() => {
-                    match hb_msg {
-                        Some(json) => {
-                            if sink.send(Message::Text(json.into())).await.is_err() {
-                                break;
-                            }
+                hb = hb_rx.recv() => match hb {
+                    Some(json) => {
+                        if sink.send(Message::Text(json.to_string().into())).await.is_err() {
+                            break;
                         }
-                        None => break,
                     }
-                }
+                    None => break,
+                },
             }
         }
-        // Pastikan sink di-close dengan bersih
         let _ = sink.close().await;
     });
 
-    // ── 4. Read loop ──────────────────────────────────────────────────────────
+    // ── Read loop ─────────────────────────────────────────────────────────────
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_OPS));
 
     loop {
@@ -171,39 +159,33 @@ async fn handle_socket(socket: WebSocket, state: Arc<WsAppState>, claims: Claims
             frame = stream.next() => {
                 match frame {
                     None | Some(Err(_)) => break,
-                    Some(Ok(msg)) => {
-                        match msg {
-                            Message::Text(text) => {
-                                // Spawn dispatch agar read loop tidak blocking
-                                let state2    = state.clone();
-                                let uid       = user_id.clone();
-                                let uname     = user_name.clone();
-                                let role2     = role.clone();
-                                let sem       = semaphore.clone();
-
-                                tokio::spawn(async move {
-                                    let _permit = sem.acquire_owned().await;
-                                    dispatch(&state2, &uid, &uname, &role2, &text).await;
-                                });
-                            }
-                            Message::Pong(_) => {
-                                // Client balas Pong → kasih tahu heartbeat task
-                                let _ = pong_tx.try_send(());
-                            }
-                            Message::Close(_) => break,
-                            _ => {}
+                    Some(Ok(msg)) => match msg {
+                        Message::Text(text) => {
+                            let state2 = state.clone();
+                            let uid    = user_id.clone();
+                            let uname  = user_name.clone();
+                            let role2  = role.clone();
+                            let sem    = semaphore.clone();
+                            tokio::spawn(async move {
+                                let Ok(_permit) = sem.acquire_owned().await else { return };
+                                dispatch(&state2, &uid, &uname, &role2, &text).await;
+                            });
                         }
+                        Message::Pong(_) => { let _ = pong_tx.try_send(()); }
+                        Message::Close(_) => break,
+                        _ => {}
                     }
                 }
             }
         }
     }
 
-    // ── 5. Cleanup ────────────────────────────────────────────────────────────
-    conn_cancel.cancel(); // stop heartbeat task
-    write_task.abort(); // stop write task
+    // ── Cleanup ───────────────────────────────────────────────────────────────
+    conn_cancel.cancel();
+    let _ = write_task.await; // graceful — tunggu sink.close()
     state.ws_mgr.disconnect(&user_id);
-    tracing::info!(user_id, "WS closed and cleaned up");
+    // _permit di-drop di sini → slot dibebaskan
+    tracing::info!(user_id, "WS closed");
 }
 
 // ── Dispatcher ────────────────────────────────────────────────────────────────
@@ -219,7 +201,6 @@ async fn dispatch(state: &WsAppState, user_id: &str, user_name: &str, role: &str
 
     match msg {
         WsClientMsg::Ping => {
-            // Client explicit Ping (berbeda dari frame-level Ping)
             state.ws_mgr.send_to(user_id, WsEvent::Pong).await;
         }
 
