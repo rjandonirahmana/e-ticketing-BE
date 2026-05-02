@@ -15,6 +15,8 @@ pub struct Event {
     pub sale_price_start_date: Option<DateTime<Utc>>,
     pub sale_price_end_date: Option<DateTime<Utc>>,
     pub venue: Option<String>,
+    #[serde(default)]
+    pub category: Vec<String>,
     pub city: Option<String>,
     pub event_date: DateTime<Utc>,
     pub start_time: Option<DateTime<Utc>>,
@@ -34,6 +36,8 @@ pub struct EventWithVariants {
     pub cover_url: Option<String>,
     pub venue: Option<String>,
     pub city: Option<String>,
+    #[serde(default)]
+    pub category: Vec<String>,
     pub event_date: DateTime<Utc>,
     pub start_time: Option<DateTime<Utc>>,
     pub end_time: Option<DateTime<Utc>>,
@@ -68,6 +72,8 @@ pub struct CreateEventRequest {
     pub description: Option<String>,
     pub venue: Option<String>,
     pub city: Option<String>,
+    #[serde(default)]
+    pub category: Vec<String>,
     pub event_date: DateTime<Utc>,
     pub start_time: Option<DateTime<Utc>>,
     pub end_time: Option<DateTime<Utc>>,
@@ -99,6 +105,8 @@ pub struct UpdateEventRequest {
     pub venue: Option<String>,
     pub city: Option<String>,
     pub event_date: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub category: Vec<String>,
     pub start_time: Option<DateTime<Utc>>,
     pub end_time: Option<DateTime<Utc>>,
     pub status: Option<String>,

@@ -66,14 +66,12 @@ static EVENT_COLS: &str = r#"
     end_time,
     status,
     created_at,
-    updated_at
+    updated_at,
+    category
 "#;
 
 static FIND_EVENT_BY_ID: LazyLock<String> =
     LazyLock::new(|| format!("SELECT {} FROM events WHERE id = $1", EVENT_COLS));
-
-static FIND_EVENT_BY_SLUG: LazyLock<String> =
-    LazyLock::new(|| format!("SELECT {} FROM events WHERE slug = $1", EVENT_COLS));
 
 /// Satu query JOIN — event + semua variantnya sekaligus by slug.
 /// Baris event parent duplikat per variant (LEFT JOIN), di-collapse di Rust.
@@ -99,6 +97,7 @@ static FIND_EVENT_WITH_VARIANTS_BY_SLUG: LazyLock<String> = LazyLock::new(|| {
             e.status                    AS e_status,
             e.created_at                AS e_created_at,
             e.updated_at                AS e_updated_at,
+            e.category                  AS e_category,
             v.id                        AS v_id,
             v.event_id                  AS v_event_id,
             v.name                      AS v_name,
@@ -125,24 +124,25 @@ static FIND_EVENT_WITH_VARIANTS_BY_SLUG: LazyLock<String> = LazyLock::new(|| {
 static INSERT_EVENT: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO events (id, merchant_id, name, slug, description, cover_url, price, venue, city, \
-         event_date, start_time, end_time) \
-         VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $8, $9, $10, $11) RETURNING {}",
+         event_date, start_time, end_time, category) \
+         VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $8, $9, $10, $11, $12) RETURNING {}",
         EVENT_COLS
     )
 });
 
 static UPDATE_EVENT: &str = r#"
     UPDATE events
-       SET name        = COALESCE($2, name),
-           description = COALESCE($3, description),
-           cover_url   = COALESCE($4, cover_url),
-           venue       = COALESCE($5, venue),
-           city        = COALESCE($6, city),
-           event_date  = COALESCE($7, event_date),
-           start_time  = COALESCE($8, start_time),
-           end_time    = COALESCE($9, end_time),
-           status      = COALESCE($10, status)
-     WHERE id = $1
+       SET name        = COALESCE($3, name),
+           description = COALESCE($4, description),
+           cover_url   = COALESCE($5, cover_url),
+           venue       = COALESCE($6, venue),
+           city        = COALESCE($7, city),
+           event_date  = COALESCE($8, event_date),
+           start_time  = COALESCE($9, start_time),
+           end_time    = COALESCE($10, end_time),
+           status      = COALESCE($11, status),
+           category    = COALESCE($12, category)
+     WHERE id = $1 AND merchant_id = $2
 "#;
 
 static DELETE_EVENT: &str = "DELETE FROM events WHERE id = $1";
@@ -166,13 +166,6 @@ static VARIANT_COLS: &str = r#"
     updated_at
 "#;
 
-static FIND_VARIANTS_BY_EVENT: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT {} FROM event_variants WHERE event_id = $1 ORDER BY sort_order, created_at",
-        VARIANT_COLS
-    )
-});
-
 static FIND_VARIANT_BY_ID: LazyLock<String> =
     LazyLock::new(|| format!("SELECT {} FROM event_variants WHERE id = $1", VARIANT_COLS));
 
@@ -186,17 +179,19 @@ static INSERT_VARIANT: LazyLock<String> = LazyLock::new(|| {
 });
 
 static UPDATE_VARIANT: &str = r#"
-    UPDATE event_variants
-       SET name          = COALESCE($2, name),
-           description   = COALESCE($3, description),
-           price         = COALESCE($4, price),
-           quota         = COALESCE($5, quota),
-           max_per_order = COALESCE($6, max_per_order),
-           is_active     = COALESCE($7, is_active),
-           sort_order    = COALESCE($8, sort_order)
-     WHERE id = $1
+    UPDATE event_variants v
+       SET name          = COALESCE($3, v.name),
+           description   = COALESCE($4, v.description),
+           price         = COALESCE($5, v.price),
+           quota         = COALESCE($6, v.quota),
+           max_per_order = COALESCE($7, v.max_per_order),
+           is_active     = COALESCE($8, v.is_active),
+           sort_order    = COALESCE($9, v.sort_order)
+      FROM events e
+     WHERE v.id = $1
+       AND v.event_id = e.id
+       AND e.merchant_id = $2
 "#;
-
 static DELETE_VARIANT: &str = "DELETE FROM event_variants WHERE id = $1";
 
 // ── Trait ─────────────────────────────────────────────────────────────────────
@@ -215,12 +210,7 @@ pub trait EventRepository: Send + Sync {
     async fn list(&self, f: &EventListFilter<'_>) -> Result<Vec<Event>>;
     async fn count(&self, f: &EventListFilter<'_>) -> Result<i64>;
     async fn find_by_id(&self, id: &str) -> Result<Option<Event>>;
-    async fn find_by_slug(&self, slug: &str) -> Result<Option<Event>>;
-    /// Satu JOIN query — return event + variants, tidak ada round-trip kedua.
-    async fn find_by_id_with_variants(
-        &self,
-        id: &str,
-    ) -> Result<Option<(Event, Vec<EventVariant>)>>;
+
     async fn find_by_slug_with_variants(
         &self,
         slug: &str,
@@ -237,25 +227,16 @@ pub trait EventRepository: Send + Sync {
         event_id: &str,
         variants: &[CreateVariantInline],
     ) -> Result<Vec<EventVariant>>;
-    async fn update(&self, id: &str, req: &UpdateEventRequest) -> Result<()>;
-    async fn delete(&self, id: &str) -> Result<()>;
+    async fn update(&self, id: &str, merchant_id: &str, req: &UpdateEventRequest) -> Result<()>;
 
     // Ticket variants
-    async fn list_variants(&self, event_id: &str) -> Result<Vec<EventVariant>>;
+
     async fn find_variant(&self, id: &str) -> Result<Option<EventVariant>>;
-    async fn create_variant(
-        &self,
-        event_id: &str,
-        name: &str,
-        description: Option<&str>,
-        price: f64,
-        quota: i32,
-        max_per_order: Option<i32>,
-        sort_order: i32,
-    ) -> Result<EventVariant>;
+
     async fn update_variant(
         &self,
         id: &str,
+        merchant_id: &str,
         name: Option<&str>,
         description: Option<&str>,
         price: Option<f64>,
@@ -264,7 +245,6 @@ pub trait EventRepository: Send + Sync {
         is_active: Option<bool>,
         sort_order: Option<i32>,
     ) -> Result<()>;
-    async fn delete_variant(&self, id: &str) -> Result<()>;
 }
 
 // ── Postgres impl ─────────────────────────────────────────────────────────────
@@ -282,11 +262,17 @@ impl PgEventRepository {
     fn row_to_event(row: &Row) -> Result<Event> {
         let id_bytes: Vec<u8> = row.try_get("id").context("id")?;
         let merchant_bytes: Vec<u8> = row.try_get("merchant_id").context("merchant_id")?;
+        let category_json: Option<serde_json::Value> = row.try_get("category")?;
+        let category = match category_json {
+            Some(json) => serde_json::from_value(json).unwrap_or_default(),
+            None => Vec::new(),
+        };
         Ok(Event {
             id: bin_to_ulid(id_bytes)?,
             merchant_id: bin_to_ulid(merchant_bytes)?,
             name: row.try_get("name").context("name")?,
             slug: row.try_get("slug").unwrap_or_default(),
+            category,
             description: row.try_get("description").context("description")?,
             cover_url: row.try_get("cover_url").unwrap_or(None),
             price: row.try_get("price").context("price")?,
@@ -402,26 +388,6 @@ impl EventRepository for PgEventRepository {
         row.as_ref().map(Self::row_to_event).transpose()
     }
 
-    async fn find_by_slug(&self, slug: &str) -> Result<Option<Event>> {
-        let row = exec_first(&self.pool, &FIND_EVENT_BY_SLUG, &[&slug]).await?;
-        row.as_ref().map(Self::row_to_event).transpose()
-    }
-
-    async fn find_by_id_with_variants(
-        &self,
-        id: &str,
-    ) -> Result<Option<(Event, Vec<EventVariant>)>> {
-        // Masih dibutuhkan untuk internal ops (ensure_owner dll)
-        let id_vec = id_to_vec(id)?;
-        // Reuse logic dengan query lama — lookup by id dulu, lalu slug
-        let event = match self.find_by_id(id).await? {
-            Some(e) => e,
-            None => return Ok(None),
-        };
-        let variants = self.list_variants(id).await?;
-        Ok(Some((event, variants)))
-    }
-
     async fn find_by_slug_with_variants(
         &self,
         slug: &str,
@@ -436,6 +402,11 @@ impl EventRepository for PgEventRepository {
         let event = {
             let id_b: Vec<u8> = first.try_get("e_id")?;
             let mid_b: Vec<u8> = first.try_get("e_merchant_id")?;
+            let category_json: Option<serde_json::Value> = first.try_get("e_category")?;
+            let category = match category_json {
+                Some(json) => serde_json::from_value(json).unwrap_or_default(),
+                None => Vec::new(),
+            };
             Event {
                 id: bin_to_ulid(id_b)?,
                 merchant_id: bin_to_ulid(mid_b)?,
@@ -455,6 +426,7 @@ impl EventRepository for PgEventRepository {
                 status: first.try_get("e_status")?,
                 created_at: first.try_get("e_created_at")?,
                 updated_at: first.try_get("e_updated_at")?,
+                category,
             }
         };
 
@@ -551,13 +523,15 @@ impl EventRepository for PgEventRepository {
         Ok(result)
     }
 
-    async fn update(&self, id: &str, req: &UpdateEventRequest) -> Result<()> {
+    async fn update(&self, id: &str, merchant_id: &str, req: &UpdateEventRequest) -> Result<()> {
         let id_vec = id_to_vec(id)?;
+        let merchant_id_vec = id_to_vec(merchant_id)?;
         exec_drop(
             &self.pool,
             UPDATE_EVENT,
             &[
                 &id_vec,
+                &merchant_id_vec,
                 &req.name,
                 &req.description,
                 &req.cover_url,
@@ -573,58 +547,16 @@ impl EventRepository for PgEventRepository {
         Ok(())
     }
 
-    async fn delete(&self, id: &str) -> Result<()> {
-        let id_vec = id_to_vec(id)?;
-        exec_drop(&self.pool, DELETE_EVENT, &[&id_vec]).await?;
-        Ok(())
-    }
-
-    async fn list_variants(&self, event_id: &str) -> Result<Vec<EventVariant>> {
-        let id_vec = id_to_vec(event_id)?;
-        let rows = exec_rows(&self.pool, &FIND_VARIANTS_BY_EVENT, &[&id_vec]).await?;
-        rows.iter().map(Self::row_to_variant).collect()
-    }
-
     async fn find_variant(&self, id: &str) -> Result<Option<EventVariant>> {
         let id_vec = id_to_vec(id)?;
         let row = exec_first(&self.pool, &FIND_VARIANT_BY_ID, &[&id_vec]).await?;
         row.as_ref().map(Self::row_to_variant).transpose()
     }
 
-    async fn create_variant(
-        &self,
-        event_id: &str,
-        name: &str,
-        description: Option<&str>,
-        price: f64,
-        quota: i32,
-        max_per_order: Option<i32>,
-        sort_order: i32,
-    ) -> Result<EventVariant> {
-        let id = new_ulid();
-        let id_vec = ulid_to_vec(&id)?;
-        let event_vec = id_to_vec(event_id)?;
-        let row = exec_one(
-            &self.pool,
-            &INSERT_VARIANT,
-            &[
-                &id_vec,
-                &event_vec,
-                &name,
-                &description,
-                &price,
-                &quota,
-                &max_per_order,
-                &sort_order,
-            ],
-        )
-        .await?;
-        Self::row_to_variant(&row)
-    }
-
     async fn update_variant(
         &self,
         id: &str,
+        merchant_id: &str,
         name: Option<&str>,
         description: Option<&str>,
         price: Option<f64>,
@@ -634,11 +566,13 @@ impl EventRepository for PgEventRepository {
         sort_order: Option<i32>,
     ) -> Result<()> {
         let id_vec = id_to_vec(id)?;
+        let merchant_id_vec = id_to_vec(merchant_id)?;
         exec_drop(
             &self.pool,
             UPDATE_VARIANT,
             &[
                 &id_vec,
+                &merchant_id_vec,
                 &name,
                 &description,
                 &price,
@@ -649,12 +583,6 @@ impl EventRepository for PgEventRepository {
             ],
         )
         .await?;
-        Ok(())
-    }
-
-    async fn delete_variant(&self, id: &str) -> Result<()> {
-        let id_vec = id_to_vec(id)?;
-        exec_drop(&self.pool, DELETE_VARIANT, &[&id_vec]).await?;
         Ok(())
     }
 }

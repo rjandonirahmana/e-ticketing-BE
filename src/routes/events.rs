@@ -117,16 +117,6 @@ pub async fn update(
     Ok(Json(state.event_svc.update(&id, user.id(), body).await?))
 }
 
-pub async fn delete_event(
-    State(state): State<Arc<AppState>>,
-    user: AuthUser,
-    Path(id): Path<String>,
-) -> AppResult<Json<serde_json::Value>> {
-    user.require_role("merchant")?;
-    state.event_svc.delete(&id, user.id()).await?;
-    Ok(Json(serde_json::json!({ "deleted": true })))
-}
-
 // ── Variants (masih tersedia untuk update/delete individual) ─────────────────
 
 pub async fn update_variant(
@@ -142,17 +132,4 @@ pub async fn update_variant(
             .update_variant(&variant_id, user.id(), body)
             .await?,
     ))
-}
-
-pub async fn delete_variant(
-    State(state): State<Arc<AppState>>,
-    user: AuthUser,
-    Path(variant_id): Path<String>,
-) -> AppResult<Json<serde_json::Value>> {
-    user.require_role("merchant")?;
-    state
-        .event_svc
-        .delete_variant(&variant_id, user.id())
-        .await?;
-    Ok(Json(serde_json::json!({ "deleted": true })))
 }

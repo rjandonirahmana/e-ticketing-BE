@@ -100,10 +100,8 @@ impl EventService {
                 .map_err(|e| AppError::UnprocessableEntity(format!("{e}")))?;
         }
 
-        self.ensure_owner(id, merchant_id).await?;
-
         // Update event fields
-        self.repo.update(id, &req).await?;
+        self.repo.update(id, merchant_id, &req).await?;
 
         // Update variants jika ada (opsional — FE bisa kirim partial)
         if let Some(variants) = &req.variants {
@@ -113,6 +111,7 @@ impl EventService {
                     self.repo
                         .update_variant(
                             vid,
+                            merchant_id,
                             v.name.as_deref(),
                             v.description.as_deref(),
                             v.price,
@@ -140,12 +139,6 @@ impl EventService {
         self.get(id).await
     }
 
-    pub async fn delete(&self, id: &str, merchant_id: &str) -> AppResult<()> {
-        self.ensure_owner(id, merchant_id).await?;
-        self.repo.delete(id).await?;
-        Ok(())
-    }
-
     // ── Variant ops (individual) ─────────────────────────────────────────────
 
     pub async fn update_variant(
@@ -156,15 +149,11 @@ impl EventService {
     ) -> AppResult<EventVariantResponse> {
         req.validate()
             .map_err(|e| AppError::UnprocessableEntity(format!("{e}")))?;
-        let variant = self
-            .repo
-            .find_variant(variant_id)
-            .await?
-            .ok_or_else(|| AppError::NotFound("Variant not found".into()))?;
-        self.ensure_owner(&variant.event_id, merchant_id).await?;
+
         self.repo
             .update_variant(
                 variant_id,
+                merchant_id,
                 req.name.as_deref(),
                 req.description.as_deref(),
                 req.price,
@@ -182,17 +171,6 @@ impl EventService {
             .into())
     }
 
-    pub async fn delete_variant(&self, variant_id: &str, merchant_id: &str) -> AppResult<()> {
-        let variant = self
-            .repo
-            .find_variant(variant_id)
-            .await?
-            .ok_or_else(|| AppError::NotFound("Variant not found".into()))?;
-        self.ensure_owner(&variant.event_id, merchant_id).await?;
-        self.repo.delete_variant(variant_id).await?;
-        Ok(())
-    }
-
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     fn to_with_variants(
@@ -201,6 +179,7 @@ impl EventService {
         variants: Vec<crate::models::event_variants::EventVariant>,
     ) -> EventWithVariants {
         EventWithVariants {
+            category: event.category,
             id: event.id,
             merchant_id: event.merchant_id,
             name: event.name,
@@ -216,17 +195,5 @@ impl EventService {
             created_at: event.created_at,
             event_variants: variants.into_iter().map(Into::into).collect(),
         }
-    }
-
-    async fn ensure_owner(&self, event_id: &str, merchant_id: &str) -> AppResult<Event> {
-        let event = self
-            .repo
-            .find_by_id(event_id)
-            .await?
-            .ok_or_else(|| AppError::NotFound("Event not found".into()))?;
-        if event.merchant_id != merchant_id {
-            return Err(AppError::Forbidden("You do not own this event".into()));
-        }
-        Ok(event)
     }
 }
