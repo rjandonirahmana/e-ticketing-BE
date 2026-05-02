@@ -5,20 +5,16 @@ use std::sync::LazyLock;
 use tokio_postgres::Row;
 
 use super::db::{exec_drop, exec_first, exec_one, exec_rows};
-use crate::models::event_variant::TicketVariant;
-use crate::models::events::{CreateEventRequest, Event, UpdateEventRequest};
+use crate::models::event_variants::EventVariant;
+use crate::models::events::{CreateEventRequest, CreateVariantInline, Event, UpdateEventRequest};
 use crate::utils::ulid::{bin_to_ulid, id_to_vec, new_ulid, ulid_to_vec};
-
-// ── Static query strings ──────────────────────────────────────────────────────
-//
-// NUMERIC columns (`price`, `sale_price`) are cast to FLOAT8 so they bind
-// cleanly to `f64` without pulling in `rust_decimal`.
 
 static EVENT_COLS: &str = r#"
     id,
     merchant_id,
     name,
     description,
+    cover_url,
     price::FLOAT8 AS price,
     sale_price::FLOAT8 AS sale_price,
     sale_price_start_date,
@@ -36,11 +32,57 @@ static EVENT_COLS: &str = r#"
 static FIND_EVENT_BY_ID: LazyLock<String> =
     LazyLock::new(|| format!("SELECT {} FROM events WHERE id = $1", EVENT_COLS));
 
+/// Satu query JOIN — event + semua variantnya sekaligus.
+/// Baris event parent duplikat per variant (LEFT JOIN), di-collapse di Rust.
+static FIND_EVENT_WITH_VARIANTS: LazyLock<String> = LazyLock::new(|| {
+    String::from(
+        r#"
+        SELECT
+            e.id                        AS e_id,
+            e.merchant_id               AS e_merchant_id,
+            e.name                      AS e_name,
+            e.description               AS e_description,
+            e.cover_url                 AS e_cover_url,
+            e.price::FLOAT8             AS e_price,
+            e.sale_price::FLOAT8        AS e_sale_price,
+            e.sale_price_start_date     AS e_sale_price_start_date,
+            e.sale_price_end_date       AS e_sale_price_end_date,
+            e.venue                     AS e_venue,
+            e.city                      AS e_city,
+            e.event_date                AS e_event_date,
+            e.start_time                AS e_start_time,
+            e.end_time                  AS e_end_time,
+            e.status                    AS e_status,
+            e.created_at                AS e_created_at,
+            e.updated_at                AS e_updated_at,
+            v.id                        AS v_id,
+            v.event_id                  AS v_event_id,
+            v.name                      AS v_name,
+            v.description               AS v_description,
+            v.price::FLOAT8             AS v_price,
+            v.sale_price::FLOAT8        AS v_sale_price,
+            v.sale_price_start_date     AS v_sale_price_start_date,
+            v.sale_price_end_date       AS v_sale_price_end_date,
+            v.quota                     AS v_quota,
+            v.sold                      AS v_sold,
+            v.max_per_order             AS v_max_per_order,
+            v.is_active                 AS v_is_active,
+            v.sort_order                AS v_sort_order,
+            v.created_at                AS v_created_at,
+            v.updated_at                AS v_updated_at
+        FROM event_variants v
+        JOIN events e ON v.event_id = e.id
+        WHERE e.id = $1
+        ORDER BY v.sort_order ASC, v.created_at ASC
+    "#,
+    )
+});
+
 static INSERT_EVENT: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "INSERT INTO events (id, merchant_id, name, description, price, venue, city, \
+        "INSERT INTO events (id, merchant_id, name, description, cover_url, price, venue, city, \
          event_date, start_time, end_time) \
-         VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9) RETURNING {}",
+         VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8, $9, $10) RETURNING {}",
         EVENT_COLS
     )
 });
@@ -49,12 +91,13 @@ static UPDATE_EVENT: &str = r#"
     UPDATE events
        SET name        = COALESCE($2, name),
            description = COALESCE($3, description),
-           venue       = COALESCE($4, venue),
-           city        = COALESCE($5, city),
-           event_date  = COALESCE($6, event_date),
-           start_time  = COALESCE($7, start_time),
-           end_time    = COALESCE($8, end_time),
-           status      = COALESCE($9, status)
+           cover_url   = COALESCE($4, cover_url),
+           venue       = COALESCE($5, venue),
+           city        = COALESCE($6, city),
+           event_date  = COALESCE($7, event_date),
+           start_time  = COALESCE($8, start_time),
+           end_time    = COALESCE($9, end_time),
+           status      = COALESCE($10, status)
      WHERE id = $1
 "#;
 
@@ -81,17 +124,17 @@ static VARIANT_COLS: &str = r#"
 
 static FIND_VARIANTS_BY_EVENT: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {} FROM ticket_variants WHERE event_id = $1 ORDER BY sort_order, created_at",
+        "SELECT {} FROM event_variants WHERE event_id = $1 ORDER BY sort_order, created_at",
         VARIANT_COLS
     )
 });
 
 static FIND_VARIANT_BY_ID: LazyLock<String> =
-    LazyLock::new(|| format!("SELECT {} FROM ticket_variants WHERE id = $1", VARIANT_COLS));
+    LazyLock::new(|| format!("SELECT {} FROM event_variants WHERE id = $1", VARIANT_COLS));
 
 static INSERT_VARIANT: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "INSERT INTO ticket_variants (id, event_id, name, description, price, quota, \
+        "INSERT INTO event_variants (id, event_id, name, description, price, quota, \
          max_per_order, sort_order) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING {}",
         VARIANT_COLS
@@ -99,7 +142,7 @@ static INSERT_VARIANT: LazyLock<String> = LazyLock::new(|| {
 });
 
 static UPDATE_VARIANT: &str = r#"
-    UPDATE ticket_variants
+    UPDATE event_variants
        SET name          = COALESCE($2, name),
            description   = COALESCE($3, description),
            price         = COALESCE($4, price),
@@ -110,7 +153,7 @@ static UPDATE_VARIANT: &str = r#"
      WHERE id = $1
 "#;
 
-static DELETE_VARIANT: &str = "DELETE FROM ticket_variants WHERE id = $1";
+static DELETE_VARIANT: &str = "DELETE FROM event_variants WHERE id = $1";
 
 // ── Trait ─────────────────────────────────────────────────────────────────────
 
@@ -128,13 +171,28 @@ pub trait EventRepository: Send + Sync {
     async fn list(&self, f: &EventListFilter<'_>) -> Result<Vec<Event>>;
     async fn count(&self, f: &EventListFilter<'_>) -> Result<i64>;
     async fn find_by_id(&self, id: &str) -> Result<Option<Event>>;
-    async fn create(&self, merchant_id: &str, req: &CreateEventRequest) -> Result<Event>;
+    /// Satu JOIN query — return event + variants, tidak ada round-trip kedua.
+    async fn find_by_id_with_variants(
+        &self,
+        id: &str,
+    ) -> Result<Option<(Event, Vec<EventVariant>)>>;
+    async fn create(
+        &self,
+        merchant_id: &str,
+        req: &CreateEventRequest,
+        cover_url: Option<&str>,
+    ) -> Result<Event>;
+    async fn create_variants_bulk(
+        &self,
+        event_id: &str,
+        variants: &[CreateVariantInline],
+    ) -> Result<Vec<EventVariant>>;
     async fn update(&self, id: &str, req: &UpdateEventRequest) -> Result<()>;
     async fn delete(&self, id: &str) -> Result<()>;
 
     // Ticket variants
-    async fn list_variants(&self, event_id: &str) -> Result<Vec<TicketVariant>>;
-    async fn find_variant(&self, id: &str) -> Result<Option<TicketVariant>>;
+    async fn list_variants(&self, event_id: &str) -> Result<Vec<EventVariant>>;
+    async fn find_variant(&self, id: &str) -> Result<Option<EventVariant>>;
     async fn create_variant(
         &self,
         event_id: &str,
@@ -144,7 +202,7 @@ pub trait EventRepository: Send + Sync {
         quota: i32,
         max_per_order: Option<i32>,
         sort_order: i32,
-    ) -> Result<TicketVariant>;
+    ) -> Result<EventVariant>;
     async fn update_variant(
         &self,
         id: &str,
@@ -179,6 +237,7 @@ impl PgEventRepository {
             merchant_id: bin_to_ulid(merchant_bytes)?,
             name: row.try_get("name").context("name")?,
             description: row.try_get("description").context("description")?,
+            cover_url: row.try_get("cover_url").unwrap_or(None),
             price: row.try_get("price").context("price")?,
             sale_price: row.try_get("sale_price").context("sale_price")?,
             sale_price_start_date: row.try_get("sale_price_start_date")?,
@@ -194,10 +253,10 @@ impl PgEventRepository {
         })
     }
 
-    fn row_to_variant(row: &Row) -> Result<TicketVariant> {
+    fn row_to_variant(row: &Row) -> Result<EventVariant> {
         let id_bytes: Vec<u8> = row.try_get("id").context("id")?;
         let event_bytes: Vec<u8> = row.try_get("event_id").context("event_id")?;
-        Ok(TicketVariant {
+        Ok(EventVariant {
             id: bin_to_ulid(id_bytes)?,
             event_id: bin_to_ulid(event_bytes)?,
             name: row.try_get("name").context("name")?,
@@ -292,7 +351,81 @@ impl EventRepository for PgEventRepository {
         row.as_ref().map(Self::row_to_event).transpose()
     }
 
-    async fn create(&self, merchant_id: &str, req: &CreateEventRequest) -> Result<Event> {
+    async fn find_by_id_with_variants(
+        &self,
+        id: &str,
+    ) -> Result<Option<(Event, Vec<EventVariant>)>> {
+        let id_vec = id_to_vec(id)?;
+        let rows = exec_rows(&self.pool, &FIND_EVENT_WITH_VARIANTS, &[&id_vec]).await?;
+
+        if rows.is_empty() {
+            return Ok(None);
+        }
+
+        // Semua baris punya data event yang sama — ambil dari baris pertama
+        let first = &rows[0];
+        let event = {
+            let id_b: Vec<u8> = first.try_get("e_id")?;
+            let mid_b: Vec<u8> = first.try_get("e_merchant_id")?;
+            Event {
+                id: bin_to_ulid(id_b)?,
+                merchant_id: bin_to_ulid(mid_b)?,
+                name: first.try_get("e_name")?,
+                description: first.try_get("e_description")?,
+                cover_url: first.try_get("e_cover_url").unwrap_or(None),
+                price: first.try_get("e_price")?,
+                sale_price: first.try_get("e_sale_price")?,
+                sale_price_start_date: first.try_get("e_sale_price_start_date")?,
+                sale_price_end_date: first.try_get("e_sale_price_end_date")?,
+                venue: first.try_get("e_venue")?,
+                city: first.try_get("e_city")?,
+                event_date: first.try_get("e_event_date")?,
+                start_time: first.try_get("e_start_time")?,
+                end_time: first.try_get("e_end_time")?,
+                status: first.try_get("e_status")?,
+                created_at: first.try_get("e_created_at")?,
+                updated_at: first.try_get("e_updated_at")?,
+            }
+        };
+
+        // Collect variants — skip baris di mana v_id NULL (event tanpa variant)
+        let variants: Vec<EventVariant> = rows
+            .iter()
+            .filter_map(|row| {
+                // v_id NULL berarti LEFT JOIN tidak ketemu variant
+                let id_b: Option<Vec<u8>> = row.try_get("v_id").ok().flatten();
+                let id_b = id_b?;
+
+                let event_b: Vec<u8> = row.try_get("v_event_id").ok()?;
+                Some(EventVariant {
+                    id: bin_to_ulid(id_b).ok()?,
+                    event_id: bin_to_ulid(event_b).ok()?,
+                    name: row.try_get("v_name").ok()?,
+                    description: row.try_get("v_description").ok()?,
+                    price: row.try_get("v_price").ok()?,
+                    sale_price: row.try_get("v_sale_price").ok()?,
+                    sale_price_start_date: row.try_get("v_sale_price_start_date").ok()?,
+                    sale_price_end_date: row.try_get("v_sale_price_end_date").ok()?,
+                    quota: row.try_get("v_quota").ok()?,
+                    sold: row.try_get("v_sold").ok()?,
+                    max_per_order: row.try_get("v_max_per_order").ok()?,
+                    is_active: row.try_get("v_is_active").ok()?,
+                    sort_order: row.try_get("v_sort_order").ok()?,
+                    created_at: row.try_get("v_created_at").ok()?,
+                    updated_at: row.try_get("v_updated_at").ok()?,
+                })
+            })
+            .collect();
+
+        Ok(Some((event, variants)))
+    }
+
+    async fn create(
+        &self,
+        merchant_id: &str,
+        req: &CreateEventRequest,
+        cover_url: Option<&str>,
+    ) -> Result<Event> {
         let id = new_ulid();
         let id_vec = ulid_to_vec(&id)?;
         let mid_vec = id_to_vec(merchant_id)?;
@@ -304,6 +437,7 @@ impl EventRepository for PgEventRepository {
                 &mid_vec,
                 &req.name,
                 &req.description,
+                &cover_url,
                 &req.venue,
                 &req.city,
                 &req.event_date,
@@ -315,6 +449,37 @@ impl EventRepository for PgEventRepository {
         Self::row_to_event(&row)
     }
 
+    async fn create_variants_bulk(
+        &self,
+        event_id: &str,
+        variants: &[CreateVariantInline],
+    ) -> Result<Vec<EventVariant>> {
+        let mut result = Vec::with_capacity(variants.len());
+        for (i, v) in variants.iter().enumerate() {
+            let id = new_ulid();
+            let id_vec = ulid_to_vec(&id)?;
+            let event_vec = id_to_vec(event_id)?;
+            let sort_order = v.sort_order.unwrap_or(i as i32);
+            let row = exec_one(
+                &self.pool,
+                &INSERT_VARIANT,
+                &[
+                    &id_vec,
+                    &event_vec,
+                    &v.name,
+                    &v.description,
+                    &v.price,
+                    &v.quota,
+                    &v.max_per_order,
+                    &sort_order,
+                ],
+            )
+            .await?;
+            result.push(Self::row_to_variant(&row)?);
+        }
+        Ok(result)
+    }
+
     async fn update(&self, id: &str, req: &UpdateEventRequest) -> Result<()> {
         let id_vec = id_to_vec(id)?;
         exec_drop(
@@ -324,6 +489,7 @@ impl EventRepository for PgEventRepository {
                 &id_vec,
                 &req.name,
                 &req.description,
+                &req.cover_url,
                 &req.venue,
                 &req.city,
                 &req.event_date,
@@ -342,13 +508,13 @@ impl EventRepository for PgEventRepository {
         Ok(())
     }
 
-    async fn list_variants(&self, event_id: &str) -> Result<Vec<TicketVariant>> {
+    async fn list_variants(&self, event_id: &str) -> Result<Vec<EventVariant>> {
         let id_vec = id_to_vec(event_id)?;
         let rows = exec_rows(&self.pool, &FIND_VARIANTS_BY_EVENT, &[&id_vec]).await?;
         rows.iter().map(Self::row_to_variant).collect()
     }
 
-    async fn find_variant(&self, id: &str) -> Result<Option<TicketVariant>> {
+    async fn find_variant(&self, id: &str) -> Result<Option<EventVariant>> {
         let id_vec = id_to_vec(id)?;
         let row = exec_first(&self.pool, &FIND_VARIANT_BY_ID, &[&id_vec]).await?;
         row.as_ref().map(Self::row_to_variant).transpose()
@@ -363,7 +529,7 @@ impl EventRepository for PgEventRepository {
         quota: i32,
         max_per_order: Option<i32>,
         sort_order: i32,
-    ) -> Result<TicketVariant> {
+    ) -> Result<EventVariant> {
         let id = new_ulid();
         let id_vec = ulid_to_vec(&id)?;
         let event_vec = id_to_vec(event_id)?;

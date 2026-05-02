@@ -54,7 +54,7 @@ static FIND_ITEMS_FOR_ORDER: &str = r#"
         tv.event_id,
         e.name         AS event_name
       FROM order_items oi
-      JOIN ticket_variants tv ON oi.ticket_variant_id = tv.id
+      JOIN event_variants tv ON oi.ticket_variant_id = tv.id
       JOIN events e           ON tv.event_id = e.id
      WHERE oi.order_id = $1
      ORDER BY oi.created_at
@@ -165,7 +165,7 @@ impl OrderRepository for PgOrderRepository {
         let rows = tx
             .query(
                 "SELECT id, price::FLOAT8 AS price, quota, sold, max_per_order, is_active \
-                 FROM ticket_variants WHERE id = ANY($1) FOR UPDATE",
+                 FROM event_variants WHERE id = ANY($1) FOR UPDATE",
                 &[&variant_id_bytes],
             )
             .await?;
@@ -263,7 +263,7 @@ impl OrderRepository for PgOrderRepository {
             .await?;
 
             tx.execute(
-                "UPDATE ticket_variants SET sold = sold + $2 WHERE id = $1",
+                "UPDATE event_variants SET sold = sold + $2 WHERE id = $1",
                 &[var_vec, qty],
             )
             .await?;
@@ -395,7 +395,7 @@ impl OrderRepository for PgOrderRepository {
             let var_bytes: Vec<u8> = item.try_get("ticket_variant_id")?;
             let qty: i32 = item.try_get("quantity")?;
             tx.execute(
-                "UPDATE ticket_variants SET sold = GREATEST(0, sold - $2) WHERE id = $1",
+                "UPDATE event_variants SET sold = GREATEST(0, sold - $2) WHERE id = $1",
                 &[&var_bytes, &qty],
             )
             .await?;

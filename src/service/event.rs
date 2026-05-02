@@ -1,12 +1,10 @@
 use std::sync::Arc;
 use validator::Validate;
 
-use crate::models::event_variant::{
-    CreateTicketVariantRequest, TicketVariantResponse, UpdateTicketVariantRequest,
-};
+use crate::models::event_variants::{EventVariantResponse, UpdateEventVariantRequest};
 use crate::models::events::{
-    CreateEventRequest, Event, EventListQuery, EventWithVariants, PaginatedEvents,
-    UpdateEventRequest,
+    CreateEventRequest, CreateVariantInline, Event, EventListQuery, EventWithVariants,
+    PaginatedEvents, UpdateEventRequest,
 };
 use crate::repository::event::{EventListFilter, EventRepository};
 use crate::utils::error::{AppError, AppResult};
@@ -19,6 +17,8 @@ impl EventService {
     pub fn new(repo: Arc<dyn EventRepository>) -> Self {
         Self { repo }
     }
+
+    // ── List ──────────────────────────────────────────────────────────────────
 
     pub async fn list(
         &self,
@@ -38,58 +38,102 @@ impl EventService {
         };
 
         let (data, total) = tokio::try_join!(self.repo.list(&filter), self.repo.count(&filter))?;
-        let total_pages = (total + per_page - 1) / per_page;
-
         Ok(PaginatedEvents {
+            total_pages: (total + per_page - 1) / per_page,
             data,
             total,
             page,
             per_page,
-            total_pages,
         })
     }
 
-    pub async fn get_with_variants(&self, id: &str) -> AppResult<EventWithVariants> {
-        let event = self
+    // ── Get — satu JOIN query, tidak ada round-trip kedua ke DB ─────────────
+
+    pub async fn get(&self, id: &str) -> AppResult<EventWithVariants> {
+        let (event, variants) = self
             .repo
-            .find_by_id(id)
+            .find_by_id_with_variants(id)
             .await?
             .ok_or_else(|| AppError::NotFound("Event not found".into()))?;
-        let variants = self.repo.list_variants(id).await?;
-        Ok(EventWithVariants {
-            id: event.id,
-            merchant_id: event.merchant_id,
-            name: event.name,
-            description: event.description,
-            venue: event.venue,
-            city: event.city,
-            event_date: event.event_date,
-            start_time: event.start_time,
-            end_time: event.end_time,
-            status: event.status,
-            created_at: event.created_at,
-            ticket_variants: variants.into_iter().map(Into::into).collect(),
-        })
+        Ok(self.to_with_variants(event, variants))
     }
 
-    pub async fn create(&self, merchant_id: &str, req: CreateEventRequest) -> AppResult<Event> {
+    // ── Create — event + variants + cover_url satu call ───────────────────────
+
+    pub async fn create(
+        &self,
+        merchant_id: &str,
+        req: CreateEventRequest,
+        cover_url: Option<&str>,
+    ) -> AppResult<EventWithVariants> {
         req.validate()
             .map_err(|e| AppError::UnprocessableEntity(format!("{e}")))?;
-        Ok(self.repo.create(merchant_id, &req).await?)
+        for v in &req.variants {
+            v.validate()
+                .map_err(|e| AppError::UnprocessableEntity(format!("{e}")))?;
+        }
+
+        let event = self.repo.create(merchant_id, &req, cover_url).await?;
+        let variants = self
+            .repo
+            .create_variants_bulk(&event.id, &req.variants)
+            .await?;
+        Ok(self.to_with_variants(event, variants))
     }
+
+    // ── Update — event fields + variants sekaligus ───────────────────────────
 
     pub async fn update(
         &self,
         id: &str,
         merchant_id: &str,
         req: UpdateEventRequest,
-    ) -> AppResult<Event> {
+    ) -> AppResult<EventWithVariants> {
         req.validate()
             .map_err(|e| AppError::UnprocessableEntity(format!("{e}")))?;
+        for v in req.variants.iter().flatten() {
+            v.validate()
+                .map_err(|e| AppError::UnprocessableEntity(format!("{e}")))?;
+        }
 
-        let existing = self.ensure_owner(id, merchant_id).await?;
+        self.ensure_owner(id, merchant_id).await?;
+
+        // Update event fields
         self.repo.update(id, &req).await?;
-        Ok(self.repo.find_by_id(id).await?.unwrap_or(existing))
+
+        // Update variants jika ada (opsional — FE bisa kirim partial)
+        if let Some(variants) = &req.variants {
+            for v in variants {
+                if let Some(vid) = &v.id {
+                    // Update existing variant
+                    self.repo
+                        .update_variant(
+                            vid,
+                            v.name.as_deref(),
+                            v.description.as_deref(),
+                            v.price,
+                            v.quota,
+                            v.max_per_order,
+                            v.is_active,
+                            v.sort_order,
+                        )
+                        .await?;
+                } else {
+                    // Tidak ada id → tambah variant baru
+                    let inline = CreateVariantInline {
+                        name: v.name.clone().unwrap_or_default(),
+                        description: v.description.clone(),
+                        price: v.price.unwrap_or(0.0),
+                        quota: v.quota.unwrap_or(0),
+                        max_per_order: v.max_per_order,
+                        sort_order: v.sort_order,
+                    };
+                    self.repo.create_variants_bulk(id, &[inline]).await?;
+                }
+            }
+        }
+
+        self.get(id).await
     }
 
     pub async fn delete(&self, id: &str, merchant_id: &str) -> AppResult<()> {
@@ -98,49 +142,22 @@ impl EventService {
         Ok(())
     }
 
-    // ── Variants ────────────────────────────────────────────────────────────
-
-    pub async fn create_variant(
-        &self,
-        event_id: &str,
-        merchant_id: &str,
-        req: CreateTicketVariantRequest,
-    ) -> AppResult<TicketVariantResponse> {
-        req.validate()
-            .map_err(|e| AppError::UnprocessableEntity(format!("{e}")))?;
-        self.ensure_owner(event_id, merchant_id).await?;
-
-        let v = self
-            .repo
-            .create_variant(
-                event_id,
-                &req.name,
-                req.description.as_deref(),
-                req.price,
-                req.quota,
-                req.max_per_order,
-                req.sort_order.unwrap_or(0),
-            )
-            .await?;
-        Ok(v.into())
-    }
+    // ── Variant ops (individual) ─────────────────────────────────────────────
 
     pub async fn update_variant(
         &self,
         variant_id: &str,
         merchant_id: &str,
-        req: UpdateTicketVariantRequest,
-    ) -> AppResult<TicketVariantResponse> {
+        req: UpdateEventVariantRequest,
+    ) -> AppResult<EventVariantResponse> {
         req.validate()
             .map_err(|e| AppError::UnprocessableEntity(format!("{e}")))?;
-
         let variant = self
             .repo
             .find_variant(variant_id)
             .await?
             .ok_or_else(|| AppError::NotFound("Variant not found".into()))?;
         self.ensure_owner(&variant.event_id, merchant_id).await?;
-
         self.repo
             .update_variant(
                 variant_id,
@@ -153,12 +170,12 @@ impl EventService {
                 req.sort_order,
             )
             .await?;
-        let v = self
+        Ok(self
             .repo
             .find_variant(variant_id)
             .await?
-            .ok_or_else(|| AppError::NotFound("Variant not found".into()))?;
-        Ok(v.into())
+            .ok_or_else(|| AppError::NotFound("Variant not found".into()))?
+            .into())
     }
 
     pub async fn delete_variant(&self, variant_id: &str, merchant_id: &str) -> AppResult<()> {
@@ -172,7 +189,29 @@ impl EventService {
         Ok(())
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────────────
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    fn to_with_variants(
+        &self,
+        event: Event,
+        variants: Vec<crate::models::event_variants::EventVariant>,
+    ) -> EventWithVariants {
+        EventWithVariants {
+            id: event.id,
+            merchant_id: event.merchant_id,
+            name: event.name,
+            description: event.description,
+            cover_url: event.cover_url,
+            venue: event.venue,
+            city: event.city,
+            event_date: event.event_date,
+            start_time: event.start_time,
+            end_time: event.end_time,
+            status: event.status,
+            created_at: event.created_at,
+            event_variants: variants.into_iter().map(Into::into).collect(),
+        }
+    }
 
     async fn ensure_owner(&self, event_id: &str, merchant_id: &str) -> AppResult<Event> {
         let event = self

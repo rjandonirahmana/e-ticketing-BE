@@ -43,7 +43,7 @@ static FROM_JOINS: &str = r#"
       FROM tickets t
       JOIN order_items oi    ON t.order_item_id = oi.id
       JOIN orders o          ON oi.order_id = o.id
-      JOIN ticket_variants tv ON oi.ticket_variant_id = tv.id
+      JOIN event_variants tv ON oi.ticket_variant_id = tv.id
       JOIN events e           ON tv.event_id = e.id
 "#;
 

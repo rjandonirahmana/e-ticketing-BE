@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use validator::Validate;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TicketVariant {
+pub struct EventVariant {
     pub id: String,
     pub event_id: String,
     pub name: String,
@@ -22,7 +22,7 @@ pub struct TicketVariant {
 }
 
 #[derive(Debug, Serialize, Clone)]
-pub struct TicketVariantResponse {
+pub struct EventVariantResponse {
     pub id: String,
     pub event_id: String,
     pub name: String,
@@ -36,8 +36,8 @@ pub struct TicketVariantResponse {
     pub sort_order: i32,
 }
 
-impl From<TicketVariant> for TicketVariantResponse {
-    fn from(v: TicketVariant) -> Self {
+impl From<EventVariant> for EventVariantResponse {
+    fn from(v: EventVariant) -> Self {
         let available = v.quota - v.sold;
         Self {
             id: v.id,
@@ -56,7 +56,7 @@ impl From<TicketVariant> for TicketVariantResponse {
 }
 
 #[derive(Debug, Deserialize, Validate)]
-pub struct CreateTicketVariantRequest {
+pub struct CreateEventVariantRequest {
     #[validate(length(min = 1, max = 255))]
     pub name: String,
     pub description: Option<String>,
@@ -72,7 +72,7 @@ pub struct CreateTicketVariantRequest {
 }
 
 #[derive(Debug, Deserialize, Validate)]
-pub struct UpdateTicketVariantRequest {
+pub struct UpdateEventVariantRequest {
     #[validate(length(min = 1, max = 255))]
     pub name: Option<String>,
     pub description: Option<String>,

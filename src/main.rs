@@ -67,6 +67,7 @@ async fn main() -> Result<()> {
             Arc::new(cfg.waha),
             redis_conn,
             ws_redis_client,
+            cfg.garage,
         )
         .await,
     );

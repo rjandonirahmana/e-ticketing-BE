@@ -3,6 +3,7 @@ pub mod events;
 pub mod merchant;
 pub mod orders;
 pub mod tickets;
+pub mod upload;
 
 use std::sync::Arc;
 
@@ -17,7 +18,6 @@ use crate::middleware::auth::require_auth;
 use crate::state::AppState;
 
 pub fn build_router(state: Arc<AppState>) -> Router {
-    // Public routes — no auth required
     let public = Router::new()
         .route("/api/health", get(health))
         .route("/api/auth/register", post(auth::register))
@@ -26,33 +26,28 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/events", get(events::list))
         .route("/api/events/{id}", get(events::get_one));
 
-    // Protected routes — JWT required
     let protected = Router::new()
         .route("/api/auth/me", get(auth::me))
         .route("/api/auth/me", put(auth::update_me))
-        // merchant profile
         .route("/api/merchant/profile", get(merchant::get_profile))
         .route("/api/merchant/profile", post(merchant::create_profile))
         .route("/api/merchant/profile", put(merchant::update_profile))
-        // event management (merchant)
         .route("/api/events", post(events::create))
         .route("/api/events/{id}", put(events::update))
         .route("/api/events/{id}", delete(events::delete_event))
         .route("/api/merchant/events", get(events::list_mine))
-        // ticket variants
-        .route("/api/events/{id}/variants", post(events::create_variant))
         .route("/api/variants/{id}", put(events::update_variant))
         .route("/api/variants/{id}", delete(events::delete_variant))
-        // orders (customer)
         .route("/api/orders", post(orders::create))
         .route("/api/orders", get(orders::list_mine))
         .route("/api/orders/{id}", get(orders::get_one))
         .route("/api/orders/{id}/pay", post(orders::pay))
         .route("/api/orders/{id}/cancel", post(orders::cancel))
-        // tickets
         .route("/api/tickets", get(tickets::list_mine))
         .route("/api/tickets/{id}", get(tickets::get_one))
         .route("/api/tickets/validate", post(tickets::validate))
+        // Upload gambar — merchant only, divalidasi di handler
+        .route("/api/upload/image", post(upload::upload_image))
         .route_layer(from_fn_with_state(state.clone(), require_auth));
 
     Router::new()

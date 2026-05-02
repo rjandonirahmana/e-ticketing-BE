@@ -2,19 +2,17 @@ use std::sync::Arc;
 
 use axum::{
     Json,
-    extract::{Path, Query, State},
+    extract::{Multipart, Path, Query, State},
 };
+use bytes::Bytes;
 
 use crate::middleware::auth::AuthUser;
-use crate::models::event_variant::{
-    CreateTicketVariantRequest, TicketVariantResponse, UpdateTicketVariantRequest,
-};
+use crate::models::event_variants::{EventVariantResponse, UpdateEventVariantRequest};
 use crate::models::events::{
-    CreateEventRequest, Event, EventListQuery, EventWithVariants, PaginatedEvents,
-    UpdateEventRequest,
+    CreateEventRequest, EventListQuery, EventWithVariants, PaginatedEvents, UpdateEventRequest,
 };
 use crate::state::AppState;
-use crate::utils::error::AppResult;
+use crate::utils::error::{AppError, AppResult};
 
 pub async fn list(
     State(state): State<Arc<AppState>>,
@@ -36,16 +34,70 @@ pub async fn get_one(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> AppResult<Json<EventWithVariants>> {
-    Ok(Json(state.event_svc.get_with_variants(&id).await?))
+    Ok(Json(state.event_svc.get(&id).await?))
 }
 
+/// POST /api/events — multipart/form-data
+///
+/// Fields:
+///   - `data`  (text) : JSON string → CreateEventRequest (termasuk variants)
+///   - `image` (file) : opsional, max 5MB, JPEG/PNG/WebP/GIF
+///
+/// Response: EventWithVariants (event + semua variants sekaligus)
 pub async fn create(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
-    Json(body): Json<CreateEventRequest>,
-) -> AppResult<Json<Event>> {
+    mut multipart: Multipart,
+) -> AppResult<Json<EventWithVariants>> {
     user.require_role("merchant")?;
-    Ok(Json(state.event_svc.create(user.id(), body).await?))
+
+    let mut image_bytes: Option<(Bytes, String)> = None;
+    let mut req_json: Option<String> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(e.to_string()))?
+    {
+        match field.name().unwrap_or("") {
+            "image" => {
+                let ct = field.content_type().unwrap_or("image/jpeg").to_string();
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| AppError::BadRequest(e.to_string()))?;
+                image_bytes = Some((data, ct));
+            }
+            "data" => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::BadRequest(e.to_string()))?;
+                req_json = Some(text);
+            }
+            _ => {}
+        }
+    }
+
+    let json = req_json.ok_or_else(|| AppError::BadRequest("Field 'data' wajib ada".into()))?;
+    let req: CreateEventRequest = serde_json::from_str(&json)
+        .map_err(|e| AppError::BadRequest(format!("JSON tidak valid: {e}")))?;
+
+    // Upload image dulu jika ada — cover_url wajib sebelum insert event
+    let cover_url: Option<String> = match image_bytes {
+        Some((data, ct)) => {
+            let storage = state.storage.clone();
+            Some(storage.upload_image(data, &ct).await?)
+        }
+        None => None,
+    };
+
+    Ok(Json(
+        state
+            .event_svc
+            .create(user.id(), req, cover_url.as_deref())
+            .await?,
+    ))
 }
 
 pub async fn update(
@@ -53,7 +105,7 @@ pub async fn update(
     user: AuthUser,
     Path(id): Path<String>,
     Json(body): Json<UpdateEventRequest>,
-) -> AppResult<Json<Event>> {
+) -> AppResult<Json<EventWithVariants>> {
     user.require_role("merchant")?;
     Ok(Json(state.event_svc.update(&id, user.id(), body).await?))
 }
@@ -68,29 +120,14 @@ pub async fn delete_event(
     Ok(Json(serde_json::json!({ "deleted": true })))
 }
 
-// ── Variants ────────────────────────────────────────────────────────────────
-
-pub async fn create_variant(
-    State(state): State<Arc<AppState>>,
-    user: AuthUser,
-    Path(event_id): Path<String>,
-    Json(body): Json<CreateTicketVariantRequest>,
-) -> AppResult<Json<TicketVariantResponse>> {
-    user.require_role("merchant")?;
-    Ok(Json(
-        state
-            .event_svc
-            .create_variant(&event_id, user.id(), body)
-            .await?,
-    ))
-}
+// ── Variants (masih tersedia untuk update/delete individual) ─────────────────
 
 pub async fn update_variant(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
     Path(variant_id): Path<String>,
-    Json(body): Json<UpdateTicketVariantRequest>,
-) -> AppResult<Json<TicketVariantResponse>> {
+    Json(body): Json<UpdateEventVariantRequest>,
+) -> AppResult<Json<EventVariantResponse>> {
     user.require_role("merchant")?;
     Ok(Json(
         state

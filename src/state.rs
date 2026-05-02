@@ -10,7 +10,7 @@ use crate::repository::{
 };
 use crate::service::{
     auth::AuthService, event::EventService, group_chat::GroupChatService,
-    merchant::MerchantService, order::OrderService, ticket::TicketService,
+    merchant::MerchantService, order::OrderService, storage::StorageService, ticket::TicketService,
 };
 use crate::utils::jwt::JwtService;
 use crate::ws::manager::WsManager;
@@ -27,6 +27,8 @@ pub struct AppState {
     pub ticket_svc: Arc<TicketService>,
     pub group_chat_svc: Arc<GroupChatService>,
     pub ws_mgr: Arc<WsManager>,
+    /// None jika GARAGE_ACCESS_KEY tidak di-set
+    pub storage: Arc<StorageService>,
 }
 
 impl AppState {
@@ -38,6 +40,7 @@ impl AppState {
         waha: Arc<WahaConfig>,
         redis: ConnectionManager,
         redis_client: redis::Client,
+        garage: crate::config::config::GarageConfig,
     ) -> Self {
         let jwt = JwtService::new(jwt_secret);
 
@@ -65,6 +68,9 @@ impl AppState {
         let order_svc = Arc::new(OrderService::new(order_repo));
         let ticket_svc = Arc::new(TicketService::new(ticket_repo));
         let group_chat_svc = Arc::new(GroupChatService::new(group_chat_repo, ws_mgr.clone()));
+        let storage = Arc::new(StorageService::new(&garage));
+
+        storage.clone().check_health().await;
 
         Self {
             pool,
@@ -76,6 +82,7 @@ impl AppState {
             ticket_svc,
             group_chat_svc,
             ws_mgr,
+            storage,
         }
     }
 }

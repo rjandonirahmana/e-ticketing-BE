@@ -1,5 +1,5 @@
 pub mod auth;
-pub mod event_variant;
+pub mod event_variants;
 pub mod events;
 pub mod group_chat;
 pub mod merchant;
