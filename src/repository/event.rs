@@ -9,10 +9,50 @@ use crate::models::event_variants::EventVariant;
 use crate::models::events::{CreateEventRequest, CreateVariantInline, Event, UpdateEventRequest};
 use crate::utils::ulid::{bin_to_ulid, id_to_vec, new_ulid, ulid_to_vec};
 
+/// Generate slug dari merchant_name + event_name + 3 digit random.
+/// Format: `{merchant-slug}-{event-slug}-{NNN}`
+/// Contoh: `toko-maju-konser-malam-mingguan-042`
+fn generate_slug(merchant_name: &str, event_name: &str) -> String {
+    let slugify = |s: &str| -> String {
+        s.chars()
+            .map(|c| {
+                if c.is_alphanumeric() {
+                    c.to_ascii_lowercase()
+                } else {
+                    '-'
+                }
+            })
+            .collect::<String>()
+            .split('-')
+            .filter(|p| !p.is_empty())
+            .collect::<Vec<_>>()
+            .join("-")
+    };
+
+    let m = slugify(merchant_name);
+    let e = slugify(event_name);
+
+    // 3 digit random: 0-999
+    let suffix = rand::random::<u16>() % 1000;
+
+    // Potong agar total slug tidak lebih dari 155 karakter (slug field VARCHAR(160))
+    let max_body = 155 - 4; // 4 = "-NNN"
+    let body = format!("{}-{}", m, e);
+    let body = if body.len() > max_body {
+        &body[..max_body]
+    } else {
+        &body
+    };
+    let body = body.trim_end_matches('-');
+
+    format!("{}-{:03}", body, suffix)
+}
+
 static EVENT_COLS: &str = r#"
     id,
     merchant_id,
     name,
+    slug,
     description,
     cover_url,
     price::FLOAT8 AS price,
@@ -32,15 +72,19 @@ static EVENT_COLS: &str = r#"
 static FIND_EVENT_BY_ID: LazyLock<String> =
     LazyLock::new(|| format!("SELECT {} FROM events WHERE id = $1", EVENT_COLS));
 
-/// Satu query JOIN — event + semua variantnya sekaligus.
+static FIND_EVENT_BY_SLUG: LazyLock<String> =
+    LazyLock::new(|| format!("SELECT {} FROM events WHERE slug = $1", EVENT_COLS));
+
+/// Satu query JOIN — event + semua variantnya sekaligus by slug.
 /// Baris event parent duplikat per variant (LEFT JOIN), di-collapse di Rust.
-static FIND_EVENT_WITH_VARIANTS: LazyLock<String> = LazyLock::new(|| {
+static FIND_EVENT_WITH_VARIANTS_BY_SLUG: LazyLock<String> = LazyLock::new(|| {
     String::from(
         r#"
         SELECT
             e.id                        AS e_id,
             e.merchant_id               AS e_merchant_id,
             e.name                      AS e_name,
+            e.slug                      AS e_slug,
             e.description               AS e_description,
             e.cover_url                 AS e_cover_url,
             e.price::FLOAT8             AS e_price,
@@ -72,7 +116,7 @@ static FIND_EVENT_WITH_VARIANTS: LazyLock<String> = LazyLock::new(|| {
             v.updated_at                AS v_updated_at
         FROM event_variants v
         JOIN events e ON v.event_id = e.id
-        WHERE e.id = $1
+        WHERE e.slug = $1
         ORDER BY v.sort_order ASC, v.created_at ASC
     "#,
     )
@@ -80,9 +124,9 @@ static FIND_EVENT_WITH_VARIANTS: LazyLock<String> = LazyLock::new(|| {
 
 static INSERT_EVENT: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "INSERT INTO events (id, merchant_id, name, description, cover_url, price, venue, city, \
+        "INSERT INTO events (id, merchant_id, name, slug, description, cover_url, price, venue, city, \
          event_date, start_time, end_time) \
-         VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8, $9, $10) RETURNING {}",
+         VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $8, $9, $10, $11) RETURNING {}",
         EVENT_COLS
     )
 });
@@ -171,14 +215,20 @@ pub trait EventRepository: Send + Sync {
     async fn list(&self, f: &EventListFilter<'_>) -> Result<Vec<Event>>;
     async fn count(&self, f: &EventListFilter<'_>) -> Result<i64>;
     async fn find_by_id(&self, id: &str) -> Result<Option<Event>>;
+    async fn find_by_slug(&self, slug: &str) -> Result<Option<Event>>;
     /// Satu JOIN query — return event + variants, tidak ada round-trip kedua.
     async fn find_by_id_with_variants(
         &self,
         id: &str,
     ) -> Result<Option<(Event, Vec<EventVariant>)>>;
+    async fn find_by_slug_with_variants(
+        &self,
+        slug: &str,
+    ) -> Result<Option<(Event, Vec<EventVariant>)>>;
     async fn create(
         &self,
         merchant_id: &str,
+        merchant_name: &str,
         req: &CreateEventRequest,
         cover_url: Option<&str>,
     ) -> Result<Event>;
@@ -236,6 +286,7 @@ impl PgEventRepository {
             id: bin_to_ulid(id_bytes)?,
             merchant_id: bin_to_ulid(merchant_bytes)?,
             name: row.try_get("name").context("name")?,
+            slug: row.try_get("slug").unwrap_or_default(),
             description: row.try_get("description").context("description")?,
             cover_url: row.try_get("cover_url").unwrap_or(None),
             price: row.try_get("price").context("price")?,
@@ -351,18 +402,36 @@ impl EventRepository for PgEventRepository {
         row.as_ref().map(Self::row_to_event).transpose()
     }
 
+    async fn find_by_slug(&self, slug: &str) -> Result<Option<Event>> {
+        let row = exec_first(&self.pool, &FIND_EVENT_BY_SLUG, &[&slug]).await?;
+        row.as_ref().map(Self::row_to_event).transpose()
+    }
+
     async fn find_by_id_with_variants(
         &self,
         id: &str,
     ) -> Result<Option<(Event, Vec<EventVariant>)>> {
+        // Masih dibutuhkan untuk internal ops (ensure_owner dll)
         let id_vec = id_to_vec(id)?;
-        let rows = exec_rows(&self.pool, &FIND_EVENT_WITH_VARIANTS, &[&id_vec]).await?;
+        // Reuse logic dengan query lama — lookup by id dulu, lalu slug
+        let event = match self.find_by_id(id).await? {
+            Some(e) => e,
+            None => return Ok(None),
+        };
+        let variants = self.list_variants(id).await?;
+        Ok(Some((event, variants)))
+    }
+
+    async fn find_by_slug_with_variants(
+        &self,
+        slug: &str,
+    ) -> Result<Option<(Event, Vec<EventVariant>)>> {
+        let rows = exec_rows(&self.pool, &FIND_EVENT_WITH_VARIANTS_BY_SLUG, &[&slug]).await?;
 
         if rows.is_empty() {
             return Ok(None);
         }
 
-        // Semua baris punya data event yang sama — ambil dari baris pertama
         let first = &rows[0];
         let event = {
             let id_b: Vec<u8> = first.try_get("e_id")?;
@@ -371,6 +440,7 @@ impl EventRepository for PgEventRepository {
                 id: bin_to_ulid(id_b)?,
                 merchant_id: bin_to_ulid(mid_b)?,
                 name: first.try_get("e_name")?,
+                slug: first.try_get("e_slug").unwrap_or_default(),
                 description: first.try_get("e_description")?,
                 cover_url: first.try_get("e_cover_url").unwrap_or(None),
                 price: first.try_get("e_price")?,
@@ -388,14 +458,11 @@ impl EventRepository for PgEventRepository {
             }
         };
 
-        // Collect variants — skip baris di mana v_id NULL (event tanpa variant)
         let variants: Vec<EventVariant> = rows
             .iter()
             .filter_map(|row| {
-                // v_id NULL berarti LEFT JOIN tidak ketemu variant
                 let id_b: Option<Vec<u8>> = row.try_get("v_id").ok().flatten();
                 let id_b = id_b?;
-
                 let event_b: Vec<u8> = row.try_get("v_event_id").ok()?;
                 Some(EventVariant {
                     id: bin_to_ulid(id_b).ok()?,
@@ -423,12 +490,15 @@ impl EventRepository for PgEventRepository {
     async fn create(
         &self,
         merchant_id: &str,
+        merchant_name: &str,
         req: &CreateEventRequest,
         cover_url: Option<&str>,
     ) -> Result<Event> {
         let id = new_ulid();
         let id_vec = ulid_to_vec(&id)?;
         let mid_vec = id_to_vec(merchant_id)?;
+        let slug = generate_slug(merchant_name, &req.name);
+
         let row = exec_one(
             &self.pool,
             &INSERT_EVENT,
@@ -436,6 +506,7 @@ impl EventRepository for PgEventRepository {
                 &id_vec,
                 &mid_vec,
                 &req.name,
+                &slug,
                 &req.description,
                 &cover_url,
                 &req.venue,

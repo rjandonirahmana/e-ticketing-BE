@@ -7,6 +7,7 @@ pub struct Event {
     pub id: String,
     pub merchant_id: String,
     pub name: String,
+    pub slug: String,
     pub description: Option<String>,
     pub cover_url: Option<String>,
     pub price: f64,
@@ -28,6 +29,7 @@ pub struct EventWithVariants {
     pub id: String,
     pub merchant_id: String,
     pub name: String,
+    pub slug: String,
     pub description: Option<String>,
     pub cover_url: Option<String>,
     pub venue: Option<String>,
@@ -58,6 +60,9 @@ pub struct CreateVariantInline {
 /// FE kirim multipart: field "data" (JSON) + field "image" (file opsional).
 #[derive(Debug, Serialize, Deserialize, Validate)]
 pub struct CreateEventRequest {
+    /// Nama merchant — dipakai untuk generate slug, tidak disimpan di events
+    #[validate(length(min = 1, max = 80))]
+    pub merchant_name: String,
     #[validate(length(min = 2, max = 255))]
     pub name: String,
     pub description: Option<String>,

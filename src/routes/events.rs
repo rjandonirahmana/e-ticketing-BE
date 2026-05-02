@@ -32,9 +32,9 @@ pub async fn list_mine(
 
 pub async fn get_one(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
+    Path(slug): Path<String>,
 ) -> AppResult<Json<EventWithVariants>> {
-    Ok(Json(state.event_svc.get(&id).await?))
+    Ok(Json(state.event_svc.get(&slug).await?))
 }
 
 /// POST /api/events — multipart/form-data
@@ -83,6 +83,13 @@ pub async fn create(
     let req: CreateEventRequest = serde_json::from_str(&json)
         .map_err(|e| AppError::BadRequest(format!("JSON tidak valid: {e}")))?;
 
+    // Ambil store_name merchant untuk slug generation
+    let merchant = state
+        .merchant_svc
+        .get_profile(user.id())
+        .await
+        .map_err(|_| AppError::BadRequest("Merchant profile belum dibuat".into()))?;
+
     // Upload image dulu jika ada — cover_url wajib sebelum insert event
     let cover_url: Option<String> = match image_bytes {
         Some((data, ct)) => {
@@ -95,7 +102,7 @@ pub async fn create(
     Ok(Json(
         state
             .event_svc
-            .create(user.id(), req, cover_url.as_deref())
+            .create(user.id(), &merchant.store_name, req, cover_url.as_deref())
             .await?,
     ))
 }

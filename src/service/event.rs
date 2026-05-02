@@ -47,12 +47,12 @@ impl EventService {
         })
     }
 
-    // ── Get — satu JOIN query, tidak ada round-trip kedua ke DB ─────────────
+    // ── Get by slug — satu JOIN query ────────────────────────────────────────
 
-    pub async fn get(&self, id: &str) -> AppResult<EventWithVariants> {
+    pub async fn get(&self, slug: &str) -> AppResult<EventWithVariants> {
         let (event, variants) = self
             .repo
-            .find_by_id_with_variants(id)
+            .find_by_slug_with_variants(slug)
             .await?
             .ok_or_else(|| AppError::NotFound("Event not found".into()))?;
         Ok(self.to_with_variants(event, variants))
@@ -63,6 +63,7 @@ impl EventService {
     pub async fn create(
         &self,
         merchant_id: &str,
+        merchant_name: &str,
         req: CreateEventRequest,
         cover_url: Option<&str>,
     ) -> AppResult<EventWithVariants> {
@@ -73,7 +74,10 @@ impl EventService {
                 .map_err(|e| AppError::UnprocessableEntity(format!("{e}")))?;
         }
 
-        let event = self.repo.create(merchant_id, &req, cover_url).await?;
+        let event = self
+            .repo
+            .create(merchant_id, merchant_name, &req, cover_url)
+            .await?;
         let variants = self
             .repo
             .create_variants_bulk(&event.id, &req.variants)
@@ -200,6 +204,7 @@ impl EventService {
             id: event.id,
             merchant_id: event.merchant_id,
             name: event.name,
+            slug: event.slug,
             description: event.description,
             cover_url: event.cover_url,
             venue: event.venue,
