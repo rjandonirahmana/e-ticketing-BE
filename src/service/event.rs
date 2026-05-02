@@ -18,6 +18,11 @@ impl EventService {
         Self { repo }
     }
 
+    /// Distinct categories dari semua active event.
+    pub async fn list_categories(&self) -> AppResult<Vec<String>> {
+        Ok(self.repo.list_categories().await?)
+    }
+
     // ── List ──────────────────────────────────────────────────────────────────
 
     pub async fn list(
@@ -33,6 +38,8 @@ impl EventService {
             city: q.city.as_deref(),
             status: q.status.as_deref(),
             merchant_id,
+            category: q.category.as_deref(),
+            search: q.search.as_deref(),
             limit: per_page,
             offset,
         };

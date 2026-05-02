@@ -199,6 +199,8 @@ static DELETE_VARIANT: &str = "DELETE FROM event_variants WHERE id = $1";
 pub struct EventListFilter<'a> {
     pub city: Option<&'a str>,
     pub status: Option<&'a str>,
+    pub category: Option<&'a str>,
+    pub search: Option<&'a str>,
     pub merchant_id: Option<&'a str>,
     pub limit: i64,
     pub offset: i64,
@@ -210,6 +212,7 @@ pub trait EventRepository: Send + Sync {
     async fn list(&self, f: &EventListFilter<'_>) -> Result<Vec<Event>>;
     async fn count(&self, f: &EventListFilter<'_>) -> Result<i64>;
     async fn find_by_id(&self, id: &str) -> Result<Option<Event>>;
+    async fn list_categories(&self) -> Result<Vec<String>>;
 
     async fn find_by_slug_with_variants(
         &self,
@@ -316,8 +319,6 @@ impl PgEventRepository {
 #[async_trait]
 impl EventRepository for PgEventRepository {
     async fn list(&self, f: &EventListFilter<'_>) -> Result<Vec<Event>> {
-        // Build dynamic WHERE — we keep it simple and correct rather than trying to
-        // share one LazyLock string across every filter combination.
         let mut sql = format!("SELECT {} FROM events WHERE 1 = 1", EVENT_COLS);
         let mut params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> = Vec::new();
         let mut idx = 1usize;
@@ -330,13 +331,30 @@ impl EventRepository for PgEventRepository {
             idx += 1;
         }
         if let Some(city) = f.city {
-            sql.push_str(&format!(" AND city = ${idx}"));
-            params.push(Box::new(city.to_string()));
+            sql.push_str(&format!(" AND city ILIKE ${idx}"));
+            params.push(Box::new(format!("%{}%", city)));
             idx += 1;
         }
         if let Some(status) = f.status {
             sql.push_str(&format!(" AND status = ${idx}"));
             params.push(Box::new(status.to_string()));
+            idx += 1;
+        }
+
+        if let Some(cat) = f.category {
+            let json_val = serde_json::to_value(vec![cat])?;
+            sql.push_str(&format!(" AND category @> ${}::jsonb", idx));
+            params.push(Box::new(json_val));
+            idx += 1;
+        }
+
+        // Full-text search on name, venue, city
+        if let Some(q) = f.search {
+            let pattern = format!("%{}%", q);
+            sql.push_str(&format!(
+                " AND (name ILIKE ${idx} OR venue ILIKE ${idx} OR city ILIKE ${idx})"
+            ));
+            params.push(Box::new(pattern));
             idx += 1;
         }
         sql.push_str(&format!(
@@ -366,13 +384,27 @@ impl EventRepository for PgEventRepository {
             idx += 1;
         }
         if let Some(city) = f.city {
-            sql.push_str(&format!(" AND city = ${idx}"));
-            params.push(Box::new(city.to_string()));
+            sql.push_str(&format!(" AND city ILIKE ${idx}"));
+            params.push(Box::new(format!("%{}%", city)));
             idx += 1;
         }
         if let Some(status) = f.status {
             sql.push_str(&format!(" AND status = ${idx}"));
             params.push(Box::new(status.to_string()));
+            idx += 1;
+        }
+        if let Some(cat) = f.category {
+            let json_val = serde_json::to_value(vec![cat])?;
+            sql.push_str(&format!(" AND category @> ${}::jsonb", idx));
+            params.push(Box::new(json_val));
+            idx += 1;
+        }
+        if let Some(q) = f.search {
+            let pattern = format!("%{}%", q);
+            sql.push_str(&format!(
+                " AND (name ILIKE ${idx} OR venue ILIKE ${idx} OR city ILIKE ${idx})"
+            ));
+            params.push(Box::new(pattern));
             let _ = idx;
         }
 
@@ -380,6 +412,31 @@ impl EventRepository for PgEventRepository {
             params.iter().map(|p| p.as_ref() as _).collect();
         let row = exec_one(&self.pool, &sql, &refs).await?;
         Ok(row.try_get::<_, i64>("c")?)
+    }
+
+    async fn list_categories(&self) -> Result<Vec<String>> {
+        // Unnest JSONB array, deduplicate, sort — single query tanpa cursor loop
+        let rows = exec_rows(
+            &self.pool,
+            r#"
+            SELECT DISTINCT jsonb_array_elements_text(category) AS cat
+            FROM events
+            WHERE status = 'active'
+              AND category IS NOT NULL
+              AND jsonb_array_length(category) > 0
+            ORDER BY cat ASC
+            "#,
+            &[],
+        )
+        .await?;
+
+        let cats: Vec<String> = rows
+            .iter()
+            .filter_map(|r| r.try_get::<_, String>("cat").ok())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        Ok(cats)
     }
 
     async fn find_by_id(&self, id: &str) -> Result<Option<Event>> {

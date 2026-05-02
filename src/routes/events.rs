@@ -107,6 +107,13 @@ pub async fn create(
     ))
 }
 
+pub async fn list_categories(
+    State(state): State<Arc<AppState>>,
+) -> AppResult<Json<serde_json::Value>> {
+    let cats = state.event_svc.list_categories().await?;
+    Ok(Json(serde_json::json!({ "data": cats })))
+}
+
 pub async fn update(
     State(state): State<Arc<AppState>>,
     user: AuthUser,

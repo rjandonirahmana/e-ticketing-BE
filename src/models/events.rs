@@ -118,6 +118,8 @@ pub struct UpdateEventRequest {
 pub struct EventListQuery {
     pub city: Option<String>,
     pub status: Option<String>,
+    pub category: Option<String>,
+    pub search: Option<String>,
     pub page: Option<i64>,
     pub per_page: Option<i64>,
 }
