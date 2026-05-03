@@ -29,14 +29,14 @@ static LIST_ORDERS_BY_CUSTOMER: LazyLock<String> = LazyLock::new(|| {
 
 static FIND_ITEMS_FOR_ORDER: &str = r#"
     SELECT
-        oi.id             AS item_id,
+        oi.id                 AS item_id,
         oi.ticket_variant_id,
         oi.quantity,
         oi.unit_price::FLOAT8 AS unit_price,
         oi.subtotal::FLOAT8   AS subtotal,
-        tv.name           AS variant_name,
+        tv.name               AS variant_name,
         tv.event_id,
-        e.name            AS event_name
+        e.name                AS event_name
     FROM order_items oi
     JOIN event_variants tv ON oi.ticket_variant_id = tv.id
     JOIN events e           ON tv.event_id = e.id
@@ -50,66 +50,42 @@ fn make_ticket_code(ticket_id: &str) -> String {
     format!("TK{}", &ticket_id[..ticket_id.len().min(12)])
 }
 
-// ── LockedVariant — data variant yang di-lock selama transaksi ─────────────────
-//
-// Berisi semua field yang dibutuhkan service layer untuk:
-//   - validasi stok
-//   - menghitung harga
-//   - menyusun OrderItemResponse TANPA query tambahan
-//
-// event_id dan event_name diisi dari JOIN events di lock_variants query,
-// sehingga setelah commit tidak perlu query lagi ke DB.
+// ── LockedVariant ─────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
 pub struct LockedVariant {
     pub id_bytes: Vec<u8>,
     pub ulid: String,
-    /// Harga dasar (original price).
     pub price: f64,
-    /// Harga efektif saat ini: sale_price jika sale sedang berjalan, else price.
-    /// Dipakai service untuk menghitung subtotal order.
+    /// Harga efektif: sale_price jika sale aktif, else price.
     pub effective_price: f64,
     pub quota: i32,
     pub sold: i32,
     pub max_per_order: Option<i32>,
     pub is_active: bool,
-    // Diambil dari JOIN events — untuk menyusun response tanpa query ulang
     pub variant_name: String,
     pub event_id: String,
     pub event_name: String,
 }
 
-// ── ItemRow — data per order_item untuk batch insert ─────────────────────────
+// ── ItemRow ───────────────────────────────────────────────────────────────────
 
 pub struct ItemRow {
-    pub oi_id: String,     // ULID string untuk response
-    pub oi_bytes: Vec<u8>, // bytes untuk INSERT
+    pub oi_id: String,
+    pub oi_bytes: Vec<u8>,
     pub var_bytes: Vec<u8>,
     pub qty: i32,
     pub unit_price: f64,
     pub subtotal: f64,
 }
 
-// ── OrderTx — operasi TULIS di dalam transaksi ────────────────────────────────
-//
-// Semua fn menerima &tokio_postgres::Transaction — TIDAK membuka atau commit
-// transaksi sendiri. Transaction dibuka dan di-commit di service layer.
-//
-//   let mut conn = pool.get().await?;
-//   let tx = conn.transaction().await?;     ← service buka
-//   OrderTx::lock_variants(&tx, ..).await?;
-//   ...
-//   tx.commit().await?;                     ← service commit
-//   // error sebelum commit → tx dropped → auto rollback
+// ── OrderTx ───────────────────────────────────────────────────────────────────
 
 pub struct OrderTx;
 
 impl OrderTx {
-    /// Lock semua variant yang dibutuhkan dengan SELECT FOR UPDATE OF ev.
-    /// JOIN events sekalian untuk mengisi variant_name, event_id, event_name —
-    /// sehingga service tidak perlu query tambahan setelah commit.
-    ///
-    /// FOR UPDATE OF ev mengunci hanya baris event_variants, bukan events.
+    /// Lock semua variant dengan SELECT FOR UPDATE OF ev + JOIN events.
+    /// Mengisi variant_name, event_id, event_name sekaligus — tanpa query tambahan.
     pub async fn lock_variants(
         tx: &tokio_postgres::Transaction<'_>,
         id_bytes_list: &[Vec<u8>],
@@ -167,6 +143,7 @@ impl OrderTx {
     }
 
     /// Insert satu baris order.
+    /// `idempotency_key` disimpan ke kolom orders.idempotency_key (nullable, unique per customer).
     pub async fn insert_order(
         tx: &tokio_postgres::Transaction<'_>,
         id_bytes: &[u8],
@@ -174,19 +151,29 @@ impl OrderTx {
         order_code: &str,
         total: f64,
         expired_at: chrono::DateTime<chrono::Utc>,
+        idempotency_key: Option<&str>,
     ) -> Result<Order> {
         let row = tx
             .query_one(
                 &format!(
                     "INSERT INTO orders \
-                     (id, customer_id, order_code, status, total_amount, expired_at) \
-                     VALUES ($1, $2, $3, 'pending', $4, $5) RETURNING {cols}",
+                     (id, customer_id, order_code, status, total_amount, expired_at, idempotency_key) \
+                     VALUES ($1, $2, $3, 'pending', $4, $5, $6) \
+                     RETURNING {cols}",
                     cols = ORDER_COLS
                 ),
-                &[&id_bytes, &customer_bytes, &order_code, &total, &expired_at],
+                &[
+                    &id_bytes,
+                    &customer_bytes,
+                    &order_code,
+                    &total,
+                    &expired_at,
+                    &idempotency_key, // $6 — NULL jika tidak ada
+                ],
             )
             .await
             .context("insert_order")?;
+
         row_to_order(&row)
     }
 
@@ -199,11 +186,12 @@ impl OrderTx {
         if items.is_empty() {
             return Ok(());
         }
+
         const COLS: usize = 6; // id, order_id, ticket_variant_id, quantity, unit_price, subtotal
-        let mut ph = Vec::with_capacity(items.len());
+        let mut placeholders = Vec::with_capacity(items.len());
         for i in 0..items.len() {
             let b = i * COLS + 1;
-            ph.push(format!(
+            placeholders.push(format!(
                 "(${}, ${}, ${}, ${}, ${}, ${})",
                 b,
                 b + 1,
@@ -213,11 +201,12 @@ impl OrderTx {
                 b + 5
             ));
         }
+
         let sql = format!(
             "INSERT INTO order_items \
              (id, order_id, ticket_variant_id, quantity, unit_price, subtotal) \
              VALUES {}",
-            ph.join(", ")
+            placeholders.join(", ")
         );
 
         type BoxParam = Box<dyn tokio_postgres::types::ToSql + Sync + Send>;
@@ -230,26 +219,25 @@ impl OrderTx {
             params.push(Box::new(item.unit_price));
             params.push(Box::new(item.subtotal));
         }
+
         let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
             params.iter().map(|p| p.as_ref() as _).collect();
         tx.execute(&sql, &refs)
             .await
             .context("insert_order_items_batch")?;
+
         Ok(())
     }
 
     /// Batch bump sold — satu UPDATE via UNNEST, bukan O(n) query.
-    ///
-    /// UPDATE event_variants SET sold = sold + bump.qty
-    /// FROM UNNEST($1::bytea[], $2::int4[]) AS bump(id, qty)
-    /// WHERE event_variants.id = bump.id
     pub async fn bump_sold_batch(
         tx: &tokio_postgres::Transaction<'_>,
-        updates: &[(Vec<u8>, i32)], // (variant_id_bytes, qty)
+        updates: &[(Vec<u8>, i32)],
     ) -> Result<()> {
         if updates.is_empty() {
             return Ok(());
         }
+
         let ids: Vec<Vec<u8>> = updates.iter().map(|(id, _)| id.clone()).collect();
         let qtys: Vec<i32> = updates.iter().map(|(_, q)| *q).collect();
 
@@ -262,10 +250,12 @@ impl OrderTx {
         )
         .await
         .context("bump_sold_batch")?;
+
         Ok(())
     }
 
-    /// Mark order paid — cek status pending DAN belum expired (double guard).
+    /// Mark order paid — cek status pending DAN belum expired (double guard di DB).
+    /// Return jumlah baris yang terupdate (0 = gagal).
     pub async fn mark_paid(
         tx: &tokio_postgres::Transaction<'_>,
         order_bytes: &[u8],
@@ -283,7 +273,7 @@ impl OrderTx {
         .context("mark_paid")
     }
 
-    /// Ambil (order_item_id_bytes, qty) untuk minting tiket.
+    /// Ambil (order_item_id_bytes, qty) untuk minting tiket setelah pembayaran.
     pub async fn fetch_items_for_order(
         tx: &tokio_postgres::Transaction<'_>,
         order_bytes: &[u8],
@@ -320,15 +310,16 @@ impl OrderTx {
             }
         }
 
-        const COLS: usize = 3; // id, order_item_id, ticket_code (status hardcoded 'active')
-        let mut ph = Vec::with_capacity(ticket_rows.len());
+        const COLS: usize = 3; // id, order_item_id, ticket_code
+        let mut placeholders = Vec::with_capacity(ticket_rows.len());
         for i in 0..ticket_rows.len() {
             let b = i * COLS + 1;
-            ph.push(format!("(${}, ${}, ${}, 'active')", b, b + 1, b + 2));
+            placeholders.push(format!("(${}, ${}, ${}, 'active')", b, b + 1, b + 2));
         }
+
         let sql = format!(
             "INSERT INTO tickets (id, order_item_id, ticket_code, status) VALUES {}",
-            ph.join(", ")
+            placeholders.join(", ")
         );
 
         type BoxParam = Box<dyn tokio_postgres::types::ToSql + Sync + Send>;
@@ -338,6 +329,7 @@ impl OrderTx {
             params.push(Box::new(item_b.clone()));
             params.push(Box::new(code.clone()));
         }
+
         let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
             params.iter().map(|p| p.as_ref() as _).collect();
         tx.execute(&sql, &refs)
@@ -348,6 +340,7 @@ impl OrderTx {
     }
 
     /// Cancel order — hanya jika masih pending.
+    /// Return jumlah baris yang terupdate (0 = sudah tidak pending).
     pub async fn cancel_order(
         tx: &tokio_postgres::Transaction<'_>,
         order_bytes: &[u8],
@@ -383,6 +376,7 @@ impl OrderTx {
     }
 
     /// Refund stok saat cancel — batch UNNEST, satu query.
+    /// GREATEST(0, sold - qty) mencegah sold jadi negatif akibat data kotor.
     pub async fn refund_sold_batch(
         tx: &tokio_postgres::Transaction<'_>,
         updates: &[(Vec<u8>, i32)],
@@ -390,6 +384,7 @@ impl OrderTx {
         if updates.is_empty() {
             return Ok(());
         }
+
         let ids: Vec<Vec<u8>> = updates.iter().map(|(id, _)| id.clone()).collect();
         let qtys: Vec<i32> = updates.iter().map(|(_, q)| *q).collect();
 
@@ -402,6 +397,7 @@ impl OrderTx {
         )
         .await
         .context("refund_sold_batch")?;
+
         Ok(())
     }
 }
