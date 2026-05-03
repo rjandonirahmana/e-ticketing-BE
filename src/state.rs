@@ -61,11 +61,11 @@ impl AppState {
             bcrypt_cost,
             jwt_expiry_hours,
             waha,
-            redis,
+            redis.clone(),
         ));
         let merchant_svc = Arc::new(MerchantService::new(merchant_repo));
         let event_svc = Arc::new(EventService::new(event_repo));
-        let order_svc = Arc::new(OrderService::new(order_repo));
+        let order_svc = Arc::new(OrderService::new(order_repo, redis, pool.clone()));
         let ticket_svc = Arc::new(TicketService::new(ticket_repo));
         let group_chat_svc = Arc::new(GroupChatService::new(group_chat_repo, ws_mgr.clone()));
         let storage = Arc::new(StorageService::new(&garage));

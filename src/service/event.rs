@@ -1,9 +1,7 @@
 use std::sync::Arc;
 use validator::Validate;
 
-use crate::models::event_variants::{
-    EventVariant, EventVariantResponse, UpdateEventVariantRequest,
-};
+use crate::models::event_variants::{EventVariant, EventVariantResponse, UpdateEventVariantRequest};
 use crate::models::events::{
     CreateEventRequest, CreateVariantInline, Event, EventListQuery, EventWithVariants,
     PaginatedEvents, UpdateEventRequest,
@@ -104,8 +102,7 @@ impl EventService {
             .await?;
 
         // Refresh event dari DB agar price/display_price reflect variant baru
-        self.get_by_id(&event.id)
-            .await
+        self.get_by_id(&event.id).await
             .or_else(|_| Ok(self.to_with_variants(event, variants)))
     }
 
