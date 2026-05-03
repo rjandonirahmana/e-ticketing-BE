@@ -10,10 +10,15 @@ pub struct Event {
     pub slug: String,
     pub description: Option<String>,
     pub cover_url: Option<String>,
+    /// Harga base termurah dari variant aktif.
     pub price: f64,
+    /// Harga sale termurah yang sedang aktif (None jika tidak ada sale).
     pub sale_price: Option<f64>,
     pub sale_price_start_date: Option<DateTime<Utc>>,
     pub sale_price_end_date: Option<DateTime<Utc>>,
+    /// Harga efektif untuk ditampilkan di list:
+    /// sale_price jika aktif, else price.
+    pub display_price: f64,
     pub venue: Option<String>,
     #[serde(default)]
     pub category: Vec<String>,
@@ -45,10 +50,20 @@ pub struct EventWithVariants {
     pub end_time: Option<DateTime<Utc>>,
     pub status: String,
     pub created_at: DateTime<Utc>,
+    /// Harga base variant termurah (berdasarkan effective price).
+    pub price: f64,
+    /// Harga sale aktif variant termurah (None jika tidak ada sale aktif).
+    pub sale_price: Option<f64>,
+    pub sale_price_start_date: Option<DateTime<Utc>>,
+    pub sale_price_end_date: Option<DateTime<Utc>>,
+    /// Harga efektif untuk ditampilkan: sale_price jika aktif, else price.
+    pub display_price: f64,
+    pub total_sold: i32,
+    pub total_quota: i32,
     pub event_variants: Vec<crate::models::event_variants::EventVariantResponse>,
 }
 
-/// Variant inline di dalam CreateEventRequest — tidak perlu API terpisah.
+/// Variant inline di dalam CreateEventRequest.
 #[derive(Debug, Serialize, Deserialize, Validate)]
 pub struct CreateVariantInline {
     #[validate(length(min = 1, max = 255))]
@@ -56,6 +71,9 @@ pub struct CreateVariantInline {
     pub description: Option<String>,
     #[validate(range(min = 0.0))]
     pub price: f64,
+    pub sale_price: Option<f64>,
+    pub sale_price_start_date: Option<DateTime<Utc>>,
+    pub sale_price_end_date: Option<DateTime<Utc>>,
     #[validate(range(min = 1))]
     pub quota: i32,
     pub max_per_order: Option<i32>,
@@ -66,7 +84,7 @@ pub struct CreateVariantInline {
 /// FE kirim multipart: field "data" (JSON) + field "image" (file opsional).
 #[derive(Debug, Serialize, Deserialize, Validate)]
 pub struct CreateEventRequest {
-    /// Nama merchant — dipakai untuk generate slug, tidak disimpan di events
+    /// Nama merchant — dipakai untuk generate slug.
     #[validate(length(min = 1, max = 80))]
     pub merchant_name: String,
     #[validate(length(min = 2, max = 255))]
@@ -79,7 +97,7 @@ pub struct CreateEventRequest {
     pub event_date: DateTime<Utc>,
     pub start_time: Option<DateTime<Utc>>,
     pub end_time: Option<DateTime<Utc>>,
-    /// Min 1 variant wajib ada
+    /// Min 1 variant wajib ada.
     #[validate(length(min = 1))]
     pub variants: Vec<CreateVariantInline>,
 }
@@ -92,6 +110,9 @@ pub struct UpdateVariantInline {
     pub name: Option<String>,
     pub description: Option<String>,
     pub price: Option<f64>,
+    pub sale_price: Option<f64>,
+    pub sale_price_start_date: Option<DateTime<Utc>>,
+    pub sale_price_end_date: Option<DateTime<Utc>>,
     pub quota: Option<i32>,
     pub max_per_order: Option<i32>,
     pub is_active: Option<bool>,
@@ -112,7 +133,7 @@ pub struct UpdateEventRequest {
     pub start_time: Option<DateTime<Utc>>,
     pub end_time: Option<DateTime<Utc>>,
     pub status: Option<String>,
-    /// Opsional — kirim jika mau update/tambah variant sekaligus
+    /// Opsional — kirim jika mau update/tambah variant sekaligus.
     pub variants: Option<Vec<UpdateVariantInline>>,
 }
 

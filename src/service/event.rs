@@ -1,7 +1,9 @@
 use std::sync::Arc;
 use validator::Validate;
 
-use crate::models::event_variants::{EventVariantResponse, UpdateEventVariantRequest};
+use crate::models::event_variants::{
+    EventVariant, EventVariantResponse, UpdateEventVariantRequest,
+};
 use crate::models::events::{
     CreateEventRequest, CreateVariantInline, Event, EventListQuery, EventWithVariants,
     PaginatedEvents, UpdateEventRequest,
@@ -54,7 +56,7 @@ impl EventService {
         })
     }
 
-    // ── Get by slug — satu JOIN query ────────────────────────────────────────
+    // ── Get by slug ───────────────────────────────────────────────────────────
 
     pub async fn get(&self, slug: &str) -> AppResult<EventWithVariants> {
         let (event, variants) = self
@@ -65,7 +67,18 @@ impl EventService {
         Ok(self.to_with_variants(event, variants))
     }
 
-    // ── Create — event + variants + cover_url satu call ───────────────────────
+    // ── Get by id (dipakai setelah update) ────────────────────────────────────
+
+    async fn get_by_id(&self, id: &str) -> AppResult<EventWithVariants> {
+        let (event, variants) = self
+            .repo
+            .find_by_id_with_variants(id)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Event not found".into()))?;
+        Ok(self.to_with_variants(event, variants))
+    }
+
+    // ── Create ────────────────────────────────────────────────────────────────
 
     pub async fn create(
         &self,
@@ -89,10 +102,14 @@ impl EventService {
             .repo
             .create_variants_bulk(&event.id, &req.variants)
             .await?;
-        Ok(self.to_with_variants(event, variants))
+
+        // Refresh event dari DB agar price/display_price reflect variant baru
+        self.get_by_id(&event.id)
+            .await
+            .or_else(|_| Ok(self.to_with_variants(event, variants)))
     }
 
-    // ── Update — event fields + variants sekaligus ───────────────────────────
+    // ── Update ────────────────────────────────────────────────────────────────
 
     pub async fn update(
         &self,
@@ -110,11 +127,10 @@ impl EventService {
         // Update event fields
         self.repo.update(id, merchant_id, &req).await?;
 
-        // Update variants jika ada (opsional — FE bisa kirim partial)
+        // Update/tambah variants jika dikirim
         if let Some(variants) = &req.variants {
             for v in variants {
                 if let Some(vid) = &v.id {
-                    // Update existing variant
                     self.repo
                         .update_variant(
                             vid,
@@ -122,6 +138,9 @@ impl EventService {
                             v.name.as_deref(),
                             v.description.as_deref(),
                             v.price,
+                            v.sale_price,
+                            v.sale_price_start_date,
+                            v.sale_price_end_date,
                             v.quota,
                             v.max_per_order,
                             v.is_active,
@@ -134,6 +153,9 @@ impl EventService {
                         name: v.name.clone().unwrap_or_default(),
                         description: v.description.clone(),
                         price: v.price.unwrap_or(0.0),
+                        sale_price: v.sale_price,
+                        sale_price_start_date: v.sale_price_start_date,
+                        sale_price_end_date: v.sale_price_end_date,
                         quota: v.quota.unwrap_or(0),
                         max_per_order: v.max_per_order,
                         sort_order: v.sort_order,
@@ -143,7 +165,8 @@ impl EventService {
             }
         }
 
-        self.get(id).await
+        // BUG FIX: get_by_id bukan get(id) — get() menerima slug, bukan id
+        self.get_by_id(id).await
     }
 
     // ── Variant ops (individual) ─────────────────────────────────────────────
@@ -164,6 +187,9 @@ impl EventService {
                 req.name.as_deref(),
                 req.description.as_deref(),
                 req.price,
+                req.sale_price,
+                req.sale_price_start_date,
+                req.sale_price_end_date,
                 req.quota,
                 req.max_per_order,
                 req.is_active,
@@ -180,11 +206,7 @@ impl EventService {
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    fn to_with_variants(
-        &self,
-        event: Event,
-        variants: Vec<crate::models::event_variants::EventVariant>,
-    ) -> EventWithVariants {
+    fn to_with_variants(&self, event: Event, variants: Vec<EventVariant>) -> EventWithVariants {
         EventWithVariants {
             category: event.category,
             id: event.id,
@@ -200,6 +222,13 @@ impl EventService {
             end_time: event.end_time,
             status: event.status,
             created_at: event.created_at,
+            price: event.price,
+            sale_price: event.sale_price,
+            sale_price_start_date: event.sale_price_start_date,
+            sale_price_end_date: event.sale_price_end_date,
+            display_price: event.display_price,
+            total_sold: event.total_sold,
+            total_quota: event.total_quota,
             event_variants: variants.into_iter().map(Into::into).collect(),
         }
     }
