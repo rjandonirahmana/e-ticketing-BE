@@ -8,7 +8,7 @@ use super::db::{exec_first, exec_rows};
 use crate::models::orders::{Order, OrderItemResponse};
 use crate::utils::ulid::{bin_to_ulid, id_to_vec, new_ulid, ulid_to_vec};
 
-// ── Static queries (read-only) ────────────────────────────────────────────────
+// ── Static queries ────────────────────────────────────────────────────────────
 
 static ORDER_COLS: &str = r#"
     id, customer_id, order_code, status,
@@ -42,6 +42,27 @@ static FIND_ITEMS_FOR_ORDER: &str = r#"
     JOIN events e           ON tv.event_id = e.id
     WHERE oi.order_id = $1
     ORDER BY oi.created_at
+"#;
+
+// ── Lua scripts ───────────────────────────────────────────────────────────────
+
+/// Atomic release: hanya DEL jika value masih milik kita.
+pub(crate) const LUA_RELEASE: &str = r#"
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+else
+    return 0
+end
+"#;
+
+/// Atomic heartbeat: hanya PEXPIRE jika value masih milik kita.
+/// Mencegah extend lock milik request lain setelah lock kita expired.
+const LUA_EXTEND: &str = r#"
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("pexpire", KEYS[1], ARGV[2])
+else
+    return 0
+end
 "#;
 
 // ── Code builders ─────────────────────────────────────────────────────────────
@@ -79,13 +100,35 @@ pub struct ItemRow {
     pub subtotal: f64,
 }
 
+// ── OversellError ─────────────────────────────────────────────────────────────
+
+/// Dikembalikan oleh bump_sold_batch kalau guard DB mendeteksi oversell.
+#[derive(Debug)]
+pub struct OversellError {
+    /// Jumlah variant yang berhasil di-update (bisa 0).
+    pub updated: u64,
+    /// Jumlah variant yang diharapkan ter-update.
+    pub expected: usize,
+}
+
+impl std::fmt::Display for OversellError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "oversell guard triggered: updated {} of {} variants",
+            self.updated, self.expected
+        )
+    }
+}
+
+impl std::error::Error for OversellError {}
+
 // ── OrderTx ───────────────────────────────────────────────────────────────────
 
 pub struct OrderTx;
 
 impl OrderTx {
     /// Lock semua variant dengan SELECT FOR UPDATE OF ev + JOIN events.
-    /// Mengisi variant_name, event_id, event_name sekaligus — tanpa query tambahan.
     pub async fn lock_variants(
         tx: &tokio_postgres::Transaction<'_>,
         id_bytes_list: &[Vec<u8>],
@@ -142,8 +185,27 @@ impl OrderTx {
             .collect()
     }
 
-    /// Insert satu baris order.
-    /// `idempotency_key` disimpan ke kolom orders.idempotency_key (nullable, unique per customer).
+    /// Insert satu baris order — idempotent via CTE atomic.
+    ///
+    /// # Idempotency
+    /// Menggunakan CTE single-query untuk menghindari race condition
+    /// antara INSERT dan SELECT pada READ COMMITTED isolation:
+    ///
+    /// ```sql
+    /// WITH ins AS (
+    ///     INSERT INTO orders (...) ON CONFLICT DO NOTHING RETURNING *
+    /// )
+    /// SELECT * FROM ins
+    /// UNION ALL
+    /// SELECT * FROM orders WHERE customer_id=$1 AND idempotency_key=$2
+    ///   AND NOT EXISTS (SELECT 1 FROM ins)
+    /// ```
+    ///
+    /// Ini atomic — tidak ada window antara insert dan fetch.
+    ///
+    /// # Return
+    /// - `(order, true)`  → order baru berhasil di-insert
+    /// - `(order, false)` → idempotency conflict, order existing dikembalikan
     pub async fn insert_order(
         tx: &tokio_postgres::Transaction<'_>,
         id_bytes: &[u8],
@@ -152,14 +214,59 @@ impl OrderTx {
         total: f64,
         expired_at: chrono::DateTime<chrono::Utc>,
         idempotency_key: Option<&str>,
-    ) -> Result<Order> {
+    ) -> Result<(Order, bool)> {
+        // Kalau tidak ada idempotency_key → insert biasa, selalu Some
+        if idempotency_key.is_none() {
+            let row = tx
+                .query_one(
+                    &format!(
+                        "INSERT INTO orders \
+                         (id, customer_id, order_code, status, total_amount, expired_at) \
+                         VALUES ($1, $2, $3, 'pending', $4, $5) \
+                         RETURNING {cols}",
+                        cols = ORDER_COLS
+                    ),
+                    &[&id_bytes, &customer_bytes, &order_code, &total, &expired_at],
+                )
+                .await
+                .context("insert_order (no idempotency_key)")?;
+            return Ok((row_to_order(&row)?, true));
+        }
+
+        // Ada idempotency_key → CTE atomic: insert OR fetch existing dalam satu query.
+        //
+        // Kenapa CTE dan bukan dua query terpisah:
+        //   Dengan READ COMMITTED (default PG), dua query terpisah bisa race:
+        //   - Thread A insert, belum commit
+        //   - Thread B fetch → miss → error "conflict tapi tidak ketemu"
+        //   CTE dengan UNION ALL ini atomic dalam satu statement — tidak ada gap.
+        //
+        // UNIQUE INDEX yang dibutuhkan:
+        //   CREATE UNIQUE INDEX ON orders(customer_id, idempotency_key)
+        //   WHERE idempotency_key IS NOT NULL;
         let row = tx
             .query_one(
                 &format!(
-                    "INSERT INTO orders \
-                     (id, customer_id, order_code, status, total_amount, expired_at, idempotency_key) \
-                     VALUES ($1, $2, $3, 'pending', $4, $5, $6) \
-                     RETURNING {cols}",
+                    r#"
+                    WITH ins AS (
+                        INSERT INTO orders
+                            (id, customer_id, order_code, status, total_amount,
+                             expired_at, idempotency_key)
+                        VALUES ($1, $2, $3, 'pending', $4, $5, $6)
+                        ON CONFLICT (customer_id, idempotency_key)
+                        WHERE idempotency_key IS NOT NULL
+                        DO NOTHING
+                        RETURNING {cols}, TRUE AS is_new
+                    )
+                    SELECT * FROM ins
+                    UNION ALL
+                    SELECT {cols}, FALSE AS is_new
+                    FROM orders
+                    WHERE customer_id = $2
+                      AND idempotency_key = $6
+                      AND NOT EXISTS (SELECT 1 FROM ins)
+                    LIMIT 1
+                    "#,
                     cols = ORDER_COLS
                 ),
                 &[
@@ -168,13 +275,14 @@ impl OrderTx {
                     &order_code,
                     &total,
                     &expired_at,
-                    &idempotency_key, // $6 — NULL jika tidak ada
+                    &idempotency_key,
                 ],
             )
             .await
-            .context("insert_order")?;
+            .context("insert_order (idempotency CTE)")?;
 
-        row_to_order(&row)
+        let is_new: bool = row.try_get("is_new").context("is_new")?;
+        Ok((row_to_order(&row)?, is_new))
     }
 
     /// Batch insert order_items — satu query, bukan O(n) round-trip.
@@ -187,7 +295,7 @@ impl OrderTx {
             return Ok(());
         }
 
-        const COLS: usize = 6; // id, order_id, ticket_variant_id, quantity, unit_price, subtotal
+        const COLS: usize = 6;
         let mut placeholders = Vec::with_capacity(items.len());
         for i in 0..items.len() {
             let b = i * COLS + 1;
@@ -229,33 +337,81 @@ impl OrderTx {
         Ok(())
     }
 
-    /// Batch bump sold — satu UPDATE via UNNEST, bukan O(n) query.
+    /// Batch bump sold — pre-aggregated + DB-level oversell guard.
+    ///
+    /// # Oversell Protection (Defense in Depth)
+    /// Walaupun aplikasi sudah validasi stok sebelum memanggil fungsi ini,
+    /// guard di DB tetap diperlukan sebagai last line of defense:
+    /// - Redis lock bisa gagal (network partition, GC pause, bug)
+    /// - Heartbeat bisa miss window
+    ///
+    /// Query ini:
+    /// 1. Pre-aggregate qty per variant via CTE (handle kasus satu variant
+    ///    muncul multiple kali dalam satu batch → cegah double counting)
+    /// 2. Guard `(quota - sold) >= total_qty` per variant, atomik di DB
+    /// 3. Kembalikan jumlah row yang ter-update
+    ///
+    /// # Error
+    /// Mengembalikan `OversellError` kalau `rows_updated != variants_count`.
+    /// Caller HARUS rollback transaksi.
     pub async fn bump_sold_batch(
         tx: &tokio_postgres::Transaction<'_>,
         updates: &[(Vec<u8>, i32)],
-    ) -> Result<()> {
+    ) -> Result<(), anyhow::Error> {
         if updates.is_empty() {
             return Ok(());
         }
 
-        let ids: Vec<Vec<u8>> = updates.iter().map(|(id, _)| id.clone()).collect();
-        let qtys: Vec<i32> = updates.iter().map(|(_, q)| *q).collect();
+        // Pre-aggregate di sisi Rust sebelum kirim ke DB.
+        // Ini menghindari kasus variant duplikat dalam satu batch
+        // yang bisa membuat guard per-row lolos walaupun total oversell.
+        //
+        // Contoh tanpa aggregasi:
+        //   quota=10, sold=8
+        //   batch: [variant_A +2, variant_A +2]
+        //   per-row: 10-8 >= 2 ✅, 10-8 >= 2 ✅  → tapi total +4 → oversell!
+        //
+        // Dengan aggregasi: total_qty=4, 10-8=2 < 4 → guard menolak ✅
+        let mut agg: std::collections::HashMap<Vec<u8>, i32> =
+            std::collections::HashMap::with_capacity(updates.len());
+        for (id, qty) in updates {
+            *agg.entry(id.clone()).or_insert(0) += qty;
+        }
 
-        tx.execute(
-            "UPDATE event_variants \
-               SET sold = sold + bump.qty \
-              FROM UNNEST($1::bytea[], $2::int4[]) AS bump(id, qty) \
-             WHERE event_variants.id = bump.id",
-            &[&ids, &qtys],
-        )
-        .await
-        .context("bump_sold_batch")?;
+        let ids: Vec<Vec<u8>> = agg.keys().cloned().collect();
+        let qtys: Vec<i32> = agg.values().cloned().collect();
+        let expected = ids.len();
+
+        // CTE: aggregate UNNEST → UPDATE dengan guard quota
+        // Guard `(ev.quota - ev.sold) >= agg.total_qty` di-eval atomik
+        // pada row yang ter-lock (sudah SELECT FOR UPDATE sebelumnya).
+        let updated = tx
+            .execute(
+                r#"
+                WITH agg AS (
+                    SELECT id, SUM(qty) AS total_qty
+                    FROM UNNEST($1::bytea[], $2::int4[]) AS t(id, qty)
+                    GROUP BY id
+                )
+                UPDATE event_variants ev
+                   SET sold = ev.sold + agg.total_qty
+                  FROM agg
+                 WHERE ev.id = agg.id
+                   AND (ev.quota - ev.sold) >= agg.total_qty
+                "#,
+                &[&ids, &qtys],
+            )
+            .await
+            .context("bump_sold_batch")?;
+
+        if updated as usize != expected {
+            return Err(anyhow::anyhow!(OversellError { updated, expected }));
+        }
 
         Ok(())
     }
 
-    /// Mark order paid — cek status pending DAN belum expired (double guard di DB).
-    /// Return jumlah baris yang terupdate (0 = gagal).
+    /// Mark order paid — double guard: status pending AND belum expired.
     pub async fn mark_paid(
         tx: &tokio_postgres::Transaction<'_>,
         order_bytes: &[u8],
@@ -273,7 +429,7 @@ impl OrderTx {
         .context("mark_paid")
     }
 
-    /// Ambil (order_item_id_bytes, qty) untuk minting tiket setelah pembayaran.
+    /// Ambil (order_item_id_bytes, qty) untuk minting tiket.
     pub async fn fetch_items_for_order(
         tx: &tokio_postgres::Transaction<'_>,
         order_bytes: &[u8],
@@ -292,14 +448,13 @@ impl OrderTx {
     /// Mint semua tiket dalam satu batch INSERT.
     pub async fn mint_tickets_batch(
         tx: &tokio_postgres::Transaction<'_>,
-        items: &[(Vec<u8>, i32)], // (order_item_id_bytes, qty)
+        items: &[(Vec<u8>, i32)],
     ) -> Result<u64> {
         let total: i32 = items.iter().map(|(_, q)| q).sum();
         if total == 0 {
             return Ok(0);
         }
 
-        // Siapkan semua baris tiket terlebih dahulu
         let mut ticket_rows: Vec<(Vec<u8>, Vec<u8>, String)> = Vec::with_capacity(total as usize);
         for (item_bytes, qty) in items {
             for _ in 0..*qty {
@@ -310,7 +465,7 @@ impl OrderTx {
             }
         }
 
-        const COLS: usize = 3; // id, order_item_id, ticket_code
+        const COLS: usize = 3;
         let mut placeholders = Vec::with_capacity(ticket_rows.len());
         for i in 0..ticket_rows.len() {
             let b = i * COLS + 1;
@@ -340,7 +495,6 @@ impl OrderTx {
     }
 
     /// Cancel order — hanya jika masih pending.
-    /// Return jumlah baris yang terupdate (0 = sudah tidak pending).
     pub async fn cancel_order(
         tx: &tokio_postgres::Transaction<'_>,
         order_bytes: &[u8],
@@ -375,8 +529,7 @@ impl OrderTx {
         .collect()
     }
 
-    /// Refund stok saat cancel — batch UNNEST, satu query.
-    /// GREATEST(0, sold - qty) mencegah sold jadi negatif akibat data kotor.
+    /// Refund stok saat cancel — GREATEST(0, ...) mencegah sold negatif.
     pub async fn refund_sold_batch(
         tx: &tokio_postgres::Transaction<'_>,
         updates: &[(Vec<u8>, i32)],
@@ -402,7 +555,7 @@ impl OrderTx {
     }
 }
 
-// ── Trait — read-only (tanpa transaksi) ───────────────────────────────────────
+// ── Trait ─────────────────────────────────────────────────────────────────────
 
 pub struct CreateOrderItemSpec<'a> {
     pub variant_id: &'a str,
