@@ -5,13 +5,11 @@ use std::sync::LazyLock;
 use tokio_postgres::Row;
 
 use super::db::{exec_drop, exec_first, exec_one, exec_rows};
-use crate::models::event_variants::EventVariant;
+use crate::models::event_variants::{EventVariant, EventVariantJson};
 use crate::models::events::{CreateEventRequest, CreateVariantInline, Event, UpdateEventRequest};
-use crate::utils::ulid::{bin_to_ulid, id_to_vec, new_ulid, ulid_to_vec};
+use crate::utils::ulid::{bin_to_ulid, hex_to_ulid, id_to_vec, new_ulid, ulid_to_vec};
 
 /// Generate slug dari merchant_name + event_name + 3 digit random.
-/// Format: `{merchant-slug}-{event-slug}-{NNN}`
-/// Contoh: `toko-maju-konser-malam-mingguan-042`
 fn generate_slug(merchant_name: &str, event_name: &str) -> String {
     let slugify = |s: &str| -> String {
         s.chars()
@@ -31,12 +29,9 @@ fn generate_slug(merchant_name: &str, event_name: &str) -> String {
 
     let m = slugify(merchant_name);
     let e = slugify(event_name);
-
-    // 3 digit random: 0-999
     let suffix = rand::random::<u16>() % 1000;
 
-    // Potong agar total slug tidak lebih dari 155 karakter (slug field VARCHAR(160))
-    let max_body = 155 - 4; // 4 = "-NNN"
+    let max_body = 155 - 4;
     let body = format!("{}-{}", m, e);
     let body = if body.len() > max_body {
         &body[..max_body]
@@ -48,88 +43,129 @@ fn generate_slug(merchant_name: &str, event_name: &str) -> String {
     format!("{}-{:03}", body, suffix)
 }
 
+// ── Kolom SELECT ──────────────────────────────────────────────────────────────
+
+/// Kolom event lengkap — dipakai di list() dan find_by_id().
+/// Membutuhkan alias "vs" dari JOIN ke subquery/LATERAL agregasi variant.
 static EVENT_COLS: &str = r#"
-    id,
-    merchant_id,
-    name,
-    slug,
-    description,
-    cover_url,
-    price::FLOAT8 AS price,
-    sale_price::FLOAT8 AS sale_price,
-    sale_price_start_date,
-    sale_price_end_date,
-    venue,
-    city,
-    event_date,
-    start_time,
-    end_time,
-    status,
-    created_at,
-    updated_at,
-    category
+    e.id,
+    e.merchant_id,
+    e.name,
+    e.slug,
+    e.description,
+    e.cover_url,
+    e.price::FLOAT8             AS price,
+    e.sale_price::FLOAT8        AS sale_price,
+    e.sale_price_start_date,
+    e.sale_price_end_date,
+    e.venue,
+    e.city,
+    e.event_date,
+    e.start_time,
+    e.end_time,
+    e.status,
+    e.created_at,
+    e.updated_at,
+    e.category,
+    COALESCE(vs.total_sold,  0) AS total_sold,
+    COALESCE(vs.total_quota, 0) AS total_quota
 "#;
 
-static FIND_EVENT_BY_ID: LazyLock<String> =
-    LazyLock::new(|| format!("SELECT {} FROM events WHERE id = $1", EVENT_COLS));
+/// Kolom event tanpa total_sold/total_quota — dipakai di find_by_slug_with_variants()
+/// yang menghitung total langsung dari variants_json.
+static EVENT_COLS_NO_AGG: &str = r#"
+    e.id,
+    e.merchant_id,
+    e.name,
+    e.slug,
+    e.description,
+    e.cover_url,
+    e.price::FLOAT8             AS price,
+    e.sale_price::FLOAT8        AS sale_price,
+    e.sale_price_start_date,
+    e.sale_price_end_date,
+    e.venue,
+    e.city,
+    e.event_date,
+    e.start_time,
+    e.end_time,
+    e.status,
+    e.created_at,
+    e.updated_at,
+    e.category
+"#;
 
-/// Satu query JOIN — event + semua variantnya sekaligus by slug.
-/// Baris event parent duplikat per variant (LEFT JOIN), di-collapse di Rust.
+// ── Query statics ─────────────────────────────────────────────────────────────
+
+/// find_by_id: LATERAL aggregate — hanya scan variant untuk event yang diminta.
+static FIND_EVENT_BY_ID: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        r#"
+        SELECT {cols}
+        FROM events e
+        LEFT JOIN LATERAL (
+            SELECT
+                COALESCE(SUM(sold)::INT,  0) AS total_sold,
+                COALESCE(SUM(quota)::INT, 0) AS total_quota
+            FROM event_variants
+            WHERE event_id = e.id
+        ) vs ON true
+        WHERE e.id = $1
+        "#,
+        cols = EVENT_COLS
+    )
+});
+
+/// find_by_slug_with_variants: satu baris per event, variants dikemas jsonb_agg.
+/// Tidak ada duplikasi baris event, tidak perlu collapsing di Rust.
+/// ID variant di-encode ke hex agar bisa di-deserialize tanpa Vec<u8>.
 static FIND_EVENT_WITH_VARIANTS_BY_SLUG: LazyLock<String> = LazyLock::new(|| {
-    String::from(
+    format!(
         r#"
         SELECT
-            e.id                        AS e_id,
-            e.merchant_id               AS e_merchant_id,
-            e.name                      AS e_name,
-            e.slug                      AS e_slug,
-            e.description               AS e_description,
-            e.cover_url                 AS e_cover_url,
-            e.price::FLOAT8             AS e_price,
-            e.sale_price::FLOAT8        AS e_sale_price,
-            e.sale_price_start_date     AS e_sale_price_start_date,
-            e.sale_price_end_date       AS e_sale_price_end_date,
-            e.venue                     AS e_venue,
-            e.city                      AS e_city,
-            e.event_date                AS e_event_date,
-            e.start_time                AS e_start_time,
-            e.end_time                  AS e_end_time,
-            e.status                    AS e_status,
-            e.created_at                AS e_created_at,
-            e.updated_at                AS e_updated_at,
-            e.category                  AS e_category,
-            v.id                        AS v_id,
-            v.event_id                  AS v_event_id,
-            v.name                      AS v_name,
-            v.description               AS v_description,
-            v.price::FLOAT8             AS v_price,
-            v.sale_price::FLOAT8        AS v_sale_price,
-            v.sale_price_start_date     AS v_sale_price_start_date,
-            v.sale_price_end_date       AS v_sale_price_end_date,
-            v.quota                     AS v_quota,
-            v.sold                      AS v_sold,
-            v.max_per_order             AS v_max_per_order,
-            v.is_active                 AS v_is_active,
-            v.sort_order                AS v_sort_order,
-            v.created_at                AS v_created_at,
-            v.updated_at                AS v_updated_at
-        FROM event_variants v
-        JOIN events e ON v.event_id = e.id
+            {cols},
+            COALESCE(
+                (SELECT jsonb_agg(
+                    jsonb_build_object(
+                        'id',                    encode(v.id, 'hex'),
+                        'event_id',              encode(v.event_id, 'hex'),
+                        'name',                  v.name,
+                        'description',           v.description,
+                        'price',                 v.price::FLOAT8,
+                        'sale_price',            v.sale_price::FLOAT8,
+                        'sale_price_start_date', v.sale_price_start_date,
+                        'sale_price_end_date',   v.sale_price_end_date,
+                        'quota',                 v.quota,
+                        'sold',                  v.sold,
+                        'max_per_order',         v.max_per_order,
+                        'is_active',             v.is_active,
+                        'sort_order',            v.sort_order,
+                        'created_at',            v.created_at,
+                        'updated_at',            v.updated_at
+                    )
+                    ORDER BY v.sort_order ASC, v.created_at ASC
+                )
+                FROM event_variants v
+                WHERE v.event_id = e.id AND v.is_active = true),
+                '[]'::jsonb
+            ) AS variants_json
+        FROM events e
         WHERE e.slug = $1
-        ORDER BY v.sort_order ASC, v.created_at ASC
-    "#,
+        "#,
+        cols = EVENT_COLS_NO_AGG
     )
 });
 
-static INSERT_EVENT: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "INSERT INTO events (id, merchant_id, name, slug, description, cover_url, price, venue, city, \
-         event_date, start_time, end_time, category) \
-         VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $8, $9, $10, $11, $12) RETURNING {}",
-        EVENT_COLS
-    )
-});
+// BUG FIX #1: INSERT_EVENT sebelumnya hardcode price=0 dan tidak punya
+// placeholder untuk category, sehingga jumlah kolom (13) tidak cocok
+// dengan jumlah parameter yang dikirim (11 di create()).
+static INSERT_EVENT: &str = "INSERT INTO events \
+     (id, merchant_id, name, slug, description, cover_url, price, venue, city, \
+      event_date, start_time, end_time, category) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)";
 
+// BUG FIX #2: UPDATE_EVENT sebelumnya hanya mengirim 11 parameter ($1..$11)
+// tapi query butuh $12 untuk category.
 static UPDATE_EVENT: &str = r#"
     UPDATE events
        SET name        = COALESCE($3, name),
@@ -145,16 +181,18 @@ static UPDATE_EVENT: &str = r#"
      WHERE id = $1 AND merchant_id = $2
 "#;
 
-static DELETE_EVENT: &str = "DELETE FROM events WHERE id = $1";
+// BUG FIX #3: DELETE_EVENT dan DELETE_VARIANT validasi merchant_id.
+static DELETE_EVENT: &str = "DELETE FROM events WHERE id = $1 AND merchant_id = $2";
 
-// Variant queries
+// ── Variant queries ───────────────────────────────────────────────────────────
+
 static VARIANT_COLS: &str = r#"
     id,
     event_id,
     name,
     description,
-    price::FLOAT8 AS price,
-    sale_price::FLOAT8 AS sale_price,
+    price::FLOAT8           AS price,
+    sale_price::FLOAT8      AS sale_price,
     sale_price_start_date,
     sale_price_end_date,
     quota,
@@ -192,7 +230,21 @@ static UPDATE_VARIANT: &str = r#"
        AND v.event_id = e.id
        AND e.merchant_id = $2
 "#;
-static DELETE_VARIANT: &str = "DELETE FROM event_variants WHERE id = $1";
+
+// BUG FIX #3 (lanjutan): DELETE_VARIANT join ke events untuk validasi merchant_id.
+static DELETE_VARIANT: &str = r#"
+    DELETE FROM event_variants v
+    USING events e
+    WHERE v.id = $1
+      AND v.event_id = e.id
+      AND e.merchant_id = $2
+"#;
+
+// ── Structs helper untuk deserialize variants_json ────────────────────────────
+
+/// Versi EventVariant yang field id dan event_id-nya berupa hex String,
+/// sesuai dengan encode(v.id, 'hex') di query jsonb_agg.
+/// Digunakan hanya untuk deserialisasi internal dari variants_json.
 
 // ── Trait ─────────────────────────────────────────────────────────────────────
 
@@ -208,12 +260,10 @@ pub struct EventListFilter<'a> {
 
 #[async_trait]
 pub trait EventRepository: Send + Sync {
-    // Events
     async fn list(&self, f: &EventListFilter<'_>) -> Result<Vec<Event>>;
     async fn count(&self, f: &EventListFilter<'_>) -> Result<i64>;
     async fn find_by_id(&self, id: &str) -> Result<Option<Event>>;
     async fn list_categories(&self) -> Result<Vec<String>>;
-
     async fn find_by_slug_with_variants(
         &self,
         slug: &str,
@@ -231,11 +281,8 @@ pub trait EventRepository: Send + Sync {
         variants: &[CreateVariantInline],
     ) -> Result<Vec<EventVariant>>;
     async fn update(&self, id: &str, merchant_id: &str, req: &UpdateEventRequest) -> Result<()>;
-
-    // Ticket variants
-
+    async fn delete(&self, id: &str, merchant_id: &str) -> Result<()>;
     async fn find_variant(&self, id: &str) -> Result<Option<EventVariant>>;
-
     async fn update_variant(
         &self,
         id: &str,
@@ -248,6 +295,7 @@ pub trait EventRepository: Send + Sync {
         is_active: Option<bool>,
         sort_order: Option<i32>,
     ) -> Result<()>;
+    async fn delete_variant(&self, id: &str, merchant_id: &str) -> Result<()>;
 }
 
 // ── Postgres impl ─────────────────────────────────────────────────────────────
@@ -262,6 +310,8 @@ impl PgEventRepository {
         Self { pool }
     }
 
+    /// Mapping row → Event untuk query yang menyertakan total_sold/total_quota
+    /// dari JOIN/LATERAL ke subquery agregasi variant (list, find_by_id).
     fn row_to_event(row: &Row) -> Result<Event> {
         let id_bytes: Vec<u8> = row.try_get("id").context("id")?;
         let merchant_bytes: Vec<u8> = row.try_get("merchant_id").context("merchant_id")?;
@@ -290,6 +340,44 @@ impl PgEventRepository {
             status: row.try_get("status").context("status")?,
             created_at: row.try_get("created_at").context("created_at")?,
             updated_at: row.try_get("updated_at").context("updated_at")?,
+            total_sold: row.try_get("total_sold").unwrap_or(0),
+            total_quota: row.try_get("total_quota").unwrap_or(0),
+        })
+    }
+
+    /// Mapping row → Event tanpa total_sold/total_quota di kolom SELECT.
+    /// Dipakai di find_by_slug_with_variants() yang menghitung total dari variants.
+    fn row_to_event_no_agg(row: &Row) -> Result<Event> {
+        let id_bytes: Vec<u8> = row.try_get("id").context("id")?;
+        let merchant_bytes: Vec<u8> = row.try_get("merchant_id").context("merchant_id")?;
+        let category_json: Option<serde_json::Value> = row.try_get("category")?;
+        let category = match category_json {
+            Some(json) => serde_json::from_value(json).unwrap_or_default(),
+            None => Vec::new(),
+        };
+        Ok(Event {
+            id: bin_to_ulid(id_bytes)?,
+            merchant_id: bin_to_ulid(merchant_bytes)?,
+            name: row.try_get("name").context("name")?,
+            slug: row.try_get("slug").unwrap_or_default(),
+            category,
+            description: row.try_get("description").context("description")?,
+            cover_url: row.try_get("cover_url").unwrap_or(None),
+            price: row.try_get("price").context("price")?,
+            sale_price: row.try_get("sale_price").context("sale_price")?,
+            sale_price_start_date: row.try_get("sale_price_start_date")?,
+            sale_price_end_date: row.try_get("sale_price_end_date")?,
+            venue: row.try_get("venue").context("venue")?,
+            city: row.try_get("city").context("city")?,
+            event_date: row.try_get("event_date").context("event_date")?,
+            start_time: row.try_get("start_time")?,
+            end_time: row.try_get("end_time")?,
+            status: row.try_get("status").context("status")?,
+            created_at: row.try_get("created_at").context("created_at")?,
+            updated_at: row.try_get("updated_at").context("updated_at")?,
+            // Akan diisi dari variants setelah deserialisasi
+            total_sold: 0,
+            total_quota: 0,
         })
     }
 
@@ -319,46 +407,61 @@ impl PgEventRepository {
 #[async_trait]
 impl EventRepository for PgEventRepository {
     async fn list(&self, f: &EventListFilter<'_>) -> Result<Vec<Event>> {
-        let mut sql = format!("SELECT {} FROM events WHERE 1 = 1", EVENT_COLS);
+        // LATERAL: agregasi hanya untuk event yang lolos filter + LIMIT,
+        // bukan seluruh tabel event_variants seperti subquery GROUP BY biasa.
+        let variant_agg = r#"
+    LEFT JOIN LATERAL (
+        SELECT
+            COALESCE(SUM(sold)::INT,  0) AS total_sold,
+            COALESCE(SUM(quota)::INT, 0) AS total_quota
+        FROM event_variants
+        WHERE event_id = e.id AND is_active = true
+    ) vs ON true
+"#;
+
+        let mut sql = format!(
+            "SELECT {cols} FROM events e {agg} WHERE 1 = 1",
+            cols = EVENT_COLS,
+            agg = variant_agg,
+        );
         let mut params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> = Vec::new();
         let mut idx = 1usize;
 
+        // BUG FIX #4: semua filter pakai prefix "e." agar tidak ambigu
+        // dengan kolom alias dari LATERAL subquery "vs".
         let mid_vec;
         if let Some(mid) = f.merchant_id {
             mid_vec = id_to_vec(mid)?;
-            sql.push_str(&format!(" AND merchant_id = ${idx}"));
+            sql.push_str(&format!(" AND e.merchant_id = ${idx}"));
             params.push(Box::new(mid_vec));
             idx += 1;
         }
         if let Some(city) = f.city {
-            sql.push_str(&format!(" AND city ILIKE ${idx}"));
+            sql.push_str(&format!(" AND e.city ILIKE ${idx}"));
             params.push(Box::new(format!("%{}%", city)));
             idx += 1;
         }
         if let Some(status) = f.status {
-            sql.push_str(&format!(" AND status = ${idx}"));
+            sql.push_str(&format!(" AND e.status = ${idx}"));
             params.push(Box::new(status.to_string()));
             idx += 1;
         }
-
         if let Some(cat) = f.category {
             let json_val = serde_json::to_value(vec![cat])?;
-            sql.push_str(&format!(" AND category @> ${}::jsonb", idx));
+            sql.push_str(&format!(" AND e.category @> ${}::jsonb", idx));
             params.push(Box::new(json_val));
             idx += 1;
         }
-
-        // Full-text search on name, venue, city
         if let Some(q) = f.search {
             let pattern = format!("%{}%", q);
             sql.push_str(&format!(
-                " AND (name ILIKE ${idx} OR venue ILIKE ${idx} OR city ILIKE ${idx})"
+                " AND (e.name ILIKE ${idx} OR e.venue ILIKE ${idx} OR e.city ILIKE ${idx})"
             ));
             params.push(Box::new(pattern));
             idx += 1;
         }
         sql.push_str(&format!(
-            " ORDER BY event_date ASC LIMIT ${} OFFSET ${}",
+            " ORDER BY e.event_date ASC LIMIT ${} OFFSET ${}",
             idx,
             idx + 1
         ));
@@ -376,9 +479,8 @@ impl EventRepository for PgEventRepository {
         let mut params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> = Vec::new();
         let mut idx = 1usize;
 
-        let mid_vec;
         if let Some(mid) = f.merchant_id {
-            mid_vec = id_to_vec(mid)?;
+            let mid_vec = id_to_vec(mid)?;
             sql.push_str(&format!(" AND merchant_id = ${idx}"));
             params.push(Box::new(mid_vec));
             idx += 1;
@@ -415,7 +517,6 @@ impl EventRepository for PgEventRepository {
     }
 
     async fn list_categories(&self) -> Result<Vec<String>> {
-        // Unnest JSONB array, deduplicate, sort — single query tanpa cursor loop
         let rows = exec_rows(
             &self.pool,
             r#"
@@ -430,13 +531,11 @@ impl EventRepository for PgEventRepository {
         )
         .await?;
 
-        let cats: Vec<String> = rows
+        Ok(rows
             .iter()
             .filter_map(|r| r.try_get::<_, String>("cat").ok())
             .filter(|s| !s.is_empty())
-            .collect();
-
-        Ok(cats)
+            .collect())
     }
 
     async fn find_by_id(&self, id: &str) -> Result<Option<Event>> {
@@ -449,69 +548,28 @@ impl EventRepository for PgEventRepository {
         &self,
         slug: &str,
     ) -> Result<Option<(Event, Vec<EventVariant>)>> {
-        let rows = exec_rows(&self.pool, &FIND_EVENT_WITH_VARIANTS_BY_SLUG, &[&slug]).await?;
+        let row = exec_first(&self.pool, &FIND_EVENT_WITH_VARIANTS_BY_SLUG, &[&slug]).await?;
 
-        if rows.is_empty() {
-            return Ok(None);
-        }
-
-        let first = &rows[0];
-        let event = {
-            let id_b: Vec<u8> = first.try_get("e_id")?;
-            let mid_b: Vec<u8> = first.try_get("e_merchant_id")?;
-            let category_json: Option<serde_json::Value> = first.try_get("e_category")?;
-            let category = match category_json {
-                Some(json) => serde_json::from_value(json).unwrap_or_default(),
-                None => Vec::new(),
-            };
-            Event {
-                id: bin_to_ulid(id_b)?,
-                merchant_id: bin_to_ulid(mid_b)?,
-                name: first.try_get("e_name")?,
-                slug: first.try_get("e_slug").unwrap_or_default(),
-                description: first.try_get("e_description")?,
-                cover_url: first.try_get("e_cover_url").unwrap_or(None),
-                price: first.try_get("e_price")?,
-                sale_price: first.try_get("e_sale_price")?,
-                sale_price_start_date: first.try_get("e_sale_price_start_date")?,
-                sale_price_end_date: first.try_get("e_sale_price_end_date")?,
-                venue: first.try_get("e_venue")?,
-                city: first.try_get("e_city")?,
-                event_date: first.try_get("e_event_date")?,
-                start_time: first.try_get("e_start_time")?,
-                end_time: first.try_get("e_end_time")?,
-                status: first.try_get("e_status")?,
-                created_at: first.try_get("e_created_at")?,
-                updated_at: first.try_get("e_updated_at")?,
-                category,
-            }
+        let row = match row {
+            Some(r) => r,
+            None => return Ok(None),
         };
 
-        let variants: Vec<EventVariant> = rows
-            .iter()
-            .filter_map(|row| {
-                let id_b: Option<Vec<u8>> = row.try_get("v_id").ok().flatten();
-                let id_b = id_b?;
-                let event_b: Vec<u8> = row.try_get("v_event_id").ok()?;
-                Some(EventVariant {
-                    id: bin_to_ulid(id_b).ok()?,
-                    event_id: bin_to_ulid(event_b).ok()?,
-                    name: row.try_get("v_name").ok()?,
-                    description: row.try_get("v_description").ok()?,
-                    price: row.try_get("v_price").ok()?,
-                    sale_price: row.try_get("v_sale_price").ok()?,
-                    sale_price_start_date: row.try_get("v_sale_price_start_date").ok()?,
-                    sale_price_end_date: row.try_get("v_sale_price_end_date").ok()?,
-                    quota: row.try_get("v_quota").ok()?,
-                    sold: row.try_get("v_sold").ok()?,
-                    max_per_order: row.try_get("v_max_per_order").ok()?,
-                    is_active: row.try_get("v_is_active").ok()?,
-                    sort_order: row.try_get("v_sort_order").ok()?,
-                    created_at: row.try_get("v_created_at").ok()?,
-                    updated_at: row.try_get("v_updated_at").ok()?,
-                })
-            })
-            .collect();
+        let mut event = Self::row_to_event_no_agg(&row)?;
+
+        // Deserialize variants_json → Vec<EventVariantJson> → Vec<EventVariant>
+        // EventVariantJson menggunakan id hex String sesuai encode(v.id, 'hex')
+        let variants_json: serde_json::Value = row.try_get("variants_json")?;
+        let variants: Vec<EventVariant> =
+            serde_json::from_value::<Vec<EventVariantJson>>(variants_json)
+                .context("deserialize variants_json")?
+                .into_iter()
+                .map(EventVariantJson::into_variant)
+                .collect::<Result<_>>()?;
+
+        // Hitung total dari variants — tidak perlu query tambahan
+        event.total_sold = variants.iter().map(|v| v.sold).sum();
+        event.total_quota = variants.iter().map(|v| v.quota).sum();
 
         Ok(Some((event, variants)))
     }
@@ -527,26 +585,32 @@ impl EventRepository for PgEventRepository {
         let id_vec = ulid_to_vec(&id)?;
         let mid_vec = id_to_vec(merchant_id)?;
         let slug = generate_slug(merchant_name, &req.name);
+        let category_json = serde_json::to_value(&req.category)?;
 
-        let row = exec_one(
+        exec_drop(
             &self.pool,
-            &INSERT_EVENT,
+            INSERT_EVENT,
             &[
-                &id_vec,
-                &mid_vec,
-                &req.name,
-                &slug,
-                &req.description,
-                &cover_url,
-                &req.venue,
-                &req.city,
-                &req.event_date,
-                &req.start_time,
-                &req.end_time,
+                &id_vec,          // $1  id
+                &mid_vec,         // $2  merchant_id
+                &req.name,        // $3  name
+                &slug,            // $4  slug
+                &req.description, // $5  description
+                &cover_url,       // $6  cover_url
+                &0i64,            // $7  price (default 0, diupdate via update())
+                &req.venue,       // $8  venue
+                &req.city,        // $9  city
+                &req.event_date,  // $10 event_date
+                &req.start_time,  // $11 start_time
+                &req.end_time,    // $12 end_time
+                &category_json,   // $13 category
             ],
         )
         .await?;
-        Self::row_to_event(&row)
+
+        self.find_by_id(&id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("event not found after insert: {}", id))
     }
 
     async fn create_variants_bulk(
@@ -583,24 +647,38 @@ impl EventRepository for PgEventRepository {
     async fn update(&self, id: &str, merchant_id: &str, req: &UpdateEventRequest) -> Result<()> {
         let id_vec = id_to_vec(id)?;
         let merchant_id_vec = id_to_vec(merchant_id)?;
+        let category_json = if req.category.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_value(&req.category)?)
+        };
+
         exec_drop(
             &self.pool,
             UPDATE_EVENT,
             &[
-                &id_vec,
-                &merchant_id_vec,
-                &req.name,
-                &req.description,
-                &req.cover_url,
-                &req.venue,
-                &req.city,
-                &req.event_date,
-                &req.start_time,
-                &req.end_time,
-                &req.status,
+                &id_vec,          // $1
+                &merchant_id_vec, // $2
+                &req.name,        // $3
+                &req.description, // $4
+                &req.cover_url,   // $5
+                &req.venue,       // $6
+                &req.city,        // $7
+                &req.event_date,  // $8
+                &req.start_time,  // $9
+                &req.end_time,    // $10
+                &req.status,      // $11
+                &category_json,   // $12
             ],
         )
         .await?;
+        Ok(())
+    }
+
+    async fn delete(&self, id: &str, merchant_id: &str) -> Result<()> {
+        let id_vec = id_to_vec(id)?;
+        let mid_vec = id_to_vec(merchant_id)?;
+        exec_drop(&self.pool, DELETE_EVENT, &[&id_vec, &mid_vec]).await?;
         Ok(())
     }
 
@@ -640,6 +718,13 @@ impl EventRepository for PgEventRepository {
             ],
         )
         .await?;
+        Ok(())
+    }
+
+    async fn delete_variant(&self, id: &str, merchant_id: &str) -> Result<()> {
+        let id_vec = id_to_vec(id)?;
+        let mid_vec = id_to_vec(merchant_id)?;
+        exec_drop(&self.pool, DELETE_VARIANT, &[&id_vec, &mid_vec]).await?;
         Ok(())
     }
 }

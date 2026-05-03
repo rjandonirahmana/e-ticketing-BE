@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use ulid::Ulid;
 
 pub fn new_ulid() -> String {
@@ -45,6 +45,11 @@ pub fn bin_to_ulid(raw: Vec<u8>) -> Result<String> {
         .try_into()
         .map_err(|_| anyhow::anyhow!("Expected 16 bytes for ULID"))?;
     Ok(Ulid::from_bytes(arr).to_string())
+}
+
+pub fn hex_to_ulid(hex: &str) -> Result<String> {
+    let bytes = hex::decode(hex).context("hex_to_ulid: invalid hex")?;
+    bin_to_ulid(bytes)
 }
 
 pub fn bin_to_ulid_opt(val: Option<Vec<u8>>) -> Result<Option<String>> {

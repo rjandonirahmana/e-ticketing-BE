@@ -1,6 +1,9 @@
-use chrono::{DateTime, Utc};
+use anyhow::{Context, Result};
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
+
+use crate::utils::ulid::hex_to_ulid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventVariant {
@@ -19,6 +22,52 @@ pub struct EventVariant {
     pub sort_order: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct EventVariantJson {
+    id: String,
+    event_id: String,
+    name: String,
+    description: Option<String>,
+    price: f64,
+    sale_price: Option<f64>,
+    sale_price_start_date: Option<NaiveDate>,
+    sale_price_end_date: Option<NaiveDate>,
+    quota: i32,
+    sold: i32,
+    max_per_order: Option<i32>,
+    is_active: bool,
+    sort_order: i32,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+impl EventVariantJson {
+    pub fn into_variant(self) -> Result<EventVariant> {
+        // NaiveDate → DateTime<Utc> midnight
+        let to_dt = |d: NaiveDate| -> DateTime<Utc> {
+            Utc.from_utc_datetime(&d.and_hms_opt(0, 0, 0).unwrap())
+        };
+
+        Ok(EventVariant {
+            id: hex_to_ulid(&self.id).context("variant id hex→ulid")?,
+            event_id: hex_to_ulid(&self.event_id).context("variant event_id hex→ulid")?,
+            name: self.name,
+            description: self.description,
+            price: self.price,
+            sale_price: self.sale_price,
+            sale_price_start_date: self.sale_price_start_date.map(to_dt),
+            sale_price_end_date: self.sale_price_end_date.map(to_dt),
+            quota: self.quota,
+            sold: self.sold,
+            max_per_order: self.max_per_order,
+            is_active: self.is_active,
+            sort_order: self.sort_order,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        })
+    }
 }
 
 #[derive(Debug, Serialize, Clone)]

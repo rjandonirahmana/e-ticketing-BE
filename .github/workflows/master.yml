@@ -30,28 +30,3 @@ jobs:
           password: ${{ secrets.SERVER_PASSWORD }}
           script: |
             docker pull ${{ secrets.DOCKERHUB_USERNAME }}/kinetic:latest
-            docker stop kinetic || true
-            docker rm kinetic || true
-            docker run -d \
-              --name kinetic \
-              --restart unless-stopped \
-              -p 8080:8080 \
-              -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
-              -e DATABASE_URL_POI="${{ secrets.DATABASE_URL_POI }}" \
-              -e REDIS_URL="${{ secrets.REDIS_URL }}" \
-              -e JWT_SECRET="${{ secrets.JWT_SECRET }}" \
-              -e R2_ACCOUNT_ID="${{ secrets.R2_ACCOUNT_ID }}" \
-              -e R2_ACCESS_KEY_ID="${{ secrets.R2_ACCESS_KEY_ID }}" \
-              -e R2_SECRET_ACCESS_KEY="${{ secrets.R2_SECRET_ACCESS_KEY }}" \
-              -e R2_BUCKET_NAME="${{ secrets.R2_BUCKET_NAME }}" \
-              -e R2_PUBLIC_URL="${{ secrets.R2_PUBLIC_URL }}" \
-              -e WAHA_BASE_URL="${{ secrets.WAHA_BASE_URL }}" \
-              -e WAHA_SESSION="${{ secrets.WAHA_SESSION }}" \
-              -e WAHA_API_KEY="${{ secrets.WAHA_API_KEY }}" \
-              -e BCRYPT_COST=${{ secrets.BCRYPT_COST }} \
-              -e GARAGE_ENDPOINT="${{ secrets.GARAGE_ENDPOINT }}" \
-              -e GARAGE_ACCESS_KEY="${{ secrets.GARAGE_ACCESS_KEY }}" \
-              -e GARAGE_SECRET_KEY="${{ secrets.GARAGE_SECRET_KEY }}" \
-              -e GARAGE_BUCKET="${{ secrets.GARAGE_BUCKET }}" \
-              -e GARAGE_PUBLIC_URL="${{ secrets.GARAGE_PUBLIC_URL }}" \
-              ${{ secrets.DOCKERHUB_USERNAME }}/kinetic:latest

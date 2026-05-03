@@ -24,6 +24,8 @@ pub struct Event {
     pub status: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub total_sold: i32,
+    pub total_quota: i32,
 }
 
 #[derive(Debug, Serialize)]
