@@ -212,8 +212,8 @@ static FIND_EVENT_WITH_VARIANTS_BY_ID: LazyLock<String> = LazyLock::new(|| {
 
 static INSERT_EVENT: &str = "INSERT INTO events \
      (id, merchant_id, name, slug, description, cover_url, price, venue, city, \
-      event_date, start_time, end_time, category) \
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)";
+      event_date, start_time, end_time, category, status) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)";
 
 static UPDATE_EVENT: &str = r#"
     UPDATE events
@@ -673,6 +673,7 @@ impl EventRepository for PgEventRepository {
                     &req.start_time,  // $11 start_time
                     &req.end_time,    // $12 end_time
                     &category_json,   // $13 category
+                    &"edited".to_string(),
                 ],
             )
             .await;
