@@ -164,6 +164,7 @@ pub async fn update(
         .map_err(|e| AppError::BadRequest(format!("JSON tidak valid: {e}")))?;
 
     req.cover_url = cover_url;
+    req.status = Some("edited".to_string());
 
     Ok(Json(state.event_svc.update(&id, user.id(), req).await?))
 }

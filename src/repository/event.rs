@@ -5,9 +5,7 @@ use std::sync::LazyLock;
 use tokio_postgres::Row;
 
 use super::db::{exec_drop, exec_first, exec_one, exec_rows, get_conn};
-use crate::models::event_variants::{
-    cmp_by_effective_price, EventVariant, EventVariantJson,
-};
+use crate::models::event_variants::{EventVariant, EventVariantJson, cmp_by_effective_price};
 use crate::models::events::{CreateEventRequest, CreateVariantInline, Event, UpdateEventRequest};
 use crate::utils::ulid::{bin_to_ulid, id_to_vec, new_ulid, ulid_to_vec};
 
@@ -19,7 +17,13 @@ use crate::utils::ulid::{bin_to_ulid, id_to_vec, new_ulid, ulid_to_vec};
 fn generate_slug(merchant_name: &str, event_name: &str) -> String {
     let slugify = |s: &str| -> String {
         s.chars()
-            .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+            .map(|c| {
+                if c.is_alphanumeric() {
+                    c.to_ascii_lowercase()
+                } else {
+                    '-'
+                }
+            })
             .collect::<String>()
             .split('-')
             .filter(|p| !p.is_empty())
@@ -32,7 +36,11 @@ fn generate_slug(merchant_name: &str, event_name: &str) -> String {
     let suffix = rand::random::<u32>() & 0xFF_FFFF; // 24 bit → 6 hex chars
     let max_body = 155 - 7; // 6 hex + 1 dash
     let body = format!("{}-{}", m, e);
-    let body = if body.len() > max_body { &body[..max_body] } else { &body };
+    let body = if body.len() > max_body {
+        &body[..max_body]
+    } else {
+        &body
+    };
     let body = body.trim_end_matches('-');
     format!("{}-{:06x}", body, suffix)
 }
@@ -619,8 +627,7 @@ impl EventRepository for PgEventRepository {
         &self,
         slug: &str,
     ) -> Result<Option<(Event, Vec<EventVariant>)>> {
-        let row =
-            exec_first(&self.pool, &FIND_EVENT_WITH_VARIANTS_BY_SLUG, &[&slug]).await?;
+        let row = exec_first(&self.pool, &FIND_EVENT_WITH_VARIANTS_BY_SLUG, &[&slug]).await?;
 
         let row = match row {
             Some(r) => r,
@@ -715,8 +722,7 @@ impl EventRepository for PgEventRepository {
         let mut value_clauses = Vec::with_capacity(variants.len());
         for i in 0..variants.len() {
             let base = i * cols + 1;
-            let placeholders: Vec<String> =
-                (base..base + cols).map(|n| format!("${n}")).collect();
+            let placeholders: Vec<String> = (base..base + cols).map(|n| format!("${n}")).collect();
             value_clauses.push(format!("({})", placeholders.join(",")));
         }
 
@@ -734,17 +740,17 @@ impl EventRepository for PgEventRepository {
         let mut params: Vec<BoxParam> = Vec::with_capacity(variants.len() * cols);
         for (i, v) in variants.iter().enumerate() {
             let sort_order = v.sort_order.unwrap_or(i as i32);
-            params.push(Box::new(ids[i].clone()));          // id
-            params.push(Box::new(event_vec.clone()));       // event_id
-            params.push(Box::new(v.name.clone()));          // name
-            params.push(Box::new(v.description.clone()));   // description
-            params.push(Box::new(v.price));                 // price
-            params.push(Box::new(v.sale_price));            // sale_price
+            params.push(Box::new(ids[i].clone())); // id
+            params.push(Box::new(event_vec.clone())); // event_id
+            params.push(Box::new(v.name.clone())); // name
+            params.push(Box::new(v.description.clone())); // description
+            params.push(Box::new(v.price)); // price
+            params.push(Box::new(v.sale_price)); // sale_price
             params.push(Box::new(v.sale_price_start_date)); // sale_price_start_date
-            params.push(Box::new(v.sale_price_end_date));   // sale_price_end_date
-            params.push(Box::new(v.quota));                 // quota
-            params.push(Box::new(v.max_per_order));         // max_per_order
-            params.push(Box::new(sort_order));              // sort_order
+            params.push(Box::new(v.sale_price_end_date)); // sale_price_end_date
+            params.push(Box::new(v.quota)); // quota
+            params.push(Box::new(v.max_per_order)); // max_per_order
+            params.push(Box::new(sort_order)); // sort_order
         }
 
         let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
