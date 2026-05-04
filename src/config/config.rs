@@ -13,6 +13,7 @@ pub struct AppConfig {
     pub redis_url: String,
     pub waha: WahaConfig,
     pub garage: GarageConfig,
+    pub telegram: TelegramConfig,
 }
 
 #[derive(Clone, Debug)]
@@ -29,6 +30,15 @@ pub struct GarageConfig {
     pub secret_key: String,
     pub bucket: String,
     pub public_url: String,
+}
+
+/// Set di .env:
+///   TELEGRAM_BOT_TOKEN       — dari @BotFather
+///   TELEGRAM_ADMIN_CHAT_ID   — chat_id kamu, cek via @userinfobot
+#[derive(Clone, Debug)]
+pub struct TelegramConfig {
+    pub bot_token: String,
+    pub admin_chat_id: i64,
 }
 
 impl AppConfig {
@@ -71,6 +81,13 @@ impl AppConfig {
                 api_key: env::var("WAHA_API_KEY").unwrap_or_default(),
             },
             garage,
+            telegram: TelegramConfig {
+                bot_token: env::var("TELEGRAM_BOT_TOKEN").unwrap_or_default(),
+                admin_chat_id: env::var("TELEGRAM_ADMIN_CHAT_ID")
+                    .unwrap_or_else(|_| "0".into())
+                    .parse()
+                    .context("TELEGRAM_ADMIN_CHAT_ID must be a number")?,
+            },
         })
     }
 }

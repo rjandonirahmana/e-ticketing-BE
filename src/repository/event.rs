@@ -264,16 +264,16 @@ const VARIANT_INSERT_COLS: usize = 11;
 // $9 quota, $10 max_per_order, $11 is_active, $12 sort_order
 static UPDATE_VARIANT: &str = r#"
     UPDATE event_variants v
-       SET name                  = COALESCE($3,  v.name),
-           description           = COALESCE($4,  v.description),
-           price                 = COALESCE($5,  v.price),
-           sale_price            = COALESCE($6,  v.sale_price),
-           sale_price_start_date = COALESCE($7,  v.sale_price_start_date),
-           sale_price_end_date   = COALESCE($8,  v.sale_price_end_date),
-           quota                 = COALESCE($9,  v.quota),
-           max_per_order         = COALESCE($10, v.max_per_order),
-           is_active             = COALESCE($11, v.is_active),
-           sort_order            = COALESCE($12, v.sort_order)
+       SET name                  = COALESCE($3,          v.name),
+           description           = COALESCE($4,          v.description),
+           price                 = COALESCE(($5::float8)::numeric,  v.price),
+           sale_price            = COALESCE(($6::float8)::numeric,  v.sale_price),
+           sale_price_start_date = COALESCE($7,                v.sale_price_start_date),
+           sale_price_end_date   = COALESCE($8,                v.sale_price_end_date),
+           quota                 = COALESCE($9,                v.quota),
+           max_per_order         = COALESCE($10,               v.max_per_order),
+           is_active             = COALESCE($11,               v.is_active),
+           sort_order            = COALESCE($12,               v.sort_order)
       FROM events e
      WHERE v.id = $1
        AND v.event_id = e.id
@@ -447,8 +447,8 @@ impl PgEventRepository {
             quota: row.try_get("quota").context("quota")?,
             sold: row.try_get("sold").context("sold")?,
             max_per_order: row.try_get("max_per_order")?,
-            is_active: row.try_get("is_active").context("is_active")?,
-            sort_order: row.try_get("sort_order").context("sort_order")?,
+            is_active: row.try_get::<_, Option<bool>>("is_active")?.unwrap_or(true),
+            sort_order: row.try_get::<_, Option<i32>>("sort_order")?.unwrap_or(0),
             created_at: row.try_get("created_at").context("created_at")?,
             updated_at: row.try_get("updated_at").context("updated_at")?,
         })
@@ -666,14 +666,14 @@ impl EventRepository for PgEventRepository {
                     &slug,            // $4  slug
                     &req.description, // $5  description
                     &cover_url,       // $6  cover_url
-                    &0i64,            // $7  price (placeholder — derived from variants)
+                    &0f64,            // $7  price — placeholder, dihitung dari variants
                     &req.venue,       // $8  venue
                     &req.city,        // $9  city
                     &req.event_date,  // $10 event_date
                     &req.start_time,  // $11 start_time
                     &req.end_time,    // $12 end_time
                     &category_json,   // $13 category
-                    &"edited".to_string(),
+                    &"edited",        // $14 status — event baru selalu active
                 ],
             )
             .await;
@@ -723,7 +723,17 @@ impl EventRepository for PgEventRepository {
         let mut value_clauses = Vec::with_capacity(variants.len());
         for i in 0..variants.len() {
             let base = i * cols + 1;
-            let placeholders: Vec<String> = (base..base + cols).map(|n| format!("${n}")).collect();
+            // price = offset 4, sale_price = offset 5 — must cast float8→numeric
+            let placeholders: Vec<String> = (base..base + cols)
+                .enumerate()
+                .map(|(offset, n)| {
+                    if offset == 4 || offset == 5 {
+                        format!("(${{{n}}}::float8)::numeric")
+                    } else {
+                        format!("${{{n}}}")
+                    }
+                })
+                .collect();
             value_clauses.push(format!("({})", placeholders.join(",")));
         }
 
@@ -783,7 +793,7 @@ impl EventRepository for PgEventRepository {
                 &req.event_date,  // $8
                 &req.start_time,  // $9
                 &req.end_time,    // $10
-                &req.status,      // $11
+                &"edited",        // $11
                 &category_json,   // $12
             ],
         )
@@ -821,14 +831,17 @@ impl EventRepository for PgEventRepository {
     ) -> Result<()> {
         let id_vec = id_to_vec(id)?;
         let merchant_id_vec = id_to_vec(merchant_id)?;
+
+        let name_owned = name.map(|s| s.to_string());
+        let desc_owned = description.map(|s| s.to_string());
         exec_drop(
             &self.pool,
             UPDATE_VARIANT,
             &[
                 &id_vec,                // $1
                 &merchant_id_vec,       // $2
-                &name,                  // $3
-                &description,           // $4
+                &name_owned,            // $3
+                &desc_owned,            // $4
                 &price,                 // $5
                 &sale_price,            // $6
                 &sale_price_start_date, // $7

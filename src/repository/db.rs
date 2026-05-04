@@ -1,5 +1,4 @@
-// Re-usable DB helpers — kept available even when the current set of repos
-// only exercises a subset (matches the helper bag in the example project).
+// Re-usable DB helpers
 #![allow(dead_code)]
 
 use std::time::Duration;
@@ -14,7 +13,7 @@ pub async fn get_conn(pool: &Pool) -> Result<deadpool_postgres::Object> {
     match tokio::time::timeout(Duration::from_secs(5), pool.get()).await {
         Ok(Ok(conn)) => Ok(conn),
         Ok(Err(e)) => Err(e).context("Failed to get connection from pool"),
-        Err(_) => anyhow::bail!("Timeout getting connection from pool"),
+        Err(_) => anyhow::bail!("Timeout getting connection from pool (>5s)"),
     }
 }
 
@@ -35,7 +34,7 @@ pub fn col_opt_i32(row: &Row, name: &str) -> Option<i32> {
 
 // ── Query helpers ─────────────────────────────────────────────────────────────
 
-/// Run a query that returns no rows (INSERT without RETURNING / UPDATE / DELETE).
+/// Run a query that returns no rows (INSERT/UPDATE/DELETE).
 /// Returns the number of rows affected.
 pub async fn exec_drop(
     pool: &Pool,
@@ -43,11 +42,11 @@ pub async fn exec_drop(
     params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
 ) -> Result<u64> {
     let conn = get_conn(pool).await?;
-    let n = conn
-        .execute(query, params)
-        .await
-        .with_context(|| "exec_drop failed")?;
-    Ok(n)
+
+    conn.execute(query, params).await.map_err(|e| {
+        // Kita gabungkan error asli dari postgres dengan teks query
+        anyhow::anyhow!("exec_drop failed: {}\n  query: {}", e, query.trim())
+    })
 }
 
 /// Run a query and return all rows.
@@ -57,10 +56,9 @@ pub async fn exec_rows(
     params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
 ) -> Result<Vec<Row>> {
     let conn = get_conn(pool).await?;
-    conn.query(query, params).await.map_err(|e| {
-        tracing::error!(error = %e, query, params_count = params.len(), "exec_rows failed");
-        anyhow::anyhow!("exec_rows failed: {e}")
-    })
+    conn.query(query, params)
+        .await
+        .with_context(|| format!("exec_rows failed\n  query: {}", query.trim()))
 }
 
 /// Run a query and return the first row, or `None` if empty.
@@ -80,7 +78,10 @@ pub async fn exec_one(
     query: &str,
     params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
 ) -> Result<Row> {
-    exec_first(pool, query, params)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("Expected one row but got zero"))
+    exec_first(pool, query, params).await?.ok_or_else(|| {
+        anyhow::anyhow!(
+            "exec_one: expected one row but got zero\n  query: {}",
+            query.trim()
+        )
+    })
 }

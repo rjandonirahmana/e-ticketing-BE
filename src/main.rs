@@ -16,7 +16,9 @@ mod utils;
 mod ws;
 
 use config::{config::AppConfig, database::create_pool};
+use service::telegram::TelegramService;
 use state::AppState;
+use utils::error::init_telegram_notifier;
 use ws::handler::WsAppState;
 use ws::routes::chat_router;
 
@@ -38,6 +40,19 @@ async fn main() -> Result<()> {
 
     let cfg = AppConfig::from_env()?;
     tracing::info!(host=%cfg.host, port=cfg.port, "Config loaded");
+
+    // ── Init Telegram error notifier ──────────────────────────────────────────
+    // Setelah baris ini, setiap AppError 5xx otomatis kirim alert ke Telegram.
+    if cfg.telegram.bot_token.is_empty() || cfg.telegram.admin_chat_id == 0 {
+        tracing::warn!("TELEGRAM_BOT_TOKEN / TELEGRAM_ADMIN_CHAT_ID belum di-set — alert dinonaktifkan");
+    } else {
+        let tg = Arc::new(TelegramService::new(
+            cfg.telegram.bot_token.clone(),
+            cfg.telegram.admin_chat_id,
+        ));
+        init_telegram_notifier(tg);
+        tracing::info!(admin_chat_id = cfg.telegram.admin_chat_id, "Telegram error alert aktif ✅");
+    }
 
     let pool = create_pool(&cfg.database_url, cfg.db_pool_max_size).await?;
     tracing::info!("Postgres pool ready (max={})", cfg.db_pool_max_size);
