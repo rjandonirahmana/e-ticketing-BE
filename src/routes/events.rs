@@ -118,10 +118,54 @@ pub async fn update(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
     Path(id): Path<String>,
-    Json(body): Json<UpdateEventRequest>,
+    mut multipart: Multipart,
 ) -> AppResult<Json<EventWithVariants>> {
     user.require_role("merchant")?;
-    Ok(Json(state.event_svc.update(&id, user.id(), body).await?))
+
+    let mut image_bytes: Option<(Bytes, String)> = None;
+    let mut req_json: Option<String> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(e.to_string()))?
+    {
+        match field.name().unwrap_or("") {
+            "image" => {
+                let ct = field.content_type().unwrap_or("image/jpeg").to_string();
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| AppError::BadRequest(e.to_string()))?;
+                image_bytes = Some((data, ct));
+            }
+            "data" => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::BadRequest(e.to_string()))?;
+                req_json = Some(text);
+            }
+            _ => {}
+        }
+    }
+
+    // Upload image dulu jika ada — cover_url wajib sebelum insert event
+    let cover_url: Option<String> = match image_bytes {
+        Some((data, ct)) => {
+            let storage = state.storage.clone();
+            Some(storage.upload_image(data, &ct).await?)
+        }
+        None => None,
+    };
+
+    let json = req_json.ok_or_else(|| AppError::BadRequest("Field 'data' wajib ada".into()))?;
+    let mut req: UpdateEventRequest = serde_json::from_str(&json)
+        .map_err(|e| AppError::BadRequest(format!("JSON tidak valid: {e}")))?;
+
+    req.cover_url = cover_url;
+
+    Ok(Json(state.event_svc.update(&id, user.id(), req).await?))
 }
 
 // ── Variants (masih tersedia untuk update/delete individual) ─────────────────
