@@ -1,7 +1,7 @@
 //! routes/upload.rs — Image upload endpoint.
 //!
 //! POST /api/upload/image   multipart/form-data, field "file"
-//! Response: { "url": "https://ulalaapi.store/image/uuid.jpg" }
+//! Response: { "url": "https://image.ulalaapi.store/image/events/uuid.jpg" }
 
 use std::sync::Arc;
 
@@ -40,7 +40,9 @@ pub async fn upload_image(
             .await
             .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-        let url = storage.upload_image(data, &content_type).await?;
+        // FIX: pass folder_name — was missing, causing compile error.
+        // Use "events" as default folder so URL = /image/events/uuid.jpg
+        let url = storage.upload_image(data, "events", &content_type).await?;
         return Ok(Json(json!({ "url": url })));
     }
 

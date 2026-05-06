@@ -28,6 +28,10 @@ async fn main() -> Result<()> {
         .install_default()
         .expect("Failed to install rustls crypto provider");
 
+    // FIX: dotenvy MUST come before tracing init so RUST_LOG from .env is picked up.
+    // Previously this was called AFTER tracing init → RUST_LOG from .env file ignored.
+    dotenvy::dotenv().ok();
+
     tracing_subscriber::registry()
         .with(
             EnvFilter::try_from_default_env()
@@ -36,46 +40,35 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    dotenvy::dotenv().ok();
-
     let cfg = AppConfig::from_env()?;
     tracing::info!(host=%cfg.host, port=cfg.port, "Config loaded");
 
-    // ── Init Telegram error notifier ──────────────────────────────────────────
-    // Setelah baris ini, setiap AppError 5xx otomatis kirim alert ke Telegram.
     if cfg.telegram.bot_token.is_empty() || cfg.telegram.admin_chat_id == 0 {
-        tracing::warn!(
-            "TELEGRAM_BOT_TOKEN / TELEGRAM_ADMIN_CHAT_ID belum di-set — alert dinonaktifkan"
-        );
+        tracing::warn!("TELEGRAM_BOT_TOKEN / TELEGRAM_ADMIN_CHAT_ID belum di-set — alert dinonaktifkan");
     } else {
         let tg = Arc::new(TelegramService::new(
             cfg.telegram.bot_token.clone(),
             cfg.telegram.admin_chat_id,
         ));
         init_telegram_notifier(tg);
-        tracing::info!(
-            admin_chat_id = cfg.telegram.admin_chat_id,
-            "Telegram error alert aktif ✅"
-        );
+        tracing::info!(admin_chat_id = cfg.telegram.admin_chat_id, "Telegram error alert aktif ✅");
     }
 
     let pool = create_pool(&cfg.database_url, cfg.db_pool_max_size).await?;
     tracing::info!("Postgres pool ready (max={})", cfg.db_pool_max_size);
 
-    let redis_url = format!("{}/1", cfg.redis_url.trim_end_matches('/'));
+    let redis_url    = format!("{}/1", cfg.redis_url.trim_end_matches('/'));
     let redis_client = redis::Client::open(redis_url.as_str())?;
-    let redis_conn = redis::aio::ConnectionManager::new_with_config(
+    let redis_conn   = redis::aio::ConnectionManager::new_with_config(
         redis_client.clone(),
         redis::aio::ConnectionManagerConfig::new()
             .set_response_timeout(Some(std::time::Duration::from_secs(10)))
             .set_connection_timeout(Some(std::time::Duration::from_secs(10)))
             .set_number_of_retries(3),
-    )
-    .await?;
+    ).await?;
     tracing::info!("Redis connected to DB 1");
 
-    // Redis terpisah untuk WS (DB 2 agar tidak bentrok dengan OTP)
-    let ws_redis_url = format!("{}/2", cfg.redis_url.trim_end_matches('/'));
+    let ws_redis_url    = format!("{}/2", cfg.redis_url.trim_end_matches('/'));
     let ws_redis_client = redis::Client::open(ws_redis_url.as_str())?;
 
     let state = Arc::new(
@@ -88,22 +81,15 @@ async fn main() -> Result<()> {
             redis_conn,
             ws_redis_client,
             cfg.rustfs,
-        )
-        .await,
+        ).await,
     );
 
-    // Wire OrderService dengan GroupChatService (setelah state dibuat)
-    // Note: Rust ownership membuat ini sedikit verbose — kita set after init via Arc::new
-    // Solusi sederhana: state.order_svc clone dan re-wrap sudah cukup karena Arc.
-
-    // WS app state (terpisah dari main AppState untuk router isolation)
     let ws_state = Arc::new(WsAppState {
-        jwt: state.jwt.clone(),
-        ws_mgr: state.ws_mgr.clone(),
+        jwt:       state.jwt.clone(),
+        ws_mgr:    state.ws_mgr.clone(),
         group_svc: state.group_chat_svc.clone(),
     });
 
-    // Build router — CorsLayer di sini agar cover semua route termasuk /ws/chat
     let app = routes::build_router(state.clone())
         .merge(chat_router(ws_state.clone(), state.clone()))
         .layer(
@@ -113,7 +99,7 @@ async fn main() -> Result<()> {
                 .allow_origin(tower_http::cors::Any),
         );
 
-    let addr = format!("{}:{}", cfg.host, cfg.port);
+    let addr     = format!("{}:{}", cfg.host, cfg.port);
     let listener = TcpListener::bind(&addr).await?;
     tracing::info!("KINETIC API + WS listening on http://{}", addr);
 
