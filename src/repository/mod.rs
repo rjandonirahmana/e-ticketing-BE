@@ -1,3 +1,4 @@
+pub mod banner;
 pub mod db;
 pub mod event;
 pub mod group_chat;

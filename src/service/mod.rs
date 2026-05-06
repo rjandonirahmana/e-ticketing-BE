@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod banners;
 pub mod event;
 pub mod group_chat;
 pub mod merchant;
