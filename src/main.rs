@@ -44,14 +44,19 @@ async fn main() -> Result<()> {
     // ── Init Telegram error notifier ──────────────────────────────────────────
     // Setelah baris ini, setiap AppError 5xx otomatis kirim alert ke Telegram.
     if cfg.telegram.bot_token.is_empty() || cfg.telegram.admin_chat_id == 0 {
-        tracing::warn!("TELEGRAM_BOT_TOKEN / TELEGRAM_ADMIN_CHAT_ID belum di-set — alert dinonaktifkan");
+        tracing::warn!(
+            "TELEGRAM_BOT_TOKEN / TELEGRAM_ADMIN_CHAT_ID belum di-set — alert dinonaktifkan"
+        );
     } else {
         let tg = Arc::new(TelegramService::new(
             cfg.telegram.bot_token.clone(),
             cfg.telegram.admin_chat_id,
         ));
         init_telegram_notifier(tg);
-        tracing::info!(admin_chat_id = cfg.telegram.admin_chat_id, "Telegram error alert aktif ✅");
+        tracing::info!(
+            admin_chat_id = cfg.telegram.admin_chat_id,
+            "Telegram error alert aktif ✅"
+        );
     }
 
     let pool = create_pool(&cfg.database_url, cfg.db_pool_max_size).await?;
@@ -82,7 +87,7 @@ async fn main() -> Result<()> {
             Arc::new(cfg.waha),
             redis_conn,
             ws_redis_client,
-            cfg.garage,
+            cfg.rustfs,
         )
         .await,
     );

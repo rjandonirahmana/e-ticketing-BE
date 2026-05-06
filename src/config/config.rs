@@ -12,7 +12,7 @@ pub struct AppConfig {
     pub bcrypt_cost: u32,
     pub redis_url: String,
     pub waha: WahaConfig,
-    pub garage: GarageConfig,
+    pub rustfs: RustFsConfig,
     pub telegram: TelegramConfig,
 }
 
@@ -23,8 +23,17 @@ pub struct WahaConfig {
     pub api_key: String,
 }
 
+/// Konfigurasi RustFS S3-compatible storage.
+///
+/// Set di .env:
+///   RUSTFS_ENDPOINT    — S3 API endpoint, e.g. http://127.0.0.1:9000
+///   RUSTFS_ACCESS_KEY  — access key (dari RustFS console)
+///   RUSTFS_SECRET_KEY  — secret key
+///   RUSTFS_BUCKET      — nama bucket, e.g. "images"
+///   RUSTFS_PUBLIC_URL  — base URL publik yang terlihat oleh client,
+///                        e.g. https://image.ulalaapi.store
 #[derive(Clone, Debug)]
-pub struct GarageConfig {
+pub struct RustFsConfig {
     pub endpoint: String,
     pub access_key: String,
     pub secret_key: String,
@@ -43,17 +52,14 @@ pub struct TelegramConfig {
 
 impl AppConfig {
     pub fn from_env() -> anyhow::Result<Self> {
-        // Garage optional — jika env tidak ada, storage dinonaktifkan
-        let garage = GarageConfig {
-            endpoint: env::var("GARAGE_ENDPOINT")
-                .unwrap_or_else(|_| "http://77.237.242.1:3900".into()),
-            access_key: env::var("GARAGE_ACCESS_KEY")
-                .unwrap_or_else(|_| "http://77.237.242.1:3900".into()),
-            secret_key: env::var("GARAGE_SECRET_KEY")
-                .unwrap_or_else(|_| "http://77.237.242.1:3900".into()),
-            bucket: env::var("GARAGE_BUCKET").unwrap_or_else(|_| "image".into()),
-            public_url: env::var("GARAGE_PUBLIC_URL")
-                .unwrap_or_else(|_| "https://ulalaapi.store/image".into()),
+        let rustfs = RustFsConfig {
+            endpoint: env::var("RUSTFS_ENDPOINT")
+                .unwrap_or_else(|_| "http://127.0.0.1:9000".into()),
+            access_key: env::var("RUSTFS_ACCESS_KEY").context("RUSTFS_ACCESS_KEY is required")?,
+            secret_key: env::var("RUSTFS_SECRET_KEY").context("RUSTFS_SECRET_KEY is required")?,
+            bucket: "ticketing".into(),
+            public_url: env::var("RUSTFS_PUBLIC_URL")
+                .unwrap_or_else(|_| "https://image.ulalaapi.store".into()),
         };
 
         Ok(Self {
@@ -80,7 +86,7 @@ impl AppConfig {
                 session: env::var("WAHA_SESSION").unwrap_or_else(|_| "default".into()),
                 api_key: env::var("WAHA_API_KEY").unwrap_or_default(),
             },
-            garage,
+            rustfs,
             telegram: TelegramConfig {
                 bot_token: env::var("TELEGRAM_BOT_TOKEN").unwrap_or_default(),
                 admin_chat_id: env::var("TELEGRAM_ADMIN_CHAT_ID")

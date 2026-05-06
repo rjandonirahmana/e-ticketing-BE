@@ -94,7 +94,7 @@ pub async fn create(
     let cover_url: Option<String> = match image_bytes {
         Some((data, ct)) => {
             let storage = state.storage.clone();
-            Some(storage.upload_image(data, &ct).await?)
+            Some(storage.upload_image(data, &"/event", &ct).await?)
         }
         None => None,
     };
@@ -154,7 +154,7 @@ pub async fn update(
     let cover_url: Option<String> = match image_bytes {
         Some((data, ct)) => {
             let storage = state.storage.clone();
-            Some(storage.upload_image(data, &ct).await?)
+            Some(storage.upload_image(data, &"/event", &ct).await?)
         }
         None => None,
     };

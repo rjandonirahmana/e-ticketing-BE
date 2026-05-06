@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
+use anyhow::Context;
 use deadpool_postgres::Pool;
 use redis::aio::ConnectionManager;
 
-use crate::config::config::WahaConfig;
+use crate::config::config::{RustFsConfig, WahaConfig};
 use crate::repository::{
     event::PgEventRepository, group_chat::GroupChatRepository, merchant::PgMerchantRepository,
     order::PgOrderRepository, ticket::PgTicketRepository, user::PgUserRepository,
@@ -27,7 +28,6 @@ pub struct AppState {
     pub ticket_svc: Arc<TicketService>,
     pub group_chat_svc: Arc<GroupChatService>,
     pub ws_mgr: Arc<WsManager>,
-    /// None jika GARAGE_ACCESS_KEY tidak di-set
     pub storage: Arc<StorageService>,
 }
 
@@ -40,7 +40,7 @@ impl AppState {
         waha: Arc<WahaConfig>,
         redis: ConnectionManager,
         redis_client: redis::Client,
-        garage: crate::config::config::GarageConfig,
+        rustfs: RustFsConfig,
     ) -> Self {
         let jwt = JwtService::new(jwt_secret);
 
@@ -68,10 +68,14 @@ impl AppState {
         let order_svc = Arc::new(OrderService::new(order_repo, redis, pool.clone()));
         let ticket_svc = Arc::new(TicketService::new(ticket_repo));
         let group_chat_svc = Arc::new(GroupChatService::new(group_chat_repo, ws_mgr.clone()));
-        let storage = Arc::new(StorageService::new(&garage));
+        let storage = Arc::new(StorageService::new(&rustfs));
 
-        storage.clone().check_health().await;
-
+        // Health check RustFS — log error tapi tidak panic
+        let _ = storage.init().await.map_err(|e| {
+            tracing::error!("Storage init failed: {:?}", e);
+            e
+        });
+        storage.check_health().await;
         Self {
             pool,
             jwt,
