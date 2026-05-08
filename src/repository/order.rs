@@ -222,7 +222,7 @@ impl OrderTx {
                     &format!(
                         "INSERT INTO orders \
                          (id, customer_id, order_code, status, total_amount, expired_at) \
-                         VALUES ($1, $2, $3, 'pending', $4, $5) \
+                         VALUES ($1, $2, $3, 'pending', $4::numeric, $5) \
                          RETURNING {cols}",
                         cols = ORDER_COLS
                     ),
@@ -252,7 +252,7 @@ impl OrderTx {
                         INSERT INTO orders
                             (id, customer_id, order_code, status, total_amount,
                              expired_at, idempotency_key)
-                        VALUES ($1, $2, $3, 'pending', $4, $5, $6)
+                        VALUES ($1, $2, $3, 'pending', $4::numeric, $5, $6)
                         ON CONFLICT (customer_id, idempotency_key)
                         WHERE idempotency_key IS NOT NULL
                         DO NOTHING
