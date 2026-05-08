@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
@@ -8,7 +9,7 @@ pub struct Order {
     pub customer_id: String,
     pub order_code: String,
     pub status: String,
-    pub total_amount: f64,
+    pub total_amount: Decimal,
     pub payment_method: Option<String>,
     pub paid_at: Option<DateTime<Utc>>,
     pub expired_at: Option<DateTime<Utc>>,
@@ -22,8 +23,8 @@ pub struct OrderItem {
     pub order_id: String,
     pub ticket_variant_id: String,
     pub quantity: i32,
-    pub unit_price: f64,
-    pub subtotal: f64,
+    pub unit_price: Decimal,
+    pub subtotal: Decimal,
     pub created_at: DateTime<Utc>,
 }
 
@@ -35,8 +36,8 @@ pub struct OrderItemResponse {
     pub event_id: String,
     pub event_name: String,
     pub quantity: i32,
-    pub unit_price: f64,
-    pub subtotal: f64,
+    pub unit_price: Decimal,
+    pub subtotal: Decimal,
 }
 
 #[derive(Debug, Serialize)]
@@ -45,7 +46,7 @@ pub struct OrderDetailResponse {
     pub customer_id: String,
     pub order_code: String,
     pub status: String,
-    pub total_amount: f64,
+    pub total_amount: Decimal,
     pub payment_method: Option<String>,
     pub paid_at: Option<DateTime<Utc>>,
     pub expired_at: Option<DateTime<Utc>>,

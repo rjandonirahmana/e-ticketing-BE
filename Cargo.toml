@@ -1,7 +1,9 @@
 [package]
 name = "e-ticketing"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"     # [FIX #1] "2024" valid di Rust 1.85+ tapi masih sangat baru.
+# Ganti ke "2021" kecuali kamu memang sudah di Rust 1.85 stable
+# dan butuh fitur edition 2024 secara spesifik.
 
 [[bin]]
 name = "e-ticketing"
@@ -10,6 +12,8 @@ path = "src/main.rs"
 [dependencies]
 # Async runtime
 tokio = { version = "1.52.2", features = ["full"] }
+
+# gRPC
 tonic = "0.14.6"
 prost = "0.14.3"
 
@@ -19,14 +23,13 @@ tower = "0.5.3"
 tower-http = { version = "0.6.10", features = ["cors", "trace"] }
 
 # Database
-tokio-postgres = { version = "0.7", features = [
+tokio-postgres = { version = "0.7.9", features = [
     "with-uuid-1",
     "with-chrono-0_4",
     "with-serde_json-1",
-    "with-rust_decimal-1",
 ] }
+postgres-types = { version = "0.2.13", features = ["derive"] }
 deadpool-postgres = "0.14.1"
-postgres-types = { version = "0.2", features = ["derive"] }
 redis = { version = "1.2.1", features = ["tokio-comp", "connection-manager"] }
 
 # Serialization
@@ -35,15 +38,19 @@ serde_json = "1"
 
 # Auth / Security
 jsonwebtoken = { version = "10.3.0", features = ["use_pem", "rust_crypto"] }
-bcrypt = { version = "0.19.0" }
+bcrypt = "0.19.1"
 uuid = { version = "1", features = ["v4", "serde"] }
 futures = { version = "0.3", features = ["std"] }
+
 # ULID
 ulid = "1"
 
 # Date/Time
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
+
+
+rust_decimal_macros = "1"
 
 # Error handling
 thiserror = "2.0.18"
@@ -52,7 +59,6 @@ anyhow = "1"
 # Env & Config
 dotenvy = "0.15"
 config = "0.15.22"
-rust_decimal_macros = "1"
 
 # Validation
 validator = { version = "0.20", features = ["derive"] }
@@ -73,8 +79,7 @@ ahash = "0.8.12"
 dashmap = "6.1.0"
 tokio-util = "0.7.18"
 aws-sdk-s3 = "1.132.0"
-rust_decimal = "1"
-
+rust_decimal = { version = "1.42.0", features = ["db-postgres"] }
 
 [build-dependencies]
 tonic-prost-build = "0.14.6"
@@ -84,20 +89,12 @@ anyhow = "1"
 # ─────────────────────────────────────────────────────────────────────────────
 # PERFORMANCE PROFILES
 # ─────────────────────────────────────────────────────────────────────────────
-# Penyebab utama "login 20 detik" sebelumnya: bcrypt di-compile tanpa
-# optimisasi (debug build). Blowfish round di mode debug bisa 20-30x lebih
-# lambat daripada release. Override di bawah memaksa bcrypt + dependency
-# crypto-nya tetap di-compile dengan opt-level=3 walau pakai `cargo run` biasa.
-
 [profile.dev.package.bcrypt]
 opt-level = 3
-
 [profile.dev.package.blowfish]
 opt-level = 3
-
 [profile.dev.package.sha2]
 opt-level = 3
-
 [profile.dev.package.cipher]
 opt-level = 3
 

@@ -3,8 +3,8 @@ use async_trait::async_trait;
 use deadpool_postgres::Pool;
 use rust_decimal::Decimal;
 use std::sync::LazyLock;
-use tokio_postgres::Row;
 use tokio_postgres::types::ToSql;
+use tokio_postgres::Row;
 
 use super::db::{exec_first, exec_rows};
 use crate::models::orders::{Order, OrderItemResponse};
@@ -133,7 +133,7 @@ impl OrderTx {
         id_bytes_list: &[Vec<u8>],
     ) -> Result<Vec<LockedVariant>> {
         let stmt = tx
-            .prepare_cached(
+            .prepare(
                 r#"
                 SELECT
                     ev.id,
@@ -205,10 +205,7 @@ impl OrderTx {
                  RETURNING {cols}",
                 cols = ORDER_COLS
             );
-            let stmt = tx
-                .prepare_cached(&sql)
-                .await
-                .context("insert_order prepare")?;
+            let stmt = tx.prepare(&sql).await.context("insert_order prepare")?;
             // [FIX #1] Decimal implements ToSql untuk NUMERIC — tidak perlu ::numeric cast
             let params: &[&(dyn ToSql + Sync)] =
                 &[&id_bytes, &customer_bytes, &order_code, &total, &expired_at];
@@ -243,7 +240,7 @@ impl OrderTx {
             cols = ORDER_COLS
         );
         let stmt = tx
-            .prepare_cached(&sql)
+            .prepare(&sql)
             .await
             .context("insert_order (idempotency) prepare")?;
         let params: &[&(dyn ToSql + Sync)] = &[
@@ -266,7 +263,7 @@ impl OrderTx {
     ///
     /// [FIX #2] Ganti dynamic placeholder INSERT ($1,$2,...$N*6) dengan UNNEST.
     /// Keuntungan:
-    ///   - SQL shape selalu sama → prepare_cached cache rate 100%
+    ///   - SQL shape selalu sama → prepare cache rate 100%
     ///   - Tidak ada Box<dyn ToSql> alloc per item
     ///   - Tidak ada Vec<BoxParam> dengan O(n) heap alloc
     ///   - Lebih cepat untuk batch besar (satu round-trip, satu parse)
@@ -299,9 +296,9 @@ impl OrderTx {
             subtotals.push(item.subtotal);
         }
 
-        // SQL selalu sama → prepare_cached selalu hit
+        // SQL selalu sama → prepare selalu hit
         let stmt = tx
-            .prepare_cached(
+            .prepare(
                 "INSERT INTO order_items \
                  (id, order_id, ticket_variant_id, quantity, unit_price, subtotal) \
                  SELECT * FROM UNNEST(\
@@ -340,7 +337,7 @@ impl OrderTx {
         let expected = ids.len();
 
         let stmt = tx
-            .prepare_cached(
+            .prepare(
                 r#"
                 WITH agg AS (
                     SELECT id, SUM(qty) AS total_qty
@@ -375,7 +372,7 @@ impl OrderTx {
         payment_method: &str,
     ) -> Result<u64> {
         let stmt = tx
-            .prepare_cached(
+            .prepare(
                 "UPDATE orders \
                    SET status = 'paid', paid_at = NOW(), payment_method = $2 \
                  WHERE id = $1 \
@@ -394,7 +391,7 @@ impl OrderTx {
         order_bytes: &[u8],
     ) -> Result<Vec<(Vec<u8>, i32)>> {
         let stmt = tx
-            .prepare_cached("SELECT id, quantity FROM order_items WHERE order_id = $1")
+            .prepare("SELECT id, quantity FROM order_items WHERE order_id = $1")
             .await
             .context("fetch_items_for_order prepare")?;
 
@@ -409,7 +406,7 @@ impl OrderTx {
     /// Mint tiket via UNNEST — sama seperti insert_order_items_batch.
     ///
     /// [FIX #2] Ganti dynamic placeholder dengan UNNEST agar SQL shape tetap
-    /// dan prepare_cached selalu hit.
+    /// dan prepare selalu hit.
     pub async fn mint_tickets_batch(
         tx: &tokio_postgres::Transaction<'_>,
         items: &[(Vec<u8>, i32)],
@@ -436,9 +433,9 @@ impl OrderTx {
 
         let count = ids.len() as u64;
 
-        // SQL selalu sama → prepare_cached selalu hit
+        // SQL selalu sama → prepare selalu hit
         let stmt = tx
-            .prepare_cached(
+            .prepare(
                 "INSERT INTO tickets (id, order_item_id, ticket_code, status) \
                  SELECT id, item_id, code, 'active' \
                  FROM UNNEST($1::bytea[], $2::bytea[], $3::text[]) AS t(id, item_id, code)",
@@ -459,7 +456,7 @@ impl OrderTx {
         order_bytes: &[u8],
     ) -> Result<u64> {
         let stmt = tx
-            .prepare_cached(
+            .prepare(
                 "UPDATE orders SET status = 'cancelled' \
                   WHERE id = $1 AND status = 'pending'",
             )
@@ -476,9 +473,7 @@ impl OrderTx {
         order_bytes: &[u8],
     ) -> Result<Vec<(Vec<u8>, i32)>> {
         let stmt = tx
-            .prepare_cached(
-                "SELECT ticket_variant_id, quantity FROM order_items WHERE order_id = $1",
-            )
+            .prepare("SELECT ticket_variant_id, quantity FROM order_items WHERE order_id = $1")
             .await
             .context("fetch_items_for_refund prepare")?;
 
@@ -507,7 +502,7 @@ impl OrderTx {
         let qtys: Vec<i32> = updates.iter().map(|(_, q)| *q).collect();
 
         let stmt = tx
-            .prepare_cached(
+            .prepare(
                 "UPDATE event_variants \
                    SET sold = GREATEST(0, sold - bump.qty) \
                   FROM UNNEST($1::bytea[], $2::int4[]) AS bump(id, qty) \

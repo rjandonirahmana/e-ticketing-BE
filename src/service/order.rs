@@ -1,15 +1,16 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::time::{Duration, sleep, timeout};
+use tokio::time::{sleep, timeout, Duration};
 use validator::Validate;
 
 use deadpool_postgres::Pool;
+use rust_decimal::Decimal;
 
 use crate::models::orders::{
     CreateOrderRequest, Order, OrderDetailResponse, OrderItemResponse, PayOrderRequest,
 };
 use crate::repository::order::{
-    ItemRow, LUA_RELEASE, LockedVariant, OrderRepository, OrderTx, OversellError,
+    ItemRow, LockedVariant, OrderRepository, OrderTx, OversellError, LUA_RELEASE,
 };
 use crate::utils::error::{AppError, AppResult};
 use crate::utils::ulid::{id_to_vec, new_ulid, ulid_to_vec};
@@ -297,8 +298,8 @@ impl OrderMetrics {
         tracing::info!(customer_id, event = "idempotency_conflict");
     }
 
-    fn order_created(order_id: &str, total: f64, item_count: usize) {
-        tracing::info!(order_id, total, item_count, event = "order_created");
+    fn order_created(order_id: &str, total: Decimal, item_count: usize) {
+        tracing::info!(order_id, total = %total, item_count, event = "order_created");
     }
 
     fn order_paid(order_id: &str, payment_method: &str) {
@@ -520,13 +521,13 @@ impl OrderService {
         // ─ 5. Bangun item_rows + hitung grand total ───────────────────────────
         let order_id = new_ulid();
         let order_id_bytes = ulid_to_vec(&order_id).map_err(AppError::Internal)?;
-        let mut grand_total: f64 = 0.0;
+        let mut grand_total = Decimal::ZERO;
         let mut item_rows: Vec<ItemRow> = Vec::with_capacity(req.items.len());
 
         for item in &req.items {
             let v = variant_map[item.ticket_variant_id.as_str()];
             let unit_price = v.effective_price;
-            let subtotal = unit_price * item.quantity as f64;
+            let subtotal = unit_price * Decimal::from(item.quantity);
             grand_total += subtotal;
 
             let oi_id = new_ulid();
