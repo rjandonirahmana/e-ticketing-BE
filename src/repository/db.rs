@@ -1,6 +1,3 @@
-// Re-usable DB helpers
-#![allow(dead_code)]
-
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -32,7 +29,104 @@ pub fn col_opt_i32(row: &Row, name: &str) -> Option<i32> {
     row.try_get::<_, Option<i32>>(name).ok().flatten()
 }
 
+// ── Error context helpers untuk row_to_* ──────────────────────────────────────
+
+pub fn get<T: for<'a> tokio_postgres::types::FromSql<'a>>(row: &Row, col: &str) -> Result<T> {
+    row.try_get::<_, T>(col)
+        .with_context(|| format!("Failed to read column '{}'", col))
+}
+
+pub fn get_opt<T: for<'a> tokio_postgres::types::FromSql<'a>>(
+    row: &Row,
+    col: &str,
+) -> Result<Option<T>> {
+    row.try_get::<_, Option<T>>(col)
+        .with_context(|| format!("Failed to read column '{}'", col))
+}
+
 // ── Query helpers ─────────────────────────────────────────────────────────────
+
+/// Format error dari tokio_postgres menjadi pesan yang mudah dibaca.
+/// Menampilkan semua field yang tersedia: message, detail, hint, where, table, column, constraint.
+fn format_pg_error(e: &tokio_postgres::Error, query: &str) -> anyhow::Error {
+    // Cek apakah ini error serialisasi parameter (terjadi sebelum query dikirim ke DB)
+    let err_str = e.to_string();
+    if err_str.contains("error serializing parameter") {
+        // Contoh: "error serializing parameter 11: ..."
+        // Coba ekstrak nomor parameter
+        let param_hint = err_str
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .windows(3)
+            .find(|w| w[0] == "parameter")
+            .and_then(|w| w[1].parse::<usize>().ok())
+            .map(|n| format!("\n  ❌ Parameter ${n} gagal di-serialize — cek tipe data Rust vs tipe kolom PostgreSQL"))
+            .unwrap_or_default();
+
+        return anyhow::anyhow!(
+            "PARAMETER SERIALIZATION ERROR{param_hint}\n  query: {query}\n  cause: {err_str}"
+        );
+    }
+
+    // Error dari PostgreSQL server — parse semua field yang tersedia
+    if let Some(db) = e.as_db_error() {
+        use tokio_postgres::error::SqlState;
+
+        let kind = match db.code() {
+            &SqlState::UNIQUE_VIOLATION => {
+                "UNIQUE VIOLATION — nilai duplikat, data sudah ada".to_string()
+            }
+            &SqlState::NOT_NULL_VIOLATION => {
+                "NOT NULL VIOLATION — kolom wajib diisi tapi nilainya NULL".to_string()
+            }
+            &SqlState::FOREIGN_KEY_VIOLATION => {
+                "FOREIGN KEY VIOLATION — referensi ke data yang tidak ada".to_string()
+            }
+            &SqlState::CHECK_VIOLATION => {
+                "CHECK CONSTRAINT VIOLATION — nilai tidak memenuhi constraint".to_string()
+            }
+            &SqlState::INVALID_TEXT_REPRESENTATION => {
+                "INVALID TYPE — tipe data tidak sesuai (misal string ke integer)".to_string()
+            }
+            &SqlState::NUMERIC_VALUE_OUT_OF_RANGE => {
+                "NUMERIC OUT OF RANGE — angka melebihi batas kolom".to_string()
+            }
+            &SqlState::STRING_DATA_RIGHT_TRUNCATION => {
+                "STRING TOO LONG — teks melebihi panjang maksimum kolom".to_string()
+            }
+            other => format!("POSTGRES ERROR [{}]", other.code()),
+        };
+
+        let mut parts = vec![
+            format!("  ❌ {kind}"),
+            format!("  message   : {}", db.message()),
+        ];
+        if let Some(d) = db.detail() {
+            parts.push(format!("  detail    : {d}"));
+        }
+        if let Some(h) = db.hint() {
+            parts.push(format!("  hint      : {h}"));
+        }
+        if let Some(t) = db.table() {
+            parts.push(format!("  table     : {t}"));
+        }
+        if let Some(c) = db.column() {
+            parts.push(format!("  column    : {c}"));
+        }
+        if let Some(k) = db.constraint() {
+            parts.push(format!("  constraint: {k}"));
+        }
+        if let Some(w) = db.where_() {
+            parts.push(format!("  where     : {w}"));
+        }
+        parts.push(format!("  query     : {}", query.trim()));
+
+        anyhow::anyhow!("{}", parts.join("\n"))
+    } else {
+        // Error lain (koneksi putus, timeout, dll)
+        anyhow::anyhow!("DB ERROR: {err_str}\n  query: {}", query.trim())
+    }
+}
 
 /// Run a query that returns no rows (INSERT/UPDATE/DELETE).
 /// Returns the number of rows affected.
@@ -42,11 +136,9 @@ pub async fn exec_drop(
     params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
 ) -> Result<u64> {
     let conn = get_conn(pool).await?;
-
-    conn.execute(query, params).await.map_err(|e| {
-        // Kita gabungkan error asli dari postgres dengan teks query
-        anyhow::anyhow!("exec_drop failed: {}\n  query: {}", e, query.trim())
-    })
+    conn.execute(query, params)
+        .await
+        .map_err(|e| format_pg_error(&e, query))
 }
 
 /// Run a query and return all rows.
@@ -58,7 +150,7 @@ pub async fn exec_rows(
     let conn = get_conn(pool).await?;
     conn.query(query, params)
         .await
-        .with_context(|| format!("exec_rows failed\n  query: {}", query.trim()))
+        .map_err(|e| format_pg_error(&e, query))
 }
 
 /// Run a query and return the first row, or `None` if empty.
@@ -72,7 +164,6 @@ pub async fn exec_first(
 }
 
 /// Run a query and return exactly one row — error if none.
-/// Use this for `INSERT ... RETURNING` or lookups guaranteed to exist.
 pub async fn exec_one(
     pool: &Pool,
     query: &str,

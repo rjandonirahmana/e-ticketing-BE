@@ -2,6 +2,15 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
+/// Satu foto detail event (denah, seat map, info harga, dll.)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetailImageEntry {
+    pub url: String,
+    /// "map" | "seat" | "price" | "other"
+    pub image_type: String,
+    pub caption: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
     pub id: String,
@@ -10,6 +19,9 @@ pub struct Event {
     pub slug: String,
     pub description: Option<String>,
     pub cover_url: Option<String>,
+    /// Array foto detail event (denah, seat map, dll.)
+    #[serde(default)]
+    pub detail_images: Vec<DetailImageEntry>,
     /// Harga base termurah dari variant aktif.
     pub price: f64,
     /// Harga sale termurah yang sedang aktif (None jika tidak ada sale).
@@ -41,6 +53,9 @@ pub struct EventWithVariants {
     pub slug: String,
     pub description: Option<String>,
     pub cover_url: Option<String>,
+    /// Array foto detail event (denah, seat map, dll.)
+    #[serde(default)]
+    pub detail_images: Vec<DetailImageEntry>,
     pub venue: Option<String>,
     pub city: Option<String>,
     #[serde(default)]
@@ -92,6 +107,7 @@ pub struct CreateEventRequest {
     pub description: Option<String>,
     pub venue: Option<String>,
     pub city: Option<String>,
+    /// Flat Vec<String> — FE kirim sebagai ["Musik", "Festival"]
     #[serde(default)]
     pub category: Vec<String>,
     pub event_date: DateTime<Utc>,
@@ -100,6 +116,9 @@ pub struct CreateEventRequest {
     /// Min 1 variant wajib ada.
     #[validate(length(min = 1))]
     pub variants: Vec<CreateVariantInline>,
+    /// Foto detail event yang sudah di-upload ke storage.
+    #[serde(default)]
+    pub detail_images: Vec<DetailImageEntry>,
 }
 
 /// Variant inline untuk update — id ada = update, id None = tambah baru.
@@ -132,7 +151,12 @@ pub struct UpdateEventRequest {
     pub category: Vec<String>,
     pub start_time: Option<DateTime<Utc>>,
     pub end_time: Option<DateTime<Utc>>,
+    /// Hanya admin yang boleh set status selain "edited".
+    /// Merchant: field ini di-ignore oleh route handler (di-hardcode "edited").
+    /// Admin: dikirim via PUT /api/admin/events/:id/status
     pub status: Option<String>,
+    /// Foto detail — None = tidak berubah, Some(vec) = replace seluruhnya.
+    pub detail_images: Option<Vec<DetailImageEntry>>,
     /// Opsional — kirim jika mau update/tambah variant sekaligus.
     pub variants: Option<Vec<UpdateVariantInline>>,
 }

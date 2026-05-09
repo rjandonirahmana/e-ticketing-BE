@@ -1,9 +1,7 @@
 [package]
 name = "e-ticketing"
 version = "0.1.0"
-edition = "2021"     # [FIX #1] "2024" valid di Rust 1.85+ tapi masih sangat baru.
-# Ganti ke "2021" kecuali kamu memang sudah di Rust 1.85 stable
-# dan butuh fitur edition 2024 secara spesifik.
+edition = "2021"
 
 [[bin]]
 name = "e-ticketing"
@@ -11,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Async runtime
-tokio = { version = "1.52.2", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
 
 # gRPC
 tonic = "0.14.6"
@@ -48,8 +46,6 @@ ulid = "1"
 # Date/Time
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
-
-
 rust_decimal_macros = "1"
 
 # Error handling
@@ -73,17 +69,26 @@ hex = "0.4"
 once_cell = "1"
 async-trait = "0.1"
 bytes = "1"
+
+# [FIX #1] reqwest: versi 0.13.x bukan 0.12.x.
+# axum 0.8.9 memiliki dep reqwest ^0.12 tapi itu HANYA untuk feature internal "__private"
+# yang tidak diaktifkan oleh features [multipart, ws, macros].
+# Cargo akan compile dua versi terpisah (0.12.x dari axum, 0.13.x dari kita) tanpa conflict
+# karena reqwest di axum bersifat optional dan tidak di-unify dengan dep kita.
 reqwest = { version = "0.13.3", features = ["json"] }
-rustls = { version = "0.23.40", features = ["ring"], default-features = false }
+
+rustls = { version = "0.23", features = ["ring"], default-features = false }
 ahash = "0.8.12"
 dashmap = "6.1.0"
 tokio-util = "0.7.18"
 aws-sdk-s3 = "1.132.0"
-rust_decimal = { version = "1.42.0", features = ["db-postgres"] }
+rust_decimal = { version = "1.42.0", features = ["db-tokio-postgres"] }
+# [FIX #2] "db-postgres" feature di rust_decimal mengaktifkan crate `postgres` (blocking),
+# bukan `tokio-postgres`. Untuk async, pakai "db-tokio-postgres".
 
 [build-dependencies]
-tonic-prost-build = "0.14.6"
 tonic-build = "0.14.6"
+tonic-prost-build = "0.14.6"
 anyhow = "1"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -91,10 +96,13 @@ anyhow = "1"
 # ─────────────────────────────────────────────────────────────────────────────
 [profile.dev.package.bcrypt]
 opt-level = 3
+
 [profile.dev.package.blowfish]
 opt-level = 3
+
 [profile.dev.package.sha2]
 opt-level = 3
+
 [profile.dev.package.cipher]
 opt-level = 3
 

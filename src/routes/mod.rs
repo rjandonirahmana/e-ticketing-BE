@@ -10,9 +10,9 @@ pub mod tickets;
 use std::sync::Arc;
 
 use axum::{
-    Router,
     middleware::from_fn_with_state,
     routing::{delete, get, post, put},
+    Router,
 };
 use tower_http::trace::TraceLayer;
 
@@ -64,6 +64,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/admin/banners", post(banners::admin_create))
         .route("/api/admin/banners/{id}", put(banners::admin_update))
         .route("/api/admin/banners/{id}", delete(banners::admin_delete))
+        // ── Admin: event management ──────────────────────────────────────────
+        // GET /api/admin/events       — list semua event (bisa filter by status)
+        // PUT /api/admin/events/:id/status — update status event (approve/reject)
+        .route("/api/admin/events", get(events::admin_list_events))
+        .route(
+            "/api/admin/events/{id}/status",
+            put(events::admin_update_status),
+        )
         // Apply JWT middleware ke seluruh protected group
         .route_layer(from_fn_with_state(state.clone(), require_auth));
 

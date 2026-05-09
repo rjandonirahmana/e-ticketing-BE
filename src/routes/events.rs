@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use axum::{
-    Json,
     extract::{Multipart, Path, Query, State},
+    Json,
 };
 use bytes::Bytes;
 
@@ -184,4 +184,45 @@ pub async fn update_variant(
             .update_variant(&variant_id, user.id(), body)
             .await?,
     ))
+}
+
+// ── Admin: update status event ───────────────────────────────────────────────
+
+/// PUT /api/admin/events/:id/status
+///
+/// Body JSON: `{ "status": "active" | "cancelled" | "completed" | "edited" }`
+///
+/// Admin menggunakan ini untuk approve (active) atau reject event yang
+/// baru dibuat / baru diedit merchant (status = "edited").
+pub async fn admin_update_status(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Path(id): Path<String>,
+    Json(body): Json<AdminUpdateStatusBody>,
+) -> AppResult<Json<EventWithVariants>> {
+    user.require_role("admin")?;
+    Ok(Json(
+        state
+            .event_svc
+            .admin_update_status(&id, &body.status)
+            .await?,
+    ))
+}
+
+/// GET /api/admin/events?status=edited&page=1&per_page=20
+///
+/// Admin: list semua event (opsional filter status).
+pub async fn admin_list_events(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Query(q): Query<EventListQuery>,
+) -> AppResult<Json<PaginatedEvents>> {
+    user.require_role("admin")?;
+    // Gunakan list biasa tapi tanpa filter merchant_id
+    Ok(Json(state.event_svc.list(q, None).await?))
+}
+
+#[derive(serde::Deserialize)]
+pub struct AdminUpdateStatusBody {
+    pub status: String,
 }

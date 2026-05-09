@@ -50,6 +50,95 @@ static FIND_ITEMS_FOR_ORDER: &str = r#"
     ORDER BY oi.created_at
 "#;
 
+// ── Prepared Statements (stmt cache) ──────────────────────────────────────────
+//
+// [PERBAIKAN] Gunakan LazyLock untuk prepared statement agar query INSERT
+// tidak diparse ulang setiap kali dipanggil. PostgreSQL akan cache execution plan.
+
+static STMT_INSERT_ORDER_SIMPLE: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "INSERT INTO orders \\
+         (id, customer_id, order_code, status, total_amount, expired_at) \\
+         VALUES ($1, $2, $3, 'pending', $4, $5) \\
+         RETURNING {}",
+        ORDER_COLS
+    )
+});
+
+static STMT_INSERT_ORDER_IDEMPOTENCY: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        r#"
+        WITH ins AS (
+            INSERT INTO orders
+                (id, customer_id, order_code, status, total_amount,
+                 expired_at, idempotency_key)
+            VALUES ($1, $2, $3, 'pending', $4, $5, $6)
+            ON CONFLICT (customer_id, idempotency_key)
+            WHERE idempotency_key IS NOT NULL
+            DO NOTHING
+            RETURNING {}, TRUE AS is_new
+        )
+        SELECT * FROM ins
+        UNION ALL
+        SELECT {}, FALSE AS is_new
+        FROM orders
+        WHERE customer_id = $2
+          AND idempotency_key = $6
+          AND NOT EXISTS (SELECT 1 FROM ins)
+        LIMIT 1
+        "#,
+        ORDER_COLS, ORDER_COLS
+    )
+});
+
+static STMT_INSERT_ORDER_ITEMS: &str = r#"
+    INSERT INTO order_items
+    (id, order_id, ticket_variant_id, quantity, unit_price, subtotal)
+    SELECT * FROM UNNEST(
+        $1::bytea[], $2::bytea[], $3::bytea[],
+        $4::int4[], $5::numeric[], $6::numeric[]
+    )
+"#;
+
+static STMT_MINT_TICKETS: &str = r#"
+    INSERT INTO tickets (id, order_item_id, ticket_code, status)
+    SELECT id, item_id, code, 'active'
+    FROM UNNEST($1::bytea[], $2::bytea[], $3::text[]) AS t(id, item_id, code)
+"#;
+
+static STMT_BUMP_SOLD: &str = r#"
+    WITH agg AS (
+        SELECT id, SUM(qty) AS total_qty
+        FROM UNNEST($1::bytea[], $2::int4[]) AS t(id, qty)
+        GROUP BY id
+    )
+    UPDATE event_variants ev
+       SET sold = ev.sold + agg.total_qty
+      FROM agg
+     WHERE ev.id = agg.id
+       AND (ev.quota - ev.sold) >= agg.total_qty
+"#;
+
+static STMT_REFUND_SOLD: &str = r#"
+    UPDATE event_variants
+       SET sold = GREATEST(0, sold - bump.qty)
+      FROM UNNEST($1::bytea[], $2::int4[]) AS bump(id, qty)
+     WHERE event_variants.id = bump.id
+"#;
+
+static STMT_MARK_PAID: &str = r#"
+    UPDATE orders
+       SET status = 'paid', paid_at = NOW(), payment_method = $2
+     WHERE id = $1
+       AND status = 'pending'
+       AND expired_at > NOW()
+"#;
+
+static STMT_CANCEL_ORDER: &str = r#"
+    UPDATE orders SET status = 'cancelled'
+      WHERE id = $1 AND status = 'pending'
+"#;
+
 // ── Lua scripts ───────────────────────────────────────────────────────────────
 
 pub(crate) const LUA_RELEASE: &str = r#"
@@ -198,14 +287,13 @@ impl OrderTx {
         idempotency_key: Option<&str>,
     ) -> Result<(Order, bool)> {
         if idempotency_key.is_none() {
-            let sql = format!(
-                "INSERT INTO orders \
-                 (id, customer_id, order_code, status, total_amount, expired_at) \
-                 VALUES ($1, $2, $3, 'pending', $4, $5) \
-                 RETURNING {cols}",
-                cols = ORDER_COLS
-            );
-            let stmt = tx.prepare(&sql).await.context("insert_order prepare")?;
+            // [PERBAIKAN] Gunakan prepared statement dari static LazyLock
+            // SQL shape selalu sama → prepare cache rate 100%
+            let stmt = tx
+                .prepare(&STMT_INSERT_ORDER_SIMPLE)
+                .await
+                .context("insert_order prepare")?;
+
             // [FIX #1] Decimal implements ToSql untuk NUMERIC — tidak perlu ::numeric cast
             let params: &[&(dyn ToSql + Sync)] =
                 &[&id_bytes, &customer_bytes, &order_code, &total, &expired_at];
@@ -216,33 +304,12 @@ impl OrderTx {
             return Ok((row_to_order(&row)?, true));
         }
 
-        let sql = format!(
-            r#"
-            WITH ins AS (
-                INSERT INTO orders
-                    (id, customer_id, order_code, status, total_amount,
-                     expired_at, idempotency_key)
-                VALUES ($1, $2, $3, 'pending', $4, $5, $6)
-                ON CONFLICT (customer_id, idempotency_key)
-                WHERE idempotency_key IS NOT NULL
-                DO NOTHING
-                RETURNING {cols}, TRUE AS is_new
-            )
-            SELECT * FROM ins
-            UNION ALL
-            SELECT {cols}, FALSE AS is_new
-            FROM orders
-            WHERE customer_id = $2
-              AND idempotency_key = $6
-              AND NOT EXISTS (SELECT 1 FROM ins)
-            LIMIT 1
-            "#,
-            cols = ORDER_COLS
-        );
+        // [PERBAIKAN] Gunakan prepared statement dari static LazyLock
         let stmt = tx
-            .prepare(&sql)
+            .prepare(&STMT_INSERT_ORDER_IDEMPOTENCY)
             .await
             .context("insert_order (idempotency) prepare")?;
+
         let params: &[&(dyn ToSql + Sync)] = &[
             &id_bytes,
             &customer_bytes,
@@ -296,16 +363,10 @@ impl OrderTx {
             subtotals.push(item.subtotal);
         }
 
+        // [PERBAIKAN] Gunakan prepared statement dari static constant
         // SQL selalu sama → prepare selalu hit
         let stmt = tx
-            .prepare(
-                "INSERT INTO order_items \
-                 (id, order_id, ticket_variant_id, quantity, unit_price, subtotal) \
-                 SELECT * FROM UNNEST(\
-                     $1::bytea[], $2::bytea[], $3::bytea[], \
-                     $4::int4[], $5::numeric[], $6::numeric[]\
-                 )",
-            )
+            .prepare(STMT_INSERT_ORDER_ITEMS)
             .await
             .context("insert_order_items_batch prepare")?;
 
@@ -336,21 +397,9 @@ impl OrderTx {
         let qtys: Vec<i32> = agg.values().cloned().collect();
         let expected = ids.len();
 
+        // [PERBAIKAN] Gunakan prepared statement dari static constant
         let stmt = tx
-            .prepare(
-                r#"
-                WITH agg AS (
-                    SELECT id, SUM(qty) AS total_qty
-                    FROM UNNEST($1::bytea[], $2::int4[]) AS t(id, qty)
-                    GROUP BY id
-                )
-                UPDATE event_variants ev
-                   SET sold = ev.sold + agg.total_qty
-                  FROM agg
-                 WHERE ev.id = agg.id
-                   AND (ev.quota - ev.sold) >= agg.total_qty
-            "#,
-            )
+            .prepare(STMT_BUMP_SOLD)
             .await
             .context("bump_sold_batch prepare")?;
 
@@ -371,14 +420,9 @@ impl OrderTx {
         order_bytes: &[u8],
         payment_method: &str,
     ) -> Result<u64> {
+        // [PERBAIKAN] Gunakan prepared statement dari static constant
         let stmt = tx
-            .prepare(
-                "UPDATE orders \
-                   SET status = 'paid', paid_at = NOW(), payment_method = $2 \
-                 WHERE id = $1 \
-                   AND status = 'pending' \
-                   AND expired_at > NOW()",
-            )
+            .prepare(STMT_MARK_PAID)
             .await
             .context("mark_paid prepare")?;
 
@@ -433,13 +477,10 @@ impl OrderTx {
 
         let count = ids.len() as u64;
 
+        // [PERBAIKAN] Gunakan prepared statement dari static constant
         // SQL selalu sama → prepare selalu hit
         let stmt = tx
-            .prepare(
-                "INSERT INTO tickets (id, order_item_id, ticket_code, status) \
-                 SELECT id, item_id, code, 'active' \
-                 FROM UNNEST($1::bytea[], $2::bytea[], $3::text[]) AS t(id, item_id, code)",
-            )
+            .prepare(STMT_MINT_TICKETS)
             .await
             .context("mint_tickets_batch prepare")?;
 
@@ -455,11 +496,9 @@ impl OrderTx {
         tx: &tokio_postgres::Transaction<'_>,
         order_bytes: &[u8],
     ) -> Result<u64> {
+        // [PERBAIKAN] Gunakan prepared statement dari static constant
         let stmt = tx
-            .prepare(
-                "UPDATE orders SET status = 'cancelled' \
-                  WHERE id = $1 AND status = 'pending'",
-            )
+            .prepare(STMT_CANCEL_ORDER)
             .await
             .context("cancel_order prepare")?;
 
@@ -501,13 +540,9 @@ impl OrderTx {
         let ids: Vec<Vec<u8>> = updates.iter().map(|(id, _)| id.clone()).collect();
         let qtys: Vec<i32> = updates.iter().map(|(_, q)| *q).collect();
 
+        // [PERBAIKAN] Gunakan prepared statement dari static constant
         let stmt = tx
-            .prepare(
-                "UPDATE event_variants \
-                   SET sold = GREATEST(0, sold - bump.qty) \
-                  FROM UNNEST($1::bytea[], $2::int4[]) AS bump(id, qty) \
-                 WHERE event_variants.id = bump.id",
-            )
+            .prepare(STMT_REFUND_SOLD)
             .await
             .context("refund_sold_batch prepare")?;
 

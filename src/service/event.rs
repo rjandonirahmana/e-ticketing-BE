@@ -209,6 +209,7 @@ impl EventService {
     fn to_with_variants(&self, event: Event, variants: Vec<EventVariant>) -> EventWithVariants {
         EventWithVariants {
             category: event.category,
+            detail_images: event.detail_images,
             id: event.id,
             merchant_id: event.merchant_id,
             name: event.name,
@@ -231,5 +232,56 @@ impl EventService {
             total_quota: event.total_quota,
             event_variants: variants.into_iter().map(Into::into).collect(),
         }
+    }
+
+    /// Admin: list event dengan status "edited" (menunggu review), dengan paginasi yang benar.
+    pub async fn list_cancelled_events(
+        &self,
+        page: i64,
+        per_page: i64,
+        search: Option<&str>,
+    ) -> AppResult<PaginatedEvents> {
+        let offset = (page - 1) * per_page;
+        let filter = EventListFilter {
+            search,
+            city: None,
+            status: Some("edited"),
+            category: None,
+            merchant_id: None,
+            limit: per_page,
+            offset,
+        };
+
+        let (data, total) = tokio::try_join!(
+            self.repo.admin_list_by_status(&filter),
+            self.repo.admin_count_by_status(&filter)
+        )?;
+
+        Ok(PaginatedEvents {
+            total_pages: (total + per_page - 1) / per_page,
+            data,
+            total,
+            page,
+            per_page,
+        })
+    }
+
+    /// Admin-only: update status event.
+    /// Status valid: "active" | "cancelled" | "completed" | "edited"
+    pub async fn admin_update_status(
+        &self,
+        event_id: &str,
+        status: &str,
+    ) -> AppResult<EventWithVariants> {
+        let allowed = ["active", "cancelled", "completed", "edited"];
+        if !allowed.contains(&status) {
+            return Err(AppError::UnprocessableEntity(format!(
+                "Status tidak valid: '{}'. Pilihan: {}",
+                status,
+                allowed.join(", ")
+            )));
+        }
+        self.repo.admin_update_status(event_id, status).await?;
+        self.get_by_id(event_id).await
     }
 }

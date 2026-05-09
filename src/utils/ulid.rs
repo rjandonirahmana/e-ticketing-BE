@@ -35,9 +35,8 @@ pub fn id_to_vec(s: &str) -> Result<Vec<u8>> {
 }
 
 pub fn ulid_to_hex(s: &str) -> Result<String> {
-    let ulid = Ulid::from_string(s)?;
-    Ok(ulid.to_string().to_lowercase()) // atau hex? Ulid::to_string() sebenarnya string ULID, bukan hex.
-    // Jika butuh hex: hex::encode(ulid.to_bytes())
+    let bytes = ulid_to_bytes(s)?;
+    Ok(hex::encode(bytes))
 }
 
 pub fn bin_to_ulid(raw: Vec<u8>) -> Result<String> {
