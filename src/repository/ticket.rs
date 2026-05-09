@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use deadpool_postgres::Pool;
 use std::sync::LazyLock;
@@ -36,6 +36,7 @@ static TICKET_DETAIL_COLS: &str = r#"
     e.event_date,
     e.venue         AS event_venue,
     e.city          AS event_city,
+    e.cover_url     AS cover_url,
     e.merchant_id
 "#;
 
@@ -125,6 +126,7 @@ impl PgTicketRepository {
             variant_id: bin_to_ulid(variant_bytes)?,
             variant_name: row.try_get("variant_name")?,
             unit_price: row.try_get("unit_price")?,
+            cover_url: row.try_get("cover_url").unwrap_or(None),
         };
 
         Ok((

@@ -35,6 +35,7 @@ pub struct TicketResponse {
     pub variant_id: String,
     pub variant_name: String,
     pub unit_price: f64,
+    pub cover_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Validate)]
