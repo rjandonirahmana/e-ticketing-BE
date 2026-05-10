@@ -182,19 +182,50 @@ impl TicketRepository for PgTicketRepository {
             other => bail!("Ticket status '{}' cannot be validated", other),
         }
 
-        tx.execute(
-            "UPDATE tickets SET status = 'used', used_at = NOW() WHERE id = $1",
-            &[&id_bytes],
-        )
-        .await?;
-
-        // Re-fetch the enriched detail row in the same tx so the response
-        // reflects the new `used_at`.
+        // OPTIMISASI: RETURNING + CTE — UPDATE dan SELECT enriched row dalam
+        // satu round-trip. Original: 2 query terpisah (UPDATE lalu SELECT JOIN).
+        // Hemat 1 network round-trip per scan tiket.
         let detail_row = tx
             .query_one(
                 &format!(
-                    "SELECT {} {} WHERE t.id = $1",
-                    TICKET_DETAIL_COLS, FROM_JOINS
+                    r#"
+                    WITH updated AS (
+                        UPDATE tickets
+                        SET status = 'used', used_at = NOW()
+                        WHERE id = $1
+                        RETURNING id, ticket_code, status, used_at,
+                                  created_at, order_item_id
+                    )
+                    SELECT
+                        u.id            AS ticket_id,
+                        u.ticket_code,
+                        u.status,
+                        u.used_at,
+                        u.created_at,
+
+                        oi.id           AS order_item_id,
+                        oi.unit_price::FLOAT8 AS unit_price,
+
+                        o.id            AS order_id,
+                        o.order_code,
+                        o.customer_id,
+
+                        tv.id           AS variant_id,
+                        tv.name         AS variant_name,
+
+                        e.id            AS event_id,
+                        e.name          AS event_name,
+                        e.event_date,
+                        e.venue         AS event_venue,
+                        e.city          AS event_city,
+                        e.cover_url     AS cover_url,
+                        e.merchant_id
+                    FROM updated u
+                    JOIN order_items oi    ON u.order_item_id = oi.id
+                    JOIN orders o          ON oi.order_id = o.id
+                    JOIN event_variants tv ON oi.ticket_variant_id = tv.id
+                    JOIN events e          ON tv.event_id = e.id
+                    "#
                 ),
                 &[&id_bytes],
             )

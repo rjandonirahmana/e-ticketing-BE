@@ -484,43 +484,55 @@ impl PgEventRepository {
 #[async_trait]
 impl EventRepository for PgEventRepository {
     async fn list(&self, f: &EventListFilter<'_>) -> Result<Vec<Event>> {
+        // OPTIMISASI: semua nilai filter dialokasikan sebagai owned values di scope ini,
+        // lalu dikumpulkan sebagai &dyn ToSql references — tidak ada Box<dyn ToSql>.
+        // Dynamic SQL dipertahankan (vs static nullable params) agar PostgreSQL bisa
+        // cache plan yang berbeda per kombinasi filter aktif — lebih optimal dari
+        // satu plan generic yang handle semua kombinasi via IS NULL check.
         let mut sql = format!(
             "SELECT {cols} FROM events e {lateral} WHERE 1 = 1",
             cols = EVENT_COLS,
             lateral = VARIANT_STATS_LATERAL,
         );
-        let mut params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> = Vec::new();
+        // Max 7 params: merchant_id, city, status, category, search, limit, offset
+        let mut refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = Vec::with_capacity(7);
         let mut idx = 1usize;
 
-        let mid_vec;
-        if let Some(mid) = f.merchant_id {
-            mid_vec = id_to_vec(mid)?;
+        // Owned values hidup di scope ini — refs ke bawah valid sampai akhir fn
+        let mid_vec = f.merchant_id.map(id_to_vec).transpose()?;
+        let city_pat = f.city.map(|c| format!("%{}%", c));
+        let status_own = f.status.map(|s| s.to_string());
+        let cat_json = f
+            .category
+            .map(|c| serde_json::to_value(vec![c]))
+            .transpose()?;
+        let search_pat = f.search.map(|q| format!("%{}%", q));
+
+        if let Some(ref v) = mid_vec {
             sql.push_str(&format!(" AND e.merchant_id = ${idx}"));
-            params.push(Box::new(mid_vec));
+            refs.push(v);
             idx += 1;
         }
-        if let Some(city) = f.city {
+        if let Some(ref v) = city_pat {
             sql.push_str(&format!(" AND e.city ILIKE ${idx}"));
-            params.push(Box::new(format!("%{}%", city)));
+            refs.push(v);
             idx += 1;
         }
-        if let Some(status) = f.status {
+        if let Some(ref v) = status_own {
             sql.push_str(&format!(" AND e.status = ${idx}"));
-            params.push(Box::new(status.to_string()));
+            refs.push(v);
             idx += 1;
         }
-        if let Some(cat) = f.category {
-            let json_val = serde_json::to_value(vec![cat])?;
+        if let Some(ref v) = cat_json {
             sql.push_str(&format!(" AND e.category @> ${idx}::jsonb"));
-            params.push(Box::new(json_val));
+            refs.push(v);
             idx += 1;
         }
-        if let Some(q) = f.search {
-            let pattern = format!("%{}%", q);
+        if let Some(ref v) = search_pat {
             sql.push_str(&format!(
                 " AND (e.name ILIKE ${idx} OR e.venue ILIKE ${idx} OR e.city ILIKE ${idx})"
             ));
-            params.push(Box::new(pattern));
+            refs.push(v);
             idx += 1;
         }
         sql.push_str(&format!(
@@ -528,54 +540,56 @@ impl EventRepository for PgEventRepository {
             idx,
             idx + 1
         ));
-        params.push(Box::new(f.limit));
-        params.push(Box::new(f.offset));
+        refs.push(&f.limit);
+        refs.push(&f.offset);
 
-        let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
-            params.iter().map(|p| p.as_ref() as _).collect();
         let rows = exec_rows(&self.pool, &sql, &refs).await?;
         rows.iter().map(Self::row_to_event).collect()
     }
 
     async fn count(&self, f: &EventListFilter<'_>) -> Result<i64> {
         let mut sql = String::from("SELECT COUNT(*)::BIGINT AS c FROM events WHERE 1 = 1");
-        let mut params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> = Vec::new();
+        let mut refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = Vec::with_capacity(5);
         let mut idx = 1usize;
 
-        if let Some(mid) = f.merchant_id {
-            let mid_vec = id_to_vec(mid)?;
+        let mid_vec = f.merchant_id.map(id_to_vec).transpose()?;
+        let city_pat = f.city.map(|c| format!("%{}%", c));
+        let status_own = f.status.map(|s| s.to_string());
+        let cat_json = f
+            .category
+            .map(|c| serde_json::to_value(vec![c]))
+            .transpose()?;
+        let search_pat = f.search.map(|q| format!("%{}%", q));
+
+        if let Some(ref v) = mid_vec {
             sql.push_str(&format!(" AND merchant_id = ${idx}"));
-            params.push(Box::new(mid_vec));
+            refs.push(v);
             idx += 1;
         }
-        if let Some(city) = f.city {
+        if let Some(ref v) = city_pat {
             sql.push_str(&format!(" AND city ILIKE ${idx}"));
-            params.push(Box::new(format!("%{}%", city)));
+            refs.push(v);
             idx += 1;
         }
-        if let Some(status) = f.status {
+        if let Some(ref v) = status_own {
             sql.push_str(&format!(" AND status = ${idx}"));
-            params.push(Box::new(status.to_string()));
+            refs.push(v);
             idx += 1;
         }
-        if let Some(cat) = f.category {
-            let json_val = serde_json::to_value(vec![cat])?;
+        if let Some(ref v) = cat_json {
             sql.push_str(&format!(" AND category @> ${idx}::jsonb"));
-            params.push(Box::new(json_val));
+            refs.push(v);
             idx += 1;
         }
-        if let Some(q) = f.search {
-            let pattern = format!("%{}%", q);
+        if let Some(ref v) = search_pat {
             sql.push_str(&format!(
                 " AND (name ILIKE ${idx} OR venue ILIKE ${idx} OR city ILIKE ${idx})"
             ));
-            params.push(Box::new(pattern));
+            refs.push(v);
             idx += 1;
         }
         let _ = idx;
 
-        let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
-            params.iter().map(|p| p.as_ref() as _).collect();
         let row = exec_one(&self.pool, &sql, &refs).await?;
         Ok(row.try_get::<_, i64>("c")?)
     }
@@ -710,6 +724,12 @@ impl EventRepository for PgEventRepository {
 
         let event_vec = id_to_vec(event_id)?;
 
+        // Box<dyn ToSql> di sini dipertahankan karena jumlah params bersifat dinamis
+        // (variants.len() × VARIANT_INSERT_COLS). Tidak ada cara simpan &references ke
+        // nilai dalam Vec yang tumbuh tanpa lifetime conflict. Ini acceptable karena
+        // create_variants_bulk hanya dipanggil saat merchant publish event — bukan hot path.
+        // Alternatif lebih baik jangka panjang: refactor ke UNNEST($1::bytea[], $2::text[], ...)
+        // yang eliminasi semua per-row alloc sekaligus, tapi butuh schema change params.
         type BoxParam = Box<dyn tokio_postgres::types::ToSql + Sync + Send>;
         let mut ids: Vec<Vec<u8>> = Vec::with_capacity(variants.len());
         for _ in 0..variants.len() {
@@ -872,31 +892,37 @@ impl EventRepository for PgEventRepository {
             cols = EVENT_COLS,
             lateral = VARIANT_STATS_LATERAL,
         );
-        let mut params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> = Vec::new();
+        let mut refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = Vec::with_capacity(6);
         let mut idx = 1usize;
 
-        if let Some(city) = f.city {
+        let city_pat = f.city.map(|c| format!("%{}%", c));
+        let status_own = f.status.map(|s| s.to_string());
+        let cat_json = f
+            .category
+            .map(|c| serde_json::to_value(vec![c]))
+            .transpose()?;
+        let search_pat = f.search.map(|q| format!("%{}%", q));
+
+        if let Some(ref v) = city_pat {
             sql.push_str(&format!(" AND e.city ILIKE ${idx}"));
-            params.push(Box::new(format!("%{}%", city)));
+            refs.push(v);
             idx += 1;
         }
-        if let Some(status) = f.status {
+        if let Some(ref v) = status_own {
             sql.push_str(&format!(" AND e.status = ${idx}"));
-            params.push(Box::new(status.to_string()));
+            refs.push(v);
             idx += 1;
         }
-        if let Some(cat) = f.category {
-            let json_val = serde_json::to_value(vec![cat])?;
+        if let Some(ref v) = cat_json {
             sql.push_str(&format!(" AND e.category @> ${idx}::jsonb"));
-            params.push(Box::new(json_val));
+            refs.push(v);
             idx += 1;
         }
-        if let Some(q) = f.search {
-            let pattern = format!("%{}%", q);
+        if let Some(ref v) = search_pat {
             sql.push_str(&format!(
                 " AND (e.name ILIKE ${idx} OR e.venue ILIKE ${idx} OR e.city ILIKE ${idx})"
             ));
-            params.push(Box::new(pattern));
+            refs.push(v);
             idx += 1;
         }
         sql.push_str(&format!(
@@ -904,48 +930,50 @@ impl EventRepository for PgEventRepository {
             idx,
             idx + 1
         ));
-        params.push(Box::new(f.limit));
-        params.push(Box::new(f.offset));
+        refs.push(&f.limit);
+        refs.push(&f.offset);
 
-        let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
-            params.iter().map(|p| p.as_ref() as _).collect();
         let rows = exec_rows(&self.pool, &sql, &refs).await?;
         rows.iter().map(Self::row_to_event).collect()
     }
 
     async fn admin_count_by_status(&self, f: &EventListFilter<'_>) -> Result<i64> {
         let mut sql = String::from("SELECT COUNT(*)::BIGINT AS c FROM events WHERE 1 = 1");
-        let mut params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> = Vec::new();
+        let mut refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = Vec::with_capacity(4);
         let mut idx = 1usize;
 
-        if let Some(city) = f.city {
+        let city_pat = f.city.map(|c| format!("%{}%", c));
+        let status_own = f.status.map(|s| s.to_string());
+        let cat_json = f
+            .category
+            .map(|c| serde_json::to_value(vec![c]))
+            .transpose()?;
+        let search_pat = f.search.map(|q| format!("%{}%", q));
+
+        if let Some(ref v) = city_pat {
             sql.push_str(&format!(" AND city ILIKE ${idx}"));
-            params.push(Box::new(format!("%{}%", city)));
+            refs.push(v);
             idx += 1;
         }
-        if let Some(status) = f.status {
+        if let Some(ref v) = status_own {
             sql.push_str(&format!(" AND status = ${idx}"));
-            params.push(Box::new(status.to_string()));
+            refs.push(v);
             idx += 1;
         }
-        if let Some(cat) = f.category {
-            let json_val = serde_json::to_value(vec![cat])?;
+        if let Some(ref v) = cat_json {
             sql.push_str(&format!(" AND category @> ${idx}::jsonb"));
-            params.push(Box::new(json_val));
+            refs.push(v);
             idx += 1;
         }
-        if let Some(q) = f.search {
-            let pattern = format!("%{}%", q);
+        if let Some(ref v) = search_pat {
             sql.push_str(&format!(
                 " AND (name ILIKE ${idx} OR venue ILIKE ${idx} OR city ILIKE ${idx})"
             ));
-            params.push(Box::new(pattern));
+            refs.push(v);
             idx += 1;
         }
         let _ = idx;
 
-        let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
-            params.iter().map(|p| p.as_ref() as _).collect();
         let row = exec_one(&self.pool, &sql, &refs).await?;
         Ok(row.try_get::<_, i64>("c")?)
     }

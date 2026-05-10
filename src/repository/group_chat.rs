@@ -163,10 +163,14 @@ impl GroupChatRepository {
         let id_b = ulid_to_vec(&msg.id)?;
         let room_b = id_to_vec(&msg.room_id)?;
         let sender_b = id_to_vec(&msg.sender_id)?;
-        let ticket_json: Option<String> = msg
+        // OPTIMISASI: serde_json::to_value() bukan to_string().
+        // to_string(): TicketCard → JSON String → PostgreSQL parse String → jsonb  (2×)
+        // to_value():  TicketCard → serde_json::Value → tokio-postgres kirim langsung ke jsonb (1×)
+        // Value implements ToSql for jsonb — tidak ada intermediate String allocation.
+        let ticket_json: Option<serde_json::Value> = msg
             .ticket_card
             .as_ref()
-            .map(|t| serde_json::to_string(t))
+            .map(|t| serde_json::to_value(t))
             .transpose()?;
         exec_drop(
             &self.pool,
