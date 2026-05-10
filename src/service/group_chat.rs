@@ -216,9 +216,12 @@ impl GroupChatService {
         }
     }
 
-    /// Broadcast pesan ke semua member yang online
     async fn fanout(&self, room_id: &str, msg: &GroupMessage) {
+        let ws_mgr = self.ws_mgr.clone();
+        let room_id: String = room_id.into(); // shadowing: &str → String
         let event = WsEvent::NewMessage(Box::new(WsMessage::from_model(msg)));
-        self.ws_mgr.broadcast_room(room_id, event).await;
+        tokio::spawn(async move {
+            ws_mgr.broadcast_room(&room_id, event).await;
+        });
     }
 }
