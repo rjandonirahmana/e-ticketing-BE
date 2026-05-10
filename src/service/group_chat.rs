@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use std::sync::Arc;
 
 use crate::{
@@ -218,7 +218,7 @@ impl GroupChatService {
 
     /// Broadcast pesan ke semua member yang online
     async fn fanout(&self, room_id: &str, msg: &GroupMessage) {
-        let event = WsEvent::NewMessage(WsMessage::from_model(msg));
+        let event = WsEvent::NewMessage(Box::new(WsMessage::from_model(msg)));
         self.ws_mgr.broadcast_room(room_id, event).await;
     }
 }

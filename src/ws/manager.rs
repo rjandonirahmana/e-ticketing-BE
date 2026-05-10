@@ -1,27 +1,46 @@
 //! ws/manager.rs — Production-scale WebSocket connection manager.
 //!
-//! Fix dari iterasi sebelumnya:
-//! 1. O(members) broadcast via room_members index
-//! 2. Redis publish dengan retry + logging (bukan fire-and-forget)
-//! 3. Per-user rate limiting (token bucket, in-memory, no Redis)
+//! OPTIMISASI vs original:
+//!
+//! 1. broadcast_room(): serialize SEKALI via to_shared_json(), deliver Arc<str> clone
+//!    ke semua member. Original serialize SEKALI tapi wrap Arc setelah. Sekarang
+//!    explicit dan konsisten via to_shared_json() API.
+//!
+//! 2. RateLimitRegistry: ganti RwLock<HashMap> → DashMap untuk konsistensi dengan
+//!    sessions/room_members. RwLock<HashMap>.read() masih blocking saat ada writer.
+//!    DashMap shard-based = lebih paralel untuk workload baca-dominan.
+//!
+//! 3. try_connect(): WsEvent::err() sekarang terima ErrorCode enum (bukan string literal).
+//!
+//! 4. send_to(): serialize Arc<str> via to_shared_json() — konsisten dengan broadcast.
+//!
+//! 5. spawn_heartbeat(): Ping Arc<str> pre-serialized via WsEvent::Ping.to_json()
+//!    (kena fast-path OnceLock, bukan serialize ulang tiap tick).
+//!
+//! Yang TIDAK diubah (sudah optimal):
+//! - O(members) broadcast via room_members index — tetap
+//! - Redis publish dengan retry + exponential backoff — tetap
+//! - Per-user rate limiter (token bucket, lock-free CAS) — tetap
+//! - Bounded semaphore di handler untuk cegah task flood — tetap
+//! - DashMap untuk sessions & room_members — tetap
 
 use std::{
     collections::HashMap,
     hash::RandomState,
     sync::{
-        Arc,
         atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering},
+        Arc,
     },
     time::Duration,
 };
 
 use dashmap::{DashMap, DashSet};
-use redis::AsyncCommands;
 use redis::aio::ConnectionManager;
-use tokio::sync::{RwLock, Semaphore, mpsc};
+use redis::AsyncCommands;
+use tokio::sync::{mpsc, Semaphore};
 use tokio_util::sync::CancellationToken;
 
-use crate::ws::proto::WsEvent;
+use crate::ws::proto::{ErrorCode, WsEvent};
 
 // ── Tuning ────────────────────────────────────────────────────────────────────
 
@@ -33,24 +52,18 @@ const CH_USER: &str = "ws:u:";
 const CH_ROOM: &str = "ws:r:";
 const SHRINK_INTERVAL: Duration = Duration::from_secs(300);
 
-/// Redis publish: berapa kali retry sebelum give up
 const REDIS_PUBLISH_RETRIES: u8 = 3;
-/// Delay antar retry Redis publish
 const REDIS_PUBLISH_RETRY_DELAY: Duration = Duration::from_millis(50);
 
-/// Rate limit per user: max N message per window
 const RATE_LIMIT_MAX: u32 = 30;
-/// Window rate limit dalam detik
 const RATE_LIMIT_WINDOW_SECS: u64 = 10;
 
 pub type WsTx = mpsc::Sender<Arc<str>>;
 
-// ── Per-user rate limiter (token bucket) ──────────────────────────────────────
+// ── Per-user rate limiter (token bucket, lock-free) ────────────────────────────
 
 struct UserBucket {
-    /// Token tersisa dalam window ini
     tokens: AtomicU32,
-    /// Timestamp awal window (unix seconds)
     window_start: AtomicU64,
 }
 
@@ -62,19 +75,15 @@ impl UserBucket {
         }
     }
 
-    /// Return true jika request diizinkan, false jika rate-limited.
     fn try_consume(&self) -> bool {
         let now = now_secs();
         let start = self.window_start.load(Ordering::Relaxed);
-        let elapsed = now.saturating_sub(start);
 
-        // Reset window kalau sudah lewat
-        if elapsed >= RATE_LIMIT_WINDOW_SECS {
+        if now.saturating_sub(start) >= RATE_LIMIT_WINDOW_SECS {
             self.tokens.store(RATE_LIMIT_MAX, Ordering::Relaxed);
             self.window_start.store(now, Ordering::Relaxed);
         }
 
-        // CAS loop: kurangi token hanya kalau masih ada
         loop {
             let cur = self.tokens.load(Ordering::Acquire);
             if cur == 0 {
@@ -93,44 +102,46 @@ impl UserBucket {
     }
 }
 
-/// Registry per-user rate limit bucket.
-/// Pakai RwLock<HashMap> karena write (insert IP baru) jarang,
-/// read (cek existing bucket) sering.
+/// Rate limit registry.
+///
+/// OPTIMISASI vs original: DashMap menggantikan RwLock<HashMap>.
+/// - RwLock<HashMap>: write lock untuk insert bucket baru memblokir SEMUA reader.
+///   Di high-concurrency, setiap user baru = stop-the-world singkat.
+/// - DashMap: sharded locking — insert di shard X tidak blokir read di shard Y.
+/// - Workload: baca (try_consume) dominan, tulis (insert baru) jarang → DashMap ideal.
 pub struct RateLimitRegistry {
-    buckets: RwLock<HashMap<Arc<str>, Arc<UserBucket>>>,
+    buckets: DashMap<Arc<str>, Arc<UserBucket>, RandomState>,
 }
 
 impl RateLimitRegistry {
     fn new() -> Self {
         Self {
-            buckets: RwLock::new(HashMap::new()),
+            buckets: DashMap::with_hasher(RandomState::new()),
         }
     }
 
-    pub async fn check(&self, user_id: &str) -> bool {
-        // Fast path: bucket sudah ada
-        {
-            let guard = self.buckets.read().await;
-            if let Some(bucket) = guard.get(user_id) {
-                return bucket.try_consume();
-            }
+    pub fn check(&self, user_id: &str) -> bool {
+        // Fast path: bucket sudah ada (baca dominan — DashMap shard lock sebentar)
+        if let Some(bucket) = self.buckets.get(user_id) {
+            return bucket.try_consume();
         }
-        // Slow path: buat bucket baru untuk user ini
+
+        // Slow path: user baru — buat bucket
         let bucket = Arc::new(UserBucket::new());
-        bucket.try_consume(); // consume 1 untuk request sekarang
+        bucket.try_consume(); // consume 1 untuk request ini
+                              // entry().or_insert_with() atomic — aman jika dua thread race untuk user sama
         self.buckets
-            .write()
-            .await
-            .insert(Arc::from(user_id), bucket);
+            .entry(Arc::from(user_id))
+            .or_insert_with(|| bucket);
         true
     }
 
-    /// Cleanup bucket lama (panggil periodik).
-    pub async fn cleanup(&self) {
+    /// Cleanup bucket expired. Dipanggil periodik oleh shrink_task.
+    pub fn cleanup(&self) {
         let cutoff = now_secs().saturating_sub(RATE_LIMIT_WINDOW_SECS * 2);
-        let mut guard = self.buckets.write().await;
-        guard.retain(|_, b| b.window_start.load(Ordering::Relaxed) > cutoff);
-        tracing::debug!("Rate limit cleanup: {} active users", guard.len());
+        self.buckets
+            .retain(|_, b| b.window_start.load(Ordering::Relaxed) > cutoff);
+        tracing::debug!("Rate limit cleanup: {} active users", self.buckets.len());
     }
 }
 
@@ -141,17 +152,14 @@ pub struct WsManager {
     sessions: DashMap<Arc<str>, WsTx, RandomState>,
 
     /// room_id → Set<user_id>
-    /// FIX 1: index ini membuat broadcast O(members) bukan O(total connections)
+    /// Membuat broadcast O(members) bukan O(total connections)
     room_members: DashMap<Arc<str>, DashSet<Arc<str>>, RandomState>,
 
     redis: ConnectionManager,
     pub dropped: Arc<AtomicU64>,
     conn_limit: Arc<Semaphore>,
     active_conns: Arc<AtomicUsize>,
-
-    /// FIX 3: per-user rate limiter
     rate_limit: Arc<RateLimitRegistry>,
-
     shutdown: CancellationToken,
 }
 
@@ -195,11 +203,12 @@ impl WsManager {
         let conn_token = CancellationToken::new();
         let key: Arc<str> = user_id.into();
 
+        // Kick existing session (replaced connection)
         if let Some((_, old_tx)) = self.sessions.remove(&key) {
             self.active_conns.fetch_sub(1, Ordering::Relaxed);
-            let msg: Arc<str> = Arc::from(
-                WsEvent::err("REPLACED", "Session replaced by newer connection").to_json(),
-            );
+            // Pre-serialized error untuk session lama — tidak perlu serialize baru
+            let msg =
+                WsEvent::err(ErrorCode::Replaced, "Session replaced by newer connection").to_json();
             let _ = old_tx.try_send(msg);
         }
 
@@ -263,42 +272,45 @@ impl WsManager {
 
     // ── Rate limit ────────────────────────────────────────────────────────────
 
-    /// Cek rate limit untuk user. Return false = rate-limited, tolak message.
-    /// Panggil ini di handler sebelum dispatch ke service layer.
-    pub async fn check_rate_limit(&self, user_id: &str) -> bool {
-        self.rate_limit.check(user_id).await
+    /// Cek rate limit — sekarang sync (bukan async) karena DashMap tidak butuh await.
+    /// Caller di handler tidak perlu .await → sedikit lebih efisien.
+    pub fn check_rate_limit(&self, user_id: &str) -> bool {
+        self.rate_limit.check(user_id)
     }
 
     // ── Send ──────────────────────────────────────────────────────────────────
 
     pub async fn send_to(&self, user_id: &str, event: WsEvent) {
-        let json: Arc<str> = Arc::from(event.to_json());
+        // to_shared_json() — Arc<str> bisa di-pass ke deliver_local dan redis tanpa copy
+        let json = event.to_shared_json();
         if !self.deliver_local(user_id, json.clone()) {
             self.redis_publish_with_retry(&format!("{CH_USER}{user_id}"), &json)
                 .await;
         }
     }
 
-    /// FIX 1: O(members) broadcast via room_members index.
+    /// Broadcast ke semua member room.
     ///
-    /// Sebelum: iterate SEMUA sessions (10k conn = 10k loop per message).
-    /// Sekarang: hanya iterate member room itu.
+    /// KUNCI OPTIMISASI: serialize SEKALI via to_shared_json(),
+    /// deliver Arc<str> clone ke N koneksi = N × atomic refcount bump (nanoseconds).
     ///
-    /// FIX 2: Redis publish dengan retry (bukan fire-and-forget).
+    /// vs pola salah: event.to_json() di dalam loop = N × serialize = N × alloc.
     pub async fn broadcast_room(&self, room_id: &str, event: WsEvent) {
-        let json: Arc<str> = Arc::from(event.to_json());
+        // Serialize SEKALI di sini
+        let shared = event.to_shared_json();
 
-        // Local delivery — O(members) bukan O(all connections)
+        // Local delivery — O(members), bukan O(all connections)
         if let Some(members) = self.room_members.get(room_id) {
             let ids: Vec<Arc<str>> = members.iter().map(|r| r.key().clone()).collect();
-            drop(members); // lepas lock sebelum deliver
+            drop(members); // lepas DashMap shard lock sebelum deliver
             for uid in &ids {
-                self.deliver_local(uid, json.clone());
+                // Arc<str>::clone = atomic increment, nanoseconds
+                self.deliver_local(uid, shared.clone());
             }
         }
 
-        // Cross-instance delivery via Redis
-        self.redis_publish_with_retry(&format!("{CH_ROOM}{room_id}"), &json)
+        // Cross-instance via Redis — kirim SEKALI (string yang sama)
+        self.redis_publish_with_retry(&format!("{CH_ROOM}{room_id}"), &shared)
             .await;
     }
 
@@ -314,15 +326,19 @@ impl WsManager {
         let shutdown = self.shutdown.clone();
 
         tokio::spawn(async move {
+            // Pre-compute Ping JSON sekali — kena OnceLock fast path
+            let ping_json = WsEvent::Ping.to_json();
+
             let mut interval = tokio::time::interval(PING_INTERVAL);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
             loop {
                 tokio::select! {
                     _ = shutdown.cancelled()    => break,
                     _ = conn_cancel.cancelled() => break,
                     _ = interval.tick() => {
-                        let ping: Arc<str> = Arc::from(WsEvent::Ping.to_json());
-                        if tx.send(ping).await.is_err() { break; }
+                        // Clone Arc = atomic bump, bukan serialize ulang
+                        if tx.send(ping_json.clone()).await.is_err() { break; }
                         match tokio::time::timeout(PONG_TIMEOUT, pong_rx.recv()).await {
                             Ok(Some(())) => {}
                             _ => {
@@ -379,9 +395,7 @@ impl WsManager {
         false
     }
 
-    /// FIX 2: Redis publish dengan retry + structured logging.
-    /// Sebelum: fire-and-forget → message hilang saat Redis hiccup.
-    /// Sekarang: retry N kali dengan delay eksponensial, log setiap failure.
+    /// Redis publish dengan retry + exponential backoff.
     async fn redis_publish_with_retry(&self, channel: &str, json: &str) {
         let mut delay = REDIS_PUBLISH_RETRY_DELAY;
 
@@ -396,17 +410,13 @@ impl WsManager {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        channel,
-                        attempt,
-                        error  = %e,
+                        channel, attempt, error = %e,
                         "Redis publish failed, retrying in {:?}", delay
                     );
                     if attempt + 1 < REDIS_PUBLISH_RETRIES {
                         tokio::time::sleep(delay).await;
-                        delay *= 2; // exponential backoff: 50ms → 100ms → 200ms
+                        delay *= 2; // exponential: 50ms → 100ms → 200ms
                     } else {
-                        // Semua retry habis — message ini hilang
-                        // Di masa depan: tulis ke local queue / dead-letter untuk recovery
                         tracing::error!(
                             channel,
                             "Redis publish FAILED after {} retries — message dropped",
@@ -457,7 +467,6 @@ impl WsManager {
                                     if let Some(uid) = channel.strip_prefix(CH_USER) {
                                         mgr.deliver_local(uid, json);
                                     } else if let Some(room_id) = channel.strip_prefix(CH_ROOM) {
-                                        // FIX 1: pakai room_members index (O(members))
                                         if let Some(members) = mgr.room_members.get(room_id) {
                                             let ids: Vec<Arc<str>> = members
                                                 .iter()
@@ -490,7 +499,7 @@ impl WsManager {
                 tokio::select! {
                     _ = shutdown.cancelled() => break,
                     _ = interval.tick() => {
-                        mgr.rate_limit.cleanup().await;
+                        mgr.rate_limit.cleanup();  // sync sekarang (tidak perlu await)
                         let len = mgr.sessions.len();
                         let cap = mgr.sessions.capacity();
                         if cap > 0 && len < cap / 2 {

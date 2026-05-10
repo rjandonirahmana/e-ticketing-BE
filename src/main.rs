@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use tokio::net::TcpListener;
-use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 mod config;
 mod middleware;
