@@ -11,6 +11,32 @@ pub struct DetailImageEntry {
     pub caption: String,
 }
 
+/// Metadata per file `detail_image` yang dikirim lewat multipart.
+/// Dikirim sebagai field `detail_image_meta` (JSON array), dicocokkan by index
+/// dengan urutan field `detail_image`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetailImageMeta {
+    /// "map" | "seat" | "price" | "other" — default "other"
+    #[serde(default = "default_image_type")]
+    pub image_type: String,
+    /// Keterangan singkat gambar — default ""
+    #[serde(default)]
+    pub caption: String,
+}
+
+fn default_image_type() -> String {
+    "other".to_string()
+}
+
+impl Default for DetailImageMeta {
+    fn default() -> Self {
+        Self {
+            image_type: "other".to_string(),
+            caption: String::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
     pub id: String,

@@ -5,11 +5,13 @@ use axum::{
     Json,
 };
 use bytes::Bytes;
+use futures::future::try_join_all;
 
 use crate::middleware::auth::AuthUser;
 use crate::models::event_variants::{EventVariantResponse, UpdateEventVariantRequest};
 use crate::models::events::{
-    CreateEventRequest, EventListQuery, EventWithVariants, PaginatedEvents, UpdateEventRequest,
+    CreateEventRequest, DetailImageEntry, DetailImageMeta, EventListQuery, EventWithVariants,
+    PaginatedEvents, UpdateEventRequest,
 };
 use crate::state::AppState;
 use crate::utils::error::{AppError, AppResult};
@@ -40,10 +42,19 @@ pub async fn get_one(
 /// POST /api/events — multipart/form-data
 ///
 /// Fields:
-///   - `data`  (text) : JSON string → CreateEventRequest (termasuk variants)
-///   - `image` (file) : opsional, max 5MB, JPEG/PNG/WebP/GIF
+///   - `data`              (text) : JSON string → CreateEventRequest (termasuk variants).
+///                                  Field `detail_images` di JSON **tidak perlu diisi**;
+///                                  akan di-override dari file upload jika ada.
+///   - `image`             (file) : opsional, cover event, max 5MB, JPEG/PNG/WebP/GIF
+///   - `detail_image`      (file) : bisa banyak (field name sama berulang), max 5MB each
+///   - `detail_image_meta` (text) : JSON array of `{ image_type, caption }`, satu entry
+///                                  per file `detail_image`, dicocokkan by index.
+///                                  Contoh: `[{"image_type":"map","caption":"Denah Venue"},
+///                                            {"image_type":"seat","caption":"Seat Map"}]`
+///                                  Jika tidak dikirim, semua gambar pakai
+///                                  image_type="other" dan caption="".
 ///
-/// Response: EventWithVariants (event + semua variants sekaligus)
+/// Response: EventWithVariants
 pub async fn create(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
@@ -51,7 +62,9 @@ pub async fn create(
 ) -> AppResult<Json<EventWithVariants>> {
     user.require_role("merchant")?;
 
-    let mut image_bytes: Option<(Bytes, String)> = None;
+    let mut cover_bytes: Option<(Bytes, String)> = None;
+    let mut detail_image_bytes: Vec<(Bytes, String)> = Vec::new();
+    let mut detail_image_meta_json: Option<String> = None;
     let mut req_json: Option<String> = None;
 
     while let Some(field) = multipart
@@ -66,7 +79,24 @@ pub async fn create(
                     .bytes()
                     .await
                     .map_err(|e| AppError::BadRequest(e.to_string()))?;
-                image_bytes = Some((data, ct));
+                cover_bytes = Some((data, ct));
+            }
+            "detail_image" => {
+                let ct = field.content_type().unwrap_or("image/jpeg").to_string();
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| AppError::BadRequest(e.to_string()))?;
+                if !data.is_empty() {
+                    detail_image_bytes.push((data, ct));
+                }
+            }
+            "detail_image_meta" => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::BadRequest(e.to_string()))?;
+                detail_image_meta_json = Some(text);
             }
             "data" => {
                 let text = field
@@ -80,7 +110,7 @@ pub async fn create(
     }
 
     let json = req_json.ok_or_else(|| AppError::BadRequest("Field 'data' wajib ada".into()))?;
-    let req: CreateEventRequest = serde_json::from_str(&json)
+    let mut req: CreateEventRequest = serde_json::from_str(&json)
         .map_err(|e| AppError::BadRequest(format!("JSON tidak valid: {e}")))?;
 
     // Ambil store_name merchant untuk slug generation
@@ -90,14 +120,38 @@ pub async fn create(
         .await
         .map_err(|_| AppError::BadRequest("Merchant profile belum dibuat".into()))?;
 
-    // Upload image dulu jika ada — cover_url wajib sebelum insert event
-    let cover_url: Option<String> = match image_bytes {
+    // Upload cover image jika ada
+    let cover_url: Option<String> = match cover_bytes {
         Some((data, ct)) => {
             let storage = state.storage.clone();
-            Some(storage.upload_image(data, &"/event", &ct).await?)
+            Some(storage.upload_image(data, "/event", &ct).await?)
         }
         None => None,
     };
+
+    // Upload semua detail images secara paralel, lalu override req.detail_images
+    if !detail_image_bytes.is_empty() {
+        let metas =
+            parse_detail_image_meta(detail_image_meta_json.as_deref(), detail_image_bytes.len())?;
+
+        let upload_futs: Vec<_> = detail_image_bytes
+            .into_iter()
+            .zip(metas.into_iter())
+            .map(|((data, ct), meta)| {
+                let storage = state.storage.clone();
+                async move {
+                    let url = storage.upload_image(data, "/event/detail", &ct).await?;
+                    Ok::<DetailImageEntry, AppError>(DetailImageEntry {
+                        url,
+                        image_type: meta.image_type,
+                        caption: meta.caption,
+                    })
+                }
+            })
+            .collect();
+
+        req.detail_images = try_join_all(upload_futs).await?;
+    }
 
     Ok(Json(
         state
@@ -114,6 +168,20 @@ pub async fn list_categories(
     Ok(Json(serde_json::json!({ "data": cats })))
 }
 
+/// PUT /api/events/:id — multipart/form-data
+///
+/// Fields:
+///   - `data`              (text) : JSON string → UpdateEventRequest
+///   - `image`             (file) : opsional, ganti cover event
+///   - `detail_image`      (file) : bisa banyak (field name sama berulang), max 5MB each
+///   - `detail_image_meta` (text) : JSON array of `{ image_type, caption }`, satu entry
+///                                  per file `detail_image`.
+///                                  Jika `detail_image` dikirim → field `detail_images`
+///                                  di JSON di-replace sepenuhnya oleh hasil upload.
+///                                  Jika tidak ada `detail_image` → field `detail_images`
+///                                  di JSON tetap dipakai (kirim URL lama untuk retain).
+///
+/// Response: EventWithVariants
 pub async fn update(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
@@ -122,7 +190,9 @@ pub async fn update(
 ) -> AppResult<Json<EventWithVariants>> {
     user.require_role("merchant")?;
 
-    let mut image_bytes: Option<(Bytes, String)> = None;
+    let mut cover_bytes: Option<(Bytes, String)> = None;
+    let mut detail_image_bytes: Vec<(Bytes, String)> = Vec::new();
+    let mut detail_image_meta_json: Option<String> = None;
     let mut req_json: Option<String> = None;
 
     while let Some(field) = multipart
@@ -137,7 +207,24 @@ pub async fn update(
                     .bytes()
                     .await
                     .map_err(|e| AppError::BadRequest(e.to_string()))?;
-                image_bytes = Some((data, ct));
+                cover_bytes = Some((data, ct));
+            }
+            "detail_image" => {
+                let ct = field.content_type().unwrap_or("image/jpeg").to_string();
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| AppError::BadRequest(e.to_string()))?;
+                if !data.is_empty() {
+                    detail_image_bytes.push((data, ct));
+                }
+            }
+            "detail_image_meta" => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::BadRequest(e.to_string()))?;
+                detail_image_meta_json = Some(text);
             }
             "data" => {
                 let text = field
@@ -150,11 +237,11 @@ pub async fn update(
         }
     }
 
-    // Upload image dulu jika ada — cover_url wajib sebelum insert event
-    let cover_url: Option<String> = match image_bytes {
+    // Upload cover image jika ada
+    let cover_url: Option<String> = match cover_bytes {
         Some((data, ct)) => {
             let storage = state.storage.clone();
-            Some(storage.upload_image(data, &"/event", &ct).await?)
+            Some(storage.upload_image(data, "/event", &ct).await?)
         }
         None => None,
     };
@@ -166,7 +253,49 @@ pub async fn update(
     req.cover_url = cover_url;
     req.status = Some("edited".to_string());
 
+    // Upload detail images jika ada — replace seluruh detail_images
+    if !detail_image_bytes.is_empty() {
+        let metas =
+            parse_detail_image_meta(detail_image_meta_json.as_deref(), detail_image_bytes.len())?;
+
+        let upload_futs: Vec<_> = detail_image_bytes
+            .into_iter()
+            .zip(metas.into_iter())
+            .map(|((data, ct), meta)| {
+                let storage = state.storage.clone();
+                async move {
+                    let url = storage.upload_image(data, "/event/detail", &ct).await?;
+                    Ok::<DetailImageEntry, AppError>(DetailImageEntry {
+                        url,
+                        image_type: meta.image_type,
+                        caption: meta.caption,
+                    })
+                }
+            })
+            .collect();
+
+        req.detail_images = Some(try_join_all(upload_futs).await?);
+    }
+
     Ok(Json(state.event_svc.update(&id, user.id(), req).await?))
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Parse `detail_image_meta` JSON string menjadi Vec<DetailImageMeta>.
+/// Jika tidak ada / kosong, return vec berisi `n` entry default
+/// (image_type="other", caption="").
+fn parse_detail_image_meta(raw: Option<&str>, n: usize) -> AppResult<Vec<DetailImageMeta>> {
+    match raw {
+        Some(s) if !s.trim().is_empty() => {
+            let mut metas: Vec<DetailImageMeta> = serde_json::from_str(s)
+                .map_err(|e| AppError::BadRequest(format!("detail_image_meta tidak valid: {e}")))?;
+            // Pad dengan default jika jumlah meta < jumlah file; truncate jika lebih
+            metas.resize_with(n, DetailImageMeta::default);
+            Ok(metas)
+        }
+        _ => Ok((0..n).map(|_| DetailImageMeta::default()).collect()),
+    }
 }
 
 // ── Variants (masih tersedia untuk update/delete individual) ─────────────────
