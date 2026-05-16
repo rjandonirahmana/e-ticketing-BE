@@ -1,7 +1,7 @@
 use axum::{
-    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
+    Json,
 };
 use serde_json::json;
 use std::sync::{Arc, OnceLock};
@@ -28,6 +28,14 @@ fn notify(status: u16, kind: &'static str, detail: String) {
             tg.send_error_alert(status, kind, &detail).await;
         });
     }
+}
+
+/// Publik — untuk dipakai background service (misal NotificationService)
+/// yang tidak memiliki referensi langsung ke TelegramService.
+/// Mengirim alert non-HTTP error ke admin Telegram sebagai fire-and-forget.
+/// Tidak melakukan apa-apa jika Telegram belum di-init (bot_token kosong).
+pub fn notify_background_error(kind: &'static str, detail: String) {
+    notify(0, kind, detail);
 }
 
 // ── AppError ───────────────────────────────────────────────────────────────────

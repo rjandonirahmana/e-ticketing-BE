@@ -3,6 +3,7 @@ pub mod banners;
 pub mod event;
 pub mod group_chat;
 pub mod merchant;
+pub mod norifications;
 pub mod order;
 pub mod storage;
 pub mod telegram;

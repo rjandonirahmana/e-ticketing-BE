@@ -8,32 +8,24 @@
 //!   dan semua route handler bisa pakai `Arc<AppState>` tanpa turbofish.
 
 use std::sync::Arc;
-
-use deadpool_postgres::Pool;
-use redis::aio::ConnectionManager;
+use std::time::Duration;
 
 use crate::config::config::{RustFsConfig, WahaConfig};
 use crate::repository::{
-    banner::PgBannerRepository,
-    event::PgEventRepository,
-    group_chat::GroupChatRepository,
-    merchant::PgMerchantRepository,
-    order::PgOrderRepository,
-    ticket::PgTicketRepository,
+    banner::PgBannerRepository, event::PgEventRepository, group_chat::GroupChatRepository,
+    merchant::PgMerchantRepository, order::PgOrderRepository, ticket::PgTicketRepository,
     user::PgUserRepository,
 };
+use crate::service::norifications::NotificationService;
 use crate::service::{
-    auth::AuthService,
-    banners::BannerService,
-    event::EventService,
-    group_chat::GroupChatService,
-    merchant::MerchantService,
-    order::OrderService,
-    storage::StorageService,
-    ticket::TicketService,
+    auth::AuthService, banners::BannerService, event::EventService, group_chat::GroupChatService,
+    merchant::MerchantService, order::OrderService, storage::StorageService, ticket::TicketService,
 };
 use crate::utils::jwt::JwtService;
 use crate::ws::manager::WsManager;
+use deadpool_postgres::Pool;
+use redis::aio::ConnectionManager;
+use reqwest::Client as HttpClient;
 
 // ── Type alias ────────────────────────────────────────────────────────────────
 
@@ -73,10 +65,17 @@ impl AppState {
         redis_client: redis::Client,
         rustfs: RustFsConfig,
     ) -> Self {
+        let http = HttpClient::builder()
+            .pool_idle_timeout(Some(Duration::from_secs(30)))
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("http client");
+
         let jwt = JwtService::new(jwt_secret);
 
         // ── Repositories ──────────────────────────────────────────────────────
         let user_repo = Arc::new(PgUserRepository::new(pool.clone()));
+
         let banner_repo = Arc::new(PgBannerRepository::new(pool.clone()));
         let merchant_repo = Arc::new(PgMerchantRepository::new(pool.clone()));
         let event_repo = Arc::new(PgEventRepository::new(pool.clone()));
@@ -91,16 +90,22 @@ impl AppState {
 
         // ── Services ──────────────────────────────────────────────────────────
         let auth_svc = Arc::new(AuthService::new(
-            user_repo,
+            user_repo.clone(),
             jwt.clone(),
             bcrypt_cost,
             jwt_expiry_hours,
-            waha,
+            waha.clone(),
             redis.clone(),
         ));
+        let notif_service = Arc::new(NotificationService::new(http, waha, user_repo));
         let merchant_svc = Arc::new(MerchantService::new(merchant_repo));
         let event_svc = Arc::new(EventService::new(event_repo));
-        let order_svc = Arc::new(OrderService::new(order_repo, redis, pool.clone()));
+        let order_svc = Arc::new(OrderService::new(
+            order_repo,
+            redis,
+            pool.clone(),
+            notif_service,
+        ));
         let ticket_svc = Arc::new(TicketService::new(ticket_repo));
         let group_chat_svc = Arc::new(GroupChatService::new(group_chat_repo, ws_mgr.clone()));
 

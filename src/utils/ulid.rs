@@ -46,6 +46,15 @@ pub fn bin_to_ulid(raw: Vec<u8>) -> Result<String> {
     Ok(Ulid::from_bytes(arr).to_string())
 }
 
+/// Versi borrow dari bin_to_ulid — tidak perlu clone Vec<u8>.
+/// Gunakan ini di error path atau tempat yang hanya punya &[u8].
+pub fn bin_to_ulid_ref(raw: &[u8]) -> Result<String> {
+    let arr: [u8; 16] = raw
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("Expected 16 bytes for ULID"))?;
+    Ok(Ulid::from_bytes(arr).to_string())
+}
+
 pub fn hex_to_ulid(hex: &str) -> Result<String> {
     let bytes = hex::decode(hex).context("hex_to_ulid: invalid hex")?;
     bin_to_ulid(bytes)

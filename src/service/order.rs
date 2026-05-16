@@ -12,8 +12,9 @@ use crate::models::orders::{
 use crate::repository::order::{
     ItemRow, LockedVariant, OrderRepository, OrderTx, OversellError, LUA_RELEASE,
 };
+use crate::service::norifications::NotificationService;
 use crate::utils::error::{AppError, AppResult};
-use crate::utils::ulid::{bin_to_ulid, id_to_vec, new_ulid, ulid_to_vec};
+use crate::utils::ulid::{bin_to_ulid_ref, id_to_vec, new_ulid, ulid_to_vec};
 
 // ── Konstanta ─────────────────────────────────────────────────────────────────
 
@@ -232,6 +233,7 @@ pub struct OrderService {
     repo: Arc<dyn OrderRepository>,
     redis: redis::aio::ConnectionManager,
     pool: Pool,
+    notifier: Arc<NotificationService>, // 🔥 tambah
 }
 
 impl OrderService {
@@ -239,8 +241,14 @@ impl OrderService {
         repo: Arc<dyn OrderRepository>,
         redis: redis::aio::ConnectionManager,
         pool: Pool,
+        notifier: Arc<NotificationService>,
     ) -> Self {
-        Self { repo, redis, pool }
+        Self {
+            repo,
+            redis,
+            pool,
+            notifier,
+        }
     }
 
     // ── Create ────────────────────────────────────────────────────────────────
@@ -284,7 +292,14 @@ impl OrderService {
             lock.release().await;
 
             match tx_result {
-                Ok(Ok(v)) => return Ok(v),
+                Ok(Ok(v)) => {
+                    // 🔥🔥🔥 FIRE-AND-FORGET: spawn detached, tidak blocking return
+                    self.notifier.notify_order_created(
+                        customer_id.to_string(),
+                        v.clone(), // pastikan OrderDetailResponse derive Clone
+                    );
+                    return Ok(v);
+                }
 
                 Ok(Err(AppError::Internal(ref e))) if is_retryable_pg_error(e) => {
                     let reason = format!("{e}");
@@ -477,11 +492,11 @@ impl OrderService {
 
         OrderTx::bump_sold_batch(&tx, &bump).await.map_err(|e| {
             if let Some(oe) = e.downcast_ref::<OversellError>() {
-                // FIX [P1-4]: bin_to_ulid menerima &[u8] — tidak ada clone di error path.
+                // bin_to_ulid_ref menerima &[u8] — tidak ada clone di error path.
                 let failed_variants: Vec<String> = oe
                     .variant_ids
                     .iter()
-                    .filter_map(|b| bin_to_ulid(b.clone()).ok())
+                    .filter_map(|b| bin_to_ulid_ref(b).ok())
                     .collect();
 
                 OrderMetrics::oversell_rejected(&failed_variants);
@@ -637,8 +652,15 @@ impl OrderService {
 
         OrderMetrics::order_paid(order_id, &req.payment_method);
 
+        // BUG FIX: kirim notifikasi WA ke customer setelah pembayaran berhasil.
+        // Sebelumnya pay() tidak mengirim notifikasi apapun.
+        // Fire-and-forget: tidak blocking response API.
+        let paid_response = build_detail_response(paid_order, items);
+        self.notifier
+            .notify_order_paid(viewer_id.to_string(), paid_response.clone());
+
         // Build response dari data TX — tidak ada post-commit query.
-        Ok(build_detail_response(paid_order, items))
+        Ok(paid_response)
     }
 
     // ── Cancel ────────────────────────────────────────────────────────────────

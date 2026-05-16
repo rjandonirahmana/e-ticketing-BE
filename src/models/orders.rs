@@ -28,7 +28,7 @@ pub struct OrderItem {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct OrderItemResponse {
     pub id: String,
     pub ticket_variant_id: String,
@@ -40,7 +40,7 @@ pub struct OrderItemResponse {
     pub subtotal: Decimal,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct OrderDetailResponse {
     pub id: String,
     pub customer_id: String,

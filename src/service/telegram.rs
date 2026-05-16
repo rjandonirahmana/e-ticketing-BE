@@ -53,6 +53,7 @@ impl TelegramService {
 
     /// Kirim SERVER ERROR ALERT ke admin_chat_id.
     /// Dipanggil fire-and-forget dari AppError::into_response — tidak boleh panic.
+    /// `status_code = 0` berarti error bukan dari HTTP handler (background task).
     pub async fn send_error_alert(&self, status_code: u16, error_kind: &str, detail: &str) {
         let timestamp = Utc::now()
             .with_timezone(&Jakarta)
@@ -66,12 +67,19 @@ impl TelegramService {
         // Potong kalau terlalu panjang (Telegram max 4096 chars)
         let safe_detail = truncate_str(&safe_detail, 800);
 
+        // status_code 0 → berasal dari background task, bukan HTTP request
+        let status_line = if status_code == 0 {
+            "Background Task".to_string()
+        } else {
+            status_code.to_string()
+        };
+
         let text = format!(
             "🚨 <b>SERVER ERROR ALERT</b> 🚨\n\
              \n\
              📅 <b>Waktu:</b> {timestamp}\n\
              🔧 <b>Service:</b> Kinetic API\n\
-             📊 <b>Status Code:</b> {status_code}\n\
+             📊 <b>Status Code:</b> {status_line}\n\
              💬 <b>Error Type:</b> {error_kind}\n\
              ❌ <b>Detail:</b>\n<pre>{safe_detail}</pre>\n\
              \n\
