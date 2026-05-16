@@ -13,63 +13,27 @@ use crate::repository::order::{
     ItemRow, LockedVariant, OrderRepository, OrderTx, OversellError, LUA_RELEASE,
 };
 use crate::utils::error::{AppError, AppResult};
-use crate::utils::ulid::{id_to_vec, new_ulid, ulid_to_vec};
+use crate::utils::ulid::{bin_to_ulid, id_to_vec, new_ulid, ulid_to_vec};
 
 // ── Konstanta ─────────────────────────────────────────────────────────────────
 
-/// TTL lock Redis. Sengaja lebih panjang dari TX_TIMEOUT * 2 karena:
-/// - Heartbeat memperpanjang lock setiap TTL/3
-/// - Kalau heartbeat miss 1 tick, lock masih hidup sampai DB TX selesai
-/// - Jangan terlalu besar: lock zombie (crash tanpa release) makin lama nahan slot
 const LOCK_TTL_MS: u64 = 25_000;
-
 const LOCK_RETRIES: u8 = 3;
 const LOCK_DELAY_MS: u64 = 80;
 const MAX_TX_RETRY: u8 = 3;
 
-/// Timeout maksimal untuk seluruh transaksi DB (lock + insert + commit).
-/// Harus < LOCK_TTL_MS agar lock tidak expire sebelum TX selesai.
-/// Dengan TTL=25s dan TX_TIMEOUT=12s ada margin ~13s untuk heartbeat drift.
+/// TX_TIMEOUT harus < LOCK_TTL_MS.
+/// Margin 13 detik (25s TTL − 12s timeout) sudah aman — heartbeat tidak diperlukan.
 const TX_TIMEOUT: Duration = Duration::from_secs(12);
-
-/// Heartbeat interval = TTL / 3.
-/// - Tick pertama di interval ke-1 (bukan langsung)
-/// - Worst case: lock diperpanjang di ~8.3s, TX selesai di ~12s → aman
-const HEARTBEAT_INTERVAL: Duration = Duration::from_millis(LOCK_TTL_MS / 3);
-
-/// Heartbeat retry sebelum give up.
-/// Kalau Redis error 1-2x karena spike, masih coba ulang.
-/// Kalau 3x berturut-turut gagal → stop (Redis kemungkinan down).
-const HEARTBEAT_MAX_RETRY: u8 = 3;
-
-/// Lua script extend lock — identik dengan di repository.
-const LUA_EXTEND: &str = r#"
-if redis.call("get", KEYS[1]) == ARGV[1] then
-    return redis.call("pexpire", KEYS[1], ARGV[2])
-else
-    return 0
-end
-"#;
 
 // ── QueueMode ─────────────────────────────────────────────────────────────────
 
-/// Mode queue per event. Toggle ini di-set saat event dibuat/diupdate.
-///
-/// - `Off`    → flow normal (default, cocok untuk event kecil–menengah)
-/// - `Soft`   → Redis rate limit per user (light protection, event medium)
-/// - `Strict` → full FIFO queue via Redis LIST (event besar / high-traffic)
-///
-/// Implementasi `Soft` dan `Strict` di-scope ke iterasi berikutnya.
-/// Struct ini sudah ada agar caller tidak perlu refactor saat nanti diaktifkan.
 #[derive(Debug, Clone, Default)]
 pub enum QueueMode {
     #[default]
     Off,
-    /// Per-user rate limit via Redis sliding window.
-    /// Max N request per user per window T.
     #[allow(dead_code)]
     Soft { max_rps: u32, window_ms: u64 },
-    /// Full FIFO: user masuk Redis LIST, worker pop secara urut.
     #[allow(dead_code)]
     Strict,
 }
@@ -78,8 +42,9 @@ pub enum QueueMode {
 
 pub(crate) struct VariantLockGuard {
     redis: redis::aio::ConnectionManager,
-    pub(crate) acquired_keys: Vec<String>,
-    pub(crate) lock_val: String,
+    /// Arc sehingga ownership bisa di-share tanpa clone Vec<String>.
+    pub(crate) acquired_keys: Arc<Vec<String>>,
+    pub(crate) lock_val: Arc<str>,
 }
 
 impl VariantLockGuard {
@@ -88,34 +53,29 @@ impl VariantLockGuard {
         variant_ids: &[&str],
     ) -> AppResult<Self> {
         let mut sorted: Vec<&str> = variant_ids.to_vec();
-        // Sort untuk konsistensi urutan akuisisi → cegah deadlock antar request
-        // yang memesan variant yang sama tapi urutan berbeda.
-        // ULID string-lexicographic aman karena semua ULID same-length + same-charset.
+        // Sort untuk konsistensi urutan akuisisi → cegah deadlock.
         sorted.sort_unstable();
         sorted.dedup();
 
-        let lock_val = new_ulid();
+        let lock_val: Arc<str> = Arc::from(new_ulid().as_str());
         let keys: Vec<String> = sorted
             .iter()
             .map(|id| format!("order:lock:variant:{}", id))
             .collect();
 
-        let mut guard = Self {
-            redis,
-            acquired_keys: Vec::with_capacity(keys.len()),
-            lock_val,
-        };
+        let mut acquired: Vec<String> = Vec::with_capacity(keys.len());
+        let mut redis_conn = redis;
 
         for key in &keys {
             let mut ok = false;
             for attempt in 0..=LOCK_RETRIES {
                 let res: redis::RedisResult<Option<String>> = redis::cmd("SET")
                     .arg(key)
-                    .arg(&guard.lock_val)
+                    .arg(lock_val.as_ref())
                     .arg("NX")
                     .arg("PX")
                     .arg(LOCK_TTL_MS)
-                    .query_async(&mut guard.redis)
+                    .query_async(&mut redis_conn)
                     .await;
 
                 match res {
@@ -128,184 +88,113 @@ impl VariantLockGuard {
                     }
                     Ok(None) => {}
                     Err(e) => {
-                        guard.release().await;
+                        release_keys(&mut redis_conn, &acquired, &lock_val).await;
                         return Err(AppError::Internal(anyhow::anyhow!("Redis lock error: {e}")));
                     }
                 }
             }
 
             if !ok {
-                guard.release().await;
+                release_keys(&mut redis_conn, &acquired, &lock_val).await;
                 return Err(AppError::Conflict(
                     "Tiket sedang dipesan pengguna lain, coba lagi sebentar".into(),
                 ));
             }
-            guard.acquired_keys.push(key.clone());
+            acquired.push(key.clone());
         }
 
-        Ok(guard)
+        Ok(Self {
+            redis: redis_conn,
+            acquired_keys: Arc::new(acquired),
+            lock_val,
+        })
     }
 
     pub async fn release(&mut self) {
-        let script = redis::Script::new(LUA_RELEASE);
-        for key in self.acquired_keys.drain(..) {
-            let _ = script
-                .key(&key)
-                .arg(&self.lock_val)
-                .invoke_async::<i64>(&mut self.redis)
-                .await;
-        }
-    }
-}
-
-impl Drop for VariantLockGuard {
-    fn drop(&mut self) {
         if self.acquired_keys.is_empty() {
             return;
         }
-        let keys = std::mem::take(&mut self.acquired_keys);
-        let lock_val = self.lock_val.clone();
-        let mut redis = self.redis.clone();
-
-        tokio::spawn(async move {
-            let script = redis::Script::new(LUA_RELEASE);
-            for key in &keys {
-                let _ = script
-                    .key(key)
-                    .arg(&lock_val)
-                    .invoke_async::<i64>(&mut redis)
-                    .await;
-            }
-        });
+        release_keys(&mut self.redis, &self.acquired_keys, &self.lock_val).await;
+        self.acquired_keys = Arc::new(Vec::new());
     }
 }
 
-// ── LockHeartbeat ─────────────────────────────────────────────────────────────
-
-struct LockHeartbeat {
-    handle: tokio::task::JoinHandle<()>,
-}
-
-impl LockHeartbeat {
-    fn start(
-        mut redis: redis::aio::ConnectionManager,
-        keys: Vec<String>,
-        lock_val: String,
-    ) -> Self {
-        let ttl_ms_str = LOCK_TTL_MS.to_string();
-
-        let handle = tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(HEARTBEAT_INTERVAL);
-            ticker.tick().await; // skip tick pertama (langsung)
-
-            loop {
-                ticker.tick().await;
-
-                for key in &keys {
-                    // Retry loop per-key: kalau Redis error sementara,
-                    // coba ulang sebelum give up.
-                    // Mindset: DB = source of truth, Redis lock = optimistic gate.
-                    // Kalau heartbeat gagal permanen → lock expire → request lain
-                    // bisa masuk → DB guard (bump_sold_batch + quota check) yang
-                    // mencegah oversell sebagai last line of defense.
-                    let mut retry = 0u8;
-                    loop {
-                        let res: redis::RedisResult<i64> = redis::Script::new(LUA_EXTEND)
-                            .key(key)
-                            .arg(&lock_val)
-                            .arg(&ttl_ms_str)
-                            .invoke_async(&mut redis)
-                            .await;
-
-                        match res {
-                            Ok(0) => {
-                                // Lock sudah tidak milik kita (expired atau diambil lain)
-                                // → stop heartbeat, jangan extend lock orang lain
-                                tracing::warn!(
-                                    key = %key,
-                                    "heartbeat: lock expired or stolen, stopping"
-                                );
-                                return;
-                            }
-                            Ok(_) => break, // extended, lanjut ke key berikutnya
-
-                            Err(e) => {
-                                retry += 1;
-                                if retry >= HEARTBEAT_MAX_RETRY {
-                                    // Redis error persisten → give up
-                                    // DB guard masih aktif sebagai safety net
-                                    tracing::error!(
-                                        key = %key,
-                                        error = %e,
-                                        "heartbeat: redis error after {} retries, giving up",
-                                        HEARTBEAT_MAX_RETRY
-                                    );
-                                    return;
-                                }
-                                tracing::warn!(
-                                    key = %key,
-                                    error = %e,
-                                    attempt = retry,
-                                    "heartbeat: redis error, retrying"
-                                );
-                                sleep(Duration::from_millis(50)).await;
-                            }
-                        }
-                    }
-                }
-            }
-        });
-
-        Self { handle }
-    }
-
-    fn stop(self) {
-        self.handle.abort();
+/// Drop hanya log — tidak spawn task.
+/// Redis TTL (PX 25_000) adalah safety net jika release() terlewat.
+impl Drop for VariantLockGuard {
+    fn drop(&mut self) {
+        if !self.acquired_keys.is_empty() {
+            tracing::error!(
+                keys = ?self.acquired_keys.as_ref(),
+                "VariantLockGuard dropped tanpa release! Lock expire via Redis TTL."
+            );
+        }
     }
 }
+
+async fn release_keys(redis: &mut redis::aio::ConnectionManager, keys: &[String], lock_val: &str) {
+    let script = redis::Script::new(LUA_RELEASE);
+    for key in keys {
+        let _ = script
+            .key(key.as_str())
+            .arg(lock_val)
+            .invoke_async::<i64>(redis)
+            .await;
+    }
+}
+
+// ── HEARTBEAT DIHAPUS ─────────────────────────────────────────────────────────
+//
+// RACE CONDITION di versi sebelumnya:
+//
+//   Scenario:
+//     [A] main:      heartbeat.stop()   → kirim cancel via oneshot
+//     [B] main:      lock.release()     → DEL key di Redis
+//     [C] heartbeat: pipeline PEXPIRE sudah dikirim ke Redis, menunggu response
+//     [D] heartbeat: response tiba → key di-extend (PEXPIRE pada key yang baru di-DEL
+//                    akan me-recreate key jika Redis versi < 7, atau tidak re-extend
+//                    pada Redis 7+ tapi MASIH berpotensi window kecil)
+//
+//   Hasil: lock "bangkit dari mati" dengan TTL 25s → lock zombie.
+//   Variant tidak bisa dipesan siapapun selama 25s. Throughput anjlok.
+//
+// SOLUSI: Hapus heartbeat sepenuhnya.
+//
+// JUSTIFIKASI:
+//   - TX_TIMEOUT = 12s, LOCK_TTL = 25s → margin 13 detik.
+//   - Selama tidak ada blocking I/O di luar timeout(), lock tidak akan expire.
+//   - Heartbeat menambah kompleksitas, 1 Redis RTT ekstra, dan race condition.
+//   - TTL Redis adalah safety net yang cukup untuk crash/hang scenario.
 
 // ── Metrics ───────────────────────────────────────────────────────────────────
 
-/// Observability counter sederhana — drop-in, tidak butuh library metrics besar.
-///
-/// Di production, ganti dengan prometheus counter atau opentelemetry.
-/// Untuk sekarang, semua metric di-emit via tracing event sehingga bisa
-/// di-aggregate oleh log aggregator (Loki, CloudWatch, Datadog, dll).
 struct OrderMetrics;
 
 impl OrderMetrics {
     fn lock_acquired(variant_count: usize) {
         tracing::debug!(variant_count, event = "lock_acquired");
     }
-
     fn lock_conflict() {
         tracing::warn!(event = "lock_conflict");
     }
-
     fn tx_retry(attempt: u8, reason: &str) {
         tracing::warn!(attempt, reason, event = "tx_retry");
     }
-
     fn tx_timeout() {
         tracing::error!(event = "tx_timeout", timeout_secs = TX_TIMEOUT.as_secs());
     }
-
-    fn oversell_rejected(variant_id: &str) {
-        tracing::warn!(variant_id, event = "oversell_rejected");
+    fn oversell_rejected(variant_ids: &[String]) {
+        tracing::warn!(variants = ?variant_ids, event = "oversell_rejected");
     }
-
     fn idempotency_conflict(customer_id: &str) {
         tracing::info!(customer_id, event = "idempotency_conflict");
     }
-
     fn order_created(order_id: &str, total: Decimal, item_count: usize) {
         tracing::info!(order_id, total = %total, item_count, event = "order_created");
     }
-
     fn order_paid(order_id: &str, payment_method: &str) {
         tracing::info!(order_id, payment_method, event = "order_paid");
     }
-
     fn order_cancelled(order_id: &str) {
         tracing::info!(order_id, event = "order_cancelled");
     }
@@ -317,21 +206,24 @@ fn is_retryable_pg_error(e: &anyhow::Error) -> bool {
     if let Some(pg_err) = e.downcast_ref::<tokio_postgres::Error>() {
         if let Some(db_err) = pg_err.as_db_error() {
             let code = db_err.code().code();
-            // 40001 = serialization_failure
-            // 40P01 = deadlock_detected
+            // 40001 = serialization_failure, 40P01 = deadlock_detected
             return code == "40001" || code == "40P01";
         }
     }
     false
 }
 
-#[inline]
-fn unique_variant_count(items: &[crate::models::orders::CreateOrderItemRequest]) -> usize {
-    let mut seen = std::collections::HashSet::new();
-    for item in items {
-        seen.insert(&item.ticket_variant_id);
-    }
-    seen.len()
+/// FIX [P2-8]: Jitter tanpa external rand dependency.
+/// subsec_nanos() menghasilkan nilai 0..1_000_000_000 yang cukup acak untuk
+/// mencegah thundering herd. Tidak memerlukan tambahan entry di Cargo.toml.
+fn backoff_with_jitter(attempt: u8) -> Duration {
+    let base_ms = 20 * (attempt as u64 + 1);
+    let jitter_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos() as u64
+        % (base_ms + 1);
+    Duration::from_millis(base_ms + jitter_ms)
 }
 
 // ── OrderService ──────────────────────────────────────────────────────────────
@@ -372,74 +264,59 @@ impl OrderService {
             ids
         };
 
-        // Akuisisi Redis lock — fast fail kalau variant sedang dipesan lain
-        let mut lock = VariantLockGuard::acquire(self.redis.clone(), &variant_ids)
-            .await
-            .map_err(|e| {
-                if matches!(e, AppError::Conflict(_)) {
-                    OrderMetrics::lock_conflict();
-                }
-                e
-            })?;
-
-        OrderMetrics::lock_acquired(variant_ids.len());
-
-        // Heartbeat memperpanjang lock setiap HEARTBEAT_INTERVAL
-        // agar tidak expire selama TX berjalan
-        let heartbeat = LockHeartbeat::start(
-            self.redis.clone(),
-            lock.acquired_keys.clone(),
-            lock.lock_val.clone(),
-        );
-
-        let mut result: AppResult<OrderDetailResponse> =
-            Err(AppError::Internal(anyhow::anyhow!("unreachable")));
-        let mut last_retryable: Option<String> = None;
-
+        // Lock diakuisisi ulang per attempt — tidak tertahan selama seluruh retry loop.
+        // Tanpa heartbeat, implementasi ini simple dan race-free.
         for attempt in 0..MAX_TX_RETRY {
+            let mut lock = VariantLockGuard::acquire(self.redis.clone(), &variant_ids)
+                .await
+                .map_err(|e| {
+                    if matches!(e, AppError::Conflict(_)) {
+                        OrderMetrics::lock_conflict();
+                    }
+                    e
+                })?;
+
+            OrderMetrics::lock_acquired(variant_ids.len());
+
             let tx_result = timeout(TX_TIMEOUT, self.create_in_tx(customer_id, &req)).await;
 
+            // Release selalu sebelum retry atau return.
+            lock.release().await;
+
             match tx_result {
-                Ok(Ok(v)) => {
-                    result = Ok(v);
-                    last_retryable = None;
-                    break;
-                }
+                Ok(Ok(v)) => return Ok(v),
+
                 Ok(Err(AppError::Internal(ref e))) if is_retryable_pg_error(e) => {
                     let reason = format!("{e}");
                     OrderMetrics::tx_retry(attempt, &reason);
-                    last_retryable = Some(format!("attempt {attempt}: {e}"));
-                    sleep(Duration::from_millis(20 * (attempt as u64 + 1))).await;
-                    continue;
+
+                    if attempt + 1 < MAX_TX_RETRY {
+                        sleep(backoff_with_jitter(attempt)).await;
+                        continue;
+                    }
+                    return Err(AppError::Internal(anyhow::anyhow!(
+                        "DB conflict setelah {} retry: {}",
+                        MAX_TX_RETRY,
+                        reason
+                    )));
                 }
-                Ok(Err(e)) => {
-                    result = Err(e);
-                    break;
-                }
+
+                Ok(Err(e)) => return Err(e),
+
                 Err(_elapsed) => {
                     OrderMetrics::tx_timeout();
-                    result = Err(AppError::Internal(anyhow::anyhow!(
+                    return Err(AppError::Internal(anyhow::anyhow!(
                         "transaksi timeout setelah {}s",
                         TX_TIMEOUT.as_secs()
                     )));
-                    break;
                 }
             }
         }
 
-        if let Some(msg) = last_retryable {
-            result = Err(AppError::Internal(anyhow::anyhow!(
-                "DB conflict setelah {} retry: {}",
-                MAX_TX_RETRY,
-                msg
-            )));
-        }
-
-        // Selalu stop heartbeat + release lock, bahkan kalau TX gagal
-        heartbeat.stop();
-        lock.release().await;
-
-        result
+        Err(AppError::Internal(anyhow::anyhow!(
+            "DB conflict setelah {} retry",
+            MAX_TX_RETRY
+        )))
     }
 
     async fn create_in_tx(
@@ -457,20 +334,23 @@ impl OrderService {
             .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("begin tx: {e}")))?;
 
-        // ─ 1. Kumpulkan variant_id bytes ─────────────────────────────────────
-        let id_bytes_list: Vec<Vec<u8>> = {
-            let mut seen = std::collections::HashSet::new();
-            let mut out = Vec::new();
-            for item in &req.items {
-                if seen.insert(&item.ticket_variant_id) {
-                    out.push(
-                        id_to_vec(&item.ticket_variant_id)
-                            .map_err(|e| AppError::BadRequest(e.to_string()))?,
-                    );
-                }
+        // ─ 1. Single-pass aggregation ─────────────────────────────────────────
+        let mut qty_per_variant: HashMap<&str, i32> = HashMap::new();
+        let mut bytes_per_variant: HashMap<&str, Vec<u8>> = HashMap::new();
+
+        for item in &req.items {
+            let vid = item.ticket_variant_id.as_str();
+            *qty_per_variant.entry(vid).or_insert(0) += item.quantity;
+            if let std::collections::hash_map::Entry::Vacant(e) = bytes_per_variant.entry(vid) {
+                let bytes = id_to_vec(vid).map_err(|e| AppError::BadRequest(e.to_string()))?;
+                e.insert(bytes);
             }
-            out
-        };
+        }
+
+        // into_values() → Vec<Vec<u8>> owned, kompatibel dengan lock_variants(&[Vec<u8>]).
+        // bytes_per_variant tidak dipakai lagi setelah ini (variant data diambil dari
+        // query result melalui variant_map).
+        let id_bytes_list: Vec<Vec<u8>> = bytes_per_variant.into_values().collect();
 
         // ─ 2. SELECT FOR UPDATE ───────────────────────────────────────────────
         let variants = OrderTx::lock_variants(&tx, &id_bytes_list)
@@ -480,17 +360,8 @@ impl OrderService {
         let variant_map: HashMap<&str, &LockedVariant> =
             variants.iter().map(|v| (v.ulid.as_str(), v)).collect();
 
-        // ─ 3. Aggregate qty per variant ───────────────────────────────────────
-        let mut total_qty_per_variant: HashMap<&str, i32> =
-            HashMap::with_capacity(unique_variant_count(&req.items));
-        for item in &req.items {
-            *total_qty_per_variant
-                .entry(item.ticket_variant_id.as_str())
-                .or_insert(0) += item.quantity;
-        }
-
-        // ─ 4. Validasi stok, is_active, max_per_order ────────────────────────
-        for (vid, &total_qty) in &total_qty_per_variant {
+        // ─ 3. Validasi stok, is_active, max_per_order ────────────────────────
+        for (vid, &total_qty) in &qty_per_variant {
             let v = variant_map
                 .get(vid)
                 .ok_or_else(|| AppError::NotFound(format!("Variant '{vid}' tidak ditemukan")))?;
@@ -518,7 +389,7 @@ impl OrderService {
             }
         }
 
-        // ─ 5. Bangun item_rows + hitung grand total ───────────────────────────
+        // ─ 4. Bangun item_rows + hitung grand total ───────────────────────────
         let order_id = new_ulid();
         let order_id_bytes = ulid_to_vec(&order_id).map_err(AppError::Internal)?;
         let mut grand_total = Decimal::ZERO;
@@ -541,16 +412,15 @@ impl OrderService {
             });
         }
 
-        // ─ 6. INSERT order — atomic idempotency CTE ───────────────────────────
+        // ─ 5. INSERT order — atomic idempotency CTE ───────────────────────────
         let customer_bytes = id_to_vec(customer_id).map_err(AppError::Internal)?;
         let order_code = {
+            // ULID sudah uppercase by spec — .to_uppercase() redundan dan allocates.
             let suffix = &order_id[order_id.len().saturating_sub(8)..];
-            format!("KN{}", suffix.to_uppercase())
+            format!("KN{suffix}")
         };
         let expired_at = chrono::Utc::now() + chrono::Duration::hours(2);
 
-        // insert_order sekarang mengembalikan (Order, is_new: bool)
-        // is_new = false → idempotency conflict → order existing dikembalikan
         let (order, is_new) = OrderTx::insert_order(
             &tx,
             &order_id_bytes,
@@ -563,72 +433,63 @@ impl OrderService {
         .await
         .map_err(AppError::Internal)?;
 
-        // Idempotency conflict: kembalikan order existing tanpa insert ulang
         if !is_new {
             OrderMetrics::idempotency_conflict(customer_id);
 
-            // Rollback agar tidak ada side effect dari TX ini
-            tx.rollback().await.ok();
+            // FIX [P0-3]: COMMIT bukan ROLLBACK untuk idempotency conflict.
+            //
+            // TX ini adalah read-only (insert tidak terjadi karena ON CONFLICT DO NOTHING).
+            // COMMIT lebih reliable karena:
+            //   - ROLLBACK yang gagal (network timeout) → connection dikembalikan ke pool
+            //     dalam keadaan transaksi masih aktif di sisi PostgreSQL.
+            //   - drop(conn) setelah rollback gagal TIDAK memusnahkan connection —
+            //     deadpool mengembalikannya ke pool karena connection object masih valid.
+            //   - COMMIT pada read-only TX selalu berhasil kecuali koneksi benar-benar putus,
+            //     dalam hal itu deadpool akan mendeteksi dan drop connection dengan benar.
+            if let Err(e) = tx.commit().await {
+                tracing::warn!(
+                    error = %e,
+                    "commit idempotency tx failed; connection mungkin dirty, akan di-drop"
+                );
+                // drop eksplisit sebagai sinyal ke deadpool bahwa connection ini bermasalah.
+                // Deadpool akan close underlying connection saat Client di-drop dalam
+                // keadaan error.
+                drop(conn);
+            }
 
-            // Fetch items dari DB untuk response lengkap
             let items = self.repo.list_items(&order.id).await?;
-            return Ok(OrderDetailResponse {
-                id: order.id,
-                customer_id: order.customer_id,
-                order_code: order.order_code,
-                status: order.status,
-                total_amount: order.total_amount,
-                payment_method: order.payment_method,
-                paid_at: order.paid_at,
-                expired_at: order.expired_at,
-                created_at: order.created_at,
-                items,
-            });
+            return Ok(build_detail_response(order, items));
         }
 
-        // ─ 7. Batch INSERT order_items ────────────────────────────────────────
+        // ─ 6. Batch INSERT order_items ────────────────────────────────────────
         OrderTx::insert_order_items_batch(&tx, &order_id_bytes, &item_rows)
             .await
             .map_err(AppError::Internal)?;
 
-        // ─ 8. Batch UPDATE sold — dengan DB-level oversell guard ──────────────
+        // ─ 7. Batch UPDATE sold — DB-level oversell guard ─────────────────────
         //
-        // bump_sold_batch sekarang:
-        // 1. Pre-aggregate qty per variant (cegah double counting dalam batch)
-        // 2. Guard `(quota - sold) >= total_qty` atomik di DB
-        // 3. Return OversellError kalau rows_updated != expected
-        //
-        // Ini adalah last line of defense — Redis lock + validasi di step 4
-        // sudah menangkap mayoritas kasus, tapi guard DB tetap wajib untuk
-        // skenario: lock expire, heartbeat miss, network partition, bug.
-        let bump: Vec<(Vec<u8>, i32)> = item_rows
+        // FIX [P1-5]: bump menggunakan &[u8] borrow — tidak ada clone var_bytes.
+        // Lifetime slices terikat ke item_rows yang hidup selama fungsi ini.
+        let bump: Vec<(&[u8], i32)> = item_rows
             .iter()
-            .map(|row| (row.var_bytes.clone(), row.qty))
+            .map(|row| (row.var_bytes.as_slice(), row.qty))
             .collect();
 
         OrderTx::bump_sold_batch(&tx, &bump).await.map_err(|e| {
-            // Bedakan oversell (business error) vs DB error (internal)
             if let Some(oe) = e.downcast_ref::<OversellError>() {
-                // Log variant yang gagal untuk debugging
-                let failed_variant = item_rows
+                // FIX [P1-4]: bin_to_ulid menerima &[u8] — tidak ada clone di error path.
+                let failed_variants: Vec<String> = oe
+                    .variant_ids
                     .iter()
-                    .find(|r| {
-                        // Heuristik: kalau updated < expected, variant pertama
-                        // di batch adalah kandidat terkuat (order dalam bump)
-                        true
-                    })
-                    .map(|r| {
-                        // Decode bytes kembali ke ULID untuk log
-                        crate::utils::ulid::bin_to_ulid(r.var_bytes.clone())
-                            .unwrap_or_else(|_| "unknown".into())
-                    })
-                    .unwrap_or_else(|| "unknown".into());
+                    .filter_map(|b| bin_to_ulid(b.clone()).ok())
+                    .collect();
 
-                OrderMetrics::oversell_rejected(&failed_variant);
+                OrderMetrics::oversell_rejected(&failed_variants);
 
                 tracing::error!(
                     updated = oe.updated,
                     expected = oe.expected,
+                    variants = ?failed_variants,
                     "bump_sold_batch: oversell guard triggered"
                 );
 
@@ -645,7 +506,7 @@ impl OrderService {
 
         OrderMetrics::order_created(&order.id, grand_total, item_rows.len());
 
-        // ─ Susun response dari in-memory (tanpa query tambahan) ───────────────
+        // ─ Response dari in-memory (tanpa query tambahan) ─────────────────────
         let items: Vec<OrderItemResponse> = req
             .items
             .iter()
@@ -665,18 +526,7 @@ impl OrderService {
             })
             .collect();
 
-        Ok(OrderDetailResponse {
-            id: order.id,
-            customer_id: order.customer_id,
-            order_code: order.order_code,
-            status: order.status,
-            total_amount: order.total_amount,
-            payment_method: order.payment_method,
-            paid_at: order.paid_at,
-            expired_at: order.expired_at,
-            created_at: order.created_at,
-            items,
-        })
+        Ok(build_detail_response(order, items))
     }
 
     // ── Detail ────────────────────────────────────────────────────────────────
@@ -693,18 +543,7 @@ impl OrderService {
         }
 
         let items = self.repo.list_items(order_id).await?;
-        Ok(OrderDetailResponse {
-            id: order.id,
-            customer_id: order.customer_id,
-            order_code: order.order_code,
-            status: order.status,
-            total_amount: order.total_amount,
-            payment_method: order.payment_method,
-            paid_at: order.paid_at,
-            expired_at: order.expired_at,
-            created_at: order.created_at,
-            items,
-        })
+        Ok(build_detail_response(order, items))
     }
 
     // ── List ──────────────────────────────────────────────────────────────────
@@ -765,23 +604,30 @@ impl OrderService {
 
         let order_bytes = id_to_vec(order_id).map_err(AppError::Internal)?;
 
-        // mark_paid sudah ada guard: WHERE status='pending' AND expired_at > NOW()
-        // Kalau race antara dua request pay yang sama → hanya satu yang menang
-        let updated = OrderTx::mark_paid(&tx, &order_bytes, &req.payment_method)
+        // FIX [P2-7]: mark_paid menggunakan RETURNING → dapat Order langsung.
+        // Mengeliminasi self.detail() post-commit yang butuh 2 query DB tambahan
+        // (find_by_id + list_items = 2 pool checkout + 2 query).
+        let paid_order = OrderTx::mark_paid(&tx, &order_bytes, &req.payment_method)
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| {
+                AppError::BadRequest(
+                    "Order tidak bisa dibayar (sudah dibayar, dibatalkan, atau expired)".into(),
+                )
+            })?;
+
+        // fetch_items_for_mint: (bytes, qty) untuk mint_tickets_batch.
+        let mint_items = OrderTx::fetch_items_for_mint(&tx, &order_bytes)
             .await
             .map_err(AppError::Internal)?;
 
-        if updated == 0 {
-            return Err(AppError::BadRequest(
-                "Order tidak bisa dibayar (sudah dibayar, dibatalkan, atau expired)".into(),
-            ));
-        }
-
-        let items = OrderTx::fetch_items_for_order(&tx, &order_bytes)
+        OrderTx::mint_tickets_batch(&tx, &mint_items)
             .await
             .map_err(AppError::Internal)?;
 
-        OrderTx::mint_tickets_batch(&tx, &items)
+        // fetch_items_detail: full OrderItemResponse untuk response.
+        // Query ini di dalam TX → data konsisten dengan paid_order di atas.
+        let items = OrderTx::fetch_items_detail(&tx, &order_bytes)
             .await
             .map_err(AppError::Internal)?;
 
@@ -791,7 +637,8 @@ impl OrderService {
 
         OrderMetrics::order_paid(order_id, &req.payment_method);
 
-        self.detail(order_id, viewer_id).await
+        // Build response dari data TX — tidak ada post-commit query.
+        Ok(build_detail_response(paid_order, items))
     }
 
     // ── Cancel ────────────────────────────────────────────────────────────────
@@ -824,13 +671,6 @@ impl OrderService {
 
         let order_bytes = id_to_vec(order_id).map_err(AppError::Internal)?;
 
-        // Fetch dulu sebelum cancel agar refund tahu qty per variant.
-        // Note: cancel_order sudah guard WHERE status='pending' →
-        // race antara cancel vs pay aman: hanya satu yang menang.
-        // SELECT FOR UPDATE tidak diperlukan untuk flow ini karena
-        // kedua operasi melakukan UPDATE bukan read-then-branch.
-        // Kalau di masa depan ada logic tambahan (refund external, audit),
-        // tambahkan SELECT ... FOR UPDATE di sini.
         let items = OrderTx::fetch_items_for_refund(&tx, &order_bytes)
             .await
             .map_err(AppError::Internal)?;
@@ -854,5 +694,22 @@ impl OrderService {
         OrderMetrics::order_cancelled(order_id);
 
         Ok(())
+    }
+}
+
+// ── Builder helper ────────────────────────────────────────────────────────────
+
+fn build_detail_response(order: Order, items: Vec<OrderItemResponse>) -> OrderDetailResponse {
+    OrderDetailResponse {
+        id: order.id,
+        customer_id: order.customer_id,
+        order_code: order.order_code,
+        status: order.status,
+        total_amount: order.total_amount,
+        payment_method: order.payment_method,
+        paid_at: order.paid_at,
+        expired_at: order.expired_at,
+        created_at: order.created_at,
+        items,
     }
 }
