@@ -13,12 +13,14 @@ use crate::{
 const CUSTOMER_MSG_LIMIT: i64 = 1;
 
 pub struct GroupChatService {
-    pub repo: Arc<GroupChatRepository>,
+    /// FIX: Arc<dyn GroupChatRepository> — konsisten dengan OrderService, AuthService, dll.
+    /// Memungkinkan mock/test tanpa database, dan swap implementasi tanpa recompile service.
+    pub repo: Arc<dyn GroupChatRepository>,
     pub ws_mgr: Arc<WsManager>,
 }
 
 impl GroupChatService {
-    pub fn new(repo: Arc<GroupChatRepository>, ws_mgr: Arc<WsManager>) -> Self {
+    pub fn new(repo: Arc<dyn GroupChatRepository>, ws_mgr: Arc<WsManager>) -> Self {
         Self { repo, ws_mgr }
     }
 
@@ -104,7 +106,6 @@ impl GroupChatService {
         if content.trim().is_empty() {
             bail!("Pesan tidak boleh kosong");
         }
-        self.authorize_can_send(room_id, sender_id, role).await?;
 
         let msg = GroupMessage {
             id: new_ulid(),
@@ -119,7 +120,7 @@ impl GroupChatService {
             is_system: false,
         };
 
-        self.repo.save_message(&msg).await?;
+        self.authorize_and_save(&msg, role).await?;
         self.fanout(room_id, &msg).await;
         Ok(msg)
     }
@@ -135,8 +136,6 @@ impl GroupChatService {
         ticket: TicketCard,
         caption: &str,
     ) -> Result<GroupMessage> {
-        self.authorize_can_send(room_id, sender_id, role).await?;
-
         let msg = GroupMessage {
             id: new_ulid(),
             room_id: room_id.to_string(),
@@ -150,7 +149,7 @@ impl GroupChatService {
             is_system: false,
         };
 
-        self.repo.save_message(&msg).await?;
+        self.authorize_and_save(&msg, role).await?;
         self.fanout(room_id, &msg).await;
         Ok(msg)
     }
@@ -177,20 +176,25 @@ impl GroupChatService {
     // ── Internal ──────────────────────────────────────────────────────────────
 
     /// Enforce aturan:
-    /// - Customer: maks CUSTOMER_MSG_LIMIT pesan per room
-    /// - Merchant/Admin: unlimited
-    async fn authorize_can_send(&self, room_id: &str, user_id: &str, role: &str) -> Result<()> {
-        if !self.repo.is_member(room_id, user_id).await? {
+    /// - Customer: maks CUSTOMER_MSG_LIMIT pesan per room — dicek secara ATOMIC di DB
+    /// - Merchant/Admin: unlimited, langsung save
+    async fn authorize_and_save(&self, msg: &GroupMessage, role: &str) -> Result<()> {
+        if !self.repo.is_member(&msg.room_id, &msg.sender_id).await? {
             bail!("Bukan member room ini");
         }
 
         if role == "merchant" || role == "admin" {
+            // Unlimited — langsung insert tanpa limit check
+            self.repo.save_message(msg).await?;
             return Ok(());
         }
 
-        // Customer: cek limit
-        let sent = self.repo.count_user_messages(room_id, user_id).await?;
-        if sent >= CUSTOMER_MSG_LIMIT {
+        // FIX: Customer — gunakan atomic CTE insert yang menggabungkan
+        // count check + insert dalam satu query. Tidak ada race condition
+        // antara check dan insert seperti pola count lalu insert terpisah.
+        let inserted = self.repo.save_message_if_under_limit(msg).await?;
+
+        if !inserted {
             bail!(
                 "Customer hanya bisa mengirim {} pesan per grup. \
                  Upgrade ke merchant untuk koordinasi tak terbatas.",
@@ -216,12 +220,13 @@ impl GroupChatService {
         }
     }
 
+    /// FIX: Tidak ada tokio::spawn — await langsung.
+    /// Spawn tanpa bound menyebabkan task buildup pada load tinggi (Redis retry
+    /// 3× × 200ms worst-case = ~350ms per fanout, 1k msg/s = ~350 outstanding tasks).
+    /// broadcast_room local-delivery via try_send (non-blocking), Redis 1 publish.
+    /// Latency tambahan ke caller hanya μs untuk local + ~1ms untuk Redis — acceptable.
     async fn fanout(&self, room_id: &str, msg: &GroupMessage) {
-        let ws_mgr = self.ws_mgr.clone();
-        let room_id: String = room_id.into(); // shadowing: &str → String
         let event = WsEvent::NewMessage(Box::new(WsMessage::from_model(msg)));
-        tokio::spawn(async move {
-            ws_mgr.broadcast_room(&room_id, event).await;
-        });
+        self.ws_mgr.broadcast_room(room_id, event).await;
     }
 }

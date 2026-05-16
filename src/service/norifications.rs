@@ -1,3 +1,4 @@
+use redis::{aio::ConnectionManager as RedisConn, AsyncCommands};
 use reqwest::Client as HttpClient;
 use serde_json::json;
 use std::sync::Arc;
@@ -9,11 +10,19 @@ use crate::repository::user::UserRepository;
 use crate::utils::error::notify_background_error;
 use crate::utils::phone::normalize_phone;
 
+/// TTL dedup key di Redis — 24 jam cukup untuk mencegah double-notif dari
+/// retry client atau race condition pada pay(), tapi tidak terlalu lama
+/// jika order ID di-reuse (seharusnya tidak, tapi defence in depth).
+const NOTIF_DEDUP_TTL_SECS: u64 = 86_400; // 24 jam
+
 #[derive(Clone)]
 pub struct NotificationService {
     http: HttpClient,
     waha: Arc<WahaConfig>,
     user_repo: Arc<dyn UserRepository>,
+    /// FIX: Redis untuk dedup notifikasi WA.
+    /// Mencegah double-kirim jika pay() dipanggil 2× (race/retry client).
+    redis: RedisConn,
 }
 
 impl NotificationService {
@@ -21,11 +30,13 @@ impl NotificationService {
         http: HttpClient,
         waha: Arc<WahaConfig>,
         user_repo: Arc<dyn UserRepository>,
+        redis: RedisConn,
     ) -> Self {
         Self {
             http,
             waha,
             user_repo,
+            redis,
         }
     }
 
@@ -33,9 +44,17 @@ impl NotificationService {
 
     /// Kirim notifikasi WA saat order berhasil dibuat.
     /// Fire-and-forget: tidak blocking response API.
+    /// Dedup via Redis — maksimal 1 notif per order_id per 24 jam.
     pub fn notify_order_created(&self, customer_id: String, order: OrderDetailResponse) {
         let svc = self.clone();
         tokio::spawn(async move {
+            // Dedup check: SET NX EX — atomik, tidak ada race condition
+            let dedup_key = format!("notif:created:{}", order.id);
+            if !svc.acquire_dedup(&dedup_key).await {
+                tracing::debug!(order_id = %order.id, "WA order-created: skipped (dedup)");
+                return;
+            }
+
             if let Err(e) = svc.send_order_created_wa(&customer_id, &order).await {
                 let detail = format!(
                     "customer_id={} order_id={} error={:#}",
@@ -47,26 +66,25 @@ impl NotificationService {
                     error = %e,
                     "WA order-created notification failed"
                 );
-                // BUG FIX: forward error ke Telegram admin alert.
-                // Sebelumnya hanya tracing::error — tidak ada visibilitas saat WA down.
                 notify_background_error("WA_OrderCreated", detail);
             } else {
-                tracing::info!(
-                    customer_id,
-                    order_id = %order.id,
-                    "WA order-created notification sent"
-                );
+                tracing::info!(customer_id, order_id = %order.id, "WA order-created sent");
             }
         });
     }
 
     /// Kirim notifikasi WA saat pembayaran berhasil.
     /// Fire-and-forget: tidak blocking response API.
-    ///
-    /// BUG FIX: sebelumnya pay() tidak mengirim notifikasi apapun ke customer.
+    /// Dedup via Redis — mencegah double WA jika pay() dipanggil 2×.
     pub fn notify_order_paid(&self, customer_id: String, order: OrderDetailResponse) {
         let svc = self.clone();
         tokio::spawn(async move {
+            let dedup_key = format!("notif:paid:{}", order.id);
+            if !svc.acquire_dedup(&dedup_key).await {
+                tracing::debug!(order_id = %order.id, "WA order-paid: skipped (dedup)");
+                return;
+            }
+
             if let Err(e) = svc.send_order_paid_wa(&customer_id, &order).await {
                 let detail = format!(
                     "customer_id={} order_id={} error={:#}",
@@ -80,13 +98,36 @@ impl NotificationService {
                 );
                 notify_background_error("WA_OrderPaid", detail);
             } else {
-                tracing::info!(
-                    customer_id,
-                    order_id = %order.id,
-                    "WA order-paid notification sent"
-                );
+                tracing::info!(customer_id, order_id = %order.id, "WA order-paid sent");
             }
         });
+    }
+
+    // ── Dedup helper ──────────────────────────────────────────────────────────
+
+    /// SET key "1" NX EX ttl — return true jika berhasil set (kita yang pertama),
+    /// false jika key sudah ada (sudah pernah notif).
+    /// Menggunakan SET NX yang atomic — tidak ada race condition antar dua instance.
+    async fn acquire_dedup(&self, key: &str) -> bool {
+        let mut conn = self.redis.clone();
+        let result: redis::RedisResult<Option<String>> = redis::cmd("SET")
+            .arg(key)
+            .arg("1")
+            .arg("NX")
+            .arg("EX")
+            .arg(NOTIF_DEDUP_TTL_SECS)
+            .query_async(&mut conn)
+            .await;
+
+        match result {
+            Ok(Some(_)) => true, // SET berhasil — kita yang pertama
+            Ok(None) => false,   // Key sudah ada — skip
+            Err(e) => {
+                // Redis error — fail open: tetap kirim notif daripada silent skip
+                tracing::warn!(key, error = %e, "Redis dedup check failed, sending anyway");
+                true
+            }
+        }
     }
 
     // ── Private WA senders ────────────────────────────────────────────────────
@@ -160,7 +201,6 @@ impl NotificationService {
         self.send_wa(&phone, &text).await
     }
 
-    /// Helper: kirim pesan ke WAHA API.
     async fn send_wa(&self, phone: &str, text: &str) -> anyhow::Result<()> {
         let body = json!({
             "chatId":  phone,

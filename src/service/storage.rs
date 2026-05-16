@@ -3,10 +3,10 @@
 use std::sync::Arc;
 
 use aws_sdk_s3::{
-    Client,
     config::{BehaviorVersion, Builder, Credentials, Region},
     error::ProvideErrorMetadata,
     primitives::ByteStream,
+    Client,
 };
 use bytes::Bytes;
 use uuid::Uuid;
@@ -18,6 +18,24 @@ use crate::{
 
 const MAX_SIZE: usize = 5 * 1024 * 1024;
 const ALLOWED_MIME: &[&str] = &["image/jpeg", "image/png", "image/webp", "image/gif"];
+
+/// FIX: Validasi magic bytes untuk mencegah spoofing Content-Type dari client.
+/// Client bisa kirim header "image/jpeg" tapi body-nya executable/script.
+/// Fungsi ini inspeksi bytes pertama untuk memverifikasi format sebenarnya.
+fn detect_image_mime(data: &[u8]) -> Option<&'static str> {
+    match data {
+        // JPEG: FF D8 FF
+        [0xFF, 0xD8, 0xFF, ..] => Some("image/jpeg"),
+        // PNG: 89 50 4E 47 0D 0A 1A 0A
+        [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ..] => Some("image/png"),
+        // GIF: GIF87a atau GIF89a
+        [0x47, 0x49, 0x46, 0x38, 0x37, 0x61, ..] => Some("image/gif"),
+        [0x47, 0x49, 0x46, 0x38, 0x39, 0x61, ..] => Some("image/gif"),
+        // WebP: RIFF....WEBP
+        [0x52, 0x49, 0x46, 0x46, _, _, _, _, 0x57, 0x45, 0x42, 0x50, ..] => Some("image/webp"),
+        _ => None,
+    }
+}
 
 #[derive(Clone)]
 pub struct StorageService {
@@ -81,17 +99,23 @@ impl StorageService {
         }
     }
 
-    pub async fn check_health(&self) {
-        match self.client.head_bucket().bucket(&self.bucket).send().await {
-            Ok(_) => tracing::info!("✅ RustFS connected. Bucket '{}' accessible.", self.bucket),
-            Err(e) => {
+    pub async fn check_health(&self) -> AppResult<()> {
+        // FIX: return AppResult agar caller bisa decide apakah fatal atau tidak.
+        // Sebelumnya void — storage down saat startup tidak terdeteksi sampai upload pertama gagal.
+        self.client
+            .head_bucket()
+            .bucket(&self.bucket)
+            .send()
+            .await
+            .map_err(|e| {
                 let svc_err = e.into_service_error();
-                tracing::error!(
-                    "❌ RustFS health check gagal: {}",
-                    svc_err.code().unwrap_or("Unknown error")
-                );
-            }
-        }
+                AppError::Internal(anyhow::anyhow!(
+                    "RustFS health check failed: {}",
+                    svc_err.code().unwrap_or("unknown")
+                ))
+            })?;
+        tracing::info!("✅ RustFS connected. Bucket '{}' accessible.", self.bucket);
+        Ok(())
     }
 
     /// Upload bytes ke RustFS, return public URL.
@@ -115,11 +139,23 @@ impl StorageService {
             )));
         }
 
-        if !ALLOWED_MIME.contains(&content_type) {
+        // FIX: Validasi magic bytes — jangan percaya Content-Type dari client.
+        // Client bisa spoof header; inspeksi byte pertama memastikan format sebenarnya.
+        let actual_mime = detect_image_mime(&data).ok_or_else(|| {
+            AppError::BadRequest(
+                "Format file tidak valid atau tidak didukung (harus JPEG/PNG/WebP/GIF)".into(),
+            )
+        })?;
+
+        // Juga tetap check whitelist untuk defence in depth
+        if !ALLOWED_MIME.contains(&actual_mime) {
             return Err(AppError::BadRequest(format!(
-                "Format tidak didukung: {content_type}"
+                "Format tidak didukung: {actual_mime}"
             )));
         }
+
+        // Gunakan mime type dari magic bytes, bukan dari client — lebih aman
+        let content_type = actual_mime;
 
         let ext = match content_type {
             "image/jpeg" => "jpg",

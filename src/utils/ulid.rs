@@ -11,8 +11,15 @@ pub fn ulid_to_bytes(s: &str) -> Result<[u8; 16]> {
         .map_err(|e| anyhow::anyhow!("Invalid ULID '{}': {}", s, e))
 }
 
+/// FIX: Kembalikan stack array [u8; 16] — tidak ada heap alloc.
+/// Gunakan di repository hot path (save_message, insert msg, dll).
+/// tokio-postgres ToSql menerima &[u8] yang bisa di-coerce dari &[u8; 16].
+pub fn ulid_to_arr(s: &str) -> Result<[u8; 16]> {
+    ulid_to_bytes(s)
+}
+
 /// Untuk bind ke tokio-postgres BYTEA parameter.
-/// Kembalikan Vec<u8> — bisa deref ke &[u8] yang impl ToSql.
+/// Kembalikan Vec<u8> — gunakan di non-hot-path atau saat ownership diperlukan.
 pub fn ulid_to_vec(s: &str) -> Result<Vec<u8>> {
     ulid_to_bytes(s).map(|b| b.to_vec())
 }

@@ -172,7 +172,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<WsAppState>, claims: Claims
                 },
             }
         }
-        let _ = sink.close().await;
+        // FIX: timeout agar tidak hang selamanya jika TCP dead.
+        // sink.close() bisa block indefinitely jika koneksi drop tanpa graceful close.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), sink.close()).await;
     });
 
     // ── Read loop ─────────────────────────────────────────────────────────────

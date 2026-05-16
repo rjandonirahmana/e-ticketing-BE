@@ -12,6 +12,7 @@ use crate::models::orders::{
 use crate::repository::order::{
     ItemRow, LockedVariant, OrderRepository, OrderTx, OversellError, LUA_RELEASE,
 };
+use crate::service::group_chat::GroupChatService;
 use crate::service::norifications::NotificationService;
 use crate::utils::error::{AppError, AppResult};
 use crate::utils::ulid::{bin_to_ulid_ref, id_to_vec, new_ulid, ulid_to_vec};
@@ -233,7 +234,9 @@ pub struct OrderService {
     repo: Arc<dyn OrderRepository>,
     redis: redis::aio::ConnectionManager,
     pool: Pool,
-    notifier: Arc<NotificationService>, // 🔥 tambah
+    notifier: Arc<NotificationService>,
+    /// Untuk auto-join group chat setelah pembayaran berhasil.
+    group_svc: Arc<GroupChatService>,
 }
 
 impl OrderService {
@@ -242,12 +245,14 @@ impl OrderService {
         redis: redis::aio::ConnectionManager,
         pool: Pool,
         notifier: Arc<NotificationService>,
+        group_svc: Arc<GroupChatService>,
     ) -> Self {
         Self {
             repo,
             redis,
             pool,
             notifier,
+            group_svc,
         }
     }
 
@@ -580,10 +585,13 @@ impl OrderService {
 
     // ── Pay ───────────────────────────────────────────────────────────────────
 
+    /// BUG FIX #1: tambah parameter `user_name: &str` dari JWT Claims.
+    /// Sebelumnya `pay()` tidak punya user_name → di-hardcode "unadio" di dalam spawned task.
     pub async fn pay(
         &self,
         order_id: &str,
         viewer_id: &str,
+        user_name: &str,
         req: PayOrderRequest,
     ) -> AppResult<OrderDetailResponse> {
         req.validate()
@@ -652,14 +660,42 @@ impl OrderService {
 
         OrderMetrics::order_paid(order_id, &req.payment_method);
 
-        // BUG FIX: kirim notifikasi WA ke customer setelah pembayaran berhasil.
-        // Sebelumnya pay() tidak mengirim notifikasi apapun.
-        // Fire-and-forget: tidak blocking response API.
+        // BUG FIX #2: HashSet<String> bukan HashSet<&str>.
+        // HashSet<&str> meminjam dari `items`, tapi `items` juga di-move ke
+        // build_detail_response. tokio::spawn butuh 'static → compile error.
+        // Solusi: clone event_id ke String sebelum items di-consume.
+        let event_ids: std::collections::HashSet<String> =
+            items.iter().map(|i| i.event_id.clone()).collect();
+
         let paid_response = build_detail_response(paid_order, items);
+
+        // Auto-join group chat — fire-and-forget, tidak blocking response.
+        // Jika gagal, user masih bisa join manual via UI; error di-log untuk monitor.
+        let group_svc = self.group_svc.clone();
+        let uid = viewer_id.to_string();
+        // BUG FIX #3: gunakan user_name asli dari JWT Claims.
+        // Sebelumnya di-hardcode "unadio" — system message salah untuk semua user.
+        let uname = user_name.to_string();
+        tokio::spawn(async move {
+            for event_id in event_ids {
+                if let Err(e) = group_svc
+                    .auto_join_after_payment(&event_id, &uid, &uname)
+                    .await
+                {
+                    tracing::warn!(
+                        error = %e,
+                        event_id,
+                        user_id = %uid,
+                        "auto_join_after_payment failed"
+                    );
+                }
+            }
+        });
+
+        // Kirim notifikasi WA ke customer — fire-and-forget.
         self.notifier
             .notify_order_paid(viewer_id.to_string(), paid_response.clone());
 
-        // Build response dari data TX — tidak ada post-commit query.
         Ok(paid_response)
     }
 

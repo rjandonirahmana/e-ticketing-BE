@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use axum::{
-    Json,
     extract::{Path, Query, State},
+    Json,
 };
 use serde::Deserialize;
 
@@ -52,7 +52,14 @@ pub async fn pay(
     Path(id): Path<String>,
     Json(body): Json<PayOrderRequest>,
 ) -> AppResult<Json<OrderDetailResponse>> {
-    Ok(Json(state.order_svc.pay(&id, user.id(), body).await?))
+    // FIX: pass user.0.name dari JWT Claims agar nama user benar di system message
+    // group chat "X bergabung ke grup setelah membeli tiket".
+    Ok(Json(
+        state
+            .order_svc
+            .pay(&id, user.id(), &user.0.name, body)
+            .await?,
+    ))
 }
 
 pub async fn cancel(

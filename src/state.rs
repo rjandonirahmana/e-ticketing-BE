@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use crate::config::config::{RustFsConfig, WahaConfig};
 use crate::repository::{
-    banner::PgBannerRepository, event::PgEventRepository, group_chat::GroupChatRepository,
+    banner::PgBannerRepository, event::PgEventRepository, group_chat::PgGroupChatRepository,
     merchant::PgMerchantRepository, order::PgOrderRepository, ticket::PgTicketRepository,
     user::PgUserRepository,
 };
@@ -81,7 +81,7 @@ impl AppState {
         let event_repo = Arc::new(PgEventRepository::new(pool.clone()));
         let order_repo = Arc::new(PgOrderRepository::new(pool.clone()));
         let ticket_repo = Arc::new(PgTicketRepository::new(pool.clone()));
-        let group_chat_repo = Arc::new(GroupChatRepository::new(pool.clone()));
+        let group_chat_repo = Arc::new(PgGroupChatRepository::new(pool.clone()));
 
         // ── WS Manager ────────────────────────────────────────────────────────
         let ws_mgr = WsManager::new(redis_client)
@@ -97,29 +97,42 @@ impl AppState {
             waha.clone(),
             redis.clone(),
         ));
-        let notif_service = Arc::new(NotificationService::new(http, waha, user_repo));
+        // FIX: NotificationService kini menerima Redis untuk dedup WA notification.
+        // redis.clone() murah — ConnectionManager adalah Arc internal.
+        let notif_service = Arc::new(NotificationService::new(
+            http,
+            waha,
+            user_repo,
+            redis.clone(),
+        ));
         let merchant_svc = Arc::new(MerchantService::new(merchant_repo));
         let event_svc = Arc::new(EventService::new(event_repo));
+
+        let ticket_svc = Arc::new(TicketService::new(ticket_repo));
+        let group_chat_svc = Arc::new(GroupChatService::new(group_chat_repo, ws_mgr.clone()));
+
         let order_svc = Arc::new(OrderService::new(
             order_repo,
             redis,
             pool.clone(),
             notif_service,
+            group_chat_svc.clone(), // FIX: inject group_svc untuk auto-join after payment
         ));
-        let ticket_svc = Arc::new(TicketService::new(ticket_repo));
-        let group_chat_svc = Arc::new(GroupChatService::new(group_chat_repo, ws_mgr.clone()));
-
         // BannerService<PgBannerRepository> — dikoncretkan via type alias DefaultBannerSvc
         let banner_svc = Arc::new(BannerService::new(banner_repo));
 
         let storage = Arc::new(StorageService::new(&rustfs));
 
-        // Health check storage — log error tapi tidak panic
+        // Health check storage — log warning tapi tidak panic (storage mungkin lazy-start)
         let _ = storage.init().await.map_err(|e| {
             tracing::error!("Storage init failed: {:?}", e);
             e
         });
-        storage.check_health().await;
+        // FIX: check_health kini return AppResult — log error jelas jika bucket tidak accessible
+        if let Err(e) = storage.check_health().await {
+            tracing::error!("❌ RustFS health check failed at startup: {:?}", e);
+            // Tidak panic — app tetap berjalan, upload endpoint akan return error jika dipanggil
+        }
 
         Self {
             pool,

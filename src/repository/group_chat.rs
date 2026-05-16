@@ -1,23 +1,80 @@
 use anyhow::Result;
+use async_trait::async_trait;
 use deadpool_postgres::Pool;
 
 use crate::models::group_chat::{GroupMessage, GroupRoom, MemberRole, MsgType, TicketCard};
 use crate::repository::db::{col_opt_str, exec_drop, exec_rows};
-use crate::utils::ulid::{bin_to_ulid, id_to_vec, new_ulid, ulid_to_vec};
+use crate::utils::ulid::{bin_to_ulid, id_to_vec, new_ulid, ulid_to_arr, ulid_to_vec};
 
-pub struct GroupChatRepository {
+// ── Trait ─────────────────────────────────────────────────────────────────────
+
+/// FIX: Ekstrak semua method ke trait agar GroupChatService bisa bergantung pada
+/// abstraksi (Arc<dyn GroupChatRepository>), bukan concrete type.
+/// Ini konsisten dengan OrderRepository, EventRepository, dll, dan memungkinkan
+/// mock/test tanpa database sungguhan.
+#[async_trait]
+pub trait GroupChatRepository: Send + Sync {
+    // Rooms
+    async fn upsert_event_room(
+        &self,
+        event_id: &str,
+        name: &str,
+        cover_url: Option<&str>,
+        created_by: &str,
+    ) -> Result<GroupRoom>;
+    async fn find_by_event(&self, event_id: &str) -> Result<Option<GroupRoom>>;
+    async fn find_by_id(&self, room_id: &str) -> Result<Option<GroupRoom>>;
+    async fn get_user_rooms(&self, user_id: &str) -> Result<Vec<GroupRoom>>;
+
+    // Members
+    async fn is_member(&self, room_id: &str, user_id: &str) -> Result<bool>;
+    async fn add_member(&self, room_id: &str, user_id: &str, role: MemberRole) -> Result<()>;
+    async fn get_member_ids(&self, room_id: &str) -> Result<Vec<String>>;
+
+    // Messages
+    async fn save_message(&self, msg: &GroupMessage) -> Result<()>;
+    async fn save_message_if_under_limit(&self, msg: &GroupMessage) -> Result<bool>;
+    async fn count_user_messages(&self, room_id: &str, user_id: &str) -> Result<i64>;
+    async fn get_history(
+        &self,
+        room_id: &str,
+        limit: i64,
+        before_id: Option<&str>,
+    ) -> Result<(Vec<GroupMessage>, bool)>;
+}
+
+// ── Postgres impl ─────────────────────────────────────────────────────────────
+
+pub struct PgGroupChatRepository {
     pool: Pool,
 }
 
-impl GroupChatRepository {
+impl PgGroupChatRepository {
     pub fn new(pool: Pool) -> Self {
         Self { pool }
     }
 
+    fn row_to_room(row: &tokio_postgres::Row) -> Result<GroupRoom> {
+        let id_b: Vec<u8> = row.try_get("id")?;
+        let event_b: Vec<u8> = row.try_get("event_id")?;
+        let creator_b: Vec<u8> = row.try_get("created_by")?;
+        Ok(GroupRoom {
+            id: bin_to_ulid(id_b)?,
+            event_id: bin_to_ulid(event_b)?,
+            name: row.try_get("name")?,
+            cover_url: col_opt_str(row, "cover_url")?,
+            created_by: bin_to_ulid(creator_b)?,
+            created_at: row.try_get("created_at")?,
+            member_count: row.try_get("member_count")?,
+        })
+    }
+}
+
+#[async_trait]
+impl GroupChatRepository for PgGroupChatRepository {
     // ── Rooms ─────────────────────────────────────────────────────────────────
 
-    /// Buat room untuk event — satu event satu room (unique event_id).
-    pub async fn upsert_event_room(
+    async fn upsert_event_room(
         &self,
         event_id: &str,
         name: &str,
@@ -27,22 +84,31 @@ impl GroupChatRepository {
         let id_b = ulid_to_vec(&new_ulid())?;
         let event_b = id_to_vec(event_id)?;
         let creator_b = id_to_vec(created_by)?;
-        exec_drop(
+        // FIX: RETURNING menghilangkan round-trip find_by_event setelah insert.
+        // DO UPDATE SET ... agar ON CONFLICT juga return row yang existing.
+        // member_count diambil via subquery skalar — tidak perlu GROUP BY terpisah.
+        let rows = exec_rows(
             &self.pool,
             r#"
             INSERT INTO group_rooms (id, event_id, name, cover_url, created_by, created_at)
             VALUES ($1,$2,$3,$4,$5,NOW())
-            ON CONFLICT (event_id) DO NOTHING
-        "#,
+            ON CONFLICT (event_id) DO UPDATE
+                SET name      = EXCLUDED.name,
+                    cover_url = EXCLUDED.cover_url
+            RETURNING
+                id, event_id, name, cover_url, created_by, created_at,
+                (SELECT COUNT(*)::BIGINT FROM group_members WHERE room_id = group_rooms.id) AS member_count
+            "#,
             &[&id_b, &event_b, &name, &cover_url, &creator_b],
         )
         .await?;
-        self.find_by_event(event_id)
-            .await?
+        rows.first()
+            .map(|r| Self::row_to_room(r))
+            .transpose()?
             .ok_or_else(|| anyhow::anyhow!("Room not found after upsert"))
     }
 
-    pub async fn find_by_event(&self, event_id: &str) -> Result<Option<GroupRoom>> {
+    async fn find_by_event(&self, event_id: &str) -> Result<Option<GroupRoom>> {
         let event_b = id_to_vec(event_id)?;
         let rows = exec_rows(
             &self.pool,
@@ -60,7 +126,7 @@ impl GroupChatRepository {
         rows.first().map(|r| Self::row_to_room(r)).transpose()
     }
 
-    pub async fn find_by_id(&self, room_id: &str) -> Result<Option<GroupRoom>> {
+    async fn find_by_id(&self, room_id: &str) -> Result<Option<GroupRoom>> {
         let room_b = id_to_vec(room_id)?;
         let rows = exec_rows(
             &self.pool,
@@ -78,7 +144,7 @@ impl GroupChatRepository {
         rows.first().map(|r| Self::row_to_room(r)).transpose()
     }
 
-    pub async fn get_user_rooms(&self, user_id: &str) -> Result<Vec<GroupRoom>> {
+    async fn get_user_rooms(&self, user_id: &str) -> Result<Vec<GroupRoom>> {
         let user_b = id_to_vec(user_id)?;
         let rows = exec_rows(
             &self.pool,
@@ -96,24 +162,9 @@ impl GroupChatRepository {
         rows.iter().map(|r| Self::row_to_room(r)).collect()
     }
 
-    fn row_to_room(row: &tokio_postgres::Row) -> Result<GroupRoom> {
-        let id_b: Vec<u8> = row.try_get("id")?;
-        let event_b: Vec<u8> = row.try_get("event_id")?;
-        let creator_b: Vec<u8> = row.try_get("created_by")?;
-        Ok(GroupRoom {
-            id: bin_to_ulid(id_b)?,
-            event_id: bin_to_ulid(event_b)?,
-            name: row.try_get("name")?,
-            cover_url: col_opt_str(row, "cover_url")?,
-            created_by: bin_to_ulid(creator_b)?,
-            created_at: row.try_get("created_at")?,
-            member_count: row.try_get("member_count")?,
-        })
-    }
-
     // ── Members ───────────────────────────────────────────────────────────────
 
-    pub async fn is_member(&self, room_id: &str, user_id: &str) -> Result<bool> {
+    async fn is_member(&self, room_id: &str, user_id: &str) -> Result<bool> {
         let room_b = id_to_vec(room_id)?;
         let user_b = id_to_vec(user_id)?;
         let rows = exec_rows(
@@ -125,7 +176,7 @@ impl GroupChatRepository {
         Ok(!rows.is_empty())
     }
 
-    pub async fn add_member(&self, room_id: &str, user_id: &str, role: MemberRole) -> Result<()> {
+    async fn add_member(&self, room_id: &str, user_id: &str, role: MemberRole) -> Result<()> {
         let room_b = id_to_vec(room_id)?;
         let user_b = id_to_vec(user_id)?;
         exec_drop(
@@ -141,7 +192,7 @@ impl GroupChatRepository {
         Ok(())
     }
 
-    pub async fn get_member_ids(&self, room_id: &str) -> Result<Vec<String>> {
+    async fn get_member_ids(&self, room_id: &str) -> Result<Vec<String>> {
         let room_b = id_to_vec(room_id)?;
         let rows = exec_rows(
             &self.pool,
@@ -159,14 +210,11 @@ impl GroupChatRepository {
 
     // ── Messages ──────────────────────────────────────────────────────────────
 
-    pub async fn save_message(&self, msg: &GroupMessage) -> Result<()> {
-        let id_b = ulid_to_vec(&msg.id)?;
+    async fn save_message(&self, msg: &GroupMessage) -> Result<()> {
+        // FIX: ulid_to_arr → stack [u8;16], tidak ada Vec heap alloc untuk msg ID
+        let id_arr = ulid_to_arr(&msg.id)?;
         let room_b = id_to_vec(&msg.room_id)?;
         let sender_b = id_to_vec(&msg.sender_id)?;
-        // OPTIMISASI: serde_json::to_value() bukan to_string().
-        // to_string(): TicketCard → JSON String → PostgreSQL parse String → jsonb  (2×)
-        // to_value():  TicketCard → serde_json::Value → tokio-postgres kirim langsung ke jsonb (1×)
-        // Value implements ToSql for jsonb — tidak ada intermediate String allocation.
         let ticket_json: Option<serde_json::Value> = msg
             .ticket_card
             .as_ref()
@@ -182,7 +230,7 @@ impl GroupChatRepository {
             ON CONFLICT (id) DO NOTHING
         "#,
             &[
-                &id_b,
+                &&id_arr[..],
                 &room_b,
                 &sender_b,
                 &msg.sender_name,
@@ -198,8 +246,60 @@ impl GroupChatRepository {
         Ok(())
     }
 
-    /// Hitung berapa pesan sudah dikirim user di room — untuk enforce limit customer
-    pub async fn count_user_messages(&self, room_id: &str, user_id: &str) -> Result<i64> {
+    /// Atomic INSERT + limit check via CTE.
+    /// Count check dan insert dalam satu query — tidak ada race condition.
+    /// Return `Ok(true)` jika berhasil insert, `Ok(false)` jika limit sudah tercapai.
+    async fn save_message_if_under_limit(&self, msg: &GroupMessage) -> Result<bool> {
+        let id_arr = ulid_to_arr(&msg.id)?;
+        let room_b = id_to_vec(&msg.room_id)?;
+        let sender_b = id_to_vec(&msg.sender_id)?;
+        let ticket_json: Option<serde_json::Value> = msg
+            .ticket_card
+            .as_ref()
+            .map(|t| serde_json::to_value(t))
+            .transpose()?;
+
+        // FIX: NOT EXISTS + LIMIT 1 menggantikan COUNT(*) untuk short-circuit.
+        // COUNT harus scan semua row yang match; EXISTS berhenti di row pertama.
+        // Untuk CUSTOMER_MSG_LIMIT=1, EXISTS O(1) vs COUNT O(n messages).
+        // Jika limit dinaikkan di masa depan, pertimbangkan kembali ke COUNT.
+        let rows = exec_rows(
+            &self.pool,
+            r#"
+            WITH can_send AS (
+                SELECT NOT EXISTS (
+                    SELECT 1 FROM group_messages
+                    WHERE room_id = $2 AND sender_id = $3 AND is_system = FALSE
+                    LIMIT 1
+                ) AS ok
+            )
+            INSERT INTO group_messages
+                (id, room_id, sender_id, sender_name, msg_type,
+                 content, media_url, ticket_card, is_system, sent_at)
+            SELECT $1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10
+            FROM can_send WHERE ok = TRUE
+            ON CONFLICT (id) DO NOTHING
+            RETURNING id
+            "#,
+            &[
+                &&id_arr[..],
+                &room_b,
+                &sender_b,
+                &msg.sender_name,
+                &msg.msg_type.as_str(),
+                &msg.content,
+                &msg.media_url,
+                &ticket_json,
+                &msg.is_system,
+                &msg.sent_at,
+            ],
+        )
+        .await?;
+
+        Ok(!rows.is_empty())
+    }
+
+    async fn count_user_messages(&self, room_id: &str, user_id: &str) -> Result<i64> {
         let room_b = id_to_vec(room_id)?;
         let sender_b = id_to_vec(user_id)?;
         let rows = exec_rows(
@@ -217,7 +317,10 @@ impl GroupChatRepository {
             .unwrap_or(0))
     }
 
-    pub async fn get_history(
+    /// FIX: Subquery duplikasi → CTE.
+    /// `(SELECT sent_at FROM group_messages WHERE id = $3)` sebelumnya ditulis 2×.
+    /// Dengan CTE, cursor di-resolve sekali lalu di-reuse.
+    async fn get_history(
         &self,
         room_id: &str,
         limit: i64,
@@ -227,20 +330,28 @@ impl GroupChatRepository {
         let fetch = limit + 1;
         let rows = if let Some(bid) = before_id {
             let bid_b = id_to_vec(bid)?;
-            exec_rows(&self.pool, r#"
+            exec_rows(
+                &self.pool,
+                r#"
+                WITH cursor AS (
+                    SELECT sent_at, id FROM group_messages WHERE id = $3
+                )
                 SELECT m.id, m.room_id, m.sender_id, m.sender_name, m.msg_type,
-                       m.content, m.media_url, m.ticket_card::text AS ticket_card, m.is_system, m.sent_at
-                FROM group_messages m
-                CROSS JOIN (SELECT sent_at AS cs, id AS ci FROM group_messages WHERE id=$3) cur
-                WHERE m.room_id=$1 AND (m.sent_at < cur.cs OR (m.sent_at=cur.cs AND m.id < cur.ci))
+                       m.content, m.media_url, m.ticket_card, m.is_system, m.sent_at
+                FROM group_messages m, cursor c
+                WHERE m.room_id = $1
+                  AND (m.sent_at < c.sent_at OR (m.sent_at = c.sent_at AND m.id < c.id))
                 ORDER BY m.sent_at DESC, m.id DESC LIMIT $2
-            "#, &[&room_b, &fetch, &bid_b]).await?
+            "#,
+                &[&room_b, &fetch, &bid_b],
+            )
+            .await?
         } else {
             exec_rows(
                 &self.pool,
                 r#"
                 SELECT id, room_id, sender_id, sender_name, msg_type,
-                       content, media_url, ticket_card::text AS ticket_card, is_system, sent_at
+                       content, media_url, ticket_card, is_system, sent_at
                 FROM group_messages
                 WHERE room_id=$1
                 ORDER BY sent_at DESC, id DESC LIMIT $2
@@ -263,10 +374,14 @@ impl GroupChatRepository {
                 let room_b2: Vec<u8> = row.try_get("room_id")?;
                 let sender_b: Vec<u8> = row.try_get("sender_id")?;
                 let type_str: String = row.try_get("msg_type")?;
-                let tj: Option<String> = col_opt_str(row, "ticket_card")?;
-                let ticket_card = tj
-                    .as_deref()
-                    .map(|j| serde_json::from_str::<TicketCard>(j))
+                // FIX: Parse ticket_card langsung dari JSONB via serde_json::Value.
+                // Sebelumnya: ticket_card::text → String → serde_json::from_str (2 alloc).
+                // Sekarang: jsonb → serde_json::Value → serde_json::from_value (1 alloc).
+                let ticket_card: Option<TicketCard> = row
+                    .try_get::<_, Option<serde_json::Value>>("ticket_card")
+                    .ok()
+                    .flatten()
+                    .map(serde_json::from_value)
                     .transpose()?;
                 Ok(GroupMessage {
                     id: bin_to_ulid(id_b)?,

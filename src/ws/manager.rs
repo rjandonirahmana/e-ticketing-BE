@@ -57,6 +57,12 @@ const REDIS_PUBLISH_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 const RATE_LIMIT_MAX: u32 = 30;
 const RATE_LIMIT_WINDOW_SECS: u64 = 10;
+/// FIX: Hard cap entry rate limit registry.
+/// Tanpa batas, flash-sale dengan 1M user unik bisa membengkak tanpa batas.
+/// 500k entry × ~120 bytes (Arc<str> + UserBucket) ≈ 60MB — acceptable upper bound.
+const RATE_LIMIT_MAX_ENTRIES: usize = 500_000;
+/// Cleanup rate limit lebih sering dari SHRINK_INTERVAL (5 menit) karena window hanya 10 detik.
+const RATE_LIMIT_CLEANUP_INTERVAL: Duration = Duration::from_secs(30);
 
 pub type WsTx = mpsc::Sender<Arc<str>>;
 
@@ -121,22 +127,34 @@ impl RateLimitRegistry {
     }
 
     pub fn check(&self, user_id: &str) -> bool {
-        // Fast path: bucket sudah ada (baca dominan — DashMap shard lock sebentar)
+        // Fast path: bucket sudah ada
         if let Some(bucket) = self.buckets.get(user_id) {
             return bucket.try_consume();
         }
 
+        // FIX: Hard cap — tolak request baru jika sudah melebihi batas entry.
+        // Lebih baik rate-limit user baru daripada OOM saat flash sale.
+        if self.buckets.len() >= RATE_LIMIT_MAX_ENTRIES {
+            tracing::warn!(
+                user_id,
+                entries = self.buckets.len(),
+                "RateLimitRegistry at capacity — new user rejected"
+            );
+            return false;
+        }
+
         // Slow path: user baru — buat bucket
         let bucket = Arc::new(UserBucket::new());
-        bucket.try_consume(); // consume 1 untuk request ini
-                              // entry().or_insert_with() atomic — aman jika dua thread race untuk user sama
+        bucket.try_consume();
         self.buckets
             .entry(Arc::from(user_id))
             .or_insert_with(|| bucket);
         true
     }
 
-    /// Cleanup bucket expired. Dipanggil periodik oleh shrink_task.
+    /// Cleanup bucket expired. Dipanggil periodik setiap RATE_LIMIT_CLEANUP_INTERVAL (30s).
+    /// FIX: Cleanup lebih sering (30s vs 5 menit) karena window hanya 10 detik.
+    /// Entry yang window_start-nya > 2× window sudah pasti idle.
     pub fn cleanup(&self) {
         let cutoff = now_secs().saturating_sub(RATE_LIMIT_WINDOW_SECS * 2);
         self.buckets
@@ -228,6 +246,13 @@ impl WsManager {
     // ── Room membership ───────────────────────────────────────────────────────
 
     pub fn join_room(&self, user_id: &str, room_id: &str) {
+        // FIX: Jangan tambahkan user ke room_members WS index jika tidak punya
+        // active session. User offline akan join kembali saat reconnect via Hello flow.
+        // Tanpa guard ini, ghost members menumpuk di room_members dan menyebabkan
+        // Redis publish sia-sia untuk setiap broadcast.
+        if !self.sessions.contains_key(user_id) {
+            return;
+        }
         self.room_members
             .entry(Arc::from(room_id))
             .or_insert_with(|| DashSet::with_hasher(RandomState::new()))
@@ -383,14 +408,23 @@ impl WsManager {
                     }
                     self.dropped.fetch_add(1, Ordering::Relaxed);
                     tracing::warn!(user_id, "WS channel full — dropping session");
+                    // Session sudah tidak valid — evict dari semua room
+                    self.leave_all_rooms(user_id);
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {
                     drop(tx);
                     if self.sessions.remove(user_id).is_some() {
                         self.active_conns.fetch_sub(1, Ordering::Relaxed);
                     }
+                    // FIX: Lazy eviction — hapus dari semua room saat channel closed.
+                    // Mencegah ghost member yang terus di-iterate tiap broadcast.
+                    self.leave_all_rooms(user_id);
                 }
             }
+        } else {
+            // FIX: Session tidak ada sama sekali (user offline atau sudah disconnect).
+            // Hapus dari room index agar tidak menjadi ghost member.
+            self.leave_all_rooms(user_id);
         }
         false
     }
@@ -492,6 +526,26 @@ impl WsManager {
 
     fn spawn_shrink_task(mgr: Arc<Self>) {
         let shutdown = mgr.shutdown.clone();
+
+        // ── Timer 1: rate limit cleanup setiap 30 detik ───────────────────────
+        // FIX: Rate limit window hanya 10s, cleanup setiap 5 menit terlalu lama.
+        // Entry idle bisa menumpuk hingga 500k sebelum di-cleanup.
+        let mgr2 = mgr.clone();
+        let shutdown2 = shutdown.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(RATE_LIMIT_CLEANUP_INTERVAL);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tokio::select! {
+                    _ = shutdown2.cancelled() => break,
+                    _ = interval.tick() => {
+                        mgr2.rate_limit.cleanup();
+                    }
+                }
+            }
+        });
+
+        // ── Timer 2: DashMap shrink setiap 5 menit ────────────────────────────
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(SHRINK_INTERVAL);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -499,7 +553,6 @@ impl WsManager {
                 tokio::select! {
                     _ = shutdown.cancelled() => break,
                     _ = interval.tick() => {
-                        mgr.rate_limit.cleanup();  // sync sekarang (tidak perlu await)
                         let len = mgr.sessions.len();
                         let cap = mgr.sessions.capacity();
                         if cap > 0 && len < cap / 2 {
@@ -520,8 +573,14 @@ impl WsManager {
 }
 
 async fn backoff(secs: &mut u64, shutdown: &CancellationToken) {
-    let wait = Duration::from_secs(*secs);
-    tracing::info!("WS Redis reconnect in {}s", *secs);
+    // FIX: Tambah jitter 0–1000ms agar beberapa instance tidak reconnect bersamaan
+    // (thundering herd problem saat Redis restart dengan banyak instance Rust).
+    let jitter_ms = rand::random::<u64>() % 1000;
+    let wait = Duration::from_millis(*secs * 1000 + jitter_ms);
+    tracing::info!(
+        "WS Redis reconnect in {}ms (jitter included)",
+        wait.as_millis()
+    );
     *secs = (*secs * 2).min(30);
     tokio::select! {
         _ = shutdown.cancelled() => {}
