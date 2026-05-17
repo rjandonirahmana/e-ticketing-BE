@@ -28,7 +28,6 @@ async fn main() -> Result<()> {
         .install_default()
         .expect("Failed to install rustls crypto provider");
 
-    // dotenvy MUST come before tracing init — RUST_LOG dari .env ikut terbaca
     dotenvy::dotenv().ok();
 
     tracing_subscriber::registry()
@@ -76,12 +75,11 @@ async fn main() -> Result<()> {
     let ws_redis_url = format!("{}/2", cfg.redis_url.trim_end_matches('/'));
     let ws_redis_client = redis::Client::open(ws_redis_url.as_str())?;
 
-    // AppState konkret — tidak perlu type annotation generic.
-    // BannerService<PgBannerRepository> di-monomorphize via DefaultBannerSvc alias.
     let state = Arc::new(
         AppState::new(
             pool,
             &cfg.jwt_secret,
+            cfg.internal_jwt_secret, // ← baru
             cfg.bcrypt_cost,
             cfg.jwt_expiry_hours,
             Arc::new(cfg.waha),

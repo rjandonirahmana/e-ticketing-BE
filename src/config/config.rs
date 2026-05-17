@@ -8,6 +8,9 @@ pub struct AppConfig {
     pub database_url: String,
     pub db_pool_max_size: usize,
     pub jwt_secret: String,
+    /// Secret bersama dengan FE Leptos untuk validasi X-App-Token.
+    /// Set di .env: INTERNAL_JWT_SECRET=<random-string-minimal-32-char>
+    pub internal_jwt_secret: String,
     pub jwt_expiry_hours: i64,
     pub bcrypt_cost: u32,
     pub redis_url: String,
@@ -23,15 +26,6 @@ pub struct WahaConfig {
     pub api_key: String,
 }
 
-/// Konfigurasi RustFS S3-compatible storage.
-///
-/// Set di .env:
-///   RUSTFS_ENDPOINT    — S3 API endpoint, e.g. http://127.0.0.1:9000
-///   RUSTFS_ACCESS_KEY  — access key (dari RustFS console)
-///   RUSTFS_SECRET_KEY  — secret key
-///   RUSTFS_BUCKET      — nama bucket, e.g. "images"
-///   RUSTFS_PUBLIC_URL  — base URL publik yang terlihat oleh client,
-///                        e.g. https://image.ulalaapi.store
 #[derive(Clone, Debug)]
 pub struct RustFsConfig {
     pub endpoint: String,
@@ -41,9 +35,6 @@ pub struct RustFsConfig {
     pub public_url: String,
 }
 
-/// Set di .env:
-///   TELEGRAM_BOT_TOKEN       — dari @BotFather
-///   TELEGRAM_ADMIN_CHAT_ID   — chat_id kamu, cek via @userinfobot
 #[derive(Clone, Debug)]
 pub struct TelegramConfig {
     pub bot_token: String,
@@ -62,6 +53,16 @@ impl AppConfig {
                 .unwrap_or_else(|_| "https://image.ulalaapi.store".into()),
         };
 
+        // INTERNAL_JWT_SECRET boleh tidak di-set di development (fallback ke default).
+        // DI PRODUCTION wajib di-set ke nilai acak yang panjang!
+        let internal_jwt_secret = env::var("INTERNAL_JWT_SECRET")
+            .unwrap_or_else(|_| {
+                tracing::warn!(
+                    "INTERNAL_JWT_SECRET tidak di-set — pakai default dev (TIDAK AMAN DI PROD!)"
+                );
+                "kinetic-internal-dev-secret-changeme-in-production".into()
+            });
+
         Ok(Self {
             host: "0.0.0.0".into(),
             port: 8080,
@@ -71,6 +72,7 @@ impl AppConfig {
                 .parse()
                 .context("DB_POOL_MAX_SIZE must be a number")?,
             jwt_secret: env::var("JWT_SECRET").context("JWT_SECRET is required")?,
+            internal_jwt_secret,
             jwt_expiry_hours: env::var("JWT_EXPIRY_HOURS")
                 .unwrap_or_else(|_| "24".into())
                 .parse()

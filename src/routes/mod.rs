@@ -4,6 +4,7 @@ pub mod auth;
 pub mod banners;
 pub mod events;
 pub mod merchant;
+pub mod notifications;
 pub mod orders;
 pub mod tickets;
 
@@ -17,12 +18,12 @@ use axum::{
 use tower_http::trace::TraceLayer;
 
 use crate::middleware::auth::require_auth;
+use crate::middleware::internal_auth::require_internal_jwt;
 use crate::state::AppState;
 
 pub fn build_router(state: Arc<AppState>) -> Router {
-    // ── Public routes — no auth required ─────────────────────────────────────
+    // ── Public routes — no user auth required ─────────────────────────────────
     let public = Router::new()
-        .route("/api/health", get(health))
         // auth
         .route("/api/auth/register", post(auth::register))
         .route("/api/auth/verify", post(auth::verify_register))
@@ -34,7 +35,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // banners (public feed)
         .route("/api/banners", get(banners::list_active));
 
-    // ── Protected routes — valid JWT required ─────────────────────────────────
+    // ── Protected routes — valid user JWT required ────────────────────────────
     let protected = Router::new()
         // profile
         .route("/api/auth/me", get(auth::me))
@@ -59,25 +60,47 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/tickets", get(tickets::list_mine))
         .route("/api/tickets/{id}", get(tickets::get_one))
         .route("/api/tickets/validate", post(tickets::validate))
-        // ── Admin: banner management ─────────────────────────────────────────
-        // Semua handler di bawah memanggil user.require_role("admin") secara internal.
+        // notifications (role: any authenticated user)
+        .route("/api/notifications", get(notifications::list))
+        .route(
+            "/api/notifications/unread-count",
+            get(notifications::unread_count),
+        )
+        .route(
+            "/api/notifications/{id}/read",
+            post(notifications::mark_read),
+        )
+        .route(
+            "/api/notifications/read-all",
+            post(notifications::mark_all_read),
+        )
+        // ── Admin: banner management ──────────────────────────────────────────
         .route("/api/admin/banners", post(banners::admin_create))
         .route("/api/admin/banners/{id}", put(banners::admin_update))
         .route("/api/admin/banners/{id}", delete(banners::admin_delete))
-        // ── Admin: event management ──────────────────────────────────────────
-        // GET /api/admin/events       — list semua event (bisa filter by status)
-        // PUT /api/admin/events/:id/status — update status event (approve/reject)
+        // ── Admin: event management ───────────────────────────────────────────
         .route("/api/admin/events", get(events::admin_list_events))
         .route(
             "/api/admin/events/{id}/status",
             put(events::admin_update_status),
         )
-        // Apply JWT middleware ke seluruh protected group
+        // Apply user JWT middleware to entire protected group
         .route_layer(from_fn_with_state(state.clone(), require_auth));
 
-    Router::new()
+    // ── Health check — completely open, no internal-JWT required ─────────────
+    let health_route = Router::new().route("/api/health", get(health));
+
+    // ── All API routes — protected by internal JWT (FE-only) ─────────────────
+    // Setiap request ke /api/** selain /api/health harus menyertakan
+    // X-App-Token yang di-sign dengan INTERNAL_JWT_SECRET bersama FE.
+    let api_routes = Router::new()
         .merge(public)
         .merge(protected)
+        .route_layer(from_fn_with_state(state.clone(), require_internal_jwt));
+
+    Router::new()
+        .merge(health_route)
+        .merge(api_routes)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
