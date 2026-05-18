@@ -7,7 +7,8 @@ use deadpool_postgres::Pool;
 use rust_decimal::Decimal;
 
 use crate::models::orders::{
-    CreateOrderRequest, Order, OrderDetailResponse, OrderItemResponse, PayOrderRequest,
+    CreateOrderRequest, Order, OrderDetailResponse, OrderItemResponse, OrderListItem,
+    PayOrderRequest,
 };
 use crate::repository::order::{
     ItemRow, LockedVariant, OrderRepository, OrderTx, OversellError, LUA_RELEASE,
@@ -573,13 +574,13 @@ impl OrderService {
         customer_id: &str,
         page: i64,
         per_page: i64,
-    ) -> AppResult<Vec<Order>> {
+    ) -> AppResult<Vec<OrderListItem>> {
         let page = page.max(1);
         let per_page = per_page.clamp(1, 100);
         let offset = (page - 1) * per_page;
         Ok(self
             .repo
-            .list_for_customer(customer_id, per_page, offset)
+            .list_for_customer_enriched(customer_id, per_page, offset)
             .await?)
     }
 
@@ -644,7 +645,7 @@ impl OrderService {
             .await
             .map_err(AppError::Internal)?;
 
-        OrderTx::mint_tickets_batch(&tx, &mint_items)
+        OrderTx::mint_tickets_batch(&tx, &mint_items, &order_bytes)
             .await
             .map_err(AppError::Internal)?;
 

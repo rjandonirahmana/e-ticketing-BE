@@ -7,7 +7,7 @@ use tokio_postgres::types::ToSql;
 use tokio_postgres::Row;
 
 use super::db::{exec_first, exec_rows};
-use crate::models::orders::{Order, OrderItemResponse};
+use crate::models::orders::{Order, OrderItemResponse, OrderListItem};
 use crate::utils::ulid::{bin_to_ulid, id_to_vec, new_ulid, ulid_to_vec};
 
 // ── Static query strings ──────────────────────────────────────────────────────
@@ -25,6 +25,33 @@ static LIST_ORDERS_BY_CUSTOMER: LazyLock<String> = LazyLock::new(|| {
         ORDER_COLS
     )
 });
+
+/// Enriched list query — joins first event info per order via DISTINCT ON.
+/// DISTINCT ON (oi.order_id) picks one item per order (earliest by created_at),
+/// then LEFT JOINs events to get name, date, venue, cover_url.
+static LIST_ORDERS_WITH_EVENT: &str = r#"
+    WITH first_item AS (
+        SELECT DISTINCT ON (oi.order_id)
+            oi.order_id,
+            e.name        AS event_name,
+            e.event_date  AS event_date,
+            e.venue       AS venue,
+            e.cover_url   AS cover_url
+        FROM order_items oi
+        JOIN event_variants ev ON oi.ticket_variant_id = ev.id
+        JOIN events e           ON ev.event_id = e.id
+        ORDER BY oi.order_id, oi.created_at
+    )
+    SELECT
+        o.id, o.customer_id, o.order_code, o.status, o.total_amount,
+        o.payment_method, o.paid_at, o.expired_at, o.created_at, o.updated_at,
+        fi.event_name, fi.event_date, fi.venue, fi.cover_url
+    FROM orders o
+    LEFT JOIN first_item fi ON fi.order_id = o.id
+    WHERE o.customer_id = $1
+    ORDER BY o.created_at DESC
+    LIMIT $2 OFFSET $3
+"#;
 
 /// Query items dengan full join — dipakai oleh list_items (repo) dan
 /// fetch_items_detail (OrderTx, untuk response pay() dari dalam TX).
@@ -46,16 +73,6 @@ static QUERY_ITEMS_DETAIL: &str = r#"
 "#;
 
 // ── Prepared statement SQL strings ───────────────────────────────────────────
-//
-// Semua SQL ditulis sebagai static agar teks selalu identik setiap call.
-// tokio-postgres meng-cache prepared statement per-connection keyed by SQL text;
-// jika teks berubah (misal string baru tiap call), cache miss terjadi dan
-// Parse + Describe round-trip ke PostgreSQL dikirim ulang.
-//
-// BUG FIX: Semua string yang sebelumnya menggunakan `\\` (backslash literal
-// dalam string) sudah diganti ke raw string r#"..."# atau format! dengan raw string.
-// Backslash literal dalam SQL tidak valid di PostgreSQL mode standard_conforming_strings
-// (default modern PostgreSQL) dan akan menyebabkan syntax error.
 
 static STMT_LOCK_VARIANTS: &str = r#"
     SELECT
@@ -93,7 +110,6 @@ static STMT_INSERT_ORDER_SIMPLE: LazyLock<String> = LazyLock::new(|| {
 });
 
 static STMT_INSERT_ORDER_IDEMPOTENCY: LazyLock<String> = LazyLock::new(|| {
-    // {0} = ORDER_COLS, direferensikan dua kali dalam satu format! call.
     format!(
         r#"WITH ins AS (
                INSERT INTO orders
@@ -117,9 +133,6 @@ static STMT_INSERT_ORDER_IDEMPOTENCY: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// BUG FIX: order_id adalah scalar $1 (bukan array).
-/// Sebelumnya order_id masuk UNNEST array → N clone Vec<u8> per call.
-/// Sekarang: 0 clone, 1 reference ke slice.
 static STMT_INSERT_ORDER_ITEMS: &str = r#"
     INSERT INTO order_items
     (id, order_id, ticket_variant_id, quantity, unit_price, subtotal)
@@ -129,13 +142,11 @@ static STMT_INSERT_ORDER_ITEMS: &str = r#"
 "#;
 
 static STMT_MINT_TICKETS: &str = r#"
-    INSERT INTO tickets (id, order_item_id, ticket_code, status)
-    SELECT id, item_id, code, 'active'
-    FROM UNNEST($1::bytea[], $2::bytea[], $3::text[]) AS t(id, item_id, code)
+    INSERT INTO tickets (id, order_item_id, order_id, ticket_code, status)
+    SELECT id, item_id, order_id, code, 'active'
+    FROM UNNEST($1::bytea[], $2::bytea[], $3::bytea[], $4::text[]) AS t(id, item_id, order_id, code)
 "#;
 
-/// Guard atomik oversell di DB.
-/// SUM(qty) GROUP BY id di dalam CTE menangani duplikasi variant dalam batch.
 static STMT_BUMP_SOLD: &str = r#"
     WITH agg AS (
         SELECT id, SUM(qty) AS total_qty
@@ -156,8 +167,6 @@ static STMT_REFUND_SOLD: &str = r#"
      WHERE event_variants.id = bump.id
 "#;
 
-/// FIX [P2-7]: RETURNING full row → mark_paid mengembalikan Order,
-/// mengeliminasi find_by_id post-commit di pay().
 static STMT_MARK_PAID: LazyLock<String> = LazyLock::new(|| {
     format!(
         r#"UPDATE orders
@@ -173,7 +182,6 @@ static STMT_MARK_PAID: LazyLock<String> = LazyLock::new(|| {
 static STMT_CANCEL_ORDER: &str =
     "UPDATE orders SET status = 'cancelled' WHERE id = $1 AND status = 'pending'";
 
-/// Untuk fetch_items_for_mint: hanya butuh (id, quantity) untuk mint_tickets_batch.
 static STMT_FETCH_ITEMS_FOR_MINT: &str = "SELECT id, quantity FROM order_items WHERE order_id = $1";
 
 static STMT_FETCH_ITEMS_FOR_REFUND: &str =
@@ -211,6 +219,27 @@ fn map_item_row(row: &Row) -> Result<OrderItemResponse> {
     })
 }
 
+/// Map a row from LIST_ORDERS_WITH_EVENT into OrderListItem.
+fn map_order_list_item(row: &Row) -> Result<OrderListItem> {
+    let id_bytes: Vec<u8> = row.try_get("id").context("id")?;
+    let cust_bytes: Vec<u8> = row.try_get("customer_id").context("customer_id")?;
+    Ok(OrderListItem {
+        id: bin_to_ulid(id_bytes)?,
+        customer_id: bin_to_ulid(cust_bytes)?,
+        order_code: row.try_get("order_code").context("order_code")?,
+        status: row.try_get("status").context("status")?,
+        total_amount: row.try_get("total_amount").context("total_amount")?,
+        payment_method: row.try_get("payment_method")?,
+        paid_at: row.try_get("paid_at")?,
+        expired_at: row.try_get("expired_at")?,
+        created_at: row.try_get("created_at").context("created_at")?,
+        event_name: row.try_get("event_name")?,
+        event_date: row.try_get("event_date")?,
+        venue: row.try_get("venue")?,
+        cover_url: row.try_get("cover_url")?,
+    })
+}
+
 // ── Structs ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
@@ -237,9 +266,6 @@ pub struct ItemRow {
     pub subtotal: Decimal,
 }
 
-/// Error saat bump_sold_batch mendeteksi oversell.
-/// variant_ids membawa binary IDs semua variant dalam batch — service
-/// men-decode ke ULID untuk log tanpa clone tambahan di service layer.
 #[derive(Debug)]
 pub struct OversellError {
     pub updated: u64,
@@ -323,10 +349,11 @@ impl OrderTx {
             return Ok((row_to_order(&row)?, true));
         }
 
+        let key = idempotency_key.unwrap();
         let stmt = tx
             .prepare(&STMT_INSERT_ORDER_IDEMPOTENCY)
             .await
-            .context("insert_order (idempotency) prepare")?;
+            .context("insert_order_idempotency prepare")?;
 
         let params: &[&(dyn ToSql + Sync)] = &[
             &id_bytes,
@@ -334,17 +361,17 @@ impl OrderTx {
             &order_code,
             &total,
             &expired_at,
-            &idempotency_key,
+            &key,
         ];
         let row = tx
             .query_one(&stmt, params)
             .await
-            .context("insert_order (idempotency) execute")?;
+            .context("insert_order_idempotency execute")?;
+
         let is_new: bool = row.try_get("is_new").context("is_new")?;
         Ok((row_to_order(&row)?, is_new))
     }
 
-    /// order_id adalah scalar $1 — tidak ada duplikasi N kali dalam array.
     pub async fn insert_order_items_batch(
         tx: &tokio_postgres::Transaction<'_>,
         order_id_bytes: &[u8],
@@ -354,26 +381,17 @@ impl OrderTx {
             return Ok(());
         }
 
-        let mut ids: Vec<Vec<u8>> = Vec::with_capacity(items.len());
-        let mut var_ids: Vec<Vec<u8>> = Vec::with_capacity(items.len());
-        let mut qtys: Vec<i32> = Vec::with_capacity(items.len());
-        let mut prices: Vec<Decimal> = Vec::with_capacity(items.len());
-        let mut subtotals: Vec<Decimal> = Vec::with_capacity(items.len());
-
-        for item in items {
-            ids.push(item.oi_bytes.clone());
-            var_ids.push(item.var_bytes.clone());
-            qtys.push(item.qty);
-            prices.push(item.unit_price);
-            subtotals.push(item.subtotal);
-        }
+        let ids: Vec<&[u8]> = items.iter().map(|r| r.oi_bytes.as_slice()).collect();
+        let var_ids: Vec<&[u8]> = items.iter().map(|r| r.var_bytes.as_slice()).collect();
+        let qtys: Vec<i32> = items.iter().map(|r| r.qty).collect();
+        let prices: Vec<Decimal> = items.iter().map(|r| r.unit_price).collect();
+        let subtotals: Vec<Decimal> = items.iter().map(|r| r.subtotal).collect();
 
         let stmt = tx
             .prepare(STMT_INSERT_ORDER_ITEMS)
             .await
             .context("insert_order_items_batch prepare")?;
 
-        // $1 = order_id scalar, $2-$6 = array per-item
         let params: &[&(dyn ToSql + Sync)] =
             &[&order_id_bytes, &ids, &var_ids, &qtys, &prices, &subtotals];
 
@@ -384,14 +402,6 @@ impl OrderTx {
         Ok(())
     }
 
-    /// FIX [P1-5]: Signature berubah dari &[(Vec<u8>, i32)] ke &[(&[u8], i32)].
-    ///
-    /// Sebelumnya: service harus clone var_bytes N kali untuk membuat bump Vec.
-    /// Sekarang: service cukup as_slice() → borrow, zero allocation.
-    ///
-    /// Aggregasi menggunakan &[u8] sebagai HashMap key (&[u8] implements Eq + Hash).
-    /// Clone ke Vec<u8> hanya terjadi di error path (OversellError::variant_ids),
-    /// bukan di hot path.
     pub async fn bump_sold_batch(
         tx: &tokio_postgres::Transaction<'_>,
         updates: &[(&[u8], i32)],
@@ -400,14 +410,12 @@ impl OrderTx {
             return Ok(());
         }
 
-        // Aggregate menggunakan &[u8] sebagai key — no clone needed.
         let mut agg: std::collections::HashMap<&[u8], i32> =
             std::collections::HashMap::with_capacity(updates.len());
         for &(id, qty) in updates {
             *agg.entry(id).or_insert(0) += qty;
         }
 
-        // &[u8] implements ToSql (sebagai BYTEA) → Vec<&[u8]>: ToSql (sebagai BYTEA[]).
         let ids: Vec<&[u8]> = agg.keys().copied().collect();
         let qtys: Vec<i32> = agg.values().copied().collect();
         let expected = ids.len();
@@ -424,7 +432,6 @@ impl OrderTx {
             .context("bump_sold_batch execute")?;
 
         if updated as usize != expected {
-            // Clone hanya di error path (rare) — bukan hot path.
             let variant_ids: Vec<Vec<u8>> = ids.iter().map(|b| b.to_vec()).collect();
             return Err(anyhow::anyhow!(OversellError {
                 updated,
@@ -435,8 +442,6 @@ impl OrderTx {
         Ok(())
     }
 
-    /// FIX [P2-7]: Menggunakan RETURNING → mengembalikan Order yang sudah di-UPDATE.
-    /// pay() tidak perlu find_by_id post-commit lagi.
     pub async fn mark_paid(
         tx: &tokio_postgres::Transaction<'_>,
         order_bytes: &[u8],
@@ -453,12 +458,9 @@ impl OrderTx {
             .await
             .context("mark_paid execute")?;
 
-        // None → UPDATE 0 rows (order sudah paid/cancelled/expired)
         row.as_ref().map(row_to_order).transpose()
     }
 
-    /// Items minimal (id, quantity) untuk mint_tickets_batch.
-    /// Terpisah dari fetch_items_detail agar tidak JOIN unnecesarily saat minting.
     pub async fn fetch_items_for_mint(
         tx: &tokio_postgres::Transaction<'_>,
         order_bytes: &[u8],
@@ -476,8 +478,6 @@ impl OrderTx {
             .collect()
     }
 
-    /// Full OrderItemResponse untuk response pay() — query dalam TX.
-    /// FIX [P2-7]: Mengeliminasi list_items post-commit di pay().
     pub async fn fetch_items_detail(
         tx: &tokio_postgres::Transaction<'_>,
         order_bytes: &[u8],
@@ -498,6 +498,7 @@ impl OrderTx {
     pub async fn mint_tickets_batch(
         tx: &tokio_postgres::Transaction<'_>,
         items: &[(Vec<u8>, i32)],
+        order_id_bytes: &[u8], // ← NEW: stored in every ticket row
     ) -> Result<u64> {
         let total: i32 = items.iter().map(|(_, q)| q).sum();
         if total == 0 {
@@ -506,6 +507,7 @@ impl OrderTx {
 
         let mut ids: Vec<Vec<u8>> = Vec::with_capacity(total as usize);
         let mut item_ids: Vec<Vec<u8>> = Vec::with_capacity(total as usize);
+        let mut ord_ids: Vec<Vec<u8>> = Vec::with_capacity(total as usize); // NEW
         let mut codes: Vec<String> = Vec::with_capacity(total as usize);
 
         for (item_bytes, qty) in items {
@@ -515,6 +517,7 @@ impl OrderTx {
                 let code = make_ticket_code(&id);
                 ids.push(id_bytes);
                 item_ids.push(item_bytes.clone());
+                ord_ids.push(order_id_bytes.to_vec()); // same order for all tickets
                 codes.push(code);
             }
         }
@@ -526,7 +529,7 @@ impl OrderTx {
             .await
             .context("mint_tickets_batch prepare")?;
 
-        let params: &[&(dyn ToSql + Sync)] = &[&ids, &item_ids, &codes];
+        let params: &[&(dyn ToSql + Sync)] = &[&ids, &item_ids, &ord_ids, &codes]; // ← +ord_ids
         tx.execute(&stmt, params)
             .await
             .context("mint_tickets_batch execute")?;
@@ -610,6 +613,13 @@ pub trait OrderRepository: Send + Sync {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<Order>>;
+    /// Enriched list — includes first event's name, date, venue, cover_url.
+    async fn list_for_customer_enriched(
+        &self,
+        customer_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<OrderListItem>>;
     async fn list_items(&self, order_id: &str) -> Result<Vec<OrderItemResponse>>;
 }
 
@@ -642,6 +652,18 @@ impl OrderRepository for PgOrderRepository {
         let params: &[&(dyn ToSql + Sync)] = &[&id_vec, &limit, &offset];
         let rows = exec_rows(&self.pool, &LIST_ORDERS_BY_CUSTOMER, params).await?;
         rows.iter().map(row_to_order).collect()
+    }
+
+    async fn list_for_customer_enriched(
+        &self,
+        customer_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<OrderListItem>> {
+        let id_vec = id_to_vec(customer_id)?;
+        let params: &[&(dyn ToSql + Sync)] = &[&id_vec, &limit, &offset];
+        let rows = exec_rows(&self.pool, LIST_ORDERS_WITH_EVENT, params).await?;
+        rows.iter().map(map_order_list_item).collect()
     }
 
     async fn list_items(&self, order_id: &str) -> Result<Vec<OrderItemResponse>> {

@@ -148,13 +148,15 @@ impl GroupChatRepository for PgGroupChatRepository {
         let user_b = id_to_vec(user_id)?;
         let rows = exec_rows(
             &self.pool,
+            // P1 FIX: Ganti LEFT JOIN group_members m2 + GROUP BY dengan correlated subquery.
+            // Self-join menghasilkan Cartesian product sebelum aggregate — untuk room 10k member
+            // ini membengkak jadi O(n²). Subquery berjalan O(n) per row event.
             r#"
             SELECT r.id, r.event_id, r.name, r.cover_url, r.created_by, r.created_at,
-                   COUNT(m2.user_id)::BIGINT AS member_count
+                   (SELECT COUNT(*)::BIGINT FROM group_members WHERE room_id = r.id) AS member_count
             FROM group_rooms r
             JOIN group_members m ON m.room_id = r.id AND m.user_id = $1
-            LEFT JOIN group_members m2 ON m2.room_id = r.id
-            GROUP BY r.id ORDER BY r.created_at DESC
+            ORDER BY r.created_at DESC
         "#,
             &[&user_b],
         )

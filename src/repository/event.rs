@@ -53,8 +53,14 @@ fn generate_slug(merchant_name: &str, event_name: &str) -> String {
     format!("{}-{:06x}", body, suffix)
 }
 
+// P2 FIX: Ganti string matching "23505" dengan downcast ke SqlState.
+// Pola lama: e.to_string().contains("23505") — allocate String, fragile jika error message berubah.
+// Pola baru: downcast ke tokio_postgres::Error → as_db_error() → cek SqlState enum secara langsung.
 fn is_unique_violation(e: &anyhow::Error) -> bool {
-    e.to_string().contains("23505")
+    e.downcast_ref::<tokio_postgres::Error>()
+        .and_then(|e| e.as_db_error())
+        .map(|e| e.code() == &tokio_postgres::error::SqlState::UNIQUE_VIOLATION)
+        .unwrap_or(false)
 }
 
 // ── LATERAL subquery ──────────────────────────────────────────────────────────
@@ -404,7 +410,7 @@ impl PgEventRepository {
             category,
             detail_images,
             description: row.try_get("description").context("description")?,
-            cover_url: row.try_get("cover_url").unwrap_or(None),
+            cover_url: row.try_get::<_, Option<String>>("cover_url")?,
             price: row.try_get::<_, f64>("price").unwrap_or(0.0),
             sale_price: row.try_get("sale_price").ok().flatten(),
             sale_price_start_date: row.try_get("sale_price_start_date").ok().flatten(),
@@ -445,7 +451,7 @@ impl PgEventRepository {
             category,
             detail_images,
             description: row.try_get("description").context("description")?,
-            cover_url: row.try_get("cover_url").unwrap_or(None),
+            cover_url: row.try_get::<_, Option<String>>("cover_url")?,
             price: 0.0,
             sale_price: None,
             sale_price_start_date: None,
@@ -473,7 +479,9 @@ impl PgEventRepository {
             name: row.try_get("name").context("name")?,
             description: row.try_get("description").context("description")?,
             price: row.try_get("price").context("price")?,
-            sale_price: row.try_get("sale_price").context("sale_price")?,
+            sale_price: row
+                .try_get::<_, Option<f64>>("sale_price")
+                .context("sale_price")?,
             sale_price_start_date: row.try_get("sale_price_start_date")?,
             sale_price_end_date: row.try_get("sale_price_end_date")?,
             quota: row.try_get("quota").context("quota")?,
@@ -888,12 +896,15 @@ impl EventRepository for PgEventRepository {
                     break;
                 }
                 Err(e) => {
-                    let err_str = e.to_string();
-                    if err_str.contains("23505") {
-                        last_err = anyhow::anyhow!("{}", err_str);
+                    // P2 FIX: Cek UniqueViolation via SqlState, bukan string matching
+                    if e.as_db_error()
+                        .map(|db| db.code() == &tokio_postgres::error::SqlState::UNIQUE_VIOLATION)
+                        .unwrap_or(false)
+                    {
+                        last_err = anyhow::anyhow!("{}", e);
                         continue;
                     }
-                    return Err(anyhow::anyhow!("{}", err_str));
+                    return Err(anyhow::anyhow!("{}", e));
                 }
             }
         }

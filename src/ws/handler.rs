@@ -114,6 +114,12 @@ async fn handle_socket(socket: WebSocket, state: Arc<WsAppState>, claims: Claims
         .map(|r| r.id)
         .collect();
 
+    // P0 FIX: Register rooms ke WS index SEBELUM Hello dikirim.
+    // Tanpa ini, user ada di sessions tapi tidak di room_members — broadcast room
+    // tidak akan sampai ke user sampai ada event lain yang memanggil join_room.
+    // Penting saat reconnect: user harus langsung masuk ke semua room-nya.
+    state.ws_mgr.register_rooms(&user_id, &rooms);
+
     // to_json() → Arc<str>; deref ke &str untuk axum — zero extra alloc
     let hello_json = WsEvent::Hello {
         user_id: user_id.clone(),

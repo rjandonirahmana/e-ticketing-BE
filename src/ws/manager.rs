@@ -308,7 +308,7 @@ impl WsManager {
     pub async fn send_to(&self, user_id: &str, event: WsEvent) {
         // to_shared_json() — Arc<str> bisa di-pass ke deliver_local dan redis tanpa copy
         let json = event.to_shared_json();
-        if !self.deliver_local(user_id, json.clone()) {
+        if !self.deliver_local(user_id, json.clone()).await {
             self.redis_publish_with_retry(&format!("{CH_USER}{user_id}"), &json)
                 .await;
         }
@@ -330,7 +330,7 @@ impl WsManager {
             drop(members); // lepas DashMap shard lock sebelum deliver
             for uid in &ids {
                 // Arc<str>::clone = atomic increment, nanoseconds
-                self.deliver_local(uid, shared.clone());
+                self.deliver_local(uid, shared.clone()).await;
             }
         }
 
@@ -397,34 +397,56 @@ impl WsManager {
 
     // ── Internal ──────────────────────────────────────────────────────────────
 
-    fn deliver_local(&self, user_id: &str, json: Arc<str>) -> bool {
-        if let Some(tx) = self.sessions.get(user_id) {
-            match tx.try_send(json) {
-                Ok(_) => return true,
-                Err(mpsc::error::TrySendError::Full(_)) => {
-                    drop(tx);
-                    if self.sessions.remove(user_id).is_some() {
-                        self.active_conns.fetch_sub(1, Ordering::Relaxed);
+    /// P1 FIX: async sekarang agar bisa await timeout retry sebelum evict.
+    ///
+    /// Sebelumnya: TrySendError::Full → langsung evict session.
+    /// Problem: burst broadcast (e.g. merchant broadcast ke 500 user) menyebabkan
+    /// user dengan koneksi lambat terputus paksa meski buffer baru penuh sesaat.
+    ///
+    /// Sekarang: try_send → jika Full, tunggu 50ms lalu coba sekali lagi.
+    /// Hanya evict jika setelah timeout masih tidak bisa terkirim.
+    async fn deliver_local(&self, user_id: &str, json: Arc<str>) -> bool {
+        // Clone Sender keluar dari DashMap guard sebelum await
+        // (tidak boleh hold DashMap ref across await point)
+        let tx = match self.sessions.get(user_id) {
+            Some(r) => r.value().clone(),
+            None => {
+                // Session tidak ada — bersihkan ghost membership
+                self.leave_all_rooms(user_id);
+                return false;
+            }
+        };
+
+        match tx.try_send(json.clone()) {
+            Ok(_) => return true,
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                // P1: Retry sekali dengan timeout 50ms — beri kesempatan client drain buffer
+                // sebelum memutuskan untuk evict (cegah aggressive disconnect saat burst)
+                match tokio::time::timeout(Duration::from_millis(50), tx.send(json)).await {
+                    Ok(Ok(_)) => return true,
+                    _ => {
+                        // Masih gagal setelah retry — evict
+                        drop(tx);
+                        if self.sessions.remove(user_id).is_some() {
+                            self.active_conns.fetch_sub(1, Ordering::Relaxed);
+                        }
+                        self.dropped.fetch_add(1, Ordering::Relaxed);
+                        tracing::warn!(
+                            user_id,
+                            "WS channel still full after 50ms retry — evicting session"
+                        );
+                        self.leave_all_rooms(user_id);
                     }
-                    self.dropped.fetch_add(1, Ordering::Relaxed);
-                    tracing::warn!(user_id, "WS channel full — dropping session");
-                    // Session sudah tidak valid — evict dari semua room
-                    self.leave_all_rooms(user_id);
-                }
-                Err(mpsc::error::TrySendError::Closed(_)) => {
-                    drop(tx);
-                    if self.sessions.remove(user_id).is_some() {
-                        self.active_conns.fetch_sub(1, Ordering::Relaxed);
-                    }
-                    // FIX: Lazy eviction — hapus dari semua room saat channel closed.
-                    // Mencegah ghost member yang terus di-iterate tiap broadcast.
-                    self.leave_all_rooms(user_id);
                 }
             }
-        } else {
-            // FIX: Session tidak ada sama sekali (user offline atau sudah disconnect).
-            // Hapus dari room index agar tidak menjadi ghost member.
-            self.leave_all_rooms(user_id);
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                drop(tx);
+                if self.sessions.remove(user_id).is_some() {
+                    self.active_conns.fetch_sub(1, Ordering::Relaxed);
+                }
+                // Lazy eviction — hapus dari semua room saat channel closed
+                self.leave_all_rooms(user_id);
+            }
         }
         false
     }
@@ -499,7 +521,7 @@ impl WsManager {
                                     let json: Arc<str> = Arc::from(payload);
 
                                     if let Some(uid) = channel.strip_prefix(CH_USER) {
-                                        mgr.deliver_local(uid, json);
+                                        mgr.deliver_local(uid, json).await;
                                     } else if let Some(room_id) = channel.strip_prefix(CH_ROOM) {
                                         if let Some(members) = mgr.room_members.get(room_id) {
                                             let ids: Vec<Arc<str>> = members
@@ -508,7 +530,7 @@ impl WsManager {
                                                 .collect();
                                             drop(members);
                                             for uid in &ids {
-                                                mgr.deliver_local(uid, json.clone());
+                                                mgr.deliver_local(uid, json.clone()).await;
                                             }
                                         }
                                     }

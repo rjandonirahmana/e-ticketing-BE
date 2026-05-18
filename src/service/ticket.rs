@@ -29,6 +29,26 @@ impl TicketService {
             .await?)
     }
 
+    /// List all tickets that belong to a specific order.
+    /// Returns 404 if the order has no tickets yet (e.g. still pending).
+    /// Ownership is checked inside the repository query (AND o.customer_id = $2).
+    pub async fn list_for_order(
+        &self,
+        order_id: &str,
+        customer_id: &str,
+        page: i64,
+        per_page: i64,
+    ) -> AppResult<Vec<TicketResponse>> {
+        let page = page.max(1);
+        let per_page = per_page.clamp(1, 100);
+        let offset = (page - 1) * per_page;
+        let tickets = self
+            .repo
+            .list_by_order(order_id, customer_id, per_page, offset)
+            .await?;
+        Ok(tickets)
+    }
+
     pub async fn detail_for_customer(
         &self,
         ticket_id: &str,

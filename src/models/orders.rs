@@ -54,6 +54,26 @@ pub struct OrderDetailResponse {
     pub items: Vec<OrderItemResponse>,
 }
 
+/// Enriched order for list endpoint — includes first event's info.
+/// Eliminates the need for a per-order items fetch just to show the event name.
+#[derive(Debug, Serialize, Clone)]
+pub struct OrderListItem {
+    pub id: String,
+    pub customer_id: String,
+    pub order_code: String,
+    pub status: String,
+    pub total_amount: Decimal,
+    pub payment_method: Option<String>,
+    pub paid_at: Option<DateTime<Utc>>,
+    pub expired_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    // Enriched from the first order item's event (NULL if order has no items yet)
+    pub event_name: Option<String>,
+    pub event_date: Option<DateTime<Utc>>,
+    pub venue: Option<String>,
+    pub cover_url: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Validate)]
 pub struct CreateOrderItemRequest {
     pub ticket_variant_id: String,

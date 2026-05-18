@@ -9,10 +9,6 @@ use crate::models::tickets::TicketResponse;
 use crate::utils::ulid::{bin_to_ulid, id_to_vec};
 
 // ── Static query strings ──────────────────────────────────────────────────────
-//
-// Tickets are always shown enriched with their order/event/variant context so
-// the wallet view doesn't have to do N round-trips. We materialise the join
-// in SQL and shape the row in `row_to_ticket_response`.
 
 static TICKET_DETAIL_COLS: &str = r#"
     t.id            AS ticket_id,
@@ -70,6 +66,19 @@ static LIST_FOR_CUSTOMER: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+/// FIX: was `WHERE o.order_id = $1` (orders has no order_id column).
+/// Corrected to `WHERE o.id = $1`.
+/// Also adds `AND o.customer_id = $2` for ownership enforcement at query level.
+static LIST_BY_ORDER_ID: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {} {} WHERE o.id = $1 AND o.customer_id = $2 \
+         ORDER BY t.created_at ASC LIMIT $3 OFFSET $4",
+        TICKET_DETAIL_COLS, FROM_JOINS
+    )
+});
+
+// ── Trait ─────────────────────────────────────────────────────────────────────
+
 #[async_trait]
 pub trait TicketRepository: Send + Sync {
     async fn list_for_customer(
@@ -79,15 +88,24 @@ pub trait TicketRepository: Send + Sync {
         offset: i64,
     ) -> Result<Vec<TicketResponse>>;
 
+    /// List tickets that belong to a specific order.
+    /// `customer_id` is checked in the WHERE clause so a user cannot read
+    /// another user's order tickets.
+    async fn list_by_order(
+        &self,
+        order_id: &str,
+        customer_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TicketResponse>>;
+
     async fn find_by_id(&self, id: &str) -> Result<Option<(TicketResponse, String, String)>>;
 
     /// Lookup by code + atomically transition `active` → `used`.
-    /// Only the merchant that owns the parent event is allowed to do this; the
-    /// service layer is responsible for checking ownership using the merchant_id
-    /// returned in the success path.
-    /// Returns the ticket detail and the merchant_id that owns the event.
     async fn validate_by_code(&self, code: &str) -> Result<(TicketResponse, String)>;
 }
+
+// ── PgTicketRepository ────────────────────────────────────────────────────────
 
 #[derive(Clone)]
 pub struct PgTicketRepository {
@@ -100,9 +118,6 @@ impl PgTicketRepository {
     }
 
     fn row_to_response(row: &Row) -> Result<(TicketResponse, String, String)> {
-        // The detail row also carries `customer_id` and `merchant_id` so the
-        // service layer can do auth checks. We return them as a tuple alongside
-        // the API-shaped TicketResponse.
         let ticket_bytes: Vec<u8> = row.try_get("ticket_id").context("ticket_id")?;
         let order_bytes: Vec<u8> = row.try_get("order_id").context("order_id")?;
         let variant_bytes: Vec<u8> = row.try_get("variant_id").context("variant_id")?;
@@ -152,6 +167,28 @@ impl TicketRepository for PgTicketRepository {
             .collect()
     }
 
+    /// FIX: now uses LIST_BY_ORDER_ID (not LIST_FOR_CUSTOMER) and passes
+    /// customer_id for ownership check.
+    async fn list_by_order(
+        &self,
+        order_id: &str,
+        customer_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TicketResponse>> {
+        let order_vec = id_to_vec(order_id)?;
+        let customer_vec = id_to_vec(customer_id)?;
+        let rows = exec_rows(
+            &self.pool,
+            &LIST_BY_ORDER_ID,
+            &[&order_vec, &customer_vec, &limit, &offset],
+        )
+        .await?;
+        rows.iter()
+            .map(|r| Self::row_to_response(r).map(|(t, _, _)| t))
+            .collect()
+    }
+
     async fn find_by_id(&self, id: &str) -> Result<Option<(TicketResponse, String, String)>> {
         let id_vec = id_to_vec(id)?;
         let row = exec_first(&self.pool, &FIND_BY_ID, &[&id_vec]).await?;
@@ -162,7 +199,6 @@ impl TicketRepository for PgTicketRepository {
         let mut conn = get_conn(&self.pool).await?;
         let tx = conn.transaction().await?;
 
-        // Lock the ticket row to avoid a double-validate race.
         let row = tx
             .query_opt(
                 "SELECT id, status FROM tickets WHERE ticket_code = $1 FOR UPDATE",
@@ -182,54 +218,48 @@ impl TicketRepository for PgTicketRepository {
             other => bail!("Ticket status '{}' cannot be validated", other),
         }
 
-        // OPTIMISASI: RETURNING + CTE — UPDATE dan SELECT enriched row dalam
-        // satu round-trip. Original: 2 query terpisah (UPDATE lalu SELECT JOIN).
-        // Hemat 1 network round-trip per scan tiket.
-        let detail_row = tx
-            .query_one(
-                &format!(
-                    r#"
-                    WITH updated AS (
-                        UPDATE tickets
-                        SET status = 'used', used_at = NOW()
-                        WHERE id = $1
-                        RETURNING id, ticket_code, status, used_at,
-                                  created_at, order_item_id
-                    )
-                    SELECT
-                        u.id            AS ticket_id,
-                        u.ticket_code,
-                        u.status,
-                        u.used_at,
-                        u.created_at,
-
-                        oi.id           AS order_item_id,
-                        oi.unit_price::FLOAT8 AS unit_price,
-
-                        o.id            AS order_id,
-                        o.order_code,
-                        o.customer_id,
-
-                        tv.id           AS variant_id,
-                        tv.name         AS variant_name,
-
-                        e.id            AS event_id,
-                        e.name          AS event_name,
-                        e.event_date,
-                        e.venue         AS event_venue,
-                        e.city          AS event_city,
-                        e.cover_url     AS cover_url,
-                        e.merchant_id
-                    FROM updated u
-                    JOIN order_items oi    ON u.order_item_id = oi.id
-                    JOIN orders o          ON oi.order_id = o.id
-                    JOIN event_variants tv ON oi.ticket_variant_id = tv.id
-                    JOIN events e          ON tv.event_id = e.id
-                    "#
-                ),
-                &[&id_bytes],
+        // P2 FIX: format!() di sini tidak punya format argument — hanya wrap static str
+        // ke String baru setiap panggilan (alokasi ~1KB per scan tiket). Gunakan static &str.
+        const VALIDATE_DETAIL_SQL: &str = r#"
+            WITH updated AS (
+                UPDATE tickets
+                SET status = 'used', used_at = NOW()
+                WHERE id = $1
+                RETURNING id, ticket_code, status, used_at,
+                          created_at, order_item_id
             )
-            .await?;
+            SELECT
+                u.id            AS ticket_id,
+                u.ticket_code,
+                u.status,
+                u.used_at,
+                u.created_at,
+
+                oi.id           AS order_item_id,
+                oi.unit_price::FLOAT8 AS unit_price,
+
+                o.id            AS order_id,
+                o.order_code,
+                o.customer_id,
+
+                tv.id           AS variant_id,
+                tv.name         AS variant_name,
+
+                e.id            AS event_id,
+                e.name          AS event_name,
+                e.event_date,
+                e.venue         AS event_venue,
+                e.city          AS event_city,
+                e.cover_url     AS cover_url,
+                e.merchant_id
+            FROM updated u
+            JOIN order_items oi    ON u.order_item_id = oi.id
+            JOIN orders o          ON oi.order_id = o.id
+            JOIN event_variants tv ON oi.ticket_variant_id = tv.id
+            JOIN events e          ON tv.event_id = e.id
+        "#;
+
+        let detail_row = tx.query_one(VALIDATE_DETAIL_SQL, &[&id_bytes]).await?;
 
         tx.commit().await?;
 

@@ -7,7 +7,9 @@ use axum::{
 use serde::Deserialize;
 
 use crate::middleware::auth::AuthUser;
-use crate::models::orders::{CreateOrderRequest, Order, OrderDetailResponse, PayOrderRequest};
+use crate::models::orders::{
+    CreateOrderRequest, Order, OrderDetailResponse, OrderListItem, PayOrderRequest,
+};
 use crate::state::AppState;
 use crate::utils::error::AppResult;
 
@@ -25,11 +27,12 @@ pub async fn create(
     Ok(Json(state.order_svc.create(user.id(), body).await?))
 }
 
+/// GET /orders — returns enriched list with event info per order.
 pub async fn list_mine(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
     Query(q): Query<ListQuery>,
-) -> AppResult<Json<Vec<Order>>> {
+) -> AppResult<Json<Vec<OrderListItem>>> {
     Ok(Json(
         state
             .order_svc
@@ -52,8 +55,6 @@ pub async fn pay(
     Path(id): Path<String>,
     Json(body): Json<PayOrderRequest>,
 ) -> AppResult<Json<OrderDetailResponse>> {
-    // FIX: pass user.0.name dari JWT Claims agar nama user benar di system message
-    // group chat "X bergabung ke grup setelah membeli tiket".
     Ok(Json(
         state
             .order_svc

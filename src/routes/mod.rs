@@ -24,15 +24,12 @@ use crate::state::AppState;
 pub fn build_router(state: Arc<AppState>) -> Router {
     // ── Public routes — no user auth required ─────────────────────────────────
     let public = Router::new()
-        // auth
         .route("/api/auth/register", post(auth::register))
         .route("/api/auth/verify", post(auth::verify_register))
         .route("/api/auth/login", post(auth::login))
-        // events (read-only public)
         .route("/api/events/categories", get(events::list_categories))
         .route("/api/events", get(events::list))
         .route("/api/events/{id}", get(events::get_one))
-        // banners (public feed)
         .route("/api/banners", get(banners::list_active));
 
     // ── Protected routes — valid user JWT required ────────────────────────────
@@ -56,11 +53,13 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/orders/{id}", get(orders::get_one))
         .route("/api/orders/{id}/pay", post(orders::pay))
         .route("/api/orders/{id}/cancel", post(orders::cancel))
+        // ── NEW: tickets for a specific order ────────────────────────────────
+        .route("/api/orders/{id}/tickets", get(tickets::list_by_order))
         // tickets (role: customer)
         .route("/api/tickets", get(tickets::list_mine))
         .route("/api/tickets/{id}", get(tickets::get_one))
         .route("/api/tickets/validate", post(tickets::validate))
-        // notifications (role: any authenticated user)
+        // notifications
         .route("/api/notifications", get(notifications::list))
         .route(
             "/api/notifications/unread-count",
@@ -74,25 +73,20 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/notifications/read-all",
             post(notifications::mark_all_read),
         )
-        // ── Admin: banner management ──────────────────────────────────────────
+        // Admin: banner management
         .route("/api/admin/banners", post(banners::admin_create))
         .route("/api/admin/banners/{id}", put(banners::admin_update))
         .route("/api/admin/banners/{id}", delete(banners::admin_delete))
-        // ── Admin: event management ───────────────────────────────────────────
+        // Admin: event management
         .route("/api/admin/events", get(events::admin_list_events))
         .route(
             "/api/admin/events/{id}/status",
             put(events::admin_update_status),
         )
-        // Apply user JWT middleware to entire protected group
         .route_layer(from_fn_with_state(state.clone(), require_auth));
 
-    // ── Health check — completely open, no internal-JWT required ─────────────
     let health_route = Router::new().route("/api/health", get(health));
 
-    // ── All API routes — protected by internal JWT (FE-only) ─────────────────
-    // Setiap request ke /api/** selain /api/health harus menyertakan
-    // X-App-Token yang di-sign dengan INTERNAL_JWT_SECRET bersama FE.
     let api_routes = Router::new()
         .merge(public)
         .merge(protected)
