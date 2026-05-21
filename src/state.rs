@@ -1,4 +1,6 @@
 //! state.rs — AppState: shared application state untuk seluruh handler.
+//!
+//! UPDATED: tambah StoryService + PgStoryRepository
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -7,13 +9,15 @@ use crate::config::config::{RustFsConfig, WahaConfig};
 use crate::repository::{
     banner::PgBannerRepository, event::PgEventRepository, group_chat::PgGroupChatRepository,
     merchant::PgMerchantRepository, notification::PgNotificationRepository,
-    order::PgOrderRepository, ticket::PgTicketRepository, user::PgUserRepository,
+    order::PgOrderRepository, story::PgStoryRepository, ticket::PgTicketRepository,
+    user::PgUserRepository,
 };
 use crate::service::norifications::NotificationService;
 use crate::service::notification_store::NotificationStoreService;
 use crate::service::{
     auth::AuthService, banners::BannerService, event::EventService, group_chat::GroupChatService,
-    merchant::MerchantService, order::OrderService, storage::StorageService, ticket::TicketService,
+    merchant::MerchantService, order::OrderService, storage::StorageService, story::StoryService,
+    ticket::TicketService,
 };
 use crate::utils::jwt::JwtService;
 use crate::ws::manager::WsManager;
@@ -22,15 +26,12 @@ use redis::aio::ConnectionManager;
 use reqwest::Client as HttpClient;
 
 pub type DefaultBannerSvc = BannerService<PgBannerRepository>;
+pub type DefaultStorySvc = StoryService<PgStoryRepository>;
 
 pub struct AppState {
     #[allow(dead_code)]
     pub pool: Pool,
     pub jwt: JwtService,
-
-    /// Secret bersama antara BE dan FE Leptos untuk validasi `X-App-Token`.
-    /// Di-set dari env `INTERNAL_JWT_SECRET`. FE meng-embed secret yang sama
-    /// di compile-time (via `option_env!("INTERNAL_JWT_SECRET")`).
     pub internal_jwt_secret: String,
 
     pub auth_svc: Arc<AuthService>,
@@ -42,8 +43,9 @@ pub struct AppState {
     pub ws_mgr: Arc<WsManager>,
     pub storage: Arc<StorageService>,
     pub banner_svc: Arc<DefaultBannerSvc>,
-    /// Service notifikasi berbasis DB — simpan + baca notifikasi user.
     pub notification_store_svc: Arc<NotificationStoreService>,
+    /// Service untuk story & premium subscription.
+    pub story_svc: Arc<DefaultStorySvc>,
 }
 
 impl AppState {
@@ -76,6 +78,7 @@ impl AppState {
         let ticket_repo = Arc::new(PgTicketRepository::new(pool.clone()));
         let group_chat_repo = Arc::new(PgGroupChatRepository::new(pool.clone()));
         let notification_repo = Arc::new(PgNotificationRepository::new(pool.clone()));
+        let story_repo = Arc::new(PgStoryRepository::new(pool.clone())); // ← NEW
 
         // ── WS Manager ────────────────────────────────────────────────────────
         let ws_mgr = WsManager::new(redis_client)
@@ -111,6 +114,11 @@ impl AppState {
         let banner_svc = Arc::new(BannerService::new(banner_repo));
         let storage = Arc::new(StorageService::new(&rustfs));
         let notification_store_svc = Arc::new(NotificationStoreService::new(notification_repo));
+        let story_svc = Arc::new(StoryService::new(
+            story_repo,
+            storage.clone(),
+            notification_store_svc.clone(),
+        )); // ← NEW
 
         let _ = storage.init().await.map_err(|e| {
             tracing::error!("Storage init failed: {:?}", e);
@@ -134,6 +142,7 @@ impl AppState {
             storage,
             banner_svc,
             notification_store_svc,
+            story_svc, // ← NEW
         }
     }
 }

@@ -39,10 +39,10 @@ fn detect_image_mime(data: &[u8]) -> Option<&'static str> {
 
 #[derive(Clone)]
 pub struct StorageService {
-    client: Client,
-    bucket: String,
+    pub client: Client,
+    pub bucket: String,
     /// Base public URL tanpa trailing slash, e.g. "https://image.ulalaapi.store"
-    public_url: String,
+    pub public_url: String,
 }
 
 impl StorageService {

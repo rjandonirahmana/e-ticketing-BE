@@ -90,3 +90,63 @@ CREATE INDEX IF NOT EXISTS idx_group_messages_sender
 -- INSERT INTO users (id, name, phone, role, created_at, updated_at)
 -- VALUES (decode('00000000000000000000000000000000', 'hex'), 'System Pulse', '+000000000000', 'admin', NOW(), NOW())
 -- ON CONFLICT (id) DO NOTHING;
+
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Migration: stories, story_views, user_subscriptions
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- ── 1. Premium subscriptions ──────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS user_subscriptions (
+    id            BYTEA        PRIMARY KEY,          -- ULID binary 16 bytes
+    user_id       BYTEA        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    plan          VARCHAR(32)  NOT NULL DEFAULT 'premium',
+    started_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    expires_at    TIMESTAMPTZ  NOT NULL,
+    is_active     BOOLEAN      NOT NULL DEFAULT TRUE,
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_subscriptions_user_active
+    ON user_subscriptions (user_id, is_active, expires_at);
+
+-- ── 2. Stories ────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS stories (
+    id          BYTEA        PRIMARY KEY,            -- ULID binary 16 bytes
+    user_id     BYTEA        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    media_url   TEXT         NOT NULL,
+    media_type  VARCHAR(10)  NOT NULL CHECK (media_type IN ('image', 'video')),
+    filter      VARCHAR(64),
+    overlays    JSONB        NOT NULL DEFAULT '[]',
+    -- optional deep-link ke event
+    event_id    BYTEA        REFERENCES events(id) ON DELETE SET NULL,
+    event_slug  VARCHAR(255),
+    event_title TEXT,
+    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    expires_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW() + INTERVAL '24 hours'
+);
+
+CREATE INDEX IF NOT EXISTS idx_stories_user_id   ON stories (user_id);
+CREATE INDEX IF NOT EXISTS idx_stories_expires_at ON stories (expires_at);
+
+-- ── 3. Story views (per-user dedup) ──────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS story_views (
+    story_id    BYTEA        NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+    viewer_id   BYTEA        NOT NULL REFERENCES users(id)   ON DELETE CASCADE,
+    viewed_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (story_id, viewer_id)
+);
+
+-- ── 4. Helper view: aktif stories saja ───────────────────────────────────────
+CREATE OR REPLACE VIEW v_active_stories AS
+    SELECT s.*,
+           u.name        AS username,
+           u.avatar_url  AS avatar_url
+    FROM   stories s
+    JOIN   users u ON u.id = s.user_id
+    WHERE  s.expires_at > NOW();
+
+-- ── 5. Add avatar_url to users if it doesn't exist ───────────────────────────
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(100) NOT NULL DEFAULT 'https://image.ulalaapi.store/ticketing/seulgi.jpg';
