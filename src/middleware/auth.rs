@@ -19,6 +19,9 @@ impl AuthUser {
     pub fn id(&self) -> &str {
         &self.0.user_id
     }
+    pub fn name(&self) -> &str {
+        &self.0.name
+    }
     #[allow(dead_code)]
     pub fn role(&self) -> &str {
         &self.0.role

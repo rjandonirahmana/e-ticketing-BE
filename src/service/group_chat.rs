@@ -44,6 +44,49 @@ impl GroupChatService {
         self.repo.get_user_rooms(user_id).await
     }
 
+    // ── Join room ─────────────────────────────────────────────────────────────
+
+    /// Join room by room_id — dipanggil dari REST handler POST /chat/rooms/:id/join.
+    ///
+    /// FIX P2: Konsolidasi join logic + system message ke service layer.
+    /// Sebelumnya ws/routes.rs join_room handler langsung call repo.add_member()
+    /// tanpa kirim system message — inkonsisten dengan auto_join_after_payment()
+    /// yang selalu kirim system message.
+    ///
+    /// Return: room yang di-join (untuk response JSON)
+    pub async fn join_room(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        user_name: &str,
+    ) -> Result<GroupRoom> {
+        let room = self
+            .repo
+            .find_by_id(room_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
+
+        // Idempotent — jika sudah member, return OK tanpa duplikat system msg
+        if self.repo.is_member(room_id, user_id).await? {
+            return Ok(room);
+        }
+
+        self.repo
+            .add_member(room_id, user_id, MemberRole::Member)
+            .await?;
+
+        // System message — konsisten dengan auto_join_after_payment
+        let sys = self.build_system_msg(
+            room_id,
+            &format!("{user_name} bergabung ke grup"),
+        );
+        self.repo.save_message(&sys).await?;
+        self.fanout(room_id, &sys).await;
+
+        tracing::info!(user_id, room_id, "User joined room");
+        Ok(room)
+    }
+
     // ── Auto-join setelah bayar event ─────────────────────────────────────────
 
     /// Dipanggil oleh OrderService setelah `mark_paid_and_issue_tickets` sukses.

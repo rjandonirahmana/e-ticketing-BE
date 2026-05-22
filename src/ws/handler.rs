@@ -136,15 +136,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<WsAppState>, claims: Claims
     }
 
     // ── Heartbeat ─────────────────────────────────────────────────────────────
-    // OPTIMISASI: heartbeat pakai WsTx yang sama (outbound channel).
-    // Sebelumnya ada channel terpisah (hb_tx/hb_rx) yang butuh arm select! kedua.
-    // Sekarang write task punya SATU recv() saja → lebih simpel, sedikit lebih efisien.
-    // Catatan: WsTx adalah mpsc::Sender<Arc<str>>, bisa di-clone dan diberi ke spawn_heartbeat.
+    // Arsitektur: dua channel terpisah untuk outbound (pesan biasa) dan heartbeat.
+    // axum WebSocket sink tidak bisa di-clone — write task harus single owner sink.
+    // Oleh karena itu heartbeat tidak bisa share channel yang sama dengan outbound.
+    // write task select! dua arm: outbound_rx dan hb_rx.
     //
-    // Untuk ini kita perlu WsTx — ambil dari manager. Tapi manager tidak expose tx langsung.
-    // Solusi: buat channel terpisah khusus heartbeat lalu merge di write task.
-    // [Tetap dua channel seperti sebelumnya — tidak ada benefit merge karena axum
-    //  WebSocket sink tidak bisa di-clone; write task WAJIB satu owner sink]
+    // CATATAN: Komentar lama menyebut "SATU channel" — itu aspirasi yang tidak
+    // terealisasi karena constraint axum (sink ownership). Implementasi tetap
+    // dua channel, yang sudah benar dan berfungsi dengan baik.
     let (hb_tx, mut hb_rx) = tokio::sync::mpsc::channel::<Arc<str>>(4);
     let pong_tx = state
         .ws_mgr

@@ -239,6 +239,14 @@ impl WsManager {
     pub fn disconnect(&self, user_id: &str) {
         if self.sessions.remove(user_id).is_some() {
             self.active_conns.fetch_sub(1, Ordering::Relaxed);
+            // FIX: Bersihkan room_members saat disconnect — mencegah "ghost members"
+            // yang menumpuk di DashMap. Sebelumnya hanya sessions yang di-cleanup,
+            // tapi room_members tetap menyimpan user_id → broadcast_room() terus
+            // mencoba deliver ke user yang sudah offline → deliver_local() gagal
+            // (session tidak ada) → trigger leave_all_rooms() baru, tapi terlambat.
+            // Dengan cleanup di sini, setiap path disconnect (panic, timeout, graceful)
+            // dijamin bersih. O(rooms) per disconnect — acceptable.
+            self.leave_all_rooms(user_id);
             tracing::debug!(user_id, "WS disconnected");
         }
     }
@@ -316,25 +324,24 @@ impl WsManager {
 
     /// Broadcast ke semua member room.
     ///
-    /// KUNCI OPTIMISASI: serialize SEKALI via to_shared_json(),
-    /// deliver Arc<str> clone ke N koneksi = N × atomic refcount bump (nanoseconds).
+    /// FIX P0: Hapus local delivery dari sini — cukup publish ke Redis SEKALI.
+    /// Redis subscriber di instance yang sama akan deliver ke lokal user.
     ///
-    /// vs pola salah: event.to_json() di dalam loop = N × serialize = N × alloc.
+    /// Masalah sebelumnya (Redis Loopback Duplication):
+    ///   1. broadcast_room() deliver lokal ke semua member room
+    ///   2. broadcast_room() juga publish ke Redis
+    ///   3. spawn_redis_subscriber() menerima publish itu dan deliver lokal LAGI
+    ///   → Semua member di instance ini terima pesan 2×
+    ///
+    /// Fix: Biarkan Redis subscriber jadi satu-satunya path delivery.
+    /// Trade-off: +1-2ms latency untuk lokal user (loopback Redis vs in-process).
+    /// Acceptable karena: konsistensi single delivery path > micro-latency gain.
+    ///
+    /// CATATAN: serialize SEKALI via to_shared_json(), Arc<str> clone ke
+    /// subscriber = atomic bump — optimisasi ini masih berlaku.
     pub async fn broadcast_room(&self, room_id: &str, event: WsEvent) {
-        // Serialize SEKALI di sini
         let shared = event.to_shared_json();
-
-        // Local delivery — O(members), bukan O(all connections)
-        if let Some(members) = self.room_members.get(room_id) {
-            let ids: Vec<Arc<str>> = members.iter().map(|r| r.key().clone()).collect();
-            drop(members); // lepas DashMap shard lock sebelum deliver
-            for uid in &ids {
-                // Arc<str>::clone = atomic increment, nanoseconds
-                self.deliver_local(uid, shared.clone()).await;
-            }
-        }
-
-        // Cross-instance via Redis — kirim SEKALI (string yang sama)
+        // Hanya publish ke Redis — subscriber lokal juga akan deliver ke semua member
         self.redis_publish_with_retry(&format!("{CH_ROOM}{room_id}"), &shared)
             .await;
     }

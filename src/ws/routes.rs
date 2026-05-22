@@ -76,25 +76,16 @@ async fn join_room(
     State(state): State<Arc<WsAppState>>,
     Path(room_id): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    // Cek room exist
+    // FIX P2: Delegasikan ke service layer yang handle system message juga.
+    // Sebelumnya langsung call repo.add_member() tanpa system message —
+    // inkonsisten dengan auto_join_after_payment().
     let room = state
         .group_svc
-        .repo
-        .find_by_id(&room_id)
+        .join_room(&room_id, auth.id(), auth.name())
         .await
-        .map_err(|e| AppError::Internal(e))?
-        .ok_or_else(|| AppError::NotFound("Room not found".into()))?;
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    // Add member
-    use crate::models::group_chat::MemberRole;
-    state
-        .group_svc
-        .repo
-        .add_member(&room_id, auth.id(), MemberRole::Member)
-        .await
-        .map_err(|e| AppError::Internal(e))?;
-
-    Ok(ok(json!({ "room_id": room_id, "joined": true })))
+    Ok(ok(json!({ "room_id": room.id, "joined": true })))
 }
 
 /// GET /chat/rooms/{room_id}/history
