@@ -55,13 +55,12 @@ impl AppConfig {
 
         // INTERNAL_JWT_SECRET boleh tidak di-set di development (fallback ke default).
         // DI PRODUCTION wajib di-set ke nilai acak yang panjang!
-        let internal_jwt_secret = env::var("INTERNAL_JWT_SECRET")
-            .unwrap_or_else(|_| {
-                tracing::warn!(
-                    "INTERNAL_JWT_SECRET tidak di-set — pakai default dev (TIDAK AMAN DI PROD!)"
-                );
-                "kinetic-internal-dev-secret-changeme-in-production".into()
-            });
+        let internal_jwt_secret = env::var("INTERNAL_JWT_SECRET").unwrap_or_else(|_| {
+            tracing::warn!(
+                "INTERNAL_JWT_SECRET tidak di-set — pakai default dev (TIDAK AMAN DI PROD!)"
+            );
+            "kinetic-internal-dev-secret-changeme-in-production".into()
+        });
 
         Ok(Self {
             host: "0.0.0.0".into(),

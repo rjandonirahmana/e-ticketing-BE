@@ -33,7 +33,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::registry()
         .with(
             EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "kinetic_api=info,tower_http=info".into()),
+                .unwrap_or_else(|_| "e_ticketing=info,tower_http=info".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -79,13 +79,13 @@ async fn main() -> Result<()> {
         AppState::new(
             pool,
             &cfg.jwt_secret,
-            cfg.internal_jwt_secret, // ← baru
-            cfg.bcrypt_cost,
-            cfg.jwt_expiry_hours,
-            Arc::new(cfg.waha),
+            cfg.internal_jwt_secret.clone(),
+            cfg.bcrypt_cost.clone(),
+            cfg.jwt_expiry_hours.clone(),
+            Arc::new(cfg.waha.clone()),
             redis_conn,
             ws_redis_client,
-            cfg.rustfs,
+            cfg.rustfs.clone(),
         )
         .await,
     );
@@ -96,19 +96,75 @@ async fn main() -> Result<()> {
         group_svc: state.group_chat_svc.clone(),
     });
 
+    // ── CORS ─────────────────────────────────────────────────────────────────
+    // FE dan BE di-serve dari origin yang SAMA (satu port, satu domain).
+    // CORS hanya dibutuhkan kalau ada integrasi third-party.
+    // Untuk development/lokal dengan proxy berbeda, bisa set CORS_ALLOW_ORIGIN.
+    let cors = build_cors(&cfg);
+
     let app = routes::build_router(state.clone())
         .merge(chat_router(ws_state.clone(), state.clone()))
-        .layer(
-            tower_http::cors::CorsLayer::new()
-                .allow_methods(tower_http::cors::Any)
-                .allow_headers(tower_http::cors::Any)
-                .allow_origin(tower_http::cors::Any),
-        );
+        .layer(cors);
 
     let addr = format!("{}:{}", cfg.host, cfg.port);
     let listener = TcpListener::bind(&addr).await?;
-    tracing::info!("KINETIC API + WS listening on http://{}", addr);
+    tracing::info!("🚀 Pulse (API + Frontend) listening on http://{}", addr);
+    tracing::info!(
+        "   Frontend dist dir: {}",
+        std::env::var("FRONTEND_DIST_DIR").unwrap_or_else(|_| "dist".into())
+    );
 
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+
     Ok(())
+}
+
+fn build_cors(cfg: &AppConfig) -> tower_http::cors::CorsLayer {
+    use tower_http::cors::{Any, CorsLayer};
+
+    // Jika CORS_ALLOW_ORIGIN di-set, gunakan itu. Kalau tidak, allow any
+    // (aman karena BE dan FE satu origin di production).
+    if let Ok(origin) = std::env::var("CORS_ALLOW_ORIGIN") {
+        tracing::info!(origin=%origin, "CORS: restricted to specific origin");
+        CorsLayer::new()
+            .allow_methods(Any)
+            .allow_headers(Any)
+            .allow_origin(
+                origin
+                    .parse::<axum::http::HeaderValue>()
+                    .expect("CORS_ALLOW_ORIGIN bukan valid header value"),
+            )
+    } else {
+        tracing::info!("CORS: allow any origin");
+        CorsLayer::new()
+            .allow_methods(Any)
+            .allow_headers(Any)
+            .allow_origin(Any)
+    }
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => { tracing::info!("Ctrl+C received, shutting down..."); },
+        _ = terminate => { tracing::info!("SIGTERM received, shutting down..."); },
+    }
 }
