@@ -24,7 +24,6 @@ RUN cargo install cargo-leptos --locked
 
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
-COPY frontend/ ./frontend/
 COPY proto/    ./proto/
 
 # Build WASM + CSS → target/site/
