@@ -4,8 +4,9 @@
 //!   /api/*       → API handlers (public + protected)
 //!   /api/ws/*    → WebSocket (dihandle oleh ws::routes via merge di main.rs)
 //!   /api/health  → Health check (no auth)
-//!   /*           → Static WASM frontend files (Leptos CSR output dari trunk)
-//!                  → path tidak ditemukan → SPA fallback ke index.html
+//!   /api-fn/*    → Leptos server functions (SSR)
+//!   /*           → Leptos SSR rendering (HTML + hydration)
+//!   /pkg/*       → Static assets WASM/JS/CSS (dilayani oleh leptos_axum)
 
 pub mod auth;
 pub mod banners;
@@ -23,27 +24,15 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
-use tower_http::{
-    services::{ServeDir, ServeFile},
-    trace::TraceLayer,
-};
+use tower_http::trace::TraceLayer;
 
 use crate::middleware::auth::require_auth;
 use crate::middleware::internal_auth::require_internal_jwt;
 use crate::state::AppState;
 
-/// Path ke direktori frontend WASM hasil trunk build.
-/// Di container, layout:
-///   /app/
-///   ├── e-ticketing  (binary)
-///   └── dist/        (WASM + JS + CSS dari trunk)
-///
-/// Bisa di-override via env var FRONTEND_DIST_DIR saat development lokal.
-fn dist_dir() -> String {
-    std::env::var("FRONTEND_DIST_DIR").unwrap_or_else(|_| "dist".into())
-}
-
-pub fn build_router(state: Arc<AppState>) -> Router {
+/// Membangun router API murni (tanpa static file serving).
+/// Frontend SSR (Leptos) di-mount oleh main.rs setelah fungsi ini.
+pub fn build_router(state: Arc<AppState>) -> Router<()> {
     // ── Public routes ─────────────────────────────────────────────────────────
     let public = Router::new()
         .route("/api/auth/register", post(auth::register))
@@ -106,28 +95,15 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     let api_routes = Router::new()
         .merge(public)
         .merge(protected)
-        // Internal JWT wajib untuk semua /api/* (kecuali /api/health)
         .route_layer(from_fn_with_state(state.clone(), require_internal_jwt));
 
-    // ── Static Frontend (SPA) ─────────────────────────────────────────────────
-    // Axum route matching: /api/* match duluan karena lebih spesifik.
-    // Path lain (/, /explore, /events/:slug, dll) → ServeDir → SPA fallback.
-    //
-    // ServeDir: serve file jika ada, 404 → ServeFile(index.html) → browser
-    // handle routing via Leptos Router (CSR).
-    let dist = dist_dir();
-    let index_html = format!("{dist}/index.html");
-
-    let frontend_service = ServeDir::new(&dist)
-        .not_found_service(ServeFile::new(&index_html));
-
+    // Kembalikan router dengan state sudah di-set.
+    // Frontend SSR (Leptos) di-merge di main.rs.
     Router::new()
         .merge(health_route)
         .merge(api_routes)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
-        // fallback SETELAH with_state — ServeDir tidak butuh AppState
-        .fallback_service(frontend_service)
 }
 
 async fn health() -> &'static str {

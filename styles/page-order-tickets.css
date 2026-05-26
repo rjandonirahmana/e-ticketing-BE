@@ -1,0 +1,407 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   YOUR TICKETS PAGE — page-order-tickets.css
+   Design: dark bg, bold event title, per-ticket cards with left accent bar,
+   concert pulse strip at bottom.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Page ────────────────────────────────────────────────────────────────────── */
+.yt-page {
+    background: var(--bg-page);
+    min-height: 100vh;
+    padding-bottom: 0;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────────── */
+.yt-header { border-bottom: none !important; }
+.yt-header-title {
+    font-family: var(--font-display, "Bebas Neue", sans-serif);
+    font-size: 18px;
+    letter-spacing: 0.18em;
+    color: var(--text-primary);
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* ── Loading shimmer ─────────────────────────────────────────────────────────── */
+.yt-loading {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+.yt-shim {
+    border-radius: 16px;
+    background: linear-gradient(
+        90deg,
+        var(--bg-card) 25%,
+        rgba(255,255,255,0.04) 50%,
+        var(--bg-card) 75%
+    );
+    background-size: 200% 100%;
+    animation: yt-shim 1.4s infinite;
+}
+@keyframes yt-shim {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+.yt-shim--hero { height: 100px; }
+.yt-shim--card { height: 220px; }
+
+/* ── Empty / Error ───────────────────────────────────────────────────────────── */
+.yt-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    text-align: center;
+    padding: 60px 24px;
+}
+.yt-empty-icon { font-size: 44px; }
+.yt-empty-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+.yt-empty-sub {
+    font-size: 13px;
+    color: var(--text-secondary);
+    max-width: 260px;
+}
+.yt-back-link {
+    font-size: 13px;
+    color: var(--accent-blue);
+    text-decoration: none;
+    margin-top: 10px;
+}
+
+/* ── Content wrapper ─────────────────────────────────────────────────────────── */
+.yt-content {
+    display: flex;
+    flex-direction: column;
+}
+
+/* ── Event header ────────────────────────────────────────────────────────────── */
+.yt-event-header {
+    padding: 14px 24px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.yt-event-name {
+    font-family: var(--font-display, "Bebas Neue", sans-serif);
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1.1;
+    color: var(--text-primary);
+    margin: 0;
+}
+.yt-order-row {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+}
+.yt-order-left {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.yt-order-id-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+.yt-order-id-val { color: var(--text-primary); }
+.yt-ticket-count {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--accent-blue);
+    letter-spacing: 0.01em;
+}
+.yt-order-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+}
+.yt-total-label {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+.yt-total-val {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--accent-lime);
+    letter-spacing: 0.01em;
+}
+.yt-event-meta {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+.yt-event-meta svg { flex-shrink: 0; color: var(--text-muted); }
+.yt-meta-sep { color: var(--text-muted); }
+
+/* ── Ticket cards list ───────────────────────────────────────────────────────── */
+.yt-tickets-list {
+    padding: 0 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+/* ── Single ticket card ──────────────────────────────────────────────────────── */
+.yt-ticket-card {
+    display: flex;
+    background: var(--bg-card);
+    border: 1px solid rgba(79, 107, 255, 0.18);
+    border-left: none; /* accent bar takes left edge */
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+    position: relative;
+}
+
+/* Left accent bar — blue gradient strip matching design */
+.yt-ticket-accent {
+    width: 5px;
+    flex-shrink: 0;
+    background: linear-gradient(180deg, var(--accent-blue) 0%, var(--accent-violet) 100%);
+    border-radius: 16px 0 0 16px;
+}
+
+.yt-ticket-body {
+    flex: 1;
+    padding: 18px 18px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+}
+
+/* ── Top row: ticket# + status badge ────────────────────────────────────────── */
+.yt-ticket-top-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+}
+.yt-ticket-num-block {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.yt-ticket-num-label {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+.yt-ticket-code {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: 0.03em;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Status badge */
+.yt-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 11px;
+    border-radius: 100px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    flex-shrink: 0;
+}
+.yt-status-badge--active {
+    background: rgba(200, 255, 94, 0.12);
+    border: 1px solid rgba(200, 255, 94, 0.25);
+    color: var(--accent-lime);
+}
+.yt-status-badge--used {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-muted);
+}
+
+/* Status dot */
+.yt-ticket-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--text-muted);
+}
+.yt-ticket-dot--active {
+    background: var(--accent-lime);
+    box-shadow: 0 0 6px var(--accent-lime);
+    animation: yt-pulse 2s infinite;
+}
+.yt-ticket-dot--used { background: var(--text-muted); animation: none; }
+.yt-ticket-dot--refunded { background: #ff8a65; animation: none; }
+@keyframes yt-pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.35; }
+}
+
+/* ── Dotted divider ──────────────────────────────────────────────────────────── */
+.yt-ticket-divider {
+    height: 1px;
+    border-top: 1px dashed rgba(255,255,255,0.08);
+}
+
+/* ── Section / row-seat row ──────────────────────────────────────────────────── */
+.yt-section-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+}
+.yt-section-block {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.yt-section-block--right { align-items: flex-end; }
+.yt-field-label {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+.yt-field-val {
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--text-primary);
+    letter-spacing: 0.02em;
+}
+
+/* ── Attendee name ───────────────────────────────────────────────────────────── */
+.yt-attendee-block {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding-top: 4px;
+    border-top: 1px dashed rgba(255,255,255,0.06);
+}
+.yt-attendee-name {
+    font-size: 22px;
+    font-weight: 700;
+    font-style: italic;
+    color: var(--text-primary);
+    letter-spacing: 0.01em;
+    line-height: 1.2;
+}
+
+/* ── VIEW TICKET button ──────────────────────────────────────────────────────── */
+.yt-view-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 14px 20px;
+    border-radius: 100px;
+    background: linear-gradient(135deg, #5b7cff 0%, #7c5fff 100%);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-decoration: none;
+    text-transform: uppercase;
+    margin-top: 4px;
+    transition: opacity 0.18s ease, transform 0.12s ease;
+    border: none;
+    cursor: pointer;
+}
+.yt-view-btn:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+.yt-view-btn:active {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+/* ── Concert pulse strip ─────────────────────────────────────────────────────── */
+.yt-pulse-strip {
+    margin-top: 28px;
+    position: relative;
+    overflow: hidden;
+    background: #08080f;
+    min-height: 200px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    padding-bottom: 80px; /* space for bottom nav */
+}
+
+/* Light bars at top */
+.yt-pulse-lights {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    display: flex;
+    gap: 2px;
+    padding: 0 16px;
+}
+.yt-light {
+    flex: 1;
+    height: 100%;
+    border-radius: 0 0 4px 4px;
+    background: linear-gradient(180deg, var(--accent-blue) 0%, transparent 100%);
+    animation: yt-flicker 1.8s ease-in-out infinite alternate;
+}
+@keyframes yt-flicker {
+    0%   { opacity: 0.3; }
+    100% { opacity: 0.9; }
+}
+
+/* Stage SVG */
+.yt-pulse-scene {
+    width: 100%;
+    position: absolute;
+    bottom: 72px;
+    left: 0;
+}
+.yt-stage-svg {
+    width: 100%;
+    height: 160px;
+    display: block;
+}
+
+/* Tagline */
+.yt-pulse-tagline {
+    position: relative;
+    z-index: 2;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.28em;
+    color: rgba(255,255,255,0.35);
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.yt-note-icon {
+    color: var(--accent-lime);
+    font-size: 16px;
+}

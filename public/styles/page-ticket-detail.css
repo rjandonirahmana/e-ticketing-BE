@@ -1,0 +1,364 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   TICKET DETAIL PAGE  (td-*)
+   Clean reimplementation — matches ticket_detail.rs exactly
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Page wrapper ────────────────────────────────────────────────────────── */
+.td-page {
+    padding-bottom: 0; /* no extra padding — pulse strip handles it */
+}
+
+/* ── Page header title (centered between back btn and actions) ─────────────── */
+.td-page-title {
+    font-family: var(--font-display);
+    font-size: 18px;
+    letter-spacing: 0.1em;
+    color: var(--text-primary);
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* ── Full-page mobile layout wrapper ─────────────────────────────────────── */
+.td-mobile-layout {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+}
+
+/* ── HERO — full-width cover image with gradient overlay ─────────────────── */
+.td-hero {
+    position: relative;
+    width: 100%;
+    height: 280px;
+    margin: 0;          /* full-bleed, no side margins */
+    border-radius: 0;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.td-hero-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center 30%;
+    display: block;
+}
+
+.td-hero-gradient {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        to bottom,
+        rgba(8, 8, 16, 0.05)  0%,
+        rgba(8, 8, 16, 0.00) 30%,
+        rgba(8, 8, 16, 0.60) 70%,
+        rgba(8, 8, 16, 0.95) 100%
+    );
+}
+
+.td-hero-content {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 20px 20px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* Status badge (CONFIRMED etc.) */
+.td-confirmed {
+    display: inline-flex;
+    align-self: flex-start;
+    font-family: var(--font-body);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: var(--accent-lime);
+    background: rgba(0, 0, 0, 0.4);
+    padding: 5px 12px;
+    border-radius: 100px;
+    border: 1px solid rgba(200, 255, 94, 0.35);
+}
+
+.td-event-title {
+    font-family: var(--font-display);
+    font-size: 36px;
+    color: #fff;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    margin: 0;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.5);
+}
+
+/* ── STUB CARD — connected to hero, rounded bottom ────────────────────────── */
+.td-stub {
+    margin: 0 16px;                 /* centered with side margins */
+    background: var(--bg-card);
+    border: 1px solid var(--border-soft);
+    border-top: none;               /* flush with hero bottom */
+    border-radius: 0 0 24px 24px;
+}
+
+.td-stub-top {
+    padding: 20px 20px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.td-stub-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.td-stub-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+}
+.td-stub-cell--right {
+    text-align: right;
+    align-items: flex-end;
+}
+.td-stub-cell--full { flex: 1; }
+
+.td-label {
+    font-family: var(--font-body);
+    font-size: 9px;
+    color: var(--text-muted);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+.td-val {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+.td-val--accent {
+    color: var(--accent-lime);
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 14px;
+}
+
+/* Perforated divider */
+.td-perf-divider {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 28px;
+    margin: 8px 0;
+}
+.td-notch {
+    position: absolute;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--bg-page);
+    z-index: 1;
+}
+.td-notch--left  { left: -14px; }
+.td-notch--right { right: -14px; }
+.td-dash {
+    flex: 1;
+    margin: 0 20px;
+    border-top: 2px dashed var(--border-strong);
+}
+
+/* Bottom: QR + info */
+.td-stub-bottom {
+    padding: 20px 20px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    align-items: center;
+}
+
+.td-qr-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+.td-qr {
+    background: #fff;
+    border-radius: 16px;
+    padding: 0;          /* qrcodegen SVG sudah punya quiet-zone sendiri */
+    box-shadow: 0 0 40px rgba(200, 255, 94, 0.15);
+    border: 1px solid rgba(200, 255, 94, 0.1);
+    overflow: hidden;    /* clip SVG corners ke border-radius */
+    line-height: 0;      /* hapus spasi inline di bawah SVG */
+}
+/* SVG yang di-inject via inner_html */
+.td-qr > div { line-height: 0; }
+.td-qr svg   { display: block; width: 170px; height: 170px; }
+.td-qr-ref {
+    font-family: var(--font-body);
+    font-size: 11px;
+    color: var(--accent-lime);
+    letter-spacing: 0.12em;
+    font-weight: 700;
+}
+
+/* Pills row (SECTION, ROW/SEAT) */
+.td-pill-row {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+}
+.td-pill {
+    flex: 1;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: 14px;
+    padding: 14px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: center;
+}
+.td-pill-label {
+    font-family: var(--font-body);
+    font-size: 9px;
+    color: var(--text-muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+.td-pill-val {
+    font-family: var(--font-display);
+    font-size: 20px;
+    color: var(--text-primary);
+    letter-spacing: 0.04em;
+}
+
+/* Info card (security notes) */
+.td-info-card {
+    width: 100%;
+    background: var(--bg-elevated);
+    border-radius: 14px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    border: 1px solid var(--border-soft);
+}
+.td-info-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+/* ── ACTION BUTTONS ─────────────────────────────────────────────────────── */
+.td-actions {
+    padding: 16px 16px 8px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+.td-btn {
+    padding: 14px;
+    border-radius: 100px;
+    font-family: var(--font-body);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: none;
+    transition: opacity 0.18s, transform 0.15s;
+}
+.td-btn:active { transform: scale(0.97); }
+.td-btn--primary {
+    background: var(--accent-lime);
+    color: var(--text-on-accent);
+}
+.td-btn--ghost {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+}
+
+/* ── PULSE STRIP ─────────────────────────────────────────────────────────── */
+.td-pulse-strip {
+    margin: 8px 16px 100px;
+    padding: 14px 16px;
+    background: rgba(57, 255, 138, 0.06);
+    border: 1px solid rgba(57, 255, 138, 0.2);
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--font-body);
+    font-size: 11px;
+    color: var(--live-green);
+    letter-spacing: 0.1em;
+    font-weight: 700;
+}
+
+/* ── EMPTY / NOT FOUND STATE ─────────────────────────────────────────────── */
+.td-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 64px 24px;
+    text-align: center;
+    min-height: 60dvh;
+}
+.td-empty-state h2 {
+    font-family: var(--font-display);
+    font-size: 28px;
+    color: var(--text-primary);
+    letter-spacing: 0.04em;
+    margin: 0;
+    line-height: 1.1;
+}
+.td-empty-state p {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 0;
+    max-width: 260px;
+    line-height: 1.65;
+}
+.td-empty-state .td-btn {
+    margin-top: 8px;
+    text-decoration: none;
+    padding: 14px 28px;
+}
+
+/* ── Light mode ────────────────────────────────────────────────────────────── */
+[data-theme="light"] .td-hero-gradient {
+    background: linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0.05)  0%,
+        rgba(0, 0, 0, 0.00) 30%,
+        rgba(0, 0, 0, 0.50) 70%,
+        rgba(0, 0, 0, 0.85) 100%
+    );
+}
+[data-theme="light"] .td-event-title { color: #fff; }
+[data-theme="light"] .td-page-title  { color: var(--text-primary); }
+[data-theme="light"] .td-qr { border: 1px solid var(--border); box-shadow: 0 4px 20px rgba(0,0,20,0.12); }
+[data-theme="light"] .td-pulse-strip { background: rgba(10, 112, 53, 0.06); border-color: rgba(10, 112, 53, 0.2); color: var(--live-green); }
+[data-theme="light"] .td-stub { background: var(--bg-card); border-color: var(--border); }
+[data-theme="light"] .td-pill { background: var(--bg-elevated); border-color: var(--border); }
+[data-theme="light"] .td-info-card { background: var(--bg-elevated); border-color: var(--border); }
+[data-theme="light"] .td-btn--primary { background: var(--accent-lime); color: var(--text-on-accent); }
+[data-theme="light"] .td-btn--ghost { background: var(--bg-card); border-color: var(--border); color: var(--text-primary); }

@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "rust-lang.rust-analyzer",
+    "tamasfe.even-better-toml",
+    "bradlc.vscode-tailwindcss",
+    "serayuzgur.crates",
+    "eamodio.gitlens",
+    "usernamehw.errorlens"
+  ]
+}

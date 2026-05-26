@@ -1,0 +1,382 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   ADMIN PAGE
+   Auto-extracted from styles.css — edit this file for page-specific styles
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── ADMIN DESIGN SYSTEM ──────────────────────────────────────────────────── */
+
+/* Add button — lime accent consistent with app */
+.admin-add-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0.35rem 0.85rem;
+    border-radius: 100px;
+    border: none;
+    background: var(--accent-lime);
+    color: var(--text-on-accent);
+    font-family: var(--font-body);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+.admin-add-btn:hover {
+    opacity: 0.85;
+}
+
+/* Toast — dark-theme aware */
+.admin-toast {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.7rem 1rem;
+    border-radius: 12px;
+    margin-bottom: 0.75rem;
+    font-family: var(--font-body);
+    font-size: 0.78rem;
+    backdrop-filter: blur(12px);
+}
+.admin-toast--ok {
+    background: rgba(57, 255, 138, 0.12);
+    color: var(--live-green);
+    border: 1px solid rgba(57, 255, 138, 0.25);
+}
+.admin-toast--err {
+    background: rgba(255, 79, 107, 0.12);
+    color: var(--danger);
+    border: 1px solid rgba(255, 79, 107, 0.25);
+}
+.admin-toast-x {
+    margin-left: auto;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.1rem;
+    color: inherit;
+    padding: 0 4px;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+}
+.admin-toast-x:hover {
+    opacity: 1;
+}
+
+/* Banner list rows */
+.admin-banner-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 0.8rem;
+    margin-bottom: 0.65rem;
+    transition:
+        border-color 0.2s,
+        box-shadow 0.2s;
+}
+.admin-banner-row:hover {
+    border-color: rgba(200, 255, 94, 0.18);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+.admin-banner-thumb {
+    position: relative;
+    width: 90px;
+    height: 58px;
+    flex-shrink: 0;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--bg-elevated);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-soft);
+}
+.admin-banner-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.admin-banner-no-img {
+    font-size: 1.6rem;
+    opacity: 0.5;
+}
+.admin-banner-badge {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    font-size: 0.5rem;
+    font-weight: 700;
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-family: var(--font-body);
+    letter-spacing: 0.05em;
+}
+.admin-banner-badge--on {
+    background: rgba(57, 255, 138, 0.25);
+    color: var(--live-green);
+}
+.admin-banner-badge--off {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-muted);
+}
+.admin-banner-info {
+    flex: 1;
+    min-width: 0;
+}
+.admin-banner-title {
+    font-family: var(--font-body);
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0 0 0.2rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.admin-banner-sub {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    margin: 0.1rem 0;
+}
+.admin-banner-link {
+    font-size: 0.68rem;
+    color: var(--accent-lime);
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    margin: 0.15rem 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0.8;
+}
+.admin-banner-order {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    margin: 0.1rem 0;
+}
+.admin-banner-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    flex-shrink: 0;
+}
+.admin-del-btn {
+    padding: 0.35rem 0.65rem;
+    border-radius: 9px;
+    border: none;
+    background: rgba(255, 79, 107, 0.12);
+    color: var(--danger);
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition:
+        opacity 0.15s,
+        background 0.15s;
+}
+.admin-del-btn:hover {
+    background: rgba(255, 79, 107, 0.2);
+}
+.admin-del-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* Modal backdrop */
+.admin-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    z-index: 200;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    animation: admin-fadein 0.18s ease;
+}
+@keyframes admin-fadein {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+/* Modal panel — bottom sheet sitting ABOVE the bottom nav */
+.admin-modal-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    border-radius: 24px 24px 0 0;
+    width: 100%;
+    max-width: 480px;
+    /* 92dvh minus bottom-nav height (~72px) so submit btn is always reachable */
+    max-height: calc(92dvh - 72px);
+    /* Lift the sheet above the bottom nav */
+    margin-bottom: 72px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 1.4rem 1.1rem calc(1.5rem + env(safe-area-inset-bottom, 0px));
+    animation: admin-slideup 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes admin-slideup {
+    from {
+        transform: translateY(100%);
+    }
+    to {
+        transform: translateY(0);
+    }
+}
+
+/* Drag handle pill */
+.admin-modal-panel::before {
+    content: "";
+    display: block;
+    width: 36px;
+    height: 4px;
+    background: var(--border-strong);
+    border-radius: 2px;
+    margin: 0 auto 1.2rem;
+}
+
+/* Modal header */
+.admin-modal-hdr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.1rem;
+}
+.admin-modal-ttl {
+    font-family: var(--font-body);
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--text-primary);
+    margin: 0;
+}
+.admin-modal-close {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+        background 0.15s,
+        color 0.15s;
+}
+.admin-modal-close:hover {
+    background: var(--bg-elevated-2);
+    color: var(--text-primary);
+}
+
+/* Image preview box */
+.admin-preview-box {
+    position: relative;
+    min-height: 100px;
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--bg-elevated);
+    border: 1px dashed rgba(200, 255, 94, 0.25);
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.2s;
+}
+.admin-preview-box:hover {
+    border-color: rgba(200, 255, 94, 0.45);
+}
+.admin-preview-img {
+    width: 100%;
+    max-height: 170px;
+    object-fit: cover;
+    display: block;
+}
+.admin-preview-ph {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-family: var(--font-body);
+    padding: 1.5rem;
+}
+.admin-upload-lbl {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0.38rem 0.8rem;
+    border-radius: 100px;
+    background: var(--accent-lime);
+    color: var(--text-on-accent);
+    font-family: var(--font-body);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+.admin-upload-lbl:hover {
+    opacity: 0.85;
+}
+
+/* Form inside modal */
+.admin-modal-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+.admin-form-row2 {
+    display: flex;
+    gap: 0.75rem;
+}
+.admin-form-err {
+    background: rgba(255, 79, 107, 0.1);
+    border: 1px solid rgba(255, 79, 107, 0.2);
+    border-radius: 10px;
+    padding: 0.55rem 0.8rem;
+    color: var(--danger);
+    font-family: var(--font-body);
+    font-size: 0.78rem;
+    margin: 0.1rem 0;
+}
+
+/* Submit button — ensure visibility inside modal */
+.admin-modal-panel .mhub-modal-submit {
+    width: 100%;
+    margin-top: 16px;
+    padding: 14px 28px;
+    display: block;
+    /* force visibility even if parent has dark bg */
+    background: var(--accent-lime) !important;
+    color: var(--text-on-accent) !important;
+    border: none;
+    border-radius: 100px;
+    font-family: var(--font-body);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    position: relative;
+    z-index: 1;
+}
+.admin-modal-panel .mhub-modal-submit:hover {
+    opacity: 0.88;
+}
+.admin-modal-panel .mhub-modal-submit:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}

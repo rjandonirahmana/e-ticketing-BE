@@ -1,0 +1,2123 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   SHARED COMPONENTS
+   Auto-extracted from styles.css — edit this file for page-specific styles
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Grid Background (auth pages) ──────────────────────────────────────────── */
+.grid-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    background: var(--bg-base);
+}
+.grid-lines {
+    position: absolute;
+    inset: 0;
+    background-image:
+        linear-gradient(var(--map-grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--map-grid) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black, transparent);
+}
+.orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.4;
+}
+.orb-1 {
+    width: 400px;
+    height: 400px;
+    background: radial-gradient(circle, var(--accent-blue) 0%, transparent 70%);
+    top: -100px;
+    left: -100px;
+    animation: orbFloat 8s ease-in-out infinite;
+}
+.orb-2 {
+    width: 300px;
+    height: 300px;
+    background: radial-gradient(circle, var(--accent-lime) 0%, transparent 70%);
+    bottom: -80px;
+    right: -80px;
+    animation: orbFloat 10s ease-in-out infinite reverse;
+}
+
+/* ── INPUTS ─────────────────────────────────────────────────────────────────── */
+.field-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.field-label {
+    font-family: var(--font-body);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+.field-box {
+    position: relative;
+    display: flex;
+    align-items: center;
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    transition:
+        border-color 0.2s,
+        box-shadow 0.2s;
+}
+.field-box--focused {
+    border-color: rgba(79, 107, 255, 0.6);
+    box-shadow: 0 0 0 3px rgba(79, 107, 255, 0.12);
+}
+.field-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 14px;
+    padding: 14px 16px;
+    width: 100%;
+}
+.field-input::placeholder {
+    color: var(--text-muted);
+}
+.field-input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.pass-toggle {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 0 14px;
+    display: flex;
+    align-items: center;
+    transition: color 0.2s;
+}
+.pass-toggle:hover {
+    color: var(--text-secondary);
+}
+
+/* ── BANNERS / ALERTS ───────────────────────────────────────────────────────── */
+.error-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(255, 79, 107, 0.1);
+    border: 1px solid rgba(255, 79, 107, 0.25);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 12px;
+    color: var(--danger);
+    animation: fadeUp 0.3s ease both;
+}
+.success-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(57, 255, 138, 0.08);
+    border: 1px solid rgba(57, 255, 138, 0.25);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 12px;
+    color: var(--live-green);
+    animation: fadeUp 0.3s ease both;
+}
+.spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(128, 128, 128, 0.3);
+    border-top-color: var(--text-primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    display: inline-block;
+}
+
+/* ── PAGE HEADER (canonical — semua halaman gunakan ini) ──────────────────── */
+.page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    position: sticky;
+    top: 0;
+    z-index: var(--z-header);
+    background: var(--bg-page);
+    border-bottom: 1px solid var(--border-soft);
+    width: 100%;
+    min-width: 0;
+}
+
+/* ── BACK BUTTON (canonical — semua halaman gunakan ini) ──────────────────── */
+.back-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-soft);
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s;
+    text-decoration: none;
+    padding: 0;
+}
+.back-btn:hover {
+    background: var(--bg-elevated-2);
+}
+
+/* ── HEADER BELL ────────────────────────────────────────────────────────────── */
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.bell-btn {
+    position: relative;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-primary);
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.bell-btn:hover {
+    background: var(--bg-card-hover);
+}
+.bell-dot {
+    position: absolute;
+    top: 7px;
+    right: 8px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-lime);
+    border: 2px solid var(--bg-page);
+    box-shadow: 0 0 8px rgba(200, 255, 94, 0.6);
+}
+
+/* ── THEME TOGGLE BUTTON ────────────────────────────────────────────────────── */
+.theme-toggle {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition:
+        background 0.2s,
+        color 0.2s,
+        border-color 0.2s,
+        transform 0.2s;
+    padding: 0;
+    flex-shrink: 0;
+}
+.theme-toggle:hover {
+    background: var(--bg-card-hover);
+    color: var(--accent-lime);
+    transform: rotate(12deg);
+}
+.theme-toggle:active {
+    transform: scale(0.94);
+}
+.auth-header .theme-toggle {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: #fff;
+}
+[data-theme="light"] .auth-header .theme-toggle {
+    background: var(--bg-card);
+    border-color: var(--border);
+    color: var(--text-primary);
+}
+
+/* ── Icon color helpers (used by inline SVGs that previously hardcoded gray strokes) ──── */
+.search-bar svg,
+.search-wrap svg,
+.orders-search svg,
+.empty-state svg,
+.ticket-venue-row svg,
+.menu-item > svg:last-child {
+    color: var(--text-muted);
+}
+
+/* ── BANNER SLIDER ──────────────────────────────────────────────────────────── */
+.banner-slider-wrap {
+    overflow: hidden;
+    margin-bottom: 20px;
+    touch-action: pan-y;
+}
+
+/* outer drag container — full width, no visible clip */
+.banner-track-outer {
+    width: 100%;
+    overflow: hidden;
+}
+
+/* The moving track: slides are not percentage-based anymore;
+   we use translate3d(calc(-N * slideWidth + dragDelta), 0, 0)
+   driven entirely from Rust. CSS just provides the snap transition. */
+.banner-track {
+    display: flex;
+    will-change: transform;
+    /* transition applied inline when NOT dragging; none when dragging */
+}
+
+.banner-slide {
+    flex: 0 0 calc(100% - 40px);
+    /* first/last handled inline or with :first-child / :last-child */
+    margin: 0 6px;
+    border-radius: 16px;
+    overflow: hidden;
+    position: relative;
+    height: 180px;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+.banner-slide:first-child {
+    margin-left: 20px;
+}
+.banner-slide:last-child {
+    margin-right: 20px;
+}
+
+/* inner link fills the slide */
+.banner-slide-inner {
+    display: block;
+    width: 100%;
+    height: 100%;
+    text-decoration: none;
+}
+
+.banner-slide-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    pointer-events: none;
+}
+.banner-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        to top,
+        rgba(0, 0, 0, 0.88) 0%,
+        rgba(0, 0, 0, 0.2) 55%,
+        transparent 100%
+    );
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 14px;
+    gap: 6px;
+    pointer-events: none;
+}
+.slide-badge {
+    display: inline-block;
+    font-family: var(--font-body);
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    padding: 3px 9px;
+    border-radius: 100px;
+    font-weight: 700;
+    align-self: flex-start;
+}
+.slide-badge--live {
+    background: var(--accent-lime);
+    color: var(--text-on-accent);
+}
+.slide-badge--upcoming {
+    background: rgba(79, 107, 255, 0.85);
+    color: #fff;
+}
+.slide-badge--sale {
+    background: rgba(255, 107, 79, 0.85);
+    color: #fff;
+}
+.slide-badge--featured {
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    backdrop-filter: blur(8px);
+}
+.banner-title {
+    font-family: var(--font-display);
+    font-size: 26px;
+    color: #fff;
+    line-height: 1;
+    letter-spacing: 0.04em;
+}
+.banner-subtitle {
+    display: none;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.75);
+    line-height: 1.65;
+    max-width: 480px;
+}
+.banner-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.banner-date {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.65);
+    letter-spacing: 0.06em;
+}
+.banner-price {
+    font-family: var(--font-body);
+    font-size: 13px;
+    color: #c8ff5e;
+    font-weight: 700;
+}
+.banner-cta-btn {
+    display: none;
+}
+
+.banner-dots {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 0 0;
+}
+.bdot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--bdot-inactive);
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-block;
+    border: none;
+    padding: 0;
+}
+.bdot--active {
+    background: var(--accent-lime);
+    width: 18px;
+    border-radius: 4px;
+}
+   MERCHANT — CREATE EVENT form & inventory header
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* Inventory header row with NEW EVENT button */
+.mhub-inv-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+.mhub-new-event-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--accent-lime);
+    border: none;
+    border-radius: 100px;
+    color: var(--text-on-accent);
+    font-family: var(--font-body);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+.mhub-new-event-btn:hover {
+    opacity: 0.88;
+}
+
+/* Modal — form section dividers */
+.mhub-form-section-label {
+    font-family: var(--font-body);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    color: var(--accent-lime);
+    padding: 8px 0 4px;
+    border-bottom: 1px solid rgba(200, 255, 94, 0.15);
+    margin-bottom: 10px;
+}
+
+/* Ticket tier blocks inside modal */
+.mhub-tier-block {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+.mhub-tier-block--vip {
+    border-color: rgba(79, 107, 255, 0.3);
+    background: rgba(79, 107, 255, 0.04);
+}
+
+.mhub-tier-block-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.mhub-tier-block-name {
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--text-primary);
+}
+.mhub-tier-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+.mhub-tier-check {
+    width: 14px;
+    height: 14px;
+    accent-color: var(--accent-lime);
+    cursor: pointer;
+}
+.mhub-tier-toggle-label {
+    font-family: var(--font-body);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+}
+
+/* Make modal scrollable on small screens */
+.mhub-modal {
+    max-height: 88dvh;
+    overflow-y: auto;
+}
+.mhub-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   CHAT — 1-message limit UI + merchant badge
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* Merchant unlimited badge */
+.chat-merchant-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 16px;
+    margin: 0;
+    background: linear-gradient(90deg, rgba(79, 107, 255, 0.12) 0%, rgba(200, 255, 94, 0.06) 100%);
+    border-bottom: 1px solid var(--border-soft);
+    font-family: var(--font-body);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: var(--accent-lime);
+}
+.chat-merchant-badge svg {
+    color: var(--accent-lime);
+    flex-shrink: 0;
+}
+
+/* Input hint counter (hanya untuk user biasa, 1 pesan tersisa) */
+.chat-send-hint {
+    text-align: center;
+    padding: 4px 20px 6px;
+    font-family: var(--font-body);
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+    background: var(--overlay-blur);
+    position: fixed;
+    bottom: 72px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 480px;
+}
+
+/* Input "last chance" highlight */
+.chat-input--last-chance {
+    border-color: rgba(200, 255, 94, 0.35);
+}
+.chat-input--last-chance:focus {
+    border-color: var(--accent-lime);
+}
+
+/* Read-only bar — user sudah habis jatah */
+.chat-readonly-bar {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 480px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 20px 28px;
+    background: var(--overlay-blur);
+    backdrop-filter: blur(20px);
+    border-top: 1px solid var(--border);
+    font-family: var(--font-body);
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    z-index: 20;
+}
+.chat-readonly-bar svg {
+    flex-shrink: 0;
+    color: var(--text-muted);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   CHECKOUT — group join notification (muncul singkat setelah bayar)
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.checkout-group-notice {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 20px;
+    margin: 0 0 8px;
+    background: rgba(200, 255, 94, 0.08);
+    border: 1px solid rgba(200, 255, 94, 0.2);
+    border-radius: 12px;
+    font-family: var(--font-body);
+    font-size: 12px;
+    color: var(--text-primary);
+    line-height: 1.5;
+}
+.checkout-group-notice svg {
+    color: var(--accent-lime);
+    flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MESSAGES LIST — empty state & loading
+   ═══════════════════════════════════════════════════════════════════════════ */
+.msg-loading,
+.msg-error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 60px 20px;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+.msg-error {
+    color: var(--danger);
+}
+.msg-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 80px 24px;
+    text-align: center;
+    color: var(--text-muted);
+}
+.msg-empty p {
+    font-size: 13px;
+    margin: 0;
+}
+.msg-empty-sub {
+    font-size: 11px;
+    opacity: 0.7;
+}
+.msg-explore-btn {
+    margin-top: 8px;
+    padding: 11px 24px;
+    background: var(--accent-lime);
+    color: var(--text-on-accent);
+    border-radius: 100px;
+    text-decoration: none;
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CHAT ROOM — loading, avatar placeholder, merchant badge inline
+   ═══════════════════════════════════════════════════════════════════════════ */
+.chat-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+}
+.chat-other-avatar-placeholder {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--accent-blue);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+.chat-merchant-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: rgba(200, 255, 94, 0.12);
+    border: 1px solid rgba(200, 255, 94, 0.25);
+    border-radius: 100px;
+    font-family: var(--font-body);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--accent-lime);
+    flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SHIMMER / SKELETON LOADING
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* shimmer — diganti shimmer-wave di bagian bawah */
+
+/* ── Event card skeleton ──────────────────────────────────────────────── */
+.shim-event-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-soft);
+    border-radius: 16px;
+    overflow: hidden;
+}
+.shim-event-card .shim-img {
+    height: 170px;
+    width: 100%;
+}
+.shim-event-card .shim-body {
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.shim-event-card .shim-cat {
+    height: 9px;
+    width: 60px;
+}
+.shim-event-card .shim-title {
+    height: 22px;
+    width: 80%;
+}
+.shim-event-card .shim-date {
+    height: 10px;
+    width: 50%;
+}
+.shim-event-card .shim-foot {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 4px;
+}
+.shim-event-card .shim-venue {
+    height: 10px;
+    width: 40%;
+}
+.shim-event-card .shim-price {
+    height: 13px;
+    width: 25%;
+}
+
+/* ── Ticket card skeleton ─────────────────────────────────────────────── */
+.shim-ticket-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-soft);
+    border-radius: 16px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.shim-ticket-card .shim-tkt-title {
+    height: 20px;
+    width: 70%;
+}
+.shim-ticket-card .shim-tkt-venue {
+    height: 11px;
+    width: 55%;
+}
+.shim-ticket-card .shim-tkt-date {
+    height: 11px;
+    width: 40%;
+}
+.shim-ticket-card .shim-tkt-badge {
+    height: 24px;
+    width: 80px;
+    border-radius: 100px;
+}
+
+/* ── Order card skeleton ──────────────────────────────────────────────── */
+.shim-order-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-soft);
+    border-radius: 14px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.shim-order-card .shim-ord-code {
+    height: 14px;
+    width: 45%;
+}
+.shim-order-card .shim-ord-event {
+    height: 18px;
+    width: 70%;
+}
+.shim-order-card .shim-ord-status {
+    height: 22px;
+    width: 80px;
+    border-radius: 100px;
+}
+.shim-order-card .shim-ord-amount {
+    height: 14px;
+    width: 35%;
+}
+
+/* ── Merchant inventory skeleton ─────────────────────────────────────── */
+.shim-merchant-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border-soft);
+    gap: 12px;
+}
+.shim-merchant-row .shim-mr-info {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+}
+.shim-merchant-row .shim-mr-name {
+    height: 14px;
+    width: 65%;
+}
+.shim-merchant-row .shim-mr-venue {
+    height: 11px;
+    width: 45%;
+}
+.shim-merchant-row .shim-mr-badge {
+    height: 20px;
+    width: 60px;
+    border-radius: 100px;
+}
+
+/* ── Message room skeleton ────────────────────────────────────────────── */
+.shim-msg-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+}
+.shim-msg-row .shim-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.shim-msg-row .shim-msg-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.shim-msg-row .shim-msg-name {
+    height: 14px;
+    width: 55%;
+}
+.shim-msg-row .shim-msg-preview {
+    height: 11px;
+    width: 80%;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   EMPTY STATES
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 32px;
+    text-align: center;
+    gap: 12px;
+}
+.empty-state-icon {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: var(--bg-card);
+    border: 1px solid var(--border-soft);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    margin-bottom: 4px;
+}
+.empty-state-title {
+    font-family: var(--font-display);
+    font-size: 20px;
+    color: var(--text-primary);
+    letter-spacing: 0.04em;
+}
+.empty-state-body {
+    font-size: 13px;
+    color: var(--text-secondary);
+    max-width: 260px;
+    line-height: 1.6;
+}
+.empty-state-cta {
+    margin-top: 8px;
+    padding: 10px 24px;
+    background: var(--accent-blue);
+    color: #fff;
+    border-radius: 100px;
+    font-size: 12px;
+    font-family: var(--font-body);
+    letter-spacing: 0.1em;
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════════════════
+   GLOBAL UI/UX IMPROVEMENTS (no duplicates)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Page enter animation */
+/* page-enter TIDAK boleh pakai transform — transform membuat new containing block
+   yang menyebabkan position:fixed children (bottom-nav, buy-footer, dll.) ikut
+   scroll bersama .page alih-alih menempel di viewport. Gunakan opacity saja. */
+@keyframes page-enter {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+.page {
+    animation: page-enter 0.18s ease-out both;
+}
+
+/* Focus rings */
+input:focus,
+select:focus,
+textarea:focus,
+button:focus-visible {
+    outline: 2px solid var(--accent-lime);
+    outline-offset: 2px;
+}
+
+/* Bottom nav micro-interaction */
+.bottom-item {
+    transition:
+        color 0.15s ease,
+        transform 0.1s ease;
+}
+.bottom-item:active {
+    transform: scale(0.92);
+}
+.bottom-item--active svg {
+    filter: drop-shadow(0 0 5px var(--accent-lime));
+}
+
+/* EventCard hover lift */
+.explore-event-card-v2 {
+    transition:
+        transform 0.18s ease,
+        box-shadow 0.18s ease;
+}
+.explore-event-card-v2:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+
+/* Shimmer wave (replaces old shimmer) */
+@keyframes shimmer-wave {
+    0% {
+        background-position: -200% 0;
+    }
+    100% {
+        background-position: 200% 0;
+    }
+}
+.shim {
+    background: linear-gradient(
+        90deg,
+        var(--bg-elevated) 25%,
+        var(--bg-elevated-2, rgba(255, 255, 255, 0.06)) 50%,
+        var(--bg-elevated) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer-wave 1.4s ease-in-out infinite;
+    border-radius: 6px;
+}
+/* ═══════════════════════════════════════════════════════════════════════════
+   EVENT DETAIL — New UI matching design
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Breadcrumb */
+.ed-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 16px 4px;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    letter-spacing: 0.04em;
+}
+.ed-breadcrumb-step--done {
+    color: var(--accent-lime);
+}
+.ed-breadcrumb-sep {
+    opacity: 0.5;
+}
+.ed-breadcrumb-current {
+    color: var(--text-secondary);
+}
+
+/* Meta bar */
+.ed-meta-bar {
+    padding: 4px 16px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.ed-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.ed-meta-event-title {
+    font-size: 11px;
+    color: var(--text-secondary);
+    letter-spacing: 0.04em;
+}
+.ed-meta-row--sub {
+    font-size: 11px;
+    color: var(--text-tertiary);
+}
+.ed-meta-by {
+    opacity: 0.7;
+}
+.ed-meta-organizer {
+    color: var(--accent-lime);
+    font-weight: 600;
+}
+.ed-meta-platform-sep {
+    opacity: 0.4;
+}
+.ed-meta-platform {
+    color: var(--text-secondary);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+/* Cover with selling badge */
+.ed-cover-wrap {
+    position: relative;
+    margin: 0 0 0;
+}
+.ed-cover-img {
+    width: 100%;
+    height: 220px;
+    object-fit: cover;
+    display: block;
+}
+.ed-selling-badge {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(200, 255, 94, 0.15);
+    border: 1px solid var(--accent-lime);
+    color: var(--accent-lime);
+    font-family: var(--font-body);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    padding: 5px 10px;
+    border-radius: 100px;
+    backdrop-filter: blur(8px);
+}
+.ed-selling-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-lime);
+    animation: pulse-dot 1.2s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.5;
+        transform: scale(0.7);
+    }
+}
+
+/* Title block */
+.ed-title-block {
+    padding: 16px 16px 4px;
+}
+.ed-event-title {
+    font-family: var(--font-display);
+    font-size: 28px;
+    color: var(--text-primary);
+    letter-spacing: 0.03em;
+    line-height: 1.1;
+    margin: 0 0 12px;
+}
+.ed-event-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.ed-event-meta-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+.ed-event-meta-item svg {
+    flex-shrink: 0;
+}
+
+/* Section blocks */
+.ed-section-block {
+    padding: 18px 16px 4px;
+}
+.ed-section-label {
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: var(--text-tertiary);
+    margin: 0 0 14px;
+}
+.ed-section-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+}
+.ed-section-row .ed-section-label {
+    margin-bottom: 0;
+}
+.ed-see-all-link {
+    font-size: 12px;
+    color: var(--accent-lime);
+    text-decoration: none;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+}
+
+/* Category grid (ticket tiers as cards) */
+.ed-category-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+.ed-cat-card-full {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+.ed-cat-card-full:first-child {
+    border-color: var(--accent-lime);
+    background: rgba(200, 255, 94, 0.04);
+}
+.ed-cat-card-left {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.ed-cat-type-badge {
+    font-family: var(--font-body);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--text-tertiary);
+    margin-bottom: 2px;
+}
+.ed-cat-sub {
+    font-family: var(--font-display);
+    font-size: 18px;
+    color: var(--text-primary);
+    letter-spacing: 0.04em;
+}
+.ed-cat-price-row {
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-top: 4px;
+}
+.ed-cat-avail-row {
+    font-size: 10px;
+    color: var(--accent-lime);
+    letter-spacing: 0.1em;
+    font-weight: 700;
+}
+
+/* About text */
+.ed-about-text {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.8;
+    margin: 0;
+}
+.ed-read-more {
+    color: var(--accent-lime);
+    cursor: pointer;
+    font-weight: 600;
+}
+
+/* Venue map card */
+.ed-map-card {
+    border-radius: 20px;
+    overflow: hidden;
+    background: var(--bg-card);
+    border: 1px solid var(--border-soft);
+}
+.ed-map-visual {
+    position: relative;
+    height: 140px;
+    background: var(--bg-elevated);
+    overflow: hidden;
+}
+.ed-map-visual .map-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+        linear-gradient(var(--border-soft) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border-soft) 1px, transparent 1px);
+    background-size: 32px 32px;
+    opacity: 0.6;
+}
+.ed-map-visual .map-pin {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -60%);
+    filter: drop-shadow(0 4px 12px rgba(200, 255, 94, 0.4));
+}
+.ed-map-info {
+    padding: 14px 16px 16px;
+}
+.ed-map-name {
+    font-family: var(--font-display);
+    font-size: 16px;
+    color: var(--text-primary);
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+}
+.ed-map-addr {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    margin-bottom: 12px;
+}
+.ed-directions-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: rgba(200, 255, 94, 0.1);
+    border: 1px solid rgba(200, 255, 94, 0.3);
+    border-radius: 100px;
+    color: var(--accent-lime);
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.ed-directions-btn:hover {
+    background: rgba(200, 255, 94, 0.18);
+}
+
+/* Essential info accordion */
+.ed-accordion {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border-soft);
+    border-radius: 14px;
+    overflow: hidden;
+}
+.ed-accordion-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px;
+    background: var(--bg-card);
+    border: none;
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    transition: background 0.15s;
+}
+.ed-accordion-item:last-of-type {
+    border-bottom: none;
+}
+.ed-accordion-item:hover {
+    background: var(--bg-elevated);
+}
+.ed-accordion-body {
+    padding: 12px 16px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.7;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-soft);
+}
+
+/* BUY TICKETS sticky footer */
+.ed-buy-footer {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 480px;
+    background: var(--overlay-blur, rgba(13, 13, 26, 0.92));
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid var(--border);
+    padding: 14px 20px calc(20px + env(safe-area-inset-bottom, 12px));
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    z-index: 50;
+}
+.ed-buy-left {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.ed-buy-label {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    letter-spacing: 0.1em;
+    font-weight: 700;
+}
+.ed-buy-price {
+    font-family: var(--font-display);
+    font-size: 20px;
+    color: var(--text-primary);
+    letter-spacing: 0.04em;
+}
+.ed-buy-btn {
+    flex-shrink: 0;
+    padding: 14px 28px;
+    background: var(--accent-lime);
+    color: #0d0d1a;
+    border: none;
+    border-radius: 100px;
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition:
+        opacity 0.15s,
+        transform 0.1s;
+}
+.ed-buy-btn:hover {
+    opacity: 0.9;
+    transform: scale(1.02);
+}
+.ed-buy-btn:active {
+    transform: scale(0.98);
+}
+
+/* Bottom padding for sticky footer on event detail */
+.ed-page {
+    padding-bottom: 90px;
+}
+
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Fixed footer z-index layering (prevents overlap on same page) ─────── */
+.bottom-nav {
+    z-index: var(--z-nav-top);
+}
+.ed-buy-footer {
+    z-index: var(--z-footer);
+}
+.sticky-footer {
+    z-index: var(--z-footer);
+}
+.cart-footer {
+    z-index: var(--z-footer);
+}
+.pay-bar {
+    z-index: var(--z-footer);
+}
+.chat-input-bar {
+    z-index: var(--z-overlay);
+}
+
+/* Pages that use a secondary fixed footer exclude .bottom-nav via component.
+   Add bottom offset so secondary footers don't overlap bottom-nav. */
+.ed-buy-footer {
+    /* bottom-nav height ≈ 64px; buy footer sits above it on pages without nav */
+    bottom: 0;
+}
+
+/* ── 2. Light-theme overrides — new components ─────────────────────────────── */
+
+/* Event Detail — selling badge */
+[data-theme="light"] .ed-selling-badge {
+    background: rgba(61, 102, 0, 0.12);
+    border-color: var(--accent-lime);
+    color: var(--accent-lime);
+}
+[data-theme="light"] .ed-selling-dot {
+    background: var(--accent-lime);
+}
+
+/* Event Detail — category cards */
+[data-theme="light"] .ed-cat-card-full {
+    background: var(--bg-card);
+    border-color: var(--border);
+    box-shadow: var(--shadow-card);
+}
+[data-theme="light"] .ed-cat-card-full:first-child {
+    border-color: var(--accent-lime);
+    background: rgba(61, 102, 0, 0.05);
+}
+[data-theme="light"] .ed-cat-avail-row {
+    color: var(--accent-lime);
+}
+
+/* Event Detail — directions button */
+[data-theme="light"] .ed-directions-btn {
+    background: rgba(61, 102, 0, 0.1);
+    border-color: rgba(61, 102, 0, 0.28);
+    color: var(--accent-lime);
+}
+[data-theme="light"] .ed-directions-btn:hover {
+    background: rgba(61, 102, 0, 0.17);
+}
+
+/* Event Detail — map visual */
+[data-theme="light"] .ed-map-visual {
+    background: var(--bg-elevated);
+}
+[data-theme="light"] .ed-map-visual .map-grid {
+    background-image:
+        linear-gradient(var(--map-grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--map-grid) 1px, transparent 1px);
+}
+[data-theme="light"] .ed-map-visual .map-pin {
+    filter: drop-shadow(0 4px 12px rgba(61, 102, 0, 0.35));
+}
+
+/* Event Detail — accordion */
+[data-theme="light"] .ed-accordion {
+    border-color: var(--border);
+}
+[data-theme="light"] .ed-accordion-item {
+    background: var(--bg-card);
+    border-bottom-color: var(--border);
+    color: var(--text-primary);
+}
+[data-theme="light"] .ed-accordion-item:hover {
+    background: var(--bg-card-hover);
+}
+[data-theme="light"] .ed-accordion-body {
+    background: var(--bg-elevated);
+    border-bottom-color: var(--border);
+}
+
+/* Event Detail — buy footer */
+[data-theme="light"] .ed-buy-footer {
+    background: var(--overlay-blur);
+    border-top-color: var(--border);
+}
+[data-theme="light"] .ed-buy-btn {
+    color: var(--text-on-accent);
+}
+
+/* Event Detail — breadcrumb & meta */
+[data-theme="light"] .ed-breadcrumb-step--done {
+    color: var(--accent-lime);
+}
+[data-theme="light"] .ed-meta-organizer {
+    color: var(--accent-lime);
+}
+[data-theme="light"] .ed-read-more {
+    color: var(--accent-lime);
+}
+
+/* Explore — search bar */
+[data-theme="light"] .exp-search-inner {
+    background: var(--bg-card);
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-card);
+}
+[data-theme="light"] .exp-search-inner:focus-within {
+    border-color: var(--accent-lime);
+    box-shadow: 0 0 0 3px rgba(61, 102, 0, 0.13);
+}
+[data-theme="light"] .exp-search-bar--sticky {
+    background: var(--bg-base);
+    border-bottom-color: var(--border);
+}
+
+/* Explore — chips */
+[data-theme="light"] .exp-chip {
+    background: var(--bg-elevated);
+    border-color: var(--border);
+    color: var(--text-secondary);
+}
+[data-theme="light"] .exp-chip:hover {
+    border-color: var(--accent-lime);
+    color: var(--text-primary);
+}
+[data-theme="light"] .exp-chip--on {
+    background: var(--accent-lime);
+    border-color: var(--accent-lime);
+    /* lime in light is dark green #3d6600 — white text for contrast */
+    color: #ffffff;
+}
+
+/* Explore — banner dots */
+[data-theme="light"] .exp-bdot {
+    background: var(--border-strong);
+}
+[data-theme="light"] .exp-bdot--on {
+    background: var(--accent-lime);
+}
+
+/* Explore — results bar */
+[data-theme="light"] .exp-results-eyebrow {
+    color: var(--accent-lime);
+}
+
+/* Explore — clear button */
+[data-theme="light"] .exp-clear-btn {
+    background: rgba(188, 24, 48, 0.08);
+    border-color: rgba(188, 24, 48, 0.22);
+    color: var(--danger);
+}
+[data-theme="light"] .exp-clear-btn:hover {
+    background: rgba(188, 24, 48, 0.14);
+}
+
+/* Explore — reset button */
+[data-theme="light"] .exp-reset-btn {
+    color: #ffffff;
+}
+
+/* Explore — hero */
+[data-theme="light"] .exp-hero-dot {
+    color: var(--accent-lime);
+}
+
+/* Home banner (legacy .home-banner-*) */
+[data-theme="light"] .home-bdot {
+    background: var(--border-strong);
+}
+[data-theme="light"] .home-bdot--on {
+    background: var(--accent-lime);
+}
+
+/* ── 3. Hero overlay — softer gradient for light mode ────────────────────── */
+[data-theme="light"] .hero-overlay {
+    background: linear-gradient(
+        to top,
+        rgba(0, 0, 0, 0.5) 0%,
+        rgba(0, 0, 0, 0.12) 55%,
+        transparent 100%
+    );
+}
+/* Also soften the banner slide overlay and ed-cover on light */
+[data-theme="light"] .banner-overlay {
+    background: linear-gradient(
+        to top,
+        rgba(0, 0, 0, 0.55) 0%,
+        rgba(0, 0, 0, 0.1) 55%,
+        transparent 100%
+    );
+}
+[data-theme="light"] .event-card-cat-badge {
+    background: rgba(255, 255, 255, 0.82);
+    color: var(--accent-blue);
+    border-color: var(--border);
+}
+
+/* ── 4. Slim down the mega-transition selector ───────────────────────────── */
+/* Override: restrict theme-transition to only structural containers.
+   Interactive elements get their own targeted transitions. */
+.exp-chip,
+.exp-search-inner,
+.exp-search-bar,
+.ed-cat-card-full,
+.ed-accordion-item,
+.ed-accordion-body,
+.ed-buy-footer,
+.ed-map-card,
+.home-banner-slider {
+    transition:
+        background-color 0.2s ease,
+        color 0.2s ease,
+        border-color 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── STORY: Panel Geser — drag handle centered, title+close aligned ────────── */
+
+/* Panel geser needs top padding for the absolute drag handle */
+.sc-panel-geser {
+    padding-top: 28px !important;
+    position: relative !important;
+    border-radius: 20px 20px 0 0 !important;
+    max-height: 72dvh !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain !important;
+}
+
+/* Drag handle: absolute top-center of the panel, NOT part of flex row */
+.sc-garis-pemisah {
+    position: absolute !important;
+    top: 10px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    width: 38px !important;
+    height: 4px !important;
+    background: rgba(255, 255, 255, 0.22) !important;
+    border-radius: 3px !important;
+    flex-shrink: 0 !important;
+    margin: 0 !important;
+    pointer-events: none !important;
+}
+
+/* Panel header: title centered between spacer and close btn */
+.sc-panel-header {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    margin-bottom: 14px !important;
+    min-height: 28px !important;
+}
+
+/* When garis-pemisah is first child in panel-header, zero it out of flow */
+.sc-panel-header > .sc-garis-pemisah:first-child {
+    position: absolute !important;
+    /* already handled above */
+    flex-shrink: 0 !important;
+    width: 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
+}
+
+/* Title takes up the space between the hidden handle and the close btn */
+.sc-judul-panel {
+    flex: 1 !important;
+    font-family: var(--font-display) !important;
+    font-size: 20px !important;
+    letter-spacing: 0.05em !important;
+    color: #fff !important;
+    text-align: center !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1 !important;
+}
+
+/* Close button: consistent size, no accidental flex-grow */
+.sc-tombol-tutup-panel {
+    flex-shrink: 0 !important;
+    margin-left: auto !important;
+}
+
+/* When there's NO title (judul is empty), still keep close btn right-aligned */
+.sc-panel-header:not(:has(.sc-judul-panel)) .sc-tombol-tutup-panel {
+    margin-left: auto;
+}
+
+/* Story toolbar: always accessible on right side, not left */
+.sc-toolbar-samping {
+    right: 14px !important;
+    left: auto !important;
+}
+
+/* Story viewfinder: make sure panel doesn't cover bottom controls */
+.sc-panel-geser {
+    bottom: 80px !important;
+}
+
+/* sc-area-bawah: clear above mode bar */
+.sc-area-bawah {
+    bottom: 44px !important;
+}
+
+/* Story: filter thumb showing the actual filter color */
+.sc-thumb-filter.filter-clarendon { filter: contrast(1.2) saturate(1.3); }
+.sc-thumb-filter.filter-gingham   { filter: brightness(1.05) hue-rotate(-10deg); }
+.sc-thumb-filter.filter-moon      { filter: grayscale(1) contrast(1.1); }
+.sc-thumb-filter.filter-lark      { filter: contrast(0.9); }
+.sc-thumb-filter.filter-reyes     { filter: sepia(0.5) contrast(0.9); }
+.sc-thumb-filter.filter-juno      { filter: contrast(1.1) saturate(1.2); }
+.sc-thumb-filter.filter-slumber   { filter: brightness(0.9) saturate(0.8); }
+.sc-thumb-filter.filter-crema     { filter: sepia(0.3) contrast(0.95); }
+.sc-thumb-filter.filter-ludwig    { filter: saturate(1.1) contrast(1.05); }
+
+/* Story: text preview box min-height for usability */
+.sc-text-preview-box {
+    min-height: 72px !important;
+    border-radius: 12px !important;
+    word-break: break-word !important;
+    line-height: 1.3 !important;
+}
+
+/* Story: font chip scroll container */
+.sc-font-carousel {
+    overflow-x: auto !important;
+    scrollbar-width: none !important;
+    padding-bottom: 4px !important;
+}
+.sc-font-carousel::-webkit-scrollbar { display: none; }
+
+/* Story: sticker grid on small panels */
+.sc-grid-stiker {
+    max-height: 200px !important;
+    overflow-y: auto !important;
+    scrollbar-width: none !important;
+}
+.sc-grid-stiker::-webkit-scrollbar { display: none; }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   TICKET DETAIL — Missing layout classes (td-mobile-layout, td-page-title,
+   td-hero-img, td-hero-gradient, td-hero-content, td-empty-state)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Page title in the header (center of page-header) */
+.td-page-title {
+    font-family: var(--font-display);
+    font-size: 18px;
+    letter-spacing: 0.08em;
+    color: var(--text-primary);
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* Full-page layout wrapper for ticket detail content */
+.td-mobile-layout {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    padding-bottom: 80px;
+}
+
+/* Hero: full-bleed image area, overrides old td-hero margins for the image version */
+.td-hero {
+    position: relative;
+    width: 100%;
+    height: 260px;
+    margin: 0;               /* full width, no side margins */
+    border-radius: 0;        /* no radius — image goes edge-to-edge */
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+/* Actual cover image inside the hero */
+.td-hero-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+/* Dark gradient overlay from bottom */
+.td-hero-gradient {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        to bottom,
+        rgba(8, 8, 16, 0.15) 0%,
+        rgba(8, 8, 16, 0)    35%,
+        rgba(8, 8, 16, 0.75) 80%,
+        rgba(8, 8, 16, 0.95) 100%
+    );
+}
+
+/* Text content sitting on top of the gradient */
+.td-hero-content {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 20px 20px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* td-confirmed badge is already defined; keep, but make sure it fits inside hero-content */
+.td-hero-content .td-confirmed {
+    align-self: flex-start;
+}
+
+/* td-event-title inside hero — white text over image */
+.td-hero-content .td-event-title {
+    color: #fff;
+    font-size: 34px;
+    line-height: 1;
+}
+
+/* Stub card: sits flush under the hero, no top border-radius gap */
+.td-stub {
+    margin: 0 16px;
+    border-radius: 0 0 20px 20px;
+    border-top: none;
+}
+
+/* Empty / not-found state */
+.td-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 60px 24px;
+    text-align: center;
+}
+.td-empty-state h2 {
+    font-family: var(--font-display);
+    font-size: 28px;
+    color: var(--text-primary);
+    letter-spacing: 0.04em;
+    margin: 0;
+}
+.td-empty-state p {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 0;
+    max-width: 260px;
+    line-height: 1.6;
+}
+.td-empty-state .td-btn {
+    margin-top: 8px;
+    text-decoration: none;
+}
+
+/* td-stub-bottom: more breathing room */
+.td-stub-bottom {
+    padding: 20px 20px 28px;
+}
+
+/* QR box: white background is fine in dark mode, but needs border in light */
+[data-theme="light"] .td-qr {
+    border: 1px solid var(--border);
+}
+
+/* Pulse strip: bottom margin accounts for nav */
+.td-pulse-strip {
+    margin: 0 16px 100px;
+}
+
+/* Actions: full width inside the layout container */
+.td-actions {
+    padding: 16px 16px 8px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   MERCHANT CREATE / EDIT EVENT — Layout polish & fixes
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* medit-page: ensure scrollable content above sticky footer */
+.medit-page {
+    overflow-x: hidden;
+    overflow-y: auto;
+    scroll-behavior: smooth;
+}
+
+/* medit-container: clean vertical stack with consistent spacing */
+.medit-container {
+    gap: 18px !important;
+    padding: 0 16px 100px !important; /* extra bottom for sticky footer */
+}
+
+/* medit-header: full-width header card for create event (no back btn) */
+.medit-header {
+    background: var(--bg-page);
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid var(--border-soft);
+    margin: 0 -16px;
+    width: calc(100% + 32px);
+    box-sizing: border-box;
+}
+
+/* medit-header-top: center title */
+.medit-header-top {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    width: 100%;
+    position: relative;
+}
+
+/* medit-title: clear uppercase treatment */
+.medit-title {
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-primary);
+    margin: 0;
+    text-align: center;
+}
+
+/* Back button inside header-top: absolute left */
+.medit-header-top .medit-back-btn {
+    position: absolute;
+    left: 0;
+}
+
+/* Section header: consistent spacing above form groups */
+.medit-section-header {
+    margin-top: 4px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(200, 255, 94, 0.12);
+}
+
+.medit-section-label {
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 0.22em;
+    color: var(--accent-lime);
+    text-transform: uppercase;
+    opacity: 0.85;
+}
+
+/* Field group: tighter gap for labels + inputs */
+.medit-field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.medit-field-label {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+/* medit-input: consistent rounding and focus ring */
+.medit-input,
+.medit-textarea {
+    border-radius: 10px !important;
+}
+.medit-input:focus,
+.medit-textarea:focus {
+    border-color: rgba(200, 255, 94, 0.55) !important;
+    box-shadow: 0 0 0 3px rgba(200, 255, 94, 0.1) !important;
+}
+
+/* Category grid: pill chips in a flex-wrap */
+.medit-category-grid {
+    gap: 7px !important;
+}
+
+.medit-checkbox-label {
+    padding: 7px 14px !important;
+    font-size: 10px !important;
+}
+
+/* File input wrapper: slightly larger tap target */
+.medit-file-input-wrapper {
+    padding: 14px 16px !important;
+}
+
+/* Cover preview: 16/9, rounded */
+.medit-cover-preview {
+    border-radius: 12px !important;
+    overflow: hidden !important;
+}
+
+/* Variant card: consistent inner spacing */
+.medit-variant-card {
+    border-radius: 16px !important;
+    padding: 16px !important;
+    gap: 12px !important;
+}
+
+/* Variant name big input: bottom border accent on focus */
+.medit-variant-name-input:focus {
+    border-bottom-color: var(--accent-lime) !important;
+}
+
+/* Add variant row button: full width dashed */
+.medit-add-variant-row {
+    border-radius: 12px !important;
+}
+
+/* Sticky footer: extra safe-area on iOS */
+.medit-sticky-footer {
+    padding: 12px 16px max(20px, env(safe-area-inset-bottom, 20px)) !important;
+}
+
+/* Update/Publish button: bold CTA */
+.medit-update-btn {
+    font-size: 11px !important;
+    letter-spacing: 0.18em !important;
+    border-radius: 12px !important;
+}
+
+/* Error / success banners: smooth appear */
+.medit-error-banner,
+.medit-success-banner {
+    border-radius: 10px !important;
+    animation: fadeUp 0.25s ease both !important;
+}
+
+/* grid-2: consistent gap */
+.medit-grid-2 {
+    gap: 10px !important;
+}
+
+/* ── Light theme support for medit pages ─── */
+[data-theme="light"] .medit-input,
+[data-theme="light"] .medit-textarea {
+    background: var(--bg-elevated);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+}
+[data-theme="light"] .medit-input:focus,
+[data-theme="light"] .medit-textarea:focus {
+    border-color: rgba(61, 102, 0, 0.5);
+    box-shadow: 0 0 0 3px rgba(61, 102, 0, 0.1);
+}
+[data-theme="light"] .medit-section-label {
+    color: var(--accent-lime);
+}
+[data-theme="light"] .medit-variant-card {
+    background: var(--bg-elevated);
+    border-color: var(--border);
+}
+[data-theme="light"] .medit-add-variant-row {
+    border-color: rgba(61, 102, 0, 0.35);
+    color: var(--accent-lime);
+}
+[data-theme="light"] .medit-add-variant-row:hover {
+    background: rgba(61, 102, 0, 0.06);
+    border-color: rgba(61, 102, 0, 0.6);
+}
+[data-theme="light"] .medit-header {
+    background: var(--bg-page);
+    border-color: var(--border);
+}
+[data-theme="light"] .medit-file-input-wrapper {
+    border-color: var(--border-strong);
+    background: var(--bg-elevated);
+}
+[data-theme="light"] .medit-file-input-wrapper:hover {
+    border-color: var(--accent-lime);
+}
+[data-theme="light"] .medit-checkbox-label {
+    background: var(--bg-elevated);
+    border-color: var(--border);
+    color: var(--text-secondary);
+}
+[data-theme="light"] .medit-checkbox-label:has(input:checked) {
+    border-color: var(--accent-lime);
+    background: rgba(61, 102, 0, 0.08);
+    color: var(--text-primary);
+}
+[data-theme="light"] .medit-rp-prefix {
+    color: var(--text-secondary);
+}
+[data-theme="light"] .medit-variant-name-input {
+    color: var(--text-primary);
+    border-bottom-color: var(--border-strong);
+}
+[data-theme="light"] .medit-variant-name-input:focus {
+    border-bottom-color: var(--accent-lime);
+}
+[data-theme="light"] .medit-sticky-footer {
+    background: var(--overlay-blur);
+    border-color: var(--border);
+}
+[data-theme="light"] .medit-update-btn {
+    color: #fff;
+}
+
+/* ── Ticket Detail: light mode ─── */
+[data-theme="light"] .td-hero-gradient {
+    background: linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0.1)  0%,
+        rgba(0, 0, 0, 0)    30%,
+        rgba(0, 0, 0, 0.55) 80%,
+        rgba(0, 0, 0, 0.85) 100%
+    );
+}
+[data-theme="light"] .td-hero-content .td-event-title {
+    color: #fff; /* always white over image */
+}
+[data-theme="light"] .td-page-title {
+    color: var(--text-primary);
+}
