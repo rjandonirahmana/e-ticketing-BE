@@ -63,23 +63,35 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/tickets/validate", post(tickets::validate))
         // notifications
         .route("/api/notifications", get(notifications::list))
-        .route("/api/notifications/unread-count", get(notifications::unread_count))
-        .route("/api/notifications/{id}/read", post(notifications::mark_read))
-        .route("/api/notifications/read-all", post(notifications::mark_all_read))
+        .route(
+            "/api/notifications/unread-count",
+            get(notifications::unread_count),
+        )
+        .route(
+            "/api/notifications/{id}/read",
+            post(notifications::mark_read),
+        )
+        .route(
+            "/api/notifications/read-all",
+            post(notifications::mark_all_read),
+        )
         // ── Stories ───────────────────────────────────────────────────────────
-        .route("/api/stories",               post(stories::create))
-        .route("/api/stories",               get(stories::list))
-        .route("/api/stories/{id}/view",     post(stories::mark_viewed))
-        .route("/api/stories/{id}",          delete(stories::delete))
+        .route("/api/stories", post(stories::create))
+        .route("/api/stories", get(stories::list))
+        .route("/api/stories/{id}/view", post(stories::mark_viewed))
+        .route("/api/stories/{id}", delete(stories::delete))
         // ── Premium ───────────────────────────────────────────────────────────
-        .route("/api/premium/status",        get(stories::premium_status))
-        .route("/api/premium/activate",      post(stories::activate_premium))
+        .route("/api/premium/status", get(stories::premium_status))
+        .route("/api/premium/activate", post(stories::activate_premium))
         // ── Admin ─────────────────────────────────────────────────────────────
         .route("/api/admin/banners", post(banners::admin_create))
         .route("/api/admin/banners/{id}", put(banners::admin_update))
         .route("/api/admin/banners/{id}", delete(banners::admin_delete))
         .route("/api/admin/events", get(events::admin_list_events))
-        .route("/api/admin/events/{id}/status", put(events::admin_update_status))
+        .route(
+            "/api/admin/events/{id}/status",
+            put(events::admin_update_status),
+        )
         .route_layer(from_fn_with_state(state.clone(), require_auth));
 
     let health_route = Router::new().route("/api/health", get(health));
