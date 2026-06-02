@@ -35,6 +35,8 @@ pub struct ThemeCtx {
 
 const STORAGE_KEY: &str = "kinetic.theme";
 
+// ── Browser-only: baca localStorage & media query ──
+#[cfg(target_arch = "wasm32")]
 fn read_initial_theme() -> Theme {
     let win = match web_sys::window() {
         Some(w) => w,
@@ -57,6 +59,13 @@ fn read_initial_theme() -> Theme {
     Theme::Dark
 }
 
+// ── SSR fallback: default dark, tidak sentuh browser API ──
+#[cfg(not(target_arch = "wasm32"))]
+fn read_initial_theme() -> Theme {
+    Theme::Dark
+}
+
+#[cfg(target_arch = "wasm32")]
 fn apply_theme(theme: Theme) {
     if let Some(win) = web_sys::window() {
         if let Some(doc) = win.document() {
@@ -70,15 +79,24 @@ fn apply_theme(theme: Theme) {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn apply_theme(_theme: Theme) {
+    // no-op di server
+}
+
 pub fn provide_theme() {
     let initial = read_initial_theme();
     let theme = RwSignal::new(initial);
     apply_theme(initial);
 
-    Effect::new(move |_| {
-        let t = theme.get();
-        apply_theme(t);
-    });
+    // Effect hanya jalan di browser (client-side)
+    #[cfg(target_arch = "wasm32")]
+    {
+        Effect::new(move |_| {
+            let t = theme.get();
+            apply_theme(t);
+        });
+    }
 
     provide_context(ThemeCtx { theme });
 }
@@ -102,38 +120,50 @@ pub fn ThemeToggle() -> impl IntoView {
     };
 
     view! {
-        <button
-            type="button"
-            class="theme-toggle"
-            aria-label=label
-            title=label
-            on:click=on_click
-        >
+        <button type="button" class="theme-toggle" aria-label=label title=label on:click=on_click>
             {move || match theme.get() {
-                Theme::Dark => view! {
-                    // Sun icon — tampil saat mode dark (klik untuk pindah ke light)
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" stroke-width="2"
-                        stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="4"/>
-                        <line x1="12" y1="2" x2="12" y2="5"/>
-                        <line x1="12" y1="19" x2="12" y2="22"/>
-                        <line x1="2" y1="12" x2="5" y2="12"/>
-                        <line x1="19" y1="12" x2="22" y2="12"/>
-                        <line x1="4.2" y1="4.2" x2="6.3" y2="6.3"/>
-                        <line x1="17.7" y1="17.7" x2="19.8" y2="19.8"/>
-                        <line x1="4.2" y1="19.8" x2="6.3" y2="17.7"/>
-                        <line x1="17.7" y1="6.3" x2="19.8" y2="4.2"/>
-                    </svg>
-                }.into_any(),
-                Theme::Light => view! {
-                    // Moon icon — tampil saat mode light (klik untuk pindah ke dark)
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" stroke-width="2"
-                        stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/>
-                    </svg>
-                }.into_any(),
+                Theme::Dark => {
+                    view! {
+                        <svg
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <circle cx="12" cy="12" r="4" />
+                            <line x1="12" y1="2" x2="12" y2="5" />
+                            <line x1="12" y1="19" x2="12" y2="22" />
+                            <line x1="2" y1="12" x2="5" y2="12" />
+                            <line x1="19" y1="12" x2="22" y2="12" />
+                            <line x1="4.2" y1="4.2" x2="6.3" y2="6.3" />
+                            <line x1="17.7" y1="17.7" x2="19.8" y2="19.8" />
+                            <line x1="4.2" y1="19.8" x2="6.3" y2="17.7" />
+                            <line x1="17.7" y1="6.3" x2="19.8" y2="4.2" />
+                        </svg>
+                    }
+                        .into_any()
+                }
+                Theme::Light => {
+                    view! {
+                        <svg
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z" />
+                        </svg>
+                    }
+                        .into_any()
+                }
             }}
         </button>
     }

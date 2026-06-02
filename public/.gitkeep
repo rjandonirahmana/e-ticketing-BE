@@ -1,0 +1,4 @@
+# Direktori `public/` adalah `assets-dir` di [package.metadata.leptos].
+# cargo-leptos menyalin isi folder ini apa adanya ke `site-root` (target/site).
+# File ini hanya placeholder agar direktori tidak kosong / hilang saat di-zip.
+# Taruh favicon, robots.txt, gambar statis, dll di sini bila diperlukan.

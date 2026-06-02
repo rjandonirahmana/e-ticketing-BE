@@ -10,6 +10,10 @@
 //!   /pkg/*      → Static assets (WASM/JS/CSS) — butuh cargo leptos build
 //!   /*          → Leptos SSR rendering
 
+// View Leptos membangun tipe nested sangat dalam (terutama ExplorePage);
+// batas default 128 tidak cukup → naikkan agar type-checking tidak overflow.
+#![recursion_limit = "512"]
+
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -154,8 +158,13 @@ async fn main() -> Result<()> {
         .fallback(leptos_axum::file_and_error_handler(shell))
         .with_state(leptos_options);
 
-    // ── Gabung API + SSR ─────────────────────────────────────────────────────
-    let app = api_router.merge(leptos_router);
+    // ── Gabung API + SSR + CSS ───────────────────────────────────────────────
+    // `/styles/*.css` disajikan dari CSS yang di-embed ke binary (lihat
+    // `web::assets`). Di-merge di level paling atas agar tidak tertutup oleh
+    // fallback SSR dan tidak bergantung working-directory.
+    let app = api_router
+        .merge(crate::web::assets::router())
+        .merge(leptos_router);
 
     let listener = TcpListener::bind(&bind_addr).await?;
     tracing::info!("🚀 Pulse (API + SSR) listening on http://{}", bind_addr);

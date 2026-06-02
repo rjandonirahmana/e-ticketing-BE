@@ -66,7 +66,7 @@ pub struct EventWithVariants {
     pub event_variants: Vec<EventVariant>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PaginatedEvents {
     pub data: Vec<Event>,
     pub total: i64,
@@ -322,8 +322,7 @@ pub fn format_price(price: f64) -> String {
 pub fn format_date(dt: &DateTime<Utc>) -> String {
     use chrono::Datelike;
     let months = [
-        "Jan","Feb","Mar","Apr","Mei","Jun",
-        "Jul","Agu","Sep","Okt","Nov","Des"
+        "Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des",
     ];
     format!(
         "{} {} {}",
@@ -335,5 +334,10 @@ pub fn format_date(dt: &DateTime<Utc>) -> String {
 
 pub fn format_datetime(dt: &DateTime<Utc>) -> String {
     use chrono::Timelike;
-    format!("{}, {:02}:{:02} WIB", format_date(dt), dt.hour(), dt.minute())
+    format!(
+        "{}, {:02}:{:02} WIB",
+        format_date(dt),
+        dt.hour(),
+        dt.minute()
+    )
 }

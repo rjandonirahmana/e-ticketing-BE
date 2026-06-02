@@ -24,10 +24,6 @@ impl PremiumCtx {
     /// Load status premium dari backend.
     /// Dipanggil sekali di app start atau setelah login.
     pub fn load(&self) {
-        // SSR guard: spawn_local tidak tersedia di server
-        if is_server() {
-            return;
-        }
         let ctx = *self;
         if ctx.loaded.get_untracked() {
             return;
@@ -44,10 +40,6 @@ impl PremiumCtx {
 
     /// Refresh ulang status (misal setelah berhasil aktivasi premium).
     pub fn refresh(&self) {
-        // SSR guard: spawn_local tidak tersedia di server
-        if is_server() {
-            return;
-        }
         let ctx = *self;
         spawn_local(async move {
             ctx.loading.set(true);

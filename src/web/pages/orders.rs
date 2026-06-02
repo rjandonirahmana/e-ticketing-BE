@@ -1,11 +1,33 @@
-//! orders.rs — Halaman Riwayat Order (SSR).
+//! orders.rs — Halaman Riwayat Order (unified SSR + hydration).
+//!
+//! Port parity dari `csr/pages/orders.rs`:
+//!   - `use_orders_store()` + `Effect` → `Resource::new(.., get_my_orders)`.
+//!   - Tab filter All / Waiting for Payment / Paid + pencarian (artist/venue/kode).
+//!   - Desain `order-card` (thumbnail, status badge, divider, footer aksi)
+//!     dipertahankan identik dengan CSR.
+//!   - `OrderCardShimmer` saat loading via fallback Suspense.
 
 use leptos::prelude::*;
 use leptos_router::components::A;
 
+use crate::csr::hooks::ThemeToggle;
 use crate::web::api::get_my_orders;
 use crate::web::app::AuthResource;
-use crate::web::models::{format_date, format_price};
+use crate::web::components::{BottomNav, EmptyState, OrderCardShimmer};
+use crate::web::models::{format_date, format_price, OrderListItem};
+
+/// Klasifikasi status mentah backend → label tampilan + jenis.
+/// kind: "pending" | "paid" | "cancelled".
+fn classify(status: &str) -> (&'static str, &'static str) {
+    let s = status.to_lowercase();
+    if s == "paid" || s == "completed" {
+        ("PAID", "paid")
+    } else if s == "cancelled" || s == "canceled" || s == "expired" {
+        ("CANCELLED", "cancelled")
+    } else {
+        ("WAITING FOR PAYMENT", "pending")
+    }
+}
 
 #[component]
 pub fn OrdersPage() -> impl IntoView {
@@ -19,160 +41,296 @@ pub fn OrdersPage() -> impl IntoView {
         },
     );
 
-    let filter = RwSignal::new("all".to_string());
-    let search = RwSignal::new(String::new());
+    let filter = RwSignal::new("All".to_string());
+    let query = RwSignal::new(String::new());
 
     view! {
-        <div class="page-header">
-            <div class="container">
-                <p class="page-header__eyebrow">"// riwayat transaksi"</p>
-                <h1 class="page-header__title">"Order History"</h1>
-                <p class="page-header__sub">"Semua pesanan tiket yang pernah kamu buat"</p>
-            </div>
-        </div>
+        <div class="page orders-page">
+            <header class="page-header">
+                <A href="/explore" attr:class="back-btn">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2.5" stroke-linecap="round">
+                        <polyline points="15 18 9 12 15 6" />
+                    </svg>
+                </A>
+                <span class="page-title">"Order History"</span>
+                <div class="header-actions">
+                    <ThemeToggle />
+                    <button class="icon-btn" aria-label="More">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round">
+                            <circle cx="12" cy="5" r="1.4" />
+                            <circle cx="12" cy="12" r="1.4" />
+                            <circle cx="12" cy="19" r="1.4" />
+                        </svg>
+                    </button>
+                </div>
+            </header>
 
-        <div class="container" style="padding-bottom:4rem">
-            // ── Filter & Search ──────────────────────────────────────────────
-            <div style="display:flex;gap:.75rem;margin-bottom:1.5rem;flex-wrap:wrap">
+            // Search bar
+            <div class="orders-search">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="2" stroke-linecap="round">
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
                 <input
                     type="search"
-                    class="filter-bar__input"
-                    placeholder="Cari event atau kode order..."
-                    prop:value=search
-                    on:input=move |ev| search.set(event_target_value(&ev))
+                    class="search-input"
+                    placeholder="Search by artist or venue..."
+                    prop:value=move || query.get()
+                    on:input=move |ev| query.set(event_target_value(&ev))
                 />
-                <select
-                    class="filter-bar__select"
-                    on:change=move |ev| filter.set(event_target_value(&ev))
-                >
-                    <option value="all">"Semua"</option>
-                    <option value="pending">"Menunggu Bayar"</option>
-                    <option value="paid">"Lunas"</option>
-                    <option value="cancelled">"Dibatalkan"</option>
-                </select>
             </div>
 
-            <Suspense fallback=|| view! {
-                <div class="loading">
-                    <div class="loading__spinner"/>
-                    <span>"Memuat order..."</span>
-                </div>
-            }>
-                {move || {
-                    if !is_logged_in() && auth.get().is_some() {
-                        return view! {
-                            <div class="container" style="padding:4rem 0;text-align:center">
-                                <p style="color:var(--clr-muted);margin-bottom:1.5rem">
-                                    "Kamu harus masuk untuk melihat riwayat order."
-                                </p>
-                                <A href="/login" attr:class="btn btn--accent">"Masuk"</A>
-                            </div>
-                        }.into_any();
-                    }
-
-                    orders.get().map(|res| match res {
-                        Ok(list) => {
-                            let q = search.get().to_lowercase();
-                            let f = filter.get();
-                            let filtered: Vec<_> = list.into_iter().filter(|o| {
-                                let status_match = match f.as_str() {
-                                    "pending" => o.status.to_lowercase().contains("pending") || o.status.to_lowercase().contains("waiting"),
-                                    "paid" => o.status.to_lowercase() == "paid",
-                                    "cancelled" => o.status.to_lowercase() == "cancelled",
-                                    _ => true,
-                                };
-                                let search_match = q.is_empty()
-                                    || o.order_code.to_lowercase().contains(&q)
-                                    || o.event_name.as_deref().unwrap_or("").to_lowercase().contains(&q);
-                                status_match && search_match
-                            }).collect();
-
-                            if filtered.is_empty() {
-                                view! {
-                                    <div class="empty">
-                                        <div class="empty__icon">"🛒"</div>
-                                        <div class="empty__title">"Belum ada order"</div>
-                                        <div class="empty__sub">"Pesanan Anda akan muncul di sini setelah melakukan pembelian."</div>
-                                        <A href="/explore" attr:class="btn btn--accent" attr:style="margin-top:1.5rem">"Jelajahi Event"</A>
-                                    </div>
-                                }.into_any()
+            // Filter tabs
+            <div class="filter-tabs">
+                {["All", "Waiting for Payment", "Paid"]
+                    .iter()
+                    .map(|f| {
+                        let label = *f;
+                        let cls = move || {
+                            if filter.get() == label {
+                                "filter-tab filter-tab--active"
                             } else {
-                                view! {
-                                    <div style="display:flex;flex-direction:column;gap:.75rem">
-                                        {filtered.into_iter().map(|o| {
-                                            let is_pending = o.status.to_lowercase().contains("pending") || o.status.to_lowercase().contains("waiting");
-                                            let is_paid = o.status.to_lowercase() == "paid";
-                                            let status_cls = if is_paid {
-                                                "badge badge--success"
-                                            } else if is_pending {
-                                                "badge badge--accent"
-                                            } else {
-                                                "badge badge--muted"
-                                            };
-                                            let action_href = if is_pending {
-                                                format!("/orders/{}", o.id)
-                                            } else if is_paid {
-                                                format!("/orders/{}/tickets", o.id)
-                                            } else {
-                                                String::new()
-                                            };
-                                            let event_name = o.event_name.clone().unwrap_or_else(|| "Event".into());
-                                            let date_str = o.event_date.as_ref().map(|d| format_date(d)).unwrap_or_default();
-                                            let price = format_price(o.total_amount);
-                                            let venue = o.venue.clone().unwrap_or_default();
-                                            let cover = o.cover_url.clone();
-                                            let code = o.order_code.clone();
-                                            let status_label = o.status.clone();
-
-                                            view! {
-                                                <div style="background:var(--clr-surface);border:1px solid var(--clr-border);border-radius:12px;overflow:hidden" class="fade-in">
-                                                    <div style="display:flex;gap:1rem;padding:1.25rem;flex-wrap:wrap">
-                                                        // Thumbnail
-                                                        <div style="width:64px;height:64px;border-radius:8px;overflow:hidden;flex-shrink:0;background:var(--clr-border)">
-                                                            {match cover {
-                                                                Some(url) => view! { <img src=url alt=event_name.clone() style="width:100%;height:100%;object-fit:cover"/> }.into_any(),
-                                                                None => view! { <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:1.5rem">"🎪"</div> }.into_any(),
-                                                            }}
-                                                        </div>
-
-                                                        // Info
-                                                        <div style="flex:1;min-width:150px">
-                                                            <div style="font-weight:700;margin-bottom:.25rem">{event_name}</div>
-                                                            <div style="font-size:.8rem;color:var(--clr-muted);margin-bottom:.25rem">
-                                                                {if !date_str.is_empty() { format!("📅 {date_str}") } else { String::new() }}
-                                                                {if !venue.is_empty() { format!("  ·  📍 {venue}") } else { String::new() }}
-                                                            </div>
-                                                            <div style="font-size:.75rem;color:var(--clr-muted)">{"#"}{code}</div>
-                                                        </div>
-
-                                                        // Price + status + action
-                                                        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.5rem">
-                                                            <div style="font-family:var(--font-display);font-weight:700;color:var(--clr-accent)">{price}</div>
-                                                            <span class=status_cls>{status_label}</span>
-                                                            {if !action_href.is_empty() {
-                                                                view! {
-                                                                    <A href=action_href attr:class="btn btn--ghost btn--sm">
-                                                                        {if is_pending { "Bayar Sekarang" } else { "Lihat Tiket" }}
-                                                                    </A>
-                                                                }.into_any()
-                                                            } else {
-                                                                view! { <span/> }.into_any()
-                                                            }}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            }
-                                        }).collect_view()}
-                                    </div>
-                                }.into_any()
+                                "filter-tab"
                             }
+                        };
+                        view! {
+                            <button class=cls on:click=move |_| filter.set(label.into())>
+                                {label}
+                            </button>
                         }
-                        Err(_) => view! {
-                            <div class="alert alert--error">"Gagal memuat order. Coba login ulang."</div>
-                        }.into_any(),
-                    }).unwrap_or_else(|| view! { <div/> }.into_any())
+                    })
+                    .collect_view()}
+            </div>
+
+            <div class="orders-list">
+                <Suspense fallback=|| {
+                    view! {
+                        <OrderCardShimmer />
+                        <OrderCardShimmer />
+                        <OrderCardShimmer />
+                    }
+                }>
+                    {move || {
+                        if !is_logged_in() && auth.get().is_some() {
+                            return view! {
+                                <EmptyState
+                                    icon="🔒"
+                                    title="HARUS MASUK"
+                                    body="Kamu harus masuk untuk melihat riwayat order."
+                                    cta_label="MASUK"
+                                    cta_href="/login"
+                                />
+                            }
+                                .into_any();
+                        }
+
+                        orders
+                            .get()
+                            .map(|res| {
+                                let list = match res {
+                                    Ok(list) => list,
+                                    Err(_) => {
+                                        return view! {
+                                            <EmptyState
+                                                icon="⚠️"
+                                                title="TERJADI KESALAHAN"
+                                                body="Gagal memuat order. Coba login ulang."
+                                            />
+                                        }
+                                            .into_any();
+                                    }
+                                };
+
+                                let q = query.get().to_lowercase();
+                                let f = filter.get();
+                                let filtered: Vec<OrderListItem> = list
+                                    .into_iter()
+                                    .filter(|o| {
+                                        let (_, kind) = classify(&o.status);
+                                        let status_match = match f.as_str() {
+                                            "Waiting for Payment" => kind == "pending",
+                                            "Paid" => kind == "paid",
+                                            _ => true,
+                                        };
+                                        let ev = o
+                                            .event_name
+                                            .as_deref()
+                                            .unwrap_or("")
+                                            .to_lowercase();
+                                        let vn = o
+                                            .venue
+                                            .as_deref()
+                                            .unwrap_or("")
+                                            .to_lowercase();
+                                        let search_match = q.is_empty()
+                                            || ev.contains(&q)
+                                            || vn.contains(&q)
+                                            || o.order_code.to_lowercase().contains(&q);
+                                        status_match && search_match
+                                    })
+                                    .collect();
+
+                                if filtered.is_empty() {
+                                    let (icon, title, body) = match f.as_str() {
+                                        "Waiting for Payment" => (
+                                            "🕐",
+                                            "TIDAK ADA PESANAN PENDING",
+                                            "Pesanan yang menunggu pembayaran akan muncul di sini.",
+                                        ),
+                                        "Paid" => (
+                                            "✅",
+                                            "BELUM ADA PESANAN SELESAI",
+                                            "Pesanan yang sudah dibayar akan muncul di sini.",
+                                        ),
+                                        _ => (
+                                            "🛒",
+                                            "BELUM ADA PESANAN",
+                                            "Pesanan Anda akan muncul di sini setelah melakukan pembelian.",
+                                        ),
+                                    };
+                                    view! {
+                                        <EmptyState
+                                            icon=icon
+                                            title=title
+                                            body=body
+                                            cta_label="JELAJAHI EVENT"
+                                            cta_href="/explore"
+                                        />
+                                    }
+                                        .into_any()
+                                } else {
+                                    filtered
+                                        .into_iter()
+                                        .map(order_card)
+                                        .collect_view()
+                                        .into_any()
+                                }
+                            })
+                            .unwrap_or_else(|| view! { <span></span> }.into_any())
+                    }}
+                </Suspense>
+            </div>
+
+            <BottomNav active="orders" />
+        </div>
+    }
+}
+
+fn order_card(o: OrderListItem) -> impl IntoView {
+    let (status_label, kind) = classify(&o.status);
+    let is_pending = kind == "pending";
+    let is_cancelled = kind == "cancelled";
+
+    let pill_cls = match kind {
+        "paid" => "order-status-badge order-status-badge--paid",
+        "pending" => "order-status-badge order-status-badge--pending",
+        _ => "order-status-badge order-status-badge--cancelled",
+    };
+
+    // pending   → /orders/{id}          (halaman verifikasi/pembayaran)
+    // paid      → /orders/{id}/tickets
+    // cancelled → tidak ada aksi
+    let action_href = if is_pending {
+        format!("/orders/{}", o.id)
+    } else if !is_cancelled {
+        format!("/orders/{}/tickets", o.id)
+    } else {
+        String::new()
+    };
+
+    let title = o.event_name.clone().unwrap_or_else(|| "Event".into());
+    let venue = o.venue.clone().unwrap_or_default();
+    let date = o
+        .event_date
+        .as_ref()
+        .map(format_date)
+        .unwrap_or_default();
+    let date_venue = if venue.is_empty() {
+        date.clone()
+    } else if date.is_empty() {
+        venue.clone()
+    } else {
+        format!("{} • {}", date, venue)
+    };
+    let price = format_price(o.total_amount);
+    let cover = o.cover_url.clone();
+
+    view! {
+        <div class="order-card">
+            <div class="order-card-top">
+                <div class="order-thumb">
+                    {match cover {
+                        Some(url) => {
+                            view! { <img src=url alt="event" class="order-thumb-img" /> }
+                                .into_any()
+                        }
+                        None => {
+                            view! {
+                                <div class="order-thumb-placeholder">
+                                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none"
+                                        stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                                        <path d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                                    </svg>
+                                </div>
+                            }
+                                .into_any()
+                        }
+                    }}
+                </div>
+
+                <div class="order-info">
+                    <div class="order-name-row">
+                        <h3 class="order-event-name">{title}</h3>
+                        <span class=pill_cls>{status_label}</span>
+                    </div>
+                    <div class="order-date-venue">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round">
+                            <rect x="3" y="4" width="18" height="18" rx="2" />
+                            <line x1="16" y1="2" x2="16" y2="6" />
+                            <line x1="8" y1="2" x2="8" y2="6" />
+                            <line x1="3" y1="10" x2="21" y2="10" />
+                        </svg>
+                        <span>{date_venue}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="order-card-divider"></div>
+
+            <div class="order-card-footer">
+                <div class="order-total-block">
+                    <span class="order-total-label">"TOTAL AMOUNT"</span>
+                    <span class="order-total-price">{price}</span>
+                </div>
+
+                {if is_cancelled {
+                    view! { <span></span> }.into_any()
+                } else if is_pending {
+                    view! {
+                        <A href=action_href attr:class="order-action-btn order-action-btn--pay">
+                            "Pay Now"
+                        </A>
+                    }
+                        .into_any()
+                } else {
+                    view! {
+                        <A href=action_href attr:class="order-action-btn order-action-btn--view">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2.5" stroke-linecap="round">
+                                <path d="M20 12V22H4V12" />
+                                <path d="M22 7H2v5h20V7z" />
+                                <path d="M12 22V7" />
+                            </svg>
+                            "View Ticket"
+                        </A>
+                    }
+                        .into_any()
                 }}
-            </Suspense>
+            </div>
         </div>
     }
 }

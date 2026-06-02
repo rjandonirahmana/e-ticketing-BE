@@ -9,6 +9,9 @@
 
 pub mod api;
 pub mod app;
+#[cfg(feature = "ssr")]
+pub mod assets;
 pub mod components;
 pub mod models;
 pub mod pages;
+pub mod state;

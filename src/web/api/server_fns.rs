@@ -33,6 +33,55 @@ fn base_url() -> &'static str {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+//  Internal app token (X-App-Token)
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// Semua route `/api/*` di backend dilindungi middleware `require_internal_jwt`
+// yang mewajibkan header `X-App-Token` berupa JWT HS256 dengan:
+//   - iss = "kinetic-fe"
+//   - exp valid (belum kedaluwarsa)
+//   - di-sign dengan INTERNAL_JWT_SECRET yang SAMA dengan backend.
+//
+// Karena server function ini berjalan di proses yang sama dengan backend,
+// secret di-resolve dengan cara yang IDENTIK dengan `config::config::AppConfig`
+// (runtime `INTERNAL_JWT_SECRET`, dengan fallback dev yang sama persis) sehingga
+// token yang kita sign selalu lolos verifikasi self-call.
+
+#[cfg(feature = "ssr")]
+static INTERNAL_JWT_SECRET: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    std::env::var("INTERNAL_JWT_SECRET")
+        .unwrap_or_else(|_| "kinetic-internal-dev-secret-changeme-in-production".into())
+});
+
+/// Bangun JWT internal HS256 (`X-App-Token`) untuk satu request ke backend.
+/// Token berlaku 5 menit — cukup untuk satu round-trip request/response.
+#[cfg(feature = "ssr")]
+fn app_token() -> String {
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+
+    #[derive(serde::Serialize)]
+    struct InternalClaims {
+        iss: &'static str,
+        iat: i64,
+        exp: i64,
+    }
+
+    let now = chrono::Utc::now().timestamp();
+    let claims = InternalClaims {
+        iss: "kinetic-fe",
+        iat: now,
+        exp: now + 300, // 5 menit
+    };
+
+    encode(
+        &Header::new(Algorithm::HS256),
+        &claims,
+        &EncodingKey::from_secret(INTERNAL_JWT_SECRET.as_bytes()),
+    )
+    .unwrap_or_default()
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 //  Cookie helpers
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -86,6 +135,7 @@ async fn api_get<T: serde::de::DeserializeOwned>(path: &str) -> Result<T, Server
     let url = format!("{}{}", base_url(), path);
     let resp = client()
         .get(&url)
+        .header("X-App-Token", app_token())
         .send()
         .await
         .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })?;
@@ -109,6 +159,7 @@ async fn api_get_auth<T: serde::de::DeserializeOwned>(path: &str) -> Result<T, S
     let url = format!("{}{}", base_url(), path);
     let resp = client()
         .get(&url)
+        .header("X-App-Token", app_token())
         .header("Authorization", format!("Bearer {token}"))
         .send()
         .await
@@ -133,6 +184,7 @@ async fn api_post<T: serde::de::DeserializeOwned, B: serde::Serialize>(
     let url = format!("{}{}", base_url(), path);
     let resp = client()
         .post(&url)
+        .header("X-App-Token", app_token())
         .json(body)
         .send()
         .await
@@ -160,6 +212,7 @@ async fn api_post_auth<T: serde::de::DeserializeOwned, B: serde::Serialize>(
     let url = format!("{}{}", base_url(), path);
     let resp = client()
         .post(&url)
+        .header("X-App-Token", app_token())
         .header("Authorization", format!("Bearer {token}"))
         .json(body)
         .send()
@@ -188,6 +241,7 @@ async fn api_put_auth<T: serde::de::DeserializeOwned, B: serde::Serialize>(
     let url = format!("{}{}", base_url(), path);
     let resp = client()
         .put(&url)
+        .header("X-App-Token", app_token())
         .header("Authorization", format!("Bearer {token}"))
         .json(body)
         .send()
@@ -218,6 +272,7 @@ pub async fn get_session() -> Result<Option<UserResponse>, ServerFnError> {
     };
     let resp = client()
         .get(format!("{}/api/auth/me", base_url()))
+        .header("X-App-Token", app_token())
         .header("Authorization", format!("Bearer {token}"))
         .send()
         .await
@@ -238,6 +293,7 @@ pub async fn get_session() -> Result<Option<UserResponse>, ServerFnError> {
 pub async fn login_action(phone: String, password: String) -> Result<UserResponse, ServerFnError> {
     let resp = client()
         .post(format!("{}/api/auth/login", base_url()))
+        .header("X-App-Token", app_token())
         .json(&serde_json::json!({ "phone": phone, "password": password }))
         .send()
         .await
@@ -273,6 +329,7 @@ pub async fn register_action(
 pub async fn verify_otp_action(phone: String, otp: String) -> Result<UserResponse, ServerFnError> {
     let resp = client()
         .post(format!("{}/api/auth/verify", base_url()))
+        .header("X-App-Token", app_token())
         .json(&serde_json::json!({ "phone": phone, "otp": otp }))
         .send()
         .await
@@ -340,6 +397,7 @@ pub async fn get_events(
     }
     let resp = client()
         .get(url)
+        .header("X-App-Token", app_token())
         .send()
         .await
         .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })?;
@@ -423,6 +481,7 @@ pub async fn create_order(variant_id: String, quantity: i32) -> Result<String, S
     })?;
     let resp = client()
         .post(format!("{}/api/orders", base_url()))
+        .header("X-App-Token", app_token())
         .header("Authorization", format!("Bearer {token}"))
         .json(&serde_json::json!({
             "items": [{ "ticket_variant_id": variant_id, "quantity": quantity }]
@@ -454,6 +513,7 @@ pub async fn create_order_multi(
     })?;
     let resp = client()
         .post(format!("{}/api/orders", base_url()))
+        .header("X-App-Token", app_token())
         .header("Authorization", format!("Bearer {token}"))
         .json(&serde_json::json!({
             "items": [{ "ticket_variant_id": variant_id, "quantity": quantity }],
@@ -542,6 +602,7 @@ pub async fn create_merchant_event(
     })?;
     let resp = client()
         .post(format!("{}/api/merchant/events", base_url()))
+        .header("X-App-Token", app_token())
         .header("Authorization", format!("Bearer {token}"))
         .json(&body)
         .send()
@@ -691,6 +752,7 @@ pub async fn create_order_cart(
     }
     let resp = client()
         .post(format!("{}/api/orders", base_url()))
+        .header("X-App-Token", app_token())
         .header("Authorization", format!("Bearer {token}"))
         .json(&body)
         .send()
@@ -720,6 +782,7 @@ pub async fn validate_promo(
     let body = serde_json::json!({ "promo_code": promo_code, "subtotal": subtotal });
     let resp = client()
         .post(format!("{}/api/promos/validate", base_url()))
+        .header("X-App-Token", app_token())
         .header("Authorization", format!("Bearer {token}"))
         .json(&body)
         .send()
@@ -749,6 +812,7 @@ pub async fn confirm_order_payment(
     })?;
     let resp = client()
         .post(format!("{}/api/orders/{order_id}/pay", base_url()))
+        .header("X-App-Token", app_token())
         .header("Authorization", format!("Bearer {token}"))
         .json(&serde_json::json!({ "payment_token": "qris" }))
         .send()
