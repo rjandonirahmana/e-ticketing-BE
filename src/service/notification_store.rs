@@ -29,10 +29,7 @@ impl NotificationStoreService {
     }
 
     /// Buat notifikasi baru. Dipanggil dari service lain (OrderService, dll).
-    pub async fn create(
-        &self,
-        input: CreateNotificationInput,
-    ) -> Result<Notification, AppError> {
+    pub async fn create(&self, input: CreateNotificationInput) -> Result<Notification, AppError> {
         self.repo.create(input).await.map_err(AppError::Internal)
     }
 
@@ -56,6 +53,13 @@ impl NotificationStoreService {
     pub async fn unread_count(&self, user_id: &str) -> Result<i64, AppError> {
         self.repo
             .unread_count(user_id)
+            .await
+            .map_err(AppError::Internal)
+    }
+
+    pub async fn detail(&self, id: &str, user_id: &str) -> Result<Notification, AppError> {
+        self.repo
+            .find_detail(id, user_id)
             .await
             .map_err(AppError::Internal)
     }

@@ -75,6 +75,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/notifications/read-all",
             post(notifications::mark_all_read),
         )
+        .route("/api/notifications/detail/{id}", get(notifications::detail)) // buka detail = otomatis mark read
         // ── Stories ───────────────────────────────────────────────────────────
         .route("/api/stories", post(stories::create))
         .route("/api/stories", get(stories::list))

@@ -198,8 +198,7 @@ impl<R: StoryRepository> StoryService<R> {
                     media_label
                 ),
                 kind: "story".into(),
-                order_id: None,
-                ticket_id: None,
+                target_id: story_id.clone().into(),
             };
 
             if let Err(e) = notif_store.create(input).await {

@@ -41,10 +41,7 @@ pub async fn unread_count(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
 ) -> AppResult<Json<UnreadCountResponse>> {
-    let count = state
-        .notification_store_svc
-        .unread_count(user.id())
-        .await?;
+    let count = state.notification_store_svc.unread_count(user.id()).await?;
     Ok(Json(UnreadCountResponse { count }))
 }
 
@@ -71,4 +68,23 @@ pub async fn mark_all_read(
         .mark_all_read(user.id())
         .await?;
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+pub async fn detail(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Path(id): Path<String>,
+) -> AppResult<Json<Notification>> {
+    let mut notif = state.notification_store_svc.detail(&id, user.id()).await?;
+
+    // Buka detail = otomatis tandai terbaca.
+    if !notif.is_read {
+        state
+            .notification_store_svc
+            .mark_read(&id, user.id())
+            .await?;
+        notif.is_read = true;
+    }
+
+    Ok(Json(notif))
 }

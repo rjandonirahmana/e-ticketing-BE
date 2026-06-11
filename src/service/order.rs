@@ -6,6 +6,7 @@ use validator::Validate;
 use deadpool_postgres::Pool;
 use rust_decimal::Decimal;
 
+use crate::models::notification::CreateNotificationInput;
 use crate::models::orders::{
     CreateOrderRequest, Order, OrderDetailResponse, OrderItemResponse, OrderListItem,
     PayOrderRequest,
@@ -13,8 +14,10 @@ use crate::models::orders::{
 use crate::repository::order::{
     ItemRow, LockedVariant, OrderRepository, OrderTx, OversellError, LUA_RELEASE,
 };
+use crate::repository::ticket::TicketRepository;
 use crate::service::group_chat::GroupChatService;
 use crate::service::norifications::NotificationService;
+use crate::service::notification_store::NotificationStoreService;
 use crate::utils::error::{AppError, AppResult};
 use crate::utils::ulid::{bin_to_ulid_ref, id_to_vec, new_ulid, ulid_to_vec};
 
@@ -146,29 +149,6 @@ async fn release_keys(redis: &mut redis::aio::ConnectionManager, keys: &[String]
     }
 }
 
-// ── HEARTBEAT DIHAPUS ─────────────────────────────────────────────────────────
-//
-// RACE CONDITION di versi sebelumnya:
-//
-//   Scenario:
-//     [A] main:      heartbeat.stop()   → kirim cancel via oneshot
-//     [B] main:      lock.release()     → DEL key di Redis
-//     [C] heartbeat: pipeline PEXPIRE sudah dikirim ke Redis, menunggu response
-//     [D] heartbeat: response tiba → key di-extend (PEXPIRE pada key yang baru di-DEL
-//                    akan me-recreate key jika Redis versi < 7, atau tidak re-extend
-//                    pada Redis 7+ tapi MASIH berpotensi window kecil)
-//
-//   Hasil: lock "bangkit dari mati" dengan TTL 25s → lock zombie.
-//   Variant tidak bisa dipesan siapapun selama 25s. Throughput anjlok.
-//
-// SOLUSI: Hapus heartbeat sepenuhnya.
-//
-// JUSTIFIKASI:
-//   - TX_TIMEOUT = 12s, LOCK_TTL = 25s → margin 13 detik.
-//   - Selama tidak ada blocking I/O di luar timeout(), lock tidak akan expire.
-//   - Heartbeat menambah kompleksitas, 1 Redis RTT ekstra, dan race condition.
-//   - TTL Redis adalah safety net yang cukup untuk crash/hang scenario.
-
 // ── Metrics ───────────────────────────────────────────────────────────────────
 
 struct OrderMetrics;
@@ -217,8 +197,6 @@ fn is_retryable_pg_error(e: &anyhow::Error) -> bool {
 }
 
 /// FIX [P2-8]: Jitter tanpa external rand dependency.
-/// subsec_nanos() menghasilkan nilai 0..1_000_000_000 yang cukup acak untuk
-/// mencegah thundering herd. Tidak memerlukan tambahan entry di Cargo.toml.
 fn backoff_with_jitter(attempt: u8) -> Duration {
     let base_ms = 20 * (attempt as u64 + 1);
     let jitter_ms = std::time::SystemTime::now()
@@ -236,6 +214,10 @@ pub struct OrderService {
     redis: redis::aio::ConnectionManager,
     pool: Pool,
     notifier: Arc<NotificationService>,
+    /// Notifikasi in-app (tabel notifications).
+    notif_store: Arc<NotificationStoreService>,
+    /// Untuk mengambil ticket id setelah pembayaran (notif kind "ticket").
+    ticket_repo: Arc<dyn TicketRepository>,
     /// Untuk auto-join group chat setelah pembayaran berhasil.
     group_svc: Arc<GroupChatService>,
 }
@@ -246,6 +228,8 @@ impl OrderService {
         redis: redis::aio::ConnectionManager,
         pool: Pool,
         notifier: Arc<NotificationService>,
+        notif_store: Arc<NotificationStoreService>,
+        ticket_repo: Arc<dyn TicketRepository>,
         group_svc: Arc<GroupChatService>,
     ) -> Self {
         Self {
@@ -253,6 +237,8 @@ impl OrderService {
             redis,
             pool,
             notifier,
+            notif_store,
+            ticket_repo,
             group_svc,
         }
     }
@@ -278,8 +264,6 @@ impl OrderService {
             ids
         };
 
-        // Lock diakuisisi ulang per attempt — tidak tertahan selama seluruh retry loop.
-        // Tanpa heartbeat, implementasi ini simple dan race-free.
         for attempt in 0..MAX_TX_RETRY {
             let mut lock = VariantLockGuard::acquire(self.redis.clone(), &variant_ids)
                 .await
@@ -294,16 +278,36 @@ impl OrderService {
 
             let tx_result = timeout(TX_TIMEOUT, self.create_in_tx(customer_id, &req)).await;
 
-            // Release selalu sebelum retry atau return.
             lock.release().await;
 
             match tx_result {
                 Ok(Ok(v)) => {
-                    // 🔥🔥🔥 FIRE-AND-FORGET: spawn detached, tidak blocking return
-                    self.notifier.notify_order_created(
-                        customer_id.to_string(),
-                        v.clone(), // pastikan OrderDetailResponse derive Clone
-                    );
+                    // WA notify — fire-and-forget.
+                    self.notifier
+                        .notify_order_created(customer_id.to_string(), v.clone());
+
+                    // In-app notif — kind "order", target = order id. Fire-and-forget.
+                    {
+                        let notif_store = self.notif_store.clone();
+                        let uid = customer_id.to_string();
+                        let order_id = v.id.clone();
+                        let order_code = v.order_code.clone();
+                        tokio::spawn(async move {
+                            let body = format!("Order {order_code} menunggu pembayaran.");
+                            if let Err(e) = notif_store
+                                .create(CreateNotificationInput::order(
+                                    uid,
+                                    order_id,
+                                    "Pesanan Dibuat",
+                                    body,
+                                ))
+                                .await
+                            {
+                                tracing::warn!(error = %e, "in-app order notification failed");
+                            }
+                        });
+                    }
+
                     return Ok(v);
                 }
 
@@ -368,9 +372,6 @@ impl OrderService {
             }
         }
 
-        // into_values() → Vec<Vec<u8>> owned, kompatibel dengan lock_variants(&[Vec<u8>]).
-        // bytes_per_variant tidak dipakai lagi setelah ini (variant data diambil dari
-        // query result melalui variant_map).
         let id_bytes_list: Vec<Vec<u8>> = bytes_per_variant.into_values().collect();
 
         // ─ 2. SELECT FOR UPDATE ───────────────────────────────────────────────
@@ -436,7 +437,6 @@ impl OrderService {
         // ─ 5. INSERT order — atomic idempotency CTE ───────────────────────────
         let customer_bytes = id_to_vec(customer_id).map_err(AppError::Internal)?;
         let order_code = {
-            // ULID sudah uppercase by spec — .to_uppercase() redundan dan allocates.
             let suffix = &order_id[order_id.len().saturating_sub(8)..];
             format!("KN{suffix}")
         };
@@ -457,24 +457,11 @@ impl OrderService {
         if !is_new {
             OrderMetrics::idempotency_conflict(customer_id);
 
-            // FIX [P0-3]: COMMIT bukan ROLLBACK untuk idempotency conflict.
-            //
-            // TX ini adalah read-only (insert tidak terjadi karena ON CONFLICT DO NOTHING).
-            // COMMIT lebih reliable karena:
-            //   - ROLLBACK yang gagal (network timeout) → connection dikembalikan ke pool
-            //     dalam keadaan transaksi masih aktif di sisi PostgreSQL.
-            //   - drop(conn) setelah rollback gagal TIDAK memusnahkan connection —
-            //     deadpool mengembalikannya ke pool karena connection object masih valid.
-            //   - COMMIT pada read-only TX selalu berhasil kecuali koneksi benar-benar putus,
-            //     dalam hal itu deadpool akan mendeteksi dan drop connection dengan benar.
             if let Err(e) = tx.commit().await {
                 tracing::warn!(
                     error = %e,
                     "commit idempotency tx failed; connection mungkin dirty, akan di-drop"
                 );
-                // drop eksplisit sebagai sinyal ke deadpool bahwa connection ini bermasalah.
-                // Deadpool akan close underlying connection saat Client di-drop dalam
-                // keadaan error.
                 drop(conn);
             }
 
@@ -488,9 +475,6 @@ impl OrderService {
             .map_err(AppError::Internal)?;
 
         // ─ 7. Batch UPDATE sold — DB-level oversell guard ─────────────────────
-        //
-        // FIX [P1-5]: bump menggunakan &[u8] borrow — tidak ada clone var_bytes.
-        // Lifetime slices terikat ke item_rows yang hidup selama fungsi ini.
         let bump: Vec<(&[u8], i32)> = item_rows
             .iter()
             .map(|row| (row.var_bytes.as_slice(), row.qty))
@@ -498,7 +482,6 @@ impl OrderService {
 
         OrderTx::bump_sold_batch(&tx, &bump).await.map_err(|e| {
             if let Some(oe) = e.downcast_ref::<OversellError>() {
-                // bin_to_ulid_ref menerima &[u8] — tidak ada clone di error path.
                 let failed_variants: Vec<String> = oe
                     .variant_ids
                     .iter()
@@ -586,8 +569,6 @@ impl OrderService {
 
     // ── Pay ───────────────────────────────────────────────────────────────────
 
-    /// BUG FIX #1: tambah parameter `user_name: &str` dari JWT Claims.
-    /// Sebelumnya `pay()` tidak punya user_name → di-hardcode "unadio" di dalam spawned task.
     pub async fn pay(
         &self,
         order_id: &str,
@@ -628,9 +609,6 @@ impl OrderService {
 
         let order_bytes = id_to_vec(order_id).map_err(AppError::Internal)?;
 
-        // FIX [P2-7]: mark_paid menggunakan RETURNING → dapat Order langsung.
-        // Mengeliminasi self.detail() post-commit yang butuh 2 query DB tambahan
-        // (find_by_id + list_items = 2 pool checkout + 2 query).
         let paid_order = OrderTx::mark_paid(&tx, &order_bytes, &req.payment_method)
             .await
             .map_err(AppError::Internal)?
@@ -640,7 +618,6 @@ impl OrderService {
                 )
             })?;
 
-        // fetch_items_for_mint: (bytes, qty) untuk mint_tickets_batch.
         let mint_items = OrderTx::fetch_items_for_mint(&tx, &order_bytes)
             .await
             .map_err(AppError::Internal)?;
@@ -649,8 +626,6 @@ impl OrderService {
             .await
             .map_err(AppError::Internal)?;
 
-        // fetch_items_detail: full OrderItemResponse untuk response.
-        // Query ini di dalam TX → data konsisten dengan paid_order di atas.
         let items = OrderTx::fetch_items_detail(&tx, &order_bytes)
             .await
             .map_err(AppError::Internal)?;
@@ -661,21 +636,14 @@ impl OrderService {
 
         OrderMetrics::order_paid(order_id, &req.payment_method);
 
-        // BUG FIX #2: HashSet<String> bukan HashSet<&str>.
-        // HashSet<&str> meminjam dari `items`, tapi `items` juga di-move ke
-        // build_detail_response. tokio::spawn butuh 'static → compile error.
-        // Solusi: clone event_id ke String sebelum items di-consume.
         let event_ids: std::collections::HashSet<String> =
             items.iter().map(|i| i.event_id.clone()).collect();
 
         let paid_response = build_detail_response(paid_order, items);
 
-        // Auto-join group chat — fire-and-forget, tidak blocking response.
-        // Jika gagal, user masih bisa join manual via UI; error di-log untuk monitor.
+        // Auto-join group chat — fire-and-forget.
         let group_svc = self.group_svc.clone();
         let uid = viewer_id.to_string();
-        // BUG FIX #3: gunakan user_name asli dari JWT Claims.
-        // Sebelumnya di-hardcode "unadio" — system message salah untuk semua user.
         let uname = user_name.to_string();
         tokio::spawn(async move {
             for event_id in event_ids {
@@ -693,9 +661,44 @@ impl OrderService {
             }
         });
 
-        // Kirim notifikasi WA ke customer — fire-and-forget.
+        // WA notify — fire-and-forget.
         self.notifier
             .notify_order_paid(viewer_id.to_string(), paid_response.clone());
+
+        // In-app notif — kind "ticket" per tiket terbit, target = ticket id.
+        // Ticket id diambil via TicketRepository (tiket sudah ter-commit di atas).
+        {
+            let notif_store = self.notif_store.clone();
+            let ticket_repo = self.ticket_repo.clone();
+            let uid = viewer_id.to_string();
+            let oid = order_id.to_string();
+            tokio::spawn(async move {
+                match ticket_repo.list_by_order(&oid, &uid, 100, 0).await {
+                    Ok(tickets) => {
+                        for t in tickets {
+                            let body = format!(
+                                "Tiket {} sudah aktif. Tunjukkan QR saat masuk.",
+                                t.ticket_code
+                            );
+                            if let Err(e) = notif_store
+                                .create(CreateNotificationInput::ticket(
+                                    uid.clone(),
+                                    t.id,
+                                    "Pembayaran Berhasil",
+                                    body,
+                                ))
+                                .await
+                            {
+                                tracing::warn!(error = %e, "in-app ticket notification failed");
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "list tickets for in-app notif failed")
+                    }
+                }
+            });
+        }
 
         Ok(paid_response)
     }
