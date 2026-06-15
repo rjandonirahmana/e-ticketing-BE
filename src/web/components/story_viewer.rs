@@ -54,7 +54,7 @@ fn cancel_raf(_raf_id: &StoredValue<i32>) {
         let id = _raf_id.get_value();
         if id != 0 {
             if let Some(win) = web_sys::window() {
-                win.cancel_animation_frame(id);
+                let _ = win.cancel_animation_frame(id);
             }
             _raf_id.set_value(0);
         }

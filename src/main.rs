@@ -110,7 +110,8 @@ async fn main() -> Result<()> {
 
     // ── Leptos SSR router ─────────────────────────────────────────────────────
     let leptos_conf =
-        get_configuration(Some("Cargo.toml")).expect("[package.metadata.leptos] not found");
+        get_configuration(Some("Cargo.toml"))
+            .map_err(|e| anyhow::anyhow!("failed to load leptos config: {e}"))?;
     let leptos_options = leptos_conf.leptos_options;
     let bind_addr = leptos_options.site_addr.to_string();
     let site_root = leptos_options.site_root.to_string();
@@ -175,9 +176,9 @@ fn build_cors(_cfg: &AppConfig) -> tower_http::cors::CorsLayer {
 
 async fn shutdown_signal() {
     let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            tracing::error!("failed to install Ctrl+C handler: {e}");
+        }
     };
     #[cfg(unix)]
     let terminate = async {

@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-use super::db::{exec_first, exec_one, exec_rows};
+use crate::repository::db::{exec_first, exec_one, exec_rows};
 use super::helpers::{EVENT_COLS, FIND_EVENT_BY_ID, FIND_EVENT_WITH_VARIANTS_BY_ID,
     FIND_EVENT_WITH_VARIANTS_BY_SLUG, VARIANT_STATS_LATERAL};
 use super::{EventFilterOwned, EventListFilter, PgEventRepository};

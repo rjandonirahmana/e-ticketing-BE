@@ -18,8 +18,8 @@ use super::canvas::{
     BgExport, canvas_to_blob,
     cover_factor, create_export_canvas, css_filter_string, export_ext,
     export_mime, export_story_canvas, get_dpr, gradient_colors,
-    load_img_to_canvas, preload_fonts, render_overlays_to_canvas,
-    trigger_download_blob,
+    load_img_to_canvas, preload_fonts, render_event_card_to_canvas,
+    render_overlays_to_canvas, trigger_download_blob,
 };
 #[cfg(target_arch = "wasm32")]
 use super::canvas::compress_image_file;
@@ -404,17 +404,25 @@ pub fn StoryPage() -> impl IntoView {
         let scale  = bg_scale.get_untracked();
 
         if has_event_prefill.get_untracked() && !user_overrode_prefill.get_untracked() {
-            let cover = event_cover_url.get_value();
-            let bg_m  = bg_mode.get_untracked();
-            let bg_c  = bg_solid_color.get_untracked();
+            let cover     = event_cover_url.get_value();
+            let bg_m      = bg_mode.get_untracked();
+            let bg_c      = bg_solid_color.get_untracked();
+            let ev_filter = filter_dipilih.get_untracked();
+            let title     = prefill_title();
+            let date      = prefill_date();
+            let venue     = prefill_venue();
+            let price     = prefill_price();
             sedang_mengunduh.set(true);
             let navigate_sv2 = navigate_sv;
             spawn_local(async move {
                 if let Err(e) = preload_fonts().await { web_sys::console::warn_1(&format!("font: {:?}", e).into()); }
                 let dpr = get_dpr();
                 let Some((canvas, ctx, cw, ch)) = create_export_canvas(dpr) else { sedang_mengunduh.set(false); return; };
-                // Simple fallback render for event mode
-                if let Err(_) = load_img_to_canvas(&cover, &ctx, cw, ch, scale, false, false).await {
+                if let Err(e) = render_event_card_to_canvas(
+                    &ctx, cw, ch, &cover, &bg_m, &bg_c, &ev_filter,
+                    &title, &date, &venue, &price,
+                ).await {
+                    web_sys::console::warn_1(&format!("event card render: {}", e).into());
                     ctx.set_fill_style_str("#0d0d18");
                     ctx.fill_rect(0.0, 0.0, cw, ch);
                 }
@@ -424,7 +432,6 @@ pub fn StoryPage() -> impl IntoView {
                     .map(|el| { let r = el.get_bounding_client_rect(); (r.width(), r.height()) })
                     .unwrap_or((390.0, 844.0));
                 render_overlays_to_canvas(&ctx, &ovls, cw, ch, dom_w, dom_h, dpr);
-                let _ = bg_m; let _ = bg_c;
                 match canvas_to_blob(&canvas).await {
                     Ok(blob) => {
                         let ts = web_sys::js_sys::Date::now() as u64;
@@ -540,7 +547,13 @@ pub fn StoryPage() -> impl IntoView {
         if has_event_prefill.get() && !user_overrode_prefill.get() {
             let cover        = event_cover_url.get_value();
             let ovls_snapshot: Vec<StoryOverlay> = overlays.with(|o| o.clone());
-            let filter_snapshot = filter_dipilih.get();
+            let ev_filter    = filter_dipilih.get_untracked();
+            let ev_bg_mode   = bg_mode.get_untracked();
+            let ev_bg_color  = bg_solid_color.get_untracked();
+            let title        = prefill_title();
+            let date         = prefill_date();
+            let venue        = prefill_venue();
+            let price        = prefill_price();
             if cover.is_empty() { error_unggah.set(Some("Cover event tidak tersedia di URL.".into())); return; }
             sedang_mengunggah.set(true);
             store_ctx.uploading.set(true);
@@ -552,8 +565,12 @@ pub fn StoryPage() -> impl IntoView {
                 if let Err(e) = preload_fonts().await { web_sys::console::warn_1(&format!("font: {:?}", e).into()); }
                 let dpr = get_dpr();
                 let Some((canvas, render_ctx, cw, ch)) = create_export_canvas(dpr) else { ctx.uploading.set(false); return; };
-                let _ = load_img_to_canvas(&cover, &render_ctx, cw, ch, 1.0, false, false).await;
-                let _ = filter_snapshot;
+                if let Err(e) = render_event_card_to_canvas(
+                    &render_ctx, cw, ch, &cover, &ev_bg_mode, &ev_bg_color, &ev_filter,
+                    &title, &date, &venue, &price,
+                ).await {
+                    web_sys::console::warn_1(&format!("event card render: {}", e).into());
+                }
                 let (dom_w, dom_h) = web_sys::window().and_then(|w| w.document())
                     .and_then(|d| d.query_selector(".sc-canvas-frame").ok().flatten())
                     .and_then(|el| el.dyn_into::<web_sys::Element>().ok())

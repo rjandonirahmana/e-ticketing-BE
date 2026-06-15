@@ -1,7 +1,7 @@
 pub mod lock;
 mod metrics;
 
-pub use lock::{QueueMode, VariantLockGuard};
+use lock::{QueueMode, VariantLockGuard};
 
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -413,6 +413,319 @@ pub(super) async fn compress_image_file(
     }
 }
 
+// ── Text wrapping helper ──────────────────────────────────────────────────────
+
+fn wrap_text(ctx: &CanvasRenderingContext2d, text: &str, max_w: f64) -> Vec<String> {
+    let mut lines = Vec::<String>::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        let candidate = if current.is_empty() { word.to_string() } else { format!("{current} {word}") };
+        let w = ctx.measure_text(&candidate).map(|m| m.width()).unwrap_or(0.0);
+        if w > max_w && !current.is_empty() {
+            lines.push(std::mem::replace(&mut current, word.to_string()));
+        } else {
+            current = candidate;
+        }
+    }
+    if !current.is_empty() { lines.push(current); }
+    if lines.is_empty() { lines.push(String::new()); }
+    lines
+}
+
+// ── Rounded rectangle path helper ─────────────────────────────────────────────
+
+pub(super) fn round_rect_path(
+    ctx: &CanvasRenderingContext2d,
+    x: f64, y: f64, w: f64, h: f64, r: f64,
+) {
+    let r = r.min(w / 2.0).min(h / 2.0).max(0.0);
+    ctx.begin_path();
+    let _ = ctx.move_to(x + r, y);
+    let _ = ctx.line_to(x + w - r, y);
+    let _ = ctx.arc_to(x + w, y,     x + w, y + r,     r);
+    let _ = ctx.arc_to(x + w, y + h, x + w - r, y + h, r);
+    let _ = ctx.arc_to(x,     y + h, x,     y + h - r, r);
+    let _ = ctx.arc_to(x,     y,     x + r, y,          r);
+    ctx.close_path();
+}
+
+// ── Cover image loader (tries to reuse DOM element first) ─────────────────────
+
+async fn load_cover_img(src: &str) -> Result<HtmlImageElement, String> {
+    let doc = web_sys::window()
+        .and_then(|w| w.document())
+        .ok_or_else(|| "no document".to_string())?;
+
+    // Only reuse the DOM element if it was loaded with crossOrigin="anonymous".
+    // An element loaded without CORS would taint the canvas and make toBlob() fail.
+    let reused = doc
+        .query_selector("img.sc-event-card-cover-img")
+        .ok().flatten()
+        .and_then(|el| el.dyn_into::<HtmlImageElement>().ok())
+        .filter(|img| {
+            img.complete()
+                && img.natural_width() > 0
+                && (img.src().starts_with("blob:")
+                    || img.cross_origin().map(|co| !co.is_empty()).unwrap_or(false))
+        });
+    if let Some(img) = reused { return Ok(img); }
+
+    let img: HtmlImageElement = doc
+        .create_element("img").map_err(|e| format!("{e:?}"))?
+        .unchecked_into();
+    let mut ok_fn = None;
+    let mut err_fn = None;
+    let p = web_sys::js_sys::Promise::new(&mut |r, e| { ok_fn = Some(r); err_fn = Some(e); });
+    let on_load  = Closure::once(move || { let _ = ok_fn.unwrap().call0(&JsValue::NULL); });
+    let on_error = Closure::once(move || { let _ = err_fn.unwrap().call0(&JsValue::NULL); });
+    img.set_onload(Some(on_load.as_ref().unchecked_ref()));
+    img.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+    img.set_cross_origin(Some("anonymous"));
+    let fetch_src = if src.starts_with("blob:") || src.contains("_c=1") {
+        src.to_string()
+    } else if src.contains('?') {
+        format!("{src}&_c=1")
+    } else {
+        format!("{src}?_c=1")
+    };
+    img.set_src(&fetch_src);
+    wasm_bindgen_futures::JsFuture::from(p).await
+        .map_err(|_| "cover image load failed".to_string())?;
+    img.set_onload(None);
+    img.set_onerror(None);
+    drop(on_load); drop(on_error);
+    if img.natural_width() == 0 { return Err("cover image zero width".to_string()); }
+    Ok(img)
+}
+
+// ── Event card canvas render ──────────────────────────────────────────────────
+//
+// Renders the full story preview for an event: background, card (cover + body),
+// and returns so the caller can draw overlays on top.
+//
+// Mirrors the DOM layout of `.sc-event-preview-frame > .sc-event-card`.
+
+pub(super) async fn render_event_card_to_canvas(
+    ctx: &CanvasRenderingContext2d,
+    cw: f64, ch: f64,
+    cover_url: &str,
+    bg_mode: &str,
+    bg_color: &str,
+    filter: &str,
+    title: &str,
+    date: &str,
+    venue: &str,
+    price: &str,
+) -> Result<(), String> {
+    // ── Load cover image ─────────────────────────────────────────────────────
+    let img = load_cover_img(cover_url).await?;
+    let iw = img.natural_width() as f64;
+    let ih = img.natural_height() as f64;
+
+    // ── Draw background ──────────────────────────────────────────────────────
+    match bg_mode {
+        "blur" => {
+            ctx.set_filter("blur(28px) brightness(0.5)");
+            draw_img_cover(ctx, &img, iw, ih, cw, ch, 1.0)?;
+            ctx.set_filter("none");
+            ctx.set_fill_style_str("rgba(0,0,0,0.45)");
+            ctx.fill_rect(0.0, 0.0, cw, ch);
+        }
+        "solid" => {
+            ctx.set_fill_style_str(bg_color);
+            ctx.fill_rect(0.0, 0.0, cw, ch);
+        }
+        key => {
+            if let Some((cs, ce)) = gradient_colors(key) {
+                if let Ok(g) = ctx.create_linear_gradient(0.0, 0.0, 0.0, ch)
+                    .dyn_into::<web_sys::CanvasGradient>()
+                {
+                    let _ = g.add_color_stop(0.0, cs);
+                    let _ = g.add_color_stop(1.0, ce);
+                    let _ = ctx.set_fill_style_canvas_gradient(&g);
+                    ctx.fill_rect(0.0, 0.0, cw, ch);
+                }
+            } else {
+                ctx.set_fill_style_str("#0d0d18");
+                ctx.fill_rect(0.0, 0.0, cw, ch);
+            }
+        }
+    }
+
+    // ── Card layout constants (proportional to cw=1080) ──────────────────────
+    let mx          = cw * 0.067;
+    let card_x      = mx;
+    let card_w      = cw - 2.0 * mx;
+    let cover_h     = card_w * 0.5625;     // 16:9 ratio for cover area
+    let corner_r    = cw * 0.026;
+
+    let pad         = cw * 0.033;
+    let badge_fs    = cw * 0.0195;
+    let badge_dot_r = badge_fs * 0.38;
+    let badge_h     = badge_fs * 2.5;
+    let title_gap   = 14.0;
+    let title_fs    = cw * 0.046;
+    let sep_gap     = cw * 0.016;
+    let meta_lbl_fs = cw * 0.0175;
+    let meta_row_fs = cw * 0.024;
+    let pill_fs     = cw * 0.025;
+    let pill_h      = pill_fs * 2.2;
+    let pill_pad_x  = cw * 0.022;
+
+    // Measure wrapped title (needs correct font set first)
+    ctx.set_font(&format!(
+        "bold {title_fs}px \"Bebas Neue\", \"Arial Black\", sans-serif"
+    ));
+    let title_lines  = wrap_text(ctx, title, card_w - 2.0 * pad);
+    let title_line_h = title_fs * 1.22;
+    let title_h      = title_lines.len() as f64 * title_line_h;
+
+    let meta_row_h   = meta_row_fs * 1.4;
+    let body_h = pad + badge_h + title_gap + title_h
+               + sep_gap + 2.0 + sep_gap
+               + (meta_lbl_fs + 8.0) + 8.0
+               + meta_row_h + 20.0
+               + pill_h + pad;
+    let card_h = cover_h + body_h;
+    let card_y = ((ch - card_h) * 0.42).max(cw * 0.05);
+
+    // ── Card shadow + background ─────────────────────────────────────────────
+    ctx.set_shadow_color("rgba(0,0,0,0.65)");
+    ctx.set_shadow_blur(cw * 0.055);
+    ctx.set_shadow_offset_x(0.0);
+    ctx.set_shadow_offset_y(cw * 0.018);
+    ctx.set_fill_style_str("#0d0d18");
+    round_rect_path(ctx, card_x, card_y, card_w, card_h, corner_r);
+    ctx.fill();
+    ctx.set_shadow_color("transparent");
+    ctx.set_shadow_blur(0.0);
+    ctx.set_shadow_offset_y(0.0);
+
+    // ── Cover image (clipped to card top corners) ────────────────────────────
+    ctx.save();
+    round_rect_path(ctx, card_x, card_y, card_w, cover_h + corner_r, corner_r);
+    ctx.clip();
+
+    ctx.set_fill_style_str("#111827");
+    ctx.fill_rect(card_x, card_y, card_w, cover_h);
+
+    let fs = css_filter_string(filter);
+    if fs != "none" { ctx.set_filter(fs); }
+
+    if iw > 0.0 && ih > 0.0 {
+        let s  = (card_w / iw).min(cover_h / ih);
+        let dw = iw * s; let dh = ih * s;
+        let dx = card_x + (card_w - dw) / 2.0;
+        let dy = card_y + (cover_h - dh) / 2.0;
+        ctx.draw_image_with_html_image_element_and_dw_and_dh(&img, dx, dy, dw, dh)
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    ctx.set_filter("none");
+    ctx.restore();
+
+    // ── Bottom gradient on cover (fade into card body) ───────────────────────
+    let fade_start = card_y + cover_h * 0.5;
+    let fade_end   = card_y + cover_h;
+    if let Ok(g) = ctx.create_linear_gradient(0.0, fade_start, 0.0, fade_end)
+        .dyn_into::<web_sys::CanvasGradient>()
+    {
+        let _ = g.add_color_stop(0.0, "rgba(13,13,24,0.0)");
+        let _ = g.add_color_stop(1.0, "rgba(13,13,24,0.95)");
+        let _ = ctx.set_fill_style_canvas_gradient(&g);
+        ctx.fill_rect(card_x, fade_start, card_w, fade_end - fade_start);
+    }
+
+    // ── Card body ────────────────────────────────────────────────────────────
+    let body_top = card_y + cover_h;
+
+    // Badge: green dot + "KINETIC EXCLUSIVE" label
+    let badge_mid_y = body_top + pad + badge_h * 0.5;
+    let dot_cx      = card_x + pad + badge_dot_r;
+    ctx.begin_path();
+    let _ = ctx.arc(dot_cx, badge_mid_y, badge_dot_r, 0.0, std::f64::consts::TAU);
+    ctx.set_fill_style_str("#39ff8a");
+    ctx.fill();
+
+    ctx.set_font(&format!(
+        "700 {badge_fs}px -apple-system, BlinkMacSystemFont, sans-serif"
+    ));
+    ctx.set_fill_style_str("rgba(255,255,255,0.65)");
+    ctx.set_text_align("left");
+    ctx.set_text_baseline("middle");
+    let _ = ctx.fill_text(
+        "KINETIC EXCLUSIVE",
+        dot_cx + badge_dot_r + badge_fs * 0.55,
+        badge_mid_y,
+    );
+
+    // Title (multi-line, Bebas Neue)
+    let title_top = body_top + pad + badge_h + title_gap;
+    ctx.set_font(&format!(
+        "bold {title_fs}px \"Bebas Neue\", \"Arial Black\", sans-serif"
+    ));
+    ctx.set_fill_style_str("#ffffff");
+    ctx.set_text_baseline("top");
+    for (i, line) in title_lines.iter().enumerate() {
+        let _ = ctx.fill_text(line, card_x + pad, title_top + i as f64 * title_line_h);
+    }
+
+    // Separator line
+    let sep_y = title_top + title_h + sep_gap;
+    ctx.set_fill_style_str("rgba(255,255,255,0.14)");
+    ctx.fill_rect(card_x + pad, sep_y, card_w - 2.0 * pad, 2.0);
+
+    // "DATE & VENUE" eyebrow label
+    let meta_lbl_top = sep_y + 2.0 + sep_gap;
+    ctx.set_font(&format!(
+        "{meta_lbl_fs}px -apple-system, BlinkMacSystemFont, sans-serif"
+    ));
+    ctx.set_fill_style_str("rgba(255,255,255,0.42)");
+    ctx.set_text_baseline("top");
+    let _ = ctx.fill_text("DATE & VENUE", card_x + pad, meta_lbl_top);
+
+    // Date (left) + Venue (right)
+    let meta_row_top = meta_lbl_top + meta_lbl_fs + 8.0 + 8.0;
+    let meta_mid_y   = meta_row_top + meta_row_fs * 0.68;
+    ctx.set_font(&format!(
+        "600 {meta_row_fs}px -apple-system, BlinkMacSystemFont, sans-serif"
+    ));
+    ctx.set_fill_style_str("#ffffff");
+    ctx.set_text_baseline("middle");
+    let display_date = if date.trim().is_empty() { "—" } else { date };
+    ctx.set_text_align("left");
+    let _ = ctx.fill_text(display_date, card_x + pad, meta_mid_y);
+    if !venue.trim().is_empty() {
+        ctx.set_text_align("right");
+        let _ = ctx.fill_text(venue, card_x + card_w - pad, meta_mid_y);
+    }
+
+    // Price pill
+    if !price.trim().is_empty() {
+        let pill_top = meta_row_top + meta_row_h + 20.0;
+        ctx.set_font(&format!(
+            "bold {pill_fs}px -apple-system, BlinkMacSystemFont, sans-serif"
+        ));
+        let pill_tw = ctx.measure_text(price).map(|m| m.width()).unwrap_or(200.0);
+        let pill_w  = pill_tw + 2.0 * pill_pad_x;
+
+        ctx.set_fill_style_str("rgba(57,255,138,0.11)");
+        round_rect_path(ctx, card_x + pad, pill_top, pill_w, pill_h, pill_h / 2.0);
+        ctx.fill();
+
+        ctx.set_stroke_style_str("rgba(57,255,138,0.5)");
+        ctx.set_line_width(1.8);
+        round_rect_path(ctx, card_x + pad, pill_top, pill_w, pill_h, pill_h / 2.0);
+        ctx.stroke();
+
+        ctx.set_fill_style_str("#39ff8a");
+        ctx.set_text_align("left");
+        ctx.set_text_baseline("middle");
+        let _ = ctx.fill_text(price, card_x + pad + pill_pad_x, pill_top + pill_h * 0.5);
+    }
+
+    Ok(())
+}
+
 // ── BgExport enum (used in page.rs and canvas export) ─────────────────────────
 
 #[derive(Clone)]

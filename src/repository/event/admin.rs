@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use super::db::{exec_drop, exec_one, exec_rows};
+use crate::repository::db::{exec_drop, exec_one, exec_rows};
 use super::helpers::{ADMIN_UPDATE_EVENT_STATUS, EVENT_COLS, VARIANT_STATS_LATERAL};
 use super::{EventFilterOwned, EventListFilter, PgEventRepository};
 use crate::models::events::Event;

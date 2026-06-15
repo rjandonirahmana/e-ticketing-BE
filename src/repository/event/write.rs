@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-use super::db::{exec_drop, exec_rows, get_conn};
+use crate::repository::db::{exec_drop, exec_rows, get_conn};
 use super::helpers::{
     generate_slug, is_unique_violation, DELETE_EVENT, INSERT_EVENT, UPDATE_EVENT, VARIANT_COLS,
     VARIANT_INSERT_COLS,

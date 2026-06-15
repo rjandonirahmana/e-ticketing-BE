@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use super::db::{exec_drop, exec_first};
+use crate::repository::db::{exec_drop, exec_first};
 use super::helpers::{DELETE_VARIANT, FIND_VARIANT_BY_ID, UPDATE_VARIANT};
 use super::PgEventRepository;
 use crate::models::event_variants::EventVariant;

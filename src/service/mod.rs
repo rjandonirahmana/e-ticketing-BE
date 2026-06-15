@@ -10,3 +10,5 @@ pub mod storage_ext; // ← NEW: extend StorageService untuk video upload
 pub mod story; // ← NEW
 pub mod telegram;
 pub mod ticket;
+
+pub mod order;
