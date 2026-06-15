@@ -23,8 +23,10 @@ RUN rustup target add wasm32-unknown-unknown
 RUN cargo install cargo-leptos --locked
 
 WORKDIR /app
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml Cargo.lock build.rs ./
+COPY src/      ./src/
 COPY proto/    ./proto/
+COPY styles/   ./styles/
 
 # Build WASM + CSS → target/site/
 RUN cargo leptos build --release 2>&1
