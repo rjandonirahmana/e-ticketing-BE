@@ -1,10 +1,10 @@
-//! Banner slider di home page — diisi dari event terbaru via GET /events
+//! Banner slider di home page — diisi dari event terbaru via server function.
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
-use crate::csr::models::ListEventsRequest;
-use crate::csr::services::event as event_svc;
-use crate::csr::utils::format_number;
+use crate::web::api::get_events;
+use crate::web::models::{format_date, Event};
+use crate::web::utils::format_number;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Banner {
@@ -16,6 +16,25 @@ pub struct Banner {
     pub price:    String,
     pub cover:    String,
     pub href:     String,
+}
+
+fn event_to_banner(e: &Event) -> Banner {
+    let price = if e.display_price <= 0.0 {
+        "FREE".into()
+    } else {
+        format!("Rp{}", format_number(e.display_price as i64))
+    };
+    let dt = e.start_time.unwrap_or(e.event_date);
+    Banner {
+        id:       e.id.clone(),
+        title:    e.name.clone(),
+        subtitle: e.venue.clone().unwrap_or_default(),
+        badge:    e.status.to_uppercase(),
+        date:     format_date(&dt),
+        price,
+        cover:    e.cover_url.clone().unwrap_or_default(),
+        href:     format!("/events/{}", e.slug),
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -30,7 +49,6 @@ impl BannersCtx {
         if is_server() {
             return;
         }
-        // Guard: jangan fetch ulang kalau sudah/sedang loading
         if self.loading.get_untracked() {
             return;
         }
@@ -38,36 +56,8 @@ impl BannersCtx {
         let items   = self.items;
         let loading = self.loading;
         spawn_local(async move {
-            let req = ListEventsRequest {
-                category:  String::new(),
-                query:     String::new(),
-                page:      1,
-                page_size: 5,
-            };
-            if let Ok(res) = event_svc::list_events(&req).await {
-                let banners = res.events.iter().map(|e| {
-                    let price = e
-                        .tiers
-                        .first()
-                        .map(|t| {
-                            if t.price_idr == 0 {
-                                "FREE".into()
-                            } else {
-                                format!("Rp{}", format_number(t.price_idr))
-                            }
-                        })
-                        .unwrap_or_else(|| "TBA".into());
-                    Banner {
-                        id:       e.id.clone(),
-                        title:    e.title.clone(),
-                        subtitle: e.venue.name.clone(),
-                        badge:    e.status.to_uppercase(),
-                        date:     e.start_time.clone(),
-                        price,
-                        cover:    e.cover_url.clone(),
-                        href:     format!("/events/{}", e.slug),
-                    }
-                }).collect();
+            if let Ok(res) = get_events(Some(1), None, None, None, Some(5)).await {
+                let banners = res.data.iter().map(event_to_banner).collect();
                 items.set(banners);
             }
             loading.set(false);

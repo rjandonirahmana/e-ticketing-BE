@@ -14,16 +14,6 @@
 html {
     scroll-behavior: smooth;
 }
-
-/* ── FOUC PREVENTION ────────────────────────────────────────────────────────
-   Saat WASM hydrate(), lib.rs set body opacity=0 sebelum swap SSR→CSR.
-   CSS transition ini memastikan restore opacity (dari csr/app.rs Effect)
-   terasa smooth (fade-in 150ms) alih-alih langsung muncul.
-   Tidak mempengaruhi SSR render awal — opacity CSS default tetap 1. */
-body {
-    will-change: opacity; /* hint ke browser agar siapkan composite layer */
-}
-
 body {
     background-color: var(--bg-page);
     color: var(--text-primary);
@@ -221,9 +211,23 @@ h5 {
     transform: translateX(-50%); /* re-assert, no translateY */
 }
 
+/* Ensure <main> always takes full viewport width — prevents shimmer width collapse */
+main {
+    display: block;
+    width: 100%;
+    min-height: 100dvh;
+}
+
 /* Page bottom padding accounts for nav + safe area */
 .page {
     padding-bottom: calc(72px + env(safe-area-inset-bottom, 12px));
+}
+
+/* Generic content container — same 480px width as .page */
+.container {
+    width: 100%;
+    max-width: 480px;
+    margin: 0 auto;
 }
 /* ══════════════════════════════════════════════════════════════════════════════
    MOBILE TAP HIGHLIGHT FIX — Hapus kotak biru/highlight saat touch di mobile

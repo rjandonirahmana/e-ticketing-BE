@@ -218,7 +218,7 @@ impl AuthService {
             })?;
 
         tracing::debug!("User created: id={}", user.id);
-        Ok(self.build_auth_response(user))
+        self.build_auth_response(user)
     }
     // ── LOGIN ──────────────────────────────────────────────────────────────────
 
@@ -265,7 +265,7 @@ impl AuthService {
             return Err(AppError::Unauthorized("Invalid email or password".into()));
         }
 
-        Ok(self.build_auth_response(record.user))
+        self.build_auth_response(record.user)
     }
 
     // ── ME / PROFILE ───────────────────────────────────────────────────────────
@@ -329,19 +329,16 @@ impl AuthService {
         Ok(())
     }
 
-    fn build_auth_response(&self, user: User) -> AuthResponse {
-        // email nullable — JWT pakai empty string jika None
-
+    fn build_auth_response(&self, user: User) -> AppResult<AuthResponse> {
         let token = self
             .jwt
-            .sign(&user.id, &user.name, &user.phone, &user.role.to_string())
-            .expect("sign jwt");
-        AuthResponse {
+            .sign(&user.id, &user.name, &user.phone, &user.role.to_string())?;
+        Ok(AuthResponse {
             access_token: token,
             token_type: "Bearer".into(),
             expires_in: self.jwt_expiry_hours * 3600,
             user: user.into(),
-        }
+        })
     }
 }
 

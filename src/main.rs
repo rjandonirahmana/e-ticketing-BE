@@ -1,17 +1,15 @@
-//! main.rs — Entry point backend e-ticketing (API + Leptos SSR).
+//! main.rs — Entry point backend e-ticketing (Leptos SSR + WebSocket).
 //!
 //! Cara jalankan:
-//!   cargo run                     # SSR + API (tanpa WASM hydration)
-//!   cargo leptos watch            # SSR + API + WASM hydration (full dev)
+//!   cargo run                     # SSR (tanpa WASM hydration)
+//!   cargo leptos watch            # SSR + WASM hydration (full dev)
 //!
 //! Satu binary, satu port:
-//!   /api/*      → REST API handlers (Axum)
-//!   /api-fn/*   → Leptos server functions
+//!   /api-fn/*   → Leptos server functions (direct service calls)
 //!   /pkg/*      → Static assets (WASM/JS/CSS) — butuh cargo leptos build
+//!   /ws/*       → WebSocket
 //!   /*          → Leptos SSR rendering
 
-// View Leptos membangun tipe nested sangat dalam (terutama ExplorePage);
-// batas default 128 tidak cukup → naikkan agar type-checking tidak overflow.
 #![recursion_limit = "512"]
 
 use std::sync::Arc;
@@ -20,29 +18,14 @@ use anyhow::Result;
 use tokio::net::TcpListener;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-mod config;
-mod middleware;
-mod models;
-mod proto;
-mod repository;
-mod routes;
-mod service;
-mod state;
-mod utils;
-mod web;
-mod ws;
-// Modul CSR dicompile sebagai rlib di server (tanpa WASM),
-// referensinya hanya dari src/lib.rs saat feature "hydrate".
-#[allow(dead_code)]
-mod csr;
-
-use config::{config::AppConfig, database::create_pool};
-use service::telegram::TelegramService;
-use state::AppState;
-use utils::error::init_telegram_notifier;
-use web::app::{shell, App};
-use ws::handler::WsAppState;
-use ws::routes::chat_router;
+use e_ticketing::config::{config::AppConfig, database::create_pool};
+use e_ticketing::service::telegram::TelegramService;
+use e_ticketing::state::AppState;
+use e_ticketing::utils::error::init_telegram_notifier;
+use e_ticketing::web::api::upload::story_upload;
+use e_ticketing::web::app::{shell, App};
+use e_ticketing::ws::handler::WsAppState;
+use e_ticketing::ws::routes::chat_router;
 
 use leptos::config::get_configuration;
 use leptos_axum::{generate_route_list, LeptosRoutes};
@@ -64,7 +47,6 @@ async fn main() -> Result<()> {
         .init();
 
     let cfg = AppConfig::from_env()?;
-    let addr = format!("{}:{}", cfg.host, cfg.port);
 
     tracing::info!(host = %cfg.host, port = cfg.port, "Config loaded");
 
@@ -77,7 +59,7 @@ async fn main() -> Result<()> {
         init_telegram_notifier(tg);
         tracing::info!(
             admin_chat_id = cfg.telegram.admin_chat_id,
-            "Telegram alert aktif ✅"
+            "Telegram alert aktif"
         );
     } else {
         tracing::warn!("TELEGRAM_BOT_TOKEN/TELEGRAM_ADMIN_CHAT_ID tidak di-set");
@@ -126,27 +108,14 @@ async fn main() -> Result<()> {
     // ── CORS ─────────────────────────────────────────────────────────────────
     let cors = build_cors(&cfg);
 
-    // ── API router (semua /api/* routes) ────────────────────────────────────
-    let api_router = routes::build_router(state.clone())
-        .merge(chat_router(ws_state, state.clone()))
-        .layer(cors);
-
     // ── Leptos SSR router ─────────────────────────────────────────────────────
     let leptos_conf =
-        get_configuration(Some("Cargo.toml")).expect("[package.metadata.leptos] tidak ditemukan di Cargo.toml");
+        get_configuration(Some("Cargo.toml")).expect("[package.metadata.leptos] not found");
     let leptos_options = leptos_conf.leptos_options;
-
-    // Gunakan site_addr dari [package.metadata.leptos] sebagai bind address.
-    // Ini penting agar cargo leptos watch bisa detect server di port yang benar.
-    // Override via env: LEPTOS_SITE_ADDR=0.0.0.0:8080
     let bind_addr = leptos_options.site_addr.to_string();
-
     let site_root = leptos_options.site_root.to_string();
-    tracing::info!(
-        site_root = %site_root,
-        bind_addr = %bind_addr,
-        "Leptos static assets dir (WASM/CSS)"
-    );
+
+    tracing::info!(site_root = %site_root, bind_addr = %bind_addr, "Leptos static assets dir");
 
     let ssr_routes = generate_route_list(App);
 
@@ -156,22 +125,27 @@ async fn main() -> Result<()> {
             move || shell(opts.clone())
         })
         .fallback(leptos_axum::file_and_error_handler(shell))
+        // Provide AppState as Axum Extension so server functions can extract it
+        .layer(axum::Extension(state.clone()))
         .with_state(leptos_options);
 
-    // ── Gabung API + SSR + CSS ───────────────────────────────────────────────
-    // `/styles/*.css` disajikan dari CSS yang di-embed ke binary (lihat
-    // `web::assets`). Di-merge di level paling atas agar tidak tertutup oleh
-    // fallback SSR dan tidak bergantung working-directory.
-    let app = api_router
-        .merge(crate::web::assets::router())
+    // ── Upload routes ─────────────────────────────────────────────────────────
+    let upload_router: axum::Router = axum::Router::new()
+        .route("/upload/story", axum::routing::post(story_upload))
+        .layer(axum::Extension(state.clone()));
+
+    // ── WebSocket + CSS assets + SSR ─────────────────────────────────────────
+    let app = chat_router(ws_state, state.clone())
+        .layer(cors)
+        .merge(e_ticketing::web::assets::router())
+        .merge(upload_router)
         .merge(leptos_router);
 
     let listener = TcpListener::bind(&bind_addr).await?;
-    tracing::info!("🚀 Pulse (API + SSR) listening on http://{}", bind_addr);
-    tracing::info!("   API          : http://{}/api/*", bind_addr);
+    tracing::info!("Pulse (SSR + WebSocket) listening on http://{}", bind_addr);
     tracing::info!("   Server fns   : http://{}/api-fn/*", bind_addr);
     tracing::info!("   SSR pages    : http://{}/*", bind_addr);
-    tracing::info!("   Tip: pakai 'cargo leptos watch' untuk dev dengan WASM hydration");
+    tracing::info!("   WebSocket    : http://{}/ws/*", bind_addr);
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())

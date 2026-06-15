@@ -19,10 +19,25 @@ static ALLOC: lol_alloc::AssumeSingleThreaded<lol_alloc::FreeListAllocator> =
 #[cfg(any(feature = "ssr", feature = "hydrate"))]
 pub mod web;
 
-// Modul csr dipertahankan untuk hooks/providers yang mungkin masih di-import
-// oleh komponen di web/. Jika seluruh state management sudah dipindahkan ke
-// web/, baris ini bisa dihapus.
-pub mod csr;
+// Server-only modules — tidak dikompilasi untuk WASM
+#[cfg(not(target_arch = "wasm32"))]
+pub mod config;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod middleware;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod models;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod proto;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod repository;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod service;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod state;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod utils;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod ws;
 
 #[cfg(feature = "hydrate")]
 #[wasm_bindgen::prelude::wasm_bindgen]

@@ -1,4 +1,4 @@
-use axum::{extract::State, http::header, middleware::Next, response::Response};
+use axum::{extract::State, middleware::Next, response::Response};
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
 use std::sync::Arc;

@@ -80,26 +80,46 @@ gloo-timers = { version = "0.3", features = ["futures"] }
 getrandom = "0.3"
 qrcodegen = "1.8"
 web-sys = { version = "0.3", features = [
-    "Window", "Document", "Element", "HtmlElement", "Node", "NodeList",
-    "Event", "EventTarget", "MouseEvent", "KeyboardEvent", "TouchEvent",
-    "TouchList", "Touch", "FocusEvent", "InputEvent", "WheelEvent", "PointerEvent",
-    "HtmlInputElement", "HtmlTextAreaElement", "HtmlSelectElement",
-    "HtmlFormElement", "FormData", "File", "FileList", "FileReader", "FilePropertyBag",
-    "HtmlCanvasElement", "HtmlVideoElement", "HtmlImageElement",
-    "CanvasRenderingContext2d", "ImageData", "CanvasGradient",
-    "Url", "UrlSearchParams", "History", "Location",
-    "WebSocket", "BinaryType", "MessageEvent", "CloseEvent",
-    "Blob", "BlobPropertyBag", "Storage", "Navigator",
-    "WorkerGlobalScope", "Performance",
-    "CssStyleDeclaration", "DomRect", "ScrollIntoViewOptions", "ScrollBehavior",
-    "MediaDevices", "MediaStream", "MediaStreamConstraints",
-    "MediaStreamTrack", "MediaTrackConstraints", "MediaTrackConstraintSet",
-    "Clipboard", "ClipboardEvent",
-    "Geolocation", "GeolocationPosition", "GeolocationCoordinates", "PositionOptions",
-    "IntersectionObserver", "IntersectionObserverEntry", "IntersectionObserverInit",
-    "ResizeObserver", "ResizeObserverEntry",
-    "Notification", "NotificationPermission",
-    "FontFaceSet", "MediaQueryList",
+    "Window",
+    "Document",
+    "Element",
+    "HtmlElement",
+    "Node",
+    "Event",
+    "EventTarget",
+    "MouseEvent",
+    "KeyboardEvent",
+    "TouchEvent",
+    "TouchList",
+    "Touch",
+    "PointerEvent",
+    "HtmlInputElement",
+    "HtmlAnchorElement",
+    "FormData",
+    "File",
+    "FileList",
+    "FilePropertyBag",
+    "HtmlCanvasElement",
+    "HtmlVideoElement",
+    "HtmlImageElement",
+    "CanvasRenderingContext2d",
+    "CanvasGradient",
+    "Url",
+    "UrlSearchParams",
+    "WebSocket",
+    "MessageEvent",
+    "Blob",
+    "Storage",
+    "StorageEvent",
+    "Navigator",
+    "Clipboard",
+    "Performance",
+    "DomRect",
+    "FontFaceSet",
+    "AddEventListenerOptions",
+    "Request",
+    "RequestInit",
+    "Response",
 ] }
 
 # ── Server-only deps (TIDAK dikompilasi untuk wasm32) ─────────────────────────
@@ -121,7 +141,9 @@ tower-http = { version = "0.6.10", features = ["cors", "trace", "fs"] }
 
 # Database
 tokio-postgres = { version = "0.7.9", features = [
-    "with-uuid-1", "with-chrono-0_4", "with-serde_json-1",
+    "with-uuid-1",
+    "with-chrono-0_4",
+    "with-serde_json-1",
 ] }
 postgres-types = { version = "0.2.13", features = ["derive"] }
 deadpool-postgres = "0.14.1"
@@ -172,6 +194,14 @@ tonic-prost-build = "0.14.6"
 anyhow = "1"
 
 # ── Performance profiles ───────────────────────────────────────────────────────
+# Naikkan opt-level dependencies di dev → WASM binary lebih kecil, hydration lebih cepat.
+# Kompilasi ulang dependencies-nya sekali saja; subsequent build tetap inkremental.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
+
 [profile.dev.package.bcrypt]
 opt-level = 3
 [profile.dev.package.blowfish]

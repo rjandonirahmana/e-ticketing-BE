@@ -1,10 +1,10 @@
 /// Page yang ditampilkan setelah pembayaran berhasil.
-/// Membaca order_id dari query param (?order_id=...) atau context signal.
 use leptos::prelude::*;
 use leptos_router::components::A;
 use leptos_router::hooks::use_query_map;
 
 use crate::web::app::PendingOrderCtx;
+use crate::web::components::ThemeToggle;
 
 fn format_idr(amount: i64) -> String {
     if amount == 0 {
@@ -68,12 +68,15 @@ pub fn PaymentSuccessPage() -> impl IntoView {
             <header class="page-header">
                 <div style="width:36px"></div>
                 <span class="page-logo">"PULSE"</span>
-                <A href="/profile" attr:class="nav-avatar">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                        <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
-                        <circle cx="12" cy="7" r="4"/>
-                    </svg>
-                </A>
+                <div class="header-actions">
+                    <ThemeToggle />
+                    <A href="/profile" attr:class="nav-avatar">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+                            <circle cx="12" cy="7" r="4"/>
+                        </svg>
+                    </A>
+                </div>
             </header>
 
             // ── Success hero ─────────────────────────────────────────────
@@ -136,34 +139,6 @@ pub fn PaymentSuccessPage() -> impl IntoView {
                 <A href="/explore" attr:class="ps-secondary-btn">"Back to Home"</A>
             </div>
 
-            <style>
-                "
-                .ps-page { min-height:100vh; display:flex; flex-direction:column; }
-                .ps-hero { display:flex; flex-direction:column; align-items:center; padding:40px 24px 32px; text-align:center; }
-                .ps-check-circle { width:90px; height:90px; border-radius:50%; background:rgba(200,255,94,0.1); border:1px solid rgba(200,255,94,0.3); display:flex; align-items:center; justify-content:center; margin-bottom:20px; animation:ps-pop 0.4s cubic-bezier(0.34,1.56,0.64,1); }
-                .ps-check-inner { color:#c8ff5e; }
-                @keyframes ps-pop { from{transform:scale(0.5);opacity:0} to{transform:scale(1);opacity:1} }
-                .ps-title { font-family:'Bebas Neue',sans-serif; font-size:28px; letter-spacing:2px; color:#fff; margin:0 0 8px; }
-                .ps-sub { color:#6666aa; font-size:13px; }
-                .ps-card { margin:0 16px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:20px; }
-                .ps-card-top { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; }
-                .ps-card-label { font-size:10px; letter-spacing:1.5px; color:#444466; font-weight:600; margin-bottom:4px; }
-                .ps-card-event { font-size:16px; font-weight:700; color:#fff; }
-                .ps-card-price-row { display:flex; justify-content:space-between; align-items:center; }
-                .ps-card-price { font-size:20px; font-weight:800; color:#c8ff5e; font-family:'Bebas Neue',sans-serif; letter-spacing:1px; }
-                .ps-meta-card { margin:0 16px 12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:14px; padding:16px 20px; }
-                .ps-meta-row { display:flex; justify-content:space-between; align-items:center; padding:10px 0; }
-                .ps-meta-label { font-size:12px; color:#6666aa; }
-                .ps-meta-val { font-size:13px; color:#ccc; font-weight:500; }
-                .ps-meta-divider { height:1px; background:rgba(255,255,255,0.05); }
-                .ps-status { display:flex; align-items:center; gap:6px; }
-                .ps-status-dot { width:8px; height:8px; background:#c8ff5e; border-radius:50%; animation:ps-blink 1.5s infinite; }
-                @keyframes ps-blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
-                .ps-actions { margin:16px; display:flex; flex-direction:column; gap:12px; }
-                .ps-primary-btn { display:flex; align-items:center; justify-content:center; gap:8px; background:#c8ff5e; color:#0d0d1a; border-radius:14px; padding:16px 24px; font-weight:700; font-size:13px; letter-spacing:1.5px; text-decoration:none; }
-                .ps-secondary-btn { display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#aaa; border-radius:14px; padding:15px 24px; font-size:13px; text-decoration:none; }
-                "
-            </style>
         </div>
     }
 }

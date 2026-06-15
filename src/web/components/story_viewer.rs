@@ -6,7 +6,7 @@
 //   P1-b  seg_fill_refs vector — fresh NodeRefs tiap render, bukan resize incremental
 //   Refactor: helper cancel_raf / start_raf agar DRY
 
-use crate::csr::components::audio_pill::AudioPill;
+use crate::web::components::audio_pill::AudioPill;
 use leptos::either::Either;
 use leptos::html::{Div, Video};
 use leptos::prelude::*;
@@ -15,7 +15,7 @@ use leptos::wasm_bindgen::JsCast;
 use send_wrapper::SendWrapper;
 use web_sys::js_sys;
 
-use crate::csr::state::stories::{use_stories_store, StoryMediaType};
+use crate::web::state::stories::{use_stories_store, StoryMediaType};
 
 // ── Konstanta ──────────────────────────────────────────────────────────
 const STORY_DURATION_MS: f64 = 5_000.0;
@@ -48,13 +48,16 @@ impl Default for RafState {
 }
 
 // ── Helper: cancel / start RAF (DRY) ──────────────────────────────────
-fn cancel_raf(raf_id: &StoredValue<i32>) {
-    let id = raf_id.get_value();
-    if id != 0 {
-        if let Some(win) = web_sys::window() {
-            win.cancel_animation_frame(id);
+fn cancel_raf(_raf_id: &StoredValue<i32>) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let id = _raf_id.get_value();
+        if id != 0 {
+            if let Some(win) = web_sys::window() {
+                win.cancel_animation_frame(id);
+            }
+            _raf_id.set_value(0);
         }
-        raf_id.set_value(0);
     }
 }
 
@@ -109,7 +112,7 @@ pub fn StoryViewer() -> impl IntoView {
     // FIX P1-b: NodeRef progress bars — BUKAN di-resize tiap render,
     // melainkan dibuat fresh di view dan disimpan ke sini oleh view closure
     let seg_fill_refs: StoredValue<Vec<NodeRef<Div>>> = StoredValue::new(Vec::new());
-    let transform_buf: StoredValue<String> = StoredValue::new(String::with_capacity(32));
+    let _transform_buf: StoredValue<String> = StoredValue::new(String::with_capacity(32));
 
     // Video ref & misc
     let video_ref = NodeRef::<Video>::new();
@@ -176,14 +179,15 @@ pub fn StoryViewer() -> impl IntoView {
     };
 
     // ══════════════════════════════════════════════════════════════════
-    // INIT: RAF closure permanen
+    // INIT: RAF closure permanen (wasm32 only — Closure::new panics on SSR)
     // ══════════════════════════════════════════════════════════════════
+    #[cfg(target_arch = "wasm32")]
     if raf_closure.with_value(|o| o.is_none()) {
         let cb = Closure::<dyn Fn()>::new({
             let raf_id = raf_id.clone();
             let raf_state = raf_state.clone();
             let seg_fill_refs = seg_fill_refs.clone();
-            let transform_buf = transform_buf.clone();
+            let _transform_buf = _transform_buf.clone();
             let raf_closure = raf_closure.clone();
             let ctx = ctx.clone();
             move || {
@@ -210,7 +214,7 @@ pub fn StoryViewer() -> impl IntoView {
                 if let Some(node_ref) = fills.get(st.active_idx) {
                     if let Some(el) = node_ref.get() {
                         let html_el: &web_sys::HtmlElement = el.unchecked_ref();
-                        transform_buf.update_value(|buf| {
+                        _transform_buf.update_value(|buf| {
                             buf.clear();
                             use std::fmt::Write;
                             let _ = write!(buf, "scaleX({:.5})", p);
@@ -634,6 +638,7 @@ pub fn StoryViewer() -> impl IntoView {
             drop(old);
         }
 
+        #[cfg(target_arch = "wasm32")]
         if let Some(win) = web_sys::window() {
             if let Some(Some(old)) = kb_fn.try_update_value(|o| o.take()) {
                 let _ = win.remove_event_listener_with_callback(

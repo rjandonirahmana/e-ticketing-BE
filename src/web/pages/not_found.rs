@@ -1,6 +1,8 @@
 use leptos::prelude::*;
 use leptos_router::components::A;
 
+use crate::web::hooks::ThemeToggle;
+
 #[component]
 pub fn NotFoundPage() -> impl IntoView {
     view! {
@@ -23,8 +25,8 @@ pub fn NotFoundPage() -> impl IntoView {
                         <polyline points="15 18 9 12 15 6"/>
                     </svg>
                 </A>
-                <span class="page-logo">"PULSE"</span>
-                <div style="width:36px"></div>
+                <span class="page-logo">"KINETIC"</span>
+                <ThemeToggle/>
             </header>
 
             <div class="nf-content">

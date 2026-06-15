@@ -17,13 +17,12 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::json;
 
 use crate::{
     middleware::auth::{AuthUser, require_auth},
     models::group_chat::HistoryQuery,
-    service::group_chat::GroupChatService,
     state::AppState,
     utils::error::AppError,
     ws::handler::{WsAppState, ws_chat},

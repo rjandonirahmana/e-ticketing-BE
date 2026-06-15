@@ -606,6 +606,82 @@
     box-sizing: border-box;
 }
 
+/* ── Action bar (submit + cancel row) ──────────────────────────────────── */
+.medit-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 8px;
+    width: 100%;
+}
+
+/* Primary action — same visual weight as medit-update-btn */
+.medit-submit-btn {
+    width: 100%;
+    padding: 15px 24px;
+    background: var(--accent-lime);
+    border: none;
+    border-radius: 14px;
+    color: #0a0a14;
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.1s;
+    appearance: none;
+    -webkit-appearance: none;
+    margin: 0;
+    text-align: center;
+    white-space: nowrap;
+}
+.medit-submit-btn:hover { opacity: 0.9; }
+.medit-submit-btn:active { transform: scale(0.98); }
+.medit-submit-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+/* Secondary / cancel */
+.medit-cancel-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 13px 24px;
+    background: transparent;
+    border: 1.5px solid var(--border-strong);
+    border-radius: 14px;
+    color: var(--text-secondary);
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    text-decoration: none;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+    white-space: nowrap;
+    text-align: center;
+}
+.medit-cancel-btn:hover {
+    border-color: var(--border-soft);
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="light"] .medit-submit-btn { color: #fff; }
+[data-theme="light"] .medit-cancel-btn {
+    border-color: var(--border-strong);
+    color: var(--text-secondary);
+}
+[data-theme="light"] .medit-cancel-btn:hover {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+}
+
 /* Publish / Update button */
 .medit-update-btn {
     width: 100%;

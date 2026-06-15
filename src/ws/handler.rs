@@ -36,7 +36,6 @@ use axum::{
 use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
 use tokio::sync::Semaphore;
-use tokio_util::sync::CancellationToken;
 
 use crate::{
     models::auth::Claims,

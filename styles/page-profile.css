@@ -50,19 +50,21 @@
 }
 .avatar-edit {
     position: absolute;
-    bottom: 4px;
-    right: 4px;
-    width: 30px;
-    height: 30px;
+    bottom: 2px;
+    right: 2px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     background: var(--accent-lime);
-    border: none;
+    border: 2px solid var(--bg-page);
     cursor: pointer;
     color: var(--text-on-accent);
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: opacity 0.15s, transform 0.1s;
 }
+.avatar-edit:hover { opacity: 0.9; transform: scale(1.05); }
 .profile-name {
     font-family: var(--font-display);
     font-size: 36px;
@@ -435,8 +437,8 @@
     background: var(--bg-elevated-2);
 }
 .profile-exp-share-btn {
-    width: 28px;
-    height: 28px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
@@ -445,9 +447,10 @@
     justify-content: center;
     color: var(--text-secondary);
     cursor: pointer;
-    transition: background 0.2s;
+    transition: background 0.2s, color 0.2s;
     flex-shrink: 0;
 }
+.profile-exp-share-btn:active { opacity: 0.7; }
 .profile-exp-share-btn:hover {
     background: var(--bg-elevated-2);
 }

@@ -11,7 +11,7 @@ use leptos::wasm_bindgen::prelude::*;
 use leptos::wasm_bindgen::JsCast;
 use web_sys::HtmlElement;
 
-use crate::csr::state::stories::{OverlayType, StoryOverlay};
+use crate::web::state::stories::{OverlayType, StoryOverlay};
 
 const FRICTION: f64 = 0.88;
 const THRESHOLD: f64 = 0.15;
@@ -336,7 +336,7 @@ pub fn DraggableOverlay(
         let pending_id = raf_id.get_value();
         if pending_id != 0 {
             if let Some(win) = web_sys::window() {
-                win.cancel_animation_frame(pending_id);
+                let _ = win.cancel_animation_frame(pending_id);
             }
             raf_id.set_value(0);
         }
@@ -373,7 +373,7 @@ pub fn DraggableOverlay(
         let pending = raf_id.get_value();
         if pending != 0 {
             if let Some(win) = web_sys::window() {
-                win.cancel_animation_frame(pending);
+                let _ = win.cancel_animation_frame(pending);
             }
             raf_id.set_value(0);
         }

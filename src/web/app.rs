@@ -21,7 +21,8 @@
 use leptos::prelude::*;
 use leptos_meta::*;
 use leptos_router::{
-    components::{FlatRoutes, Redirect, Route, Router},
+    components::{FlatRoutes, Route, Router},
+    hooks::use_location,
     path,
 };
 
@@ -43,6 +44,55 @@ pub struct SuccessSnapshot {
 #[derive(Clone, Copy)]
 pub struct CartContext {
     pub items: RwSignal<Vec<CartItem>>,
+}
+
+impl CartContext {
+    pub fn get_qty(&self, tier_id: &str) -> i32 {
+        self.items.with(|v| {
+            v.iter().find(|i| i.tier_id == tier_id).map(|i| i.quantity).unwrap_or(0)
+        })
+    }
+
+    pub fn add_item(&self, item: CartItem) {
+        self.items.update(|v| {
+            if let Some(existing) = v.iter_mut().find(|i| i.tier_id == item.tier_id) {
+                existing.quantity += item.quantity;
+            } else {
+                v.push(item);
+            }
+        });
+        self.persist();
+    }
+
+    pub fn update_qty(&self, tier_id: &str, qty: i32) {
+        if qty <= 0 {
+            let t = tier_id.to_string();
+            self.items.update(|v| v.retain(|i| i.tier_id != t));
+        } else {
+            let t = tier_id.to_string();
+            self.items.update(|v| {
+                if let Some(it) = v.iter_mut().find(|i| i.tier_id == t) {
+                    it.quantity = qty;
+                }
+            });
+        }
+        self.persist();
+    }
+
+    fn persist(&self) {
+        #[cfg(target_arch = "wasm32")]
+        self.items.with(|v| {
+            if let Some(win) = web_sys::window() {
+                if let Ok(Some(storage)) = win.local_storage() {
+                    if v.is_empty() {
+                        let _ = storage.remove_item("pulse_cart");
+                    } else if let Ok(json) = serde_json::to_string(v) {
+                        let _ = storage.set_item("pulse_cart", &json);
+                    }
+                }
+            }
+        });
+    }
 }
 
 /// SSR-specific PendingOrderCtx (lebih lengkap dari CSR versi order_created.rs).
@@ -109,6 +159,7 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                 <style inner_html=include_str!("../../styles/subscription.css") />
                 <style inner_html=include_str!("../../styles/profile_premium.css") />
                 <style inner_html=include_str!("../../styles/message_stories.css") />
+                <style inner_html=include_str!("../../styles/page-pulse-apply.css") />
 
                 // ── Fonts ────────────────────────────────────────────────────
                 <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -122,6 +173,36 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                 <AutoReload options=options.clone() />
                 <HydrationScripts options=options.clone() />
                 <MetaTags />
+
+                // ── Hydration loading indicator ──────────────────────────────
+                // Hilang secara otomatis setelah WASM hydration selesai karena
+                // Leptos menggantikan/update DOM. Script inline ini jauh lebih
+                // cepat dari polling JS — tidak ada delay tambahan.
+                <style inner_html=r#"
+                    #hydration-loader{
+                        position:fixed;top:0;left:0;right:0;height:2px;
+                        background:linear-gradient(90deg,#c8ff5e,#4f6bff);
+                        z-index:9999;animation:hloader 1.4s ease-in-out infinite;
+                        transform-origin:left;
+                    }
+                    @keyframes hloader{
+                        0%{transform:scaleX(0) translateX(0)}
+                        50%{transform:scaleX(0.7) translateX(40%)}
+                        100%{transform:scaleX(0) translateX(100%)}
+                    }
+                "# />
+                <script inner_html=r#"
+                    (function(){
+                        var bar = document.createElement('div');
+                        bar.id = 'hydration-loader';
+                        document.head.appendChild(bar);
+                        // Leptos fires 'leptos:hydrated' atau kita poll sampai klik jalan
+                        var rm = function(){ var b=document.getElementById('hydration-loader'); if(b) b.remove(); };
+                        document.addEventListener('leptos:hydrated', rm, {once:true});
+                        // Fallback: hapus setelah 8 detik walau event tidak fire
+                        setTimeout(rm, 8000);
+                    })();
+                "# />
             </head>
             <body>
                 <App />
@@ -130,42 +211,98 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
     }
 }
 
-// ── Auth Guard ────────────────────────────────────────────────────────────────
+// ── Auth Guards ───────────────────────────────────────────────────────────────
 
-/// Guard halaman yang membutuhkan login.
-///
-/// Pada SSR: AuthResource sudah resolved (new_blocking) → langsung redirect
-///   atau render children. Tidak ada spinner saat SSR karena data tersedia.
-///
-/// Pada client setelah hydration: resource di-refetch via server function.
-///   Selama fetch → spinner. Setelah fetch → redirect atau children.
+fn guard_skeleton() -> impl IntoView {
+    view! {
+        <div class="page">
+            <div style="display:flex;align-items:center;justify-content:space-between;
+                        padding:14px 16px;border-bottom:1px solid var(--border-soft);
+                        background:var(--bg-page);position:sticky;top:0;z-index:40">
+                <div class="shim" style="width:36px;height:36px;border-radius:50%"></div>
+                <div class="shim" style="width:72px;height:18px;border-radius:4px"></div>
+                <div class="shim" style="width:36px;height:36px;border-radius:50%"></div>
+            </div>
+            <div style="padding:20px 16px;display:flex;flex-direction:column;gap:16px;flex:1">
+                {(0..6u32).map(|_| view! {
+                    <div style="display:flex;align-items:center;gap:12px">
+                        <div class="shim" style="width:56px;height:56px;border-radius:12px;flex-shrink:0"></div>
+                        <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+                            <div class="shim" style="height:15px;border-radius:6px;width:75%"></div>
+                            <div class="shim" style="height:12px;border-radius:6px;width:50%"></div>
+                        </div>
+                    </div>
+                }).collect_view()}
+            </div>
+        </div>
+    }
+}
+
+/// Guard: user harus login.
 #[component]
 fn AuthGuard(children: ChildrenFn) -> impl IntoView {
-    let auth = use_context::<AuthResource>()
-        .expect("AuthResource tidak di-provide — pastikan AuthGuard dipakai di dalam App");
+    let auth = use_context::<AuthResource>().expect("AuthResource not provided");
     let children = StoredValue::new(children);
-
     view! {
-        <Suspense fallback=move || {
-            view! {
-                <div class="auth-guard-loading">
-                    <div class="auth-guard-spinner"></div>
-                </div>
-            }
-        }>
-            {move || {
-                auth.get()
-                    .map(|result| {
-                        match result {
-                            Ok(Some(_user)) => children.with_value(|c| c()).into_any(),
-                            _ => {
-                                view! { <Redirect path="/login" /> }.into_any()
-                            }
-                        }
-                    })
-            }}
+        <Suspense fallback=guard_skeleton>
+            {move || auth.get().map(|result| match result {
+                Ok(Some(_)) => children.with_value(|c| c()).into_any(),
+                _ => view! { <leptos_router::components::Redirect path="/login" /> }.into_any(),
+            })}
         </Suspense>
     }
+}
+
+/// Guard: user harus punya role "admin".
+#[component]
+fn AdminGuard(children: ChildrenFn) -> impl IntoView {
+    let auth = use_context::<AuthResource>().expect("AuthResource not provided");
+    let children = StoredValue::new(children);
+    view! {
+        <Suspense fallback=guard_skeleton>
+            {move || auth.get().map(|result| match result {
+                Ok(Some(user)) if user.role == "admin" => children.with_value(|c| c()).into_any(),
+                Ok(Some(_)) => view! { <leptos_router::components::Redirect path="/explore" /> }.into_any(),
+                _ => view! { <leptos_router::components::Redirect path="/login" /> }.into_any(),
+            })}
+        </Suspense>
+    }
+}
+
+/// Guard: user harus punya role "merchant" atau "admin".
+#[component]
+fn MerchantGuard(children: ChildrenFn) -> impl IntoView {
+    let auth = use_context::<AuthResource>().expect("AuthResource not provided");
+    let children = StoredValue::new(children);
+    view! {
+        <Suspense fallback=guard_skeleton>
+            {move || auth.get().map(|result| match result {
+                Ok(Some(user)) if user.role == "merchant" || user.role == "admin" => {
+                    children.with_value(|c| c()).into_any()
+                }
+                Ok(Some(_)) => view! { <leptos_router::components::Redirect path="/explore" /> }.into_any(),
+                _ => view! { <leptos_router::components::Redirect path="/login" /> }.into_any(),
+            })}
+        </Suspense>
+    }
+}
+
+/// Scroll ke atas saat navigasi antar-route.
+#[component]
+fn ScrollToTop() -> impl IntoView {
+    let location = use_location();
+    let pathname = location.pathname;
+    Effect::new(move |prev: Option<String>| {
+        let current = pathname.get();
+        if prev.as_ref().map(|p| p != &current).unwrap_or(false) {
+            #[cfg(target_arch = "wasm32")]
+            if let Some(win) = web_sys::window() {
+                win.scroll_to_with_x_and_y(0.0, 0.0);
+            }
+        }
+        current
+    });
+    view! {}
 }
 
 // ── Unified context provider ───────────────────────────────────────────────────
@@ -182,33 +319,56 @@ fn AuthGuard(children: ChildrenFn) -> impl IntoView {
 ///   - Theme  : Sama persis — `provide_theme()` aman di SSR (web_sys::window() → None).
 ///   - Premium: Sama persis — `provide_premium_store()` tidak ada spawn_local di provide.
 ///   - PaySuc : Sama persis — hanya RwSignal kosong.
-#[cfg(feature = "ssr")]
 fn provide_all_app_contexts() {
-    // ── Auth (SSR: blocking; client: async server fn) ──────────────────────
+    // ── Auth ────────────────────────────────────────────────────────────────
+    // new_blocking di SEMUA target: SSR blocks render; client baca serialized
+    // state dari HTML → langsung resolved, tidak ada Suspense fallback flash.
     let auth: AuthResource = Resource::new_blocking(|| (), |_| get_session());
     provide_context(auth);
 
     // ── UI / theming ────────────────────────────────────────────────────────
     // provide_theme() aman di SSR: web_sys::window() → None, Effect::new aman.
-    crate::csr::hooks::provide_theme();
+    crate::web::hooks::provide_theme();
 
-    // ── Cart (ephemeral, tidak perlu fetch) ─────────────────────────────────
-    provide_context(CartContext {
-        items: RwSignal::new(vec![]),
-    });
+    // ── Cart: init dari localStorage di client, kosong di SSR ──────────────
+    let initial_cart: Vec<CartItem> = {
+        #[cfg(target_arch = "wasm32")]
+        {
+            web_sys::window()
+                .and_then(|w| w.local_storage().ok()).flatten()
+                .and_then(|s| s.get_item("pulse_cart").ok()).flatten()
+                .and_then(|json| serde_json::from_str(&json).ok())
+                .unwrap_or_default()
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        { vec![] }
+    };
+    let cart_signal = RwSignal::new(initial_cart);
+    provide_context(CartContext { items: cart_signal });
 
-    // ── Web-specific PendingOrderCtx (dengan success_order) ─────────────────
+    // Cross-tab sync: storage event fires in OTHER tabs when localStorage changes.
+    #[cfg(target_arch = "wasm32")]
+    if let Some(win) = web_sys::window() {
+        let cb = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::StorageEvent)>::new(
+            move |e: web_sys::StorageEvent| {
+                if e.key().as_deref() == Some("pulse_cart") {
+                    let new_items = e.new_value()
+                        .and_then(|json| serde_json::from_str::<Vec<CartItem>>(&json).ok())
+                        .unwrap_or_default();
+                    cart_signal.set(new_items);
+                }
+            },
+        );
+        use wasm_bindgen::JsCast;
+        let _ = win.add_event_listener_with_callback("storage", cb.as_ref().unchecked_ref());
+        cb.forget();
+    }
+
+    // ── PendingOrderCtx (dipakai checkout / order_created / payment_success) ──
     provide_context(PendingOrderCtx {
         pending_order: RwSignal::new(None),
         success_order: RwSignal::new(None),
     });
-
-    // ── CSR PendingOrderCtx dari order_created.rs ───────────────────────────
-    // Tipe berbeda dari web PendingOrderCtx — komponen berbeda menggunakannya.
-    crate::csr::pages::order_created::provide_pending_order();
-
-    // ── Payment success snapshot ────────────────────────────────────────────
-    crate::csr::pages::payment_success::provide_payment_success();
 
     // ── Data stores (web) ───────────────────────────────────────────────────
     // Setiap store sudah di-guard `if is_server() { return; }` di load().
@@ -216,7 +376,7 @@ fn provide_all_app_contexts() {
 
     // ── Premium subscription status ─────────────────────────────────────────
     // provide_premium_store() hanya setup signal — tidak ada spawn_local.
-    crate::csr::state::premium::provide_premium_store();
+    crate::web::state::premium::provide_premium_store();
 }
 
 // ── Root App Component ────────────────────────────────────────────────────────
@@ -232,8 +392,7 @@ fn provide_all_app_contexts() {
 pub fn App() -> impl IntoView {
     provide_meta_context();
 
-    // Semua context disediakan di sini — satu tempat, tidak ada yang terlewat.
-    #[cfg(feature = "ssr")]
+    // Semua context disediakan di sini — berjalan di SSR maupun setelah hydration.
     provide_all_app_contexts();
 
     view! {
@@ -241,14 +400,33 @@ pub fn App() -> impl IntoView {
         <Meta name="description" content="Platform tiket event terbaik di Indonesia." />
 
         <Router>
+            <ScrollToTop />
             <main>
+                <ErrorBoundary fallback=|_| view! {
+                    <div class="page" style="display:flex;flex-direction:column;align-items:center;
+                                            justify-content:center;gap:16px;min-height:60vh;
+                                            padding:40px 20px;text-align:center">
+                        <p style="color:var(--text-primary);font-size:18px;font-weight:700">
+                            "Terjadi kesalahan"
+                        </p>
+                        <p style="color:var(--text-muted);font-size:13px">
+                            "Coba muat ulang halaman."
+                        </p>
+                        <button onclick="window.location.reload()"
+                            style="padding:12px 24px;background:var(--accent-lime);border:none;
+                                   border-radius:12px;color:#0a0a14;font-weight:700;cursor:pointer">
+                            "Muat Ulang"
+                        </button>
+                    </div>
+                }>
                 <FlatRoutes fallback=|| view! { <NotFoundPage /> }>
 
                     // ── PUBLIC — SSR full content (SEO) ──────────────────────
-                    <Route path=path!("/") view=HomePage />
+                    <Route path=path!("/") view=ExplorePage />
                     <Route path=path!("/explore") view=ExplorePage />
                     <Route path=path!("/events/:slug") view=EventDetailPage />
-                    <Route path=path!("/merchant/landing") view=PulseLandingPage />
+                    <Route path=path!("/pulse-landing") view=PulseLandingPage />
+                    <Route path=path!("/pulse-apply") view=PulseApplyPage />
 
                     // ── AUTH ─────────────────────────────────────────────────
                     <Route path=path!("/login") view=LoginPage />
@@ -256,7 +434,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/verify-otp") view=VerifyOtpPage />
                     <Route path=path!("/forgot-password") view=ForgotPasswordPage />
 
-                    // ── PRIVATE — AuthGuard memastikan user sudah login ───────
+                    // ── PRIVATE — hanya user yang sudah login ─────────────────
                     <Route
                         path=path!("/tickets")
                         view=|| view! { <AuthGuard><TicketsPage /></AuthGuard> }
@@ -314,11 +492,11 @@ pub fn App() -> impl IntoView {
                         view=|| view! { <AuthGuard><NotificationDetailPage /></AuthGuard> }
                     />
                     <Route
-                        path=path!("/messages")
+                        path=path!("/pulse")
                         view=|| view! { <AuthGuard><MessagesPage /></AuthGuard> }
                     />
                     <Route
-                        path=path!("/messages/:id")
+                        path=path!("/pulse/:id")
                         view=|| view! { <AuthGuard><ChatRoomPage /></AuthGuard> }
                     />
                     <Route
@@ -329,24 +507,29 @@ pub fn App() -> impl IntoView {
                         path=path!("/scan")
                         view=|| view! { <AuthGuard><ScanPage /></AuthGuard> }
                     />
+
+                    // ── MERCHANT — hanya merchant & admin ─────────────────────
                     <Route
                         path=path!("/merchant")
-                        view=|| view! { <AuthGuard><MerchantPage /></AuthGuard> }
+                        view=|| view! { <MerchantGuard><MerchantPage /></MerchantGuard> }
                     />
                     <Route
                         path=path!("/merchant/events/create")
-                        view=|| view! { <AuthGuard><MerchantCreateEventPage /></AuthGuard> }
+                        view=|| view! { <MerchantGuard><MerchantCreateEventPage /></MerchantGuard> }
                     />
                     <Route
                         path=path!("/merchant/events/:slug/edit")
-                        view=|| view! { <AuthGuard><MerchantEditEventPage /></AuthGuard> }
+                        view=|| view! { <MerchantGuard><MerchantEditEventPage /></MerchantGuard> }
                     />
+
+                    // ── ADMIN — hanya admin ───────────────────────────────────
                     <Route
                         path=path!("/admin")
-                        view=|| view! { <AuthGuard><AdminPage /></AuthGuard> }
+                        view=|| view! { <AdminGuard><AdminPage /></AdminGuard> }
                     />
 
                 </FlatRoutes>
+                </ErrorBoundary>
             </main>
         </Router>
     }

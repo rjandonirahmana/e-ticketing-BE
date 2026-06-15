@@ -174,43 +174,6 @@ pub fn CartPage() -> impl IntoView {
                 }.into_any()
             }}
 
-            <style>
-                "
-                .cart-page { min-height:100vh; display:flex; flex-direction:column; }
-                .cart-title-wrap { padding:24px 20px 8px; }
-                .cart-title { font-family:'Bebas Neue',sans-serif; font-size:40px; line-height:1; color:#fff; letter-spacing:2px; margin:0 0 8px; }
-                .cart-sub { color:#6666aa; font-size:13px; }
-                .empty-cart { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:60px 24px; color:#6666aa; text-align:center; }
-                .browse-btn { background:#c8ff5e; color:#0d0d1a; border-radius:12px; padding:12px 28px; font-weight:700; font-size:13px; letter-spacing:1px; text-decoration:none; }
-                .cart-items { padding:0 16px; display:flex; flex-direction:column; gap:12px; margin-bottom:16px; }
-                .cart-item { display:flex; gap:12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:14px; padding:14px; }
-                .item-img { width:70px; height:70px; border-radius:10px; object-fit:cover; flex-shrink:0; }
-                .item-info { flex:1; min-width:0; }
-                .item-event { font-size:13px; font-weight:600; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-                .item-tier { font-size:11px; color:#c8ff5e; margin-top:2px; }
-                .item-venue { font-size:11px; color:#6666aa; margin-top:2px; }
-                .item-price { font-size:13px; color:#aaa; margin-top:6px; }
-                .item-right { display:flex; flex-direction:column; align-items:flex-end; gap:8px; }
-                .item-remove { background:none; border:none; color:#6666aa; cursor:pointer; padding:4px; }
-                .item-qty-ctrl { display:flex; align-items:center; gap:8px; background:rgba(255,255,255,0.06); border-radius:100px; padding:4px 8px; }
-                .iq-btn { background:none; border:none; color:#c8ff5e; font-size:16px; cursor:pointer; padding:0 4px; line-height:1; }
-                .iq-val { font-size:13px; color:#fff; min-width:16px; text-align:center; }
-                .item-subtotal { font-size:13px; font-weight:700; color:#c8ff5e; }
-                .summary-card { margin:0 16px 100px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:14px; padding:16px; }
-                .summary-title { font-size:10px; letter-spacing:2px; color:#444466; font-weight:600; margin-bottom:12px; }
-                .summary-line { display:flex; justify-content:space-between; align-items:center; padding:6px 0; color:#8888aa; font-size:13px; }
-                .summary-line-val { color:#ccc; }
-                .summary-divider { height:1px; background:rgba(255,255,255,0.06); margin:8px 0; }
-                .summary-total-row { display:flex; justify-content:space-between; align-items:center; padding-top:4px; }
-                .summary-total-label { font-size:11px; letter-spacing:1.5px; color:#8888aa; font-weight:600; }
-                .summary-total-val { font-size:20px; font-weight:800; color:#c8ff5e; font-family:'Bebas Neue',sans-serif; }
-                .cart-footer { position:fixed; bottom:0; left:0; right:0; background:rgba(5,8,20,0.95); border-top:1px solid rgba(255,255,255,0.08); padding:16px 20px; display:flex; align-items:center; justify-content:space-between; gap:16px; z-index:50; backdrop-filter:blur(12px); }
-                .footer-left { display:flex; flex-direction:column; }
-                .footer-meta-label { font-size:10px; letter-spacing:1.5px; color:#444466; font-weight:600; }
-                .footer-total { font-size:20px; font-weight:800; color:#c8ff5e; font-family:'Bebas Neue',sans-serif; }
-                .proceed-btn { display:flex; align-items:center; gap:8px; background:#c8ff5e; color:#0d0d1a; border:none; border-radius:14px; padding:14px 20px; font-weight:700; font-size:12px; letter-spacing:1px; cursor:pointer; white-space:nowrap; }
-                "
-            </style>
         </div>
     }
 }

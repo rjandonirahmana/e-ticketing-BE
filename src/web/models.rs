@@ -34,8 +34,10 @@ pub struct EventVariant {
     pub description: Option<String>,
     pub price: f64,
     pub sale_price: Option<f64>,
+    #[serde(rename = "effective_price")]
     pub display_price: f64,
     pub quota: i32,
+    #[serde(rename = "available")]
     pub remaining: i32,
     pub max_per_order: Option<i32>,
     pub is_active: bool,
@@ -79,10 +81,13 @@ pub struct PaginatedEvents {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Banner {
-    pub id: String,
+    pub id: i64,
     pub image_url: String,
+    #[serde(rename = "click_url")]
     pub link_url: Option<String>,
+    #[serde(default)]
     pub title: Option<String>,
+    #[serde(default)]
     pub sort_order: i32,
 }
 
@@ -99,7 +104,8 @@ pub struct UserResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthResponse {
-    pub token: String,
+    #[serde(alias = "token")]
+    pub access_token: String,
     pub user: UserResponse,
 }
 
@@ -127,7 +133,7 @@ pub struct TicketResponse {
 
 // ── Orders ────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OrderListItem {
     pub id: String,
     pub order_code: String,
@@ -182,16 +188,14 @@ pub struct NotificationItem {
     pub body: String,
     pub is_read: bool,
     #[serde(default)]
-    pub order_id: Option<String>,
-    #[serde(default)]
-    pub ticket_id: Option<String>,
+    pub target_id: Option<String>,
     #[serde(default)]
     pub created_at: Option<DateTime<Utc>>,
 }
 
 // ── Chat / Pulse ──────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ChatRoom {
     pub id: String,
     pub event_id: String,
@@ -283,6 +287,16 @@ pub struct ValidatePromoResponse {
     pub discount_idr: i64,
     #[serde(default)]
     pub message: String,
+}
+
+// ── Scan ──────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ScanValidateResult {
+    pub event_title: String,
+    pub tier_name: String,
+    pub status: String,
+    pub ticket_code: String,
 }
 
 // ── Admin ─────────────────────────────────────────────────────────────────────

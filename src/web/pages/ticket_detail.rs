@@ -12,11 +12,110 @@ use leptos::prelude::*;
 use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
 
-use crate::csr::hooks::ThemeToggle;
-use crate::csr::utils::format_idr;
+use crate::web::hooks::ThemeToggle;
+use crate::web::utils::format_idr;
 use crate::web::api::get_ticket_detail;
 use crate::web::app::AuthResource;
 use crate::web::components::BottomNav;
+
+// ── Shimmer skeleton (mirrors td-* layout, staggered delay top→bottom) ────────
+
+#[component]
+fn TicketDetailSkeleton() -> impl IntoView {
+    view! {
+        <div class="td-mobile-layout">
+            // Hero — full-width cover placeholder
+            <div class="td-hero">
+                <div class="shimmer-bg"
+                    style="position:absolute;inset:0;border-radius:0;animation-delay:0s;"></div>
+                // Overlaid content at bottom of hero
+                <div class="td-hero-content">
+                    <div class="shimmer-bg"
+                        style="width:72px;height:20px;border-radius:100px;animation-delay:0.06s;"></div>
+                    <div class="shimmer-bg"
+                        style="width:70%;height:30px;border-radius:8px;margin-top:8px;animation-delay:0.1s;"></div>
+                </div>
+            </div>
+
+            // Stub card
+            <div class="td-stub">
+                <div class="td-stub-top">
+                    // Row 1 — TICKET REF / PRICE PAID
+                    <div class="td-stub-row">
+                        <div class="td-stub-cell">
+                            <div class="shimmer-bg" style="width:58px;height:8px;border-radius:3px;animation-delay:0.14s;"></div>
+                            <div class="shimmer-bg" style="width:95px;height:15px;border-radius:4px;margin-top:5px;animation-delay:0.16s;"></div>
+                        </div>
+                        <div class="td-stub-cell td-stub-cell--right">
+                            <div class="shimmer-bg" style="width:52px;height:8px;border-radius:3px;animation-delay:0.18s;"></div>
+                            <div class="shimmer-bg" style="width:80px;height:15px;border-radius:4px;margin-top:5px;animation-delay:0.2s;"></div>
+                        </div>
+                    </div>
+                    // Row 2 — DATE / TIME
+                    <div class="td-stub-row">
+                        <div class="td-stub-cell">
+                            <div class="shimmer-bg" style="width:36px;height:8px;border-radius:3px;animation-delay:0.22s;"></div>
+                            <div class="shimmer-bg" style="width:78px;height:15px;border-radius:4px;margin-top:5px;animation-delay:0.24s;"></div>
+                        </div>
+                        <div class="td-stub-cell td-stub-cell--right">
+                            <div class="shimmer-bg" style="width:38px;height:8px;border-radius:3px;animation-delay:0.26s;"></div>
+                            <div class="shimmer-bg" style="width:76px;height:15px;border-radius:4px;margin-top:5px;animation-delay:0.28s;"></div>
+                        </div>
+                    </div>
+                    // Row 3 — VENUE (full width)
+                    <div class="td-stub-row">
+                        <div class="td-stub-cell td-stub-cell--full">
+                            <div class="shimmer-bg" style="width:42px;height:8px;border-radius:3px;animation-delay:0.3s;"></div>
+                            <div class="shimmer-bg" style="width:100%;height:15px;border-radius:4px;margin-top:5px;animation-delay:0.32s;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                // Perforated divider (keep real chrome — it has no data)
+                <div class="td-perf-divider">
+                    <span class="td-notch td-notch--left"></span>
+                    <span class="td-dash"></span>
+                    <span class="td-notch td-notch--right"></span>
+                </div>
+
+                // Stub bottom — QR + pills + info
+                <div class="td-stub-bottom">
+                    <div class="td-qr-wrap">
+                        <div class="shimmer-bg"
+                            style="width:170px;height:170px;border-radius:8px;animation-delay:0.36s;"></div>
+                        <div class="shimmer-bg"
+                            style="width:115px;height:9px;border-radius:4px;margin-top:10px;animation-delay:0.38s;"></div>
+                    </div>
+                    <div class="td-pill-row">
+                        <div class="td-pill">
+                            <div class="shimmer-bg" style="width:52px;height:8px;border-radius:3px;animation-delay:0.41s;"></div>
+                            <div class="shimmer-bg" style="width:68px;height:14px;border-radius:4px;margin-top:4px;animation-delay:0.43s;"></div>
+                        </div>
+                        <div class="td-pill">
+                            <div class="shimmer-bg" style="width:58px;height:8px;border-radius:3px;animation-delay:0.45s;"></div>
+                            <div class="shimmer-bg" style="width:28px;height:14px;border-radius:4px;margin-top:4px;animation-delay:0.47s;"></div>
+                        </div>
+                    </div>
+                    <div class="td-info-card">
+                        <div class="shimmer-bg" style="width:100%;height:34px;border-radius:8px;animation-delay:0.5s;"></div>
+                        <div class="shimmer-bg" style="width:100%;height:34px;border-radius:8px;margin-top:8px;animation-delay:0.53s;"></div>
+                    </div>
+                </div>
+            </div>
+
+            // Action buttons
+            <div class="td-actions">
+                <div class="shimmer-bg" style="flex:1;height:46px;border-radius:100px;animation-delay:0.57s;"></div>
+                <div class="shimmer-bg" style="flex:1;height:46px;border-radius:100px;animation-delay:0.61s;"></div>
+            </div>
+
+            // Pulse strip
+            <div class="td-pulse-strip">
+                <div class="shimmer-bg" style="width:62%;height:12px;border-radius:4px;animation-delay:0.66s;"></div>
+            </div>
+        </div>
+    }
+}
 
 // ── Helper: UTC → WIB (UTC+7) ─────────────────────────────────────────────────
 fn fmt_wib(dt: &DateTime<Utc>) -> (String, String) {
@@ -71,14 +170,7 @@ pub fn TicketDetailPage() -> impl IntoView {
                 </div>
             </header>
 
-            <Suspense fallback=|| {
-                view! {
-                    <div class="loading" style="min-height:60vh">
-                        <div class="loading__spinner" />
-                        <span>"Memuat tiket..."</span>
-                    </div>
-                }
-            }>
+            <Suspense fallback=|| view! { <TicketDetailSkeleton/> }>
                 {move || {
                     if !is_logged_in() && auth.get().is_some() {
                         return view! {

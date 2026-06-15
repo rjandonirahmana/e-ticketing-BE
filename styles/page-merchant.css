@@ -1625,7 +1625,7 @@
 .merchant-page.mhub-mobile {
     padding-bottom: 80px;
     min-height: 100dvh;
-    background: var(--bg-base);
+    background: transparent;
 }
 
 /* ── Header ─────────────────────────────────────────────────────────────────── */

@@ -12,8 +12,8 @@ use leptos::prelude::*;
 use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
 
-use crate::csr::hooks::ThemeToggle;
-use crate::csr::utils::format_idr;
+use crate::web::hooks::ThemeToggle;
+use crate::web::utils::format_idr;
 use crate::web::api::get_order_detail;
 use crate::web::app::AuthResource;
 

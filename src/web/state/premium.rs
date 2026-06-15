@@ -1,50 +1,56 @@
-// src/state/premium.rs
-//
-// Global state untuk Premium Subscription.
-// Di-provide di root App, dapat diakses oleh semua komponen via use_premium_store().
+//! state/premium.rs — Global state Premium Subscription.
+//!
+//! Status di-fetch via server function `get_premium_status` (mengembalikan
+//! JSON; field `is_premium` di-parse di sini).
 
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
-use crate::csr::services::premium as premium_svc;
+use crate::web::api::get_premium_status;
+
+fn parse_is_premium(v: &serde_json::Value) -> bool {
+    // Toleran terhadap beberapa bentuk: { is_premium } | { isPremium } | { data: { ... } }
+    let candidates = [&v["is_premium"], &v["isPremium"], &v["data"]["is_premium"], &v["data"]["isPremium"]];
+    candidates.iter().any(|c| c.as_bool().unwrap_or(false))
+}
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy)]
 pub struct PremiumCtx {
-    /// true jika user saat ini adalah active premium subscriber.
     pub is_premium: RwSignal<bool>,
-    /// Loading state saat fetch status.
     pub loading: RwSignal<bool>,
-    /// true jika status sudah di-load sekali (hindari re-fetch).
     pub loaded: RwSignal<bool>,
 }
 
 impl PremiumCtx {
-    /// Load status premium dari backend.
-    /// Dipanggil sekali di app start atau setelah login.
     pub fn load(&self) {
+        if is_server() {
+            return;
+        }
         let ctx = *self;
         if ctx.loaded.get_untracked() {
             return;
         }
         spawn_local(async move {
             ctx.loading.set(true);
-            if let Ok(status) = premium_svc::fetch_premium_status().await {
-                ctx.is_premium.set(status.is_premium);
+            if let Ok(v) = get_premium_status().await {
+                ctx.is_premium.set(parse_is_premium(&v));
                 ctx.loaded.set(true);
             }
             ctx.loading.set(false);
         });
     }
 
-    /// Refresh ulang status (misal setelah berhasil aktivasi premium).
     pub fn refresh(&self) {
+        if is_server() {
+            return;
+        }
         let ctx = *self;
         spawn_local(async move {
             ctx.loading.set(true);
-            if let Ok(status) = premium_svc::fetch_premium_status().await {
-                ctx.is_premium.set(status.is_premium);
+            if let Ok(v) = get_premium_status().await {
+                ctx.is_premium.set(parse_is_premium(&v));
             }
             ctx.loading.set(false);
         });

@@ -16,7 +16,7 @@
 use leptos::prelude::*;
 use leptos_router::components::A;
 
-use crate::csr::hooks::ThemeToggle;
+use crate::web::hooks::ThemeToggle;
 use crate::web::api::{get_my_tickets, get_premium_status, logout_action};
 use crate::web::app::AuthResource;
 use crate::web::components::BottomNav;
@@ -66,14 +66,65 @@ pub fn ProfilePage() -> impl IntoView {
     };
 
     view! {
-        <Suspense fallback=|| {
-            view! {
-                <div class="loading">
-                    <div class="loading__spinner" />
-                    <span>"Memuat profil..."</span>
+        <div class="page profile-page">
+            <div class="profile-glow" aria-hidden="true"></div>
+
+            <header class="page-header">
+                <A
+                    href="/pulse"
+                    attr:class="icon-btn"
+                    attr:aria-label="Messages"
+                >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+                    </svg>
+                </A>
+                <span class="page-logo">"PULSE"</span>
+                <div class="header-actions">
+                    <ThemeToggle />
+                    <A href="/notifications" attr:class="bell-btn">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                            <path d="M13.73 21a2 2 0 01-3.46 0" />
+                        </svg>
+                        <span class="bell-dot"></span>
+                    </A>
+                    <div class="nav-avatar">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+                            <circle cx="12" cy="7" r="4" />
+                        </svg>
+                    </div>
                 </div>
-            }
-        }>
+            </header>
+
+            <Suspense fallback=|| view! {
+                <div class="avatar-section">
+                    <div class="avatar-ring">
+                        <div class="avatar-circle" style="background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
+                    </div>
+                    <div style="width:140px;height:20px;border-radius:4px;margin:12px auto 6px;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
+                    <div style="width:180px;height:14px;border-radius:4px;margin:0 auto 8px;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
+                    <div style="width:90px;height:22px;border-radius:99px;margin:0 auto;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
+                </div>
+                <div class="stats-row stats-row--mobile-only">
+                    <div style="flex:1;height:64px;border-radius:12px;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
+                    <div style="flex:1;height:64px;border-radius:12px;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
+                </div>
+                <div class="menu-section">
+                    <div style="width:120px;height:12px;border-radius:4px;margin-bottom:10px;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
+                    <div class="menu-list">
+                        {(0..5).map(|_| view! {
+                            <div style="height:52px;border-radius:12px;margin-bottom:6px;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
+                        }).collect_view()}
+                    </div>
+                </div>
+            }>
             {move || {
                 auth.get()
                     .map(|res| {
@@ -81,14 +132,11 @@ pub fn ProfilePage() -> impl IntoView {
                             // ── Belum login ───────────────────────────────────────
                             None => {
                                 view! {
-                                    <div
-                                        class="container"
-                                        style="padding:4rem 0;text-align:center"
-                                    >
-                                        <p style="color:var(--clr-muted);margin-bottom:1.5rem">
+                                    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4rem 20px;text-align:center">
+                                        <p style="color:var(--text-muted);margin-bottom:1.5rem;font-size:.9rem">
                                             "Kamu harus masuk untuk melihat profil."
                                         </p>
-                                        <A href="/login" attr:class="btn btn--accent">
+                                        <A href="/login" attr:class="tier-add-btn">
                                             "Masuk"
                                         </A>
                                     </div>
@@ -129,65 +177,6 @@ pub fn ProfilePage() -> impl IntoView {
                                 let pd2 = points_display.clone();
 
                                 view! {
-                                    <div class="page profile-page">
-                                        <div class="profile-glow" aria-hidden="true"></div>
-
-                                        // ── Mobile header ──────────────────────────
-                                        <header class="page-header">
-                                            <A
-                                                href="/messages"
-                                                attr:class="icon-btn"
-                                                attr:aria-label="Messages"
-                                            >
-                                                <svg
-                                                    width="20"
-                                                    height="20"
-                                                    viewBox="0 0 24 24"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    stroke-width="2"
-                                                    stroke-linecap="round"
-                                                    stroke-linejoin="round"
-                                                >
-                                                    <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-                                                </svg>
-                                            </A>
-                                            <span class="page-logo">"PULSE"</span>
-                                            <div class="header-actions">
-                                                <ThemeToggle />
-                                                <A href="/notifications" attr:class="bell-btn">
-                                                    <svg
-                                                        width="18"
-                                                        height="18"
-                                                        viewBox="0 0 24 24"
-                                                        fill="none"
-                                                        stroke="currentColor"
-                                                        stroke-width="2"
-                                                        stroke-linecap="round"
-                                                        stroke-linejoin="round"
-                                                    >
-                                                        <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                                                        <path d="M13.73 21a2 2 0 01-3.46 0" />
-                                                    </svg>
-                                                    <span class="bell-dot"></span>
-                                                </A>
-                                                <div class="nav-avatar">
-                                                    <svg
-                                                        width="16"
-                                                        height="16"
-                                                        viewBox="0 0 24 24"
-                                                        fill="none"
-                                                        stroke="currentColor"
-                                                        stroke-width="2"
-                                                        stroke-linecap="round"
-                                                    >
-                                                        <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-                                                        <circle cx="12" cy="7" r="4" />
-                                                    </svg>
-                                                </div>
-                                            </div>
-                                        </header>
-
                                         // ── Avatar + identitas ─────────────────────
                                         <div class="avatar-section">
                                             <div class="avatar-ring">
@@ -497,8 +486,6 @@ pub fn ProfilePage() -> impl IntoView {
                                             </div>
                                         </div>
 
-                                        <BottomNav active="profile" />
-                                    </div>
                                 }
                                     .into_any()
                             }
@@ -506,5 +493,7 @@ pub fn ProfilePage() -> impl IntoView {
                     })
             }}
         </Suspense>
+        <BottomNav active="profile" />
+    </div>
     }
 }

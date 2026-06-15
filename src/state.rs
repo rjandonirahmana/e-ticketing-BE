@@ -102,31 +102,28 @@ impl AppState {
         ));
         let merchant_svc = Arc::new(MerchantService::new(merchant_repo));
         let event_svc = Arc::new(EventService::new(event_repo));
-        let ticket_svc = Arc::new(TicketService::new(ticket_repo));
+        let notification_store_svc = Arc::new(NotificationStoreService::new(notification_repo));
+        let ticket_svc = Arc::new(TicketService::new(ticket_repo.clone()));
         let group_chat_svc = Arc::new(GroupChatService::new(group_chat_repo, ws_mgr.clone()));
         let order_svc = Arc::new(OrderService::new(
             order_repo,
             redis,
             pool.clone(),
             notif_service,
+            notification_store_svc.clone(),
+            ticket_repo,
             group_chat_svc.clone(),
         ));
         let banner_svc = Arc::new(BannerService::new(banner_repo));
         let storage = Arc::new(StorageService::new(&rustfs));
-        let notification_store_svc = Arc::new(NotificationStoreService::new(notification_repo));
+
         let story_svc = Arc::new(StoryService::new(
             story_repo,
             storage.clone(),
             notification_store_svc.clone(),
         )); // ← NEW
 
-        let _ = storage.init().await.map_err(|e| {
-            tracing::error!("Storage init failed: {:?}", e);
-            e
-        });
-        if let Err(e) = storage.check_health().await {
-            tracing::error!("❌ RustFS health check failed at startup: {:?}", e);
-        }
+
 
         Self {
             pool,

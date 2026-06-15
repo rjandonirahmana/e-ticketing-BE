@@ -1,15 +1,14 @@
-//! Trending events — GET /events?page=1&per_page=6
+//! Trending events — server function GetEvents (page 1, 6 item).
 //!
-//! Catatan: data diambil lewat `csr::services::event` (gloo_net / browser fetch),
-//! sehingga fetch sebenarnya terjadi di client setelah hydration — sama seperti
-//! `events.rs` dan `banners.rs`. Pola `RwSignal` + `spawn_local` dipakai agar
-//! konsisten dengan store lain dan tidak butuh codec serialisasi SSR.
+//! Data diambil lewat server function `get_events` (jalur SSR yang benar,
+//! menambahkan X-App-Token di server). Pola `RwSignal` + `spawn_local`
+//! dipertahankan agar konsisten dengan store lain.
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
-use crate::csr::models::ListEventsRequest;
-use crate::csr::services::event as event_svc;
-use crate::csr::utils::format_number;
+use crate::web::api::get_events;
+use crate::web::models::Event;
+use crate::web::utils::format_number;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TrendingItem {
@@ -19,6 +18,22 @@ pub struct TrendingItem {
     pub price: String,
     pub cover: String,
     pub category: Vec<String>,
+}
+
+fn event_to_trending(e: &Event) -> TrendingItem {
+    let price = if e.display_price <= 0.0 {
+        "FREE".into()
+    } else {
+        format!("Rp{}", format_number(e.display_price as i64))
+    };
+    TrendingItem {
+        id: e.id.clone(),
+        title: e.name.clone(),
+        venue: e.venue.clone().unwrap_or_default(),
+        price,
+        cover: e.cover_url.clone().unwrap_or_default(),
+        category: e.category.clone(),
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -33,7 +48,6 @@ impl TrendingCtx {
         if is_server() {
             return;
         }
-        // Guard: jangan fetch ulang kalau sedang loading
         if self.loading.get_untracked() {
             return;
         }
@@ -41,32 +55,8 @@ impl TrendingCtx {
         let items = self.items;
         let loading = self.loading;
         spawn_local(async move {
-            let req = ListEventsRequest {
-                category: String::new(),
-                query: String::new(),
-                page: 1,
-                page_size: 6,
-            };
-            if let Ok(res) = event_svc::list_events(&req).await {
-                let trending = res
-                    .events
-                    .iter()
-                    .map(|e| {
-                        let price = if e.base_price_idr == 0 {
-                            "FREE".into()
-                        } else {
-                            format!("Rp{}", format_number(e.base_price_idr))
-                        };
-                        TrendingItem {
-                            id: e.id.clone(),
-                            title: e.title.clone(),
-                            venue: e.venue.name.clone(),
-                            price,
-                            cover: e.cover_url.clone(),
-                            category: e.category.clone(),
-                        }
-                    })
-                    .collect();
+            if let Ok(res) = get_events(Some(1), None, None, None, Some(6)).await {
+                let trending = res.data.iter().map(event_to_trending).collect();
                 items.set(trending);
             }
             loading.set(false);

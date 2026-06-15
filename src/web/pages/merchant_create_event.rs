@@ -1,215 +1,354 @@
-//! merchant_create_event.rs — Halaman Buat Event Baru (SSR).
+//! merchant_create_event.rs — Halaman Buat Event Baru (SSR + medit-* design).
 
 use leptos::prelude::*;
 use leptos_router::components::A;
+use leptos_router::hooks::use_navigate;
 
 use crate::web::api::create_merchant_event;
 use crate::web::app::AuthResource;
+use crate::web::components::event_story_preview::EventStoryPreviewInline;
+use crate::web::hooks::ThemeToggle;
 
-const CATEGORY_OPTIONS: &[&str] = &[
+const CATEGORIES: &[&str] = &[
     "Musik", "Festival", "Konser", "Olahraga", "Teknologi",
     "Seni", "Kuliner", "Pendidikan", "Hiburan", "Bisnis",
 ];
 
 #[component]
 pub fn MerchantCreateEventPage() -> impl IntoView {
-    let auth = use_context::<AuthResource>().expect("AuthResource missing");
-    let is_logged_in = move || auth.get().and_then(|r| r.ok()).flatten().is_some();
+    let _auth = use_context::<AuthResource>().expect("AuthResource missing");
+    let _navigate = use_navigate();
 
-    let name        = RwSignal::new(String::new());
-    let description = RwSignal::new(String::new());
-    let venue       = RwSignal::new(String::new());
-    let city        = RwSignal::new(String::new());
-    let event_date  = RwSignal::new(String::new());
-    let start_time  = RwSignal::new(String::new());
-    let categories  = RwSignal::new(Vec::<String>::new());
+    let f_name     = RwSignal::new(String::new());
+    let f_desc     = RwSignal::new(String::new());
+    let f_cat: RwSignal<Vec<String>> = RwSignal::new(vec![]);
+    let f_date     = RwSignal::new(String::new());
+    let f_time     = RwSignal::new(String::new());
+    let f_end_time = RwSignal::new(String::new());
+    let f_venue    = RwSignal::new(String::new());
+    let f_city     = RwSignal::new(String::new());
 
-    let loading = RwSignal::new(false);
-    let error   = RwSignal::new(Option::<String>::None);
+    let cover_preview: RwSignal<Option<String>> = RwSignal::new(None);
 
-    let toggle_cat = move |cat: String| {
-        categories.update(|v| {
-            if let Some(i) = v.iter().position(|c| c == &cat) {
-                v.remove(i);
-            } else {
-                v.push(cat);
+    let submitting = RwSignal::new(false);
+    let error_msg  = RwSignal::new(String::new());
+    let success_msg = RwSignal::new(String::new());
+
+    // Cover image preview (WASM-only)
+    let on_cover_change = move |ev: leptos::ev::Event| {
+        #[cfg(target_arch = "wasm32")]
+        {
+            use wasm_bindgen::JsCast;
+            if let Some(input) = ev.target()
+                .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+            {
+                if let Some(files) = input.files() {
+                    if let Some(file) = files.get(0) {
+                        if let Ok(url) = web_sys::Url::create_object_url_with_blob(&file) {
+                            cover_preview.set(Some(url));
+                        }
+                    }
+                }
             }
-        });
+        }
+        let _ = ev;
     };
 
-    let on_submit = move |ev: leptos::ev::SubmitEvent| {
-        ev.prevent_default();
-        let n = name.get();
-        if n.len() < 3 {
-            error.set(Some("Nama event minimal 3 karakter.".into()));
-            return;
+    let do_submit = move |_: leptos::ev::MouseEvent| {
+        error_msg.set(String::new());
+        success_msg.set(String::new());
+
+        let name = f_name.get_untracked();
+        if name.trim().is_empty() { error_msg.set("Nama event wajib diisi.".into()); return; }
+        let desc = f_desc.get_untracked();
+        if desc.trim().is_empty() { error_msg.set("Deskripsi event wajib diisi.".into()); return; }
+        let cats = f_cat.get_untracked();
+        if cats.is_empty() { error_msg.set("Pilih minimal satu kategori.".into()); return; }
+        let date = f_date.get_untracked();
+        if date.trim().is_empty() { error_msg.set("Tanggal event wajib diisi.".into()); return; }
+        let time = f_time.get_untracked();
+        if time.trim().is_empty() {
+            error_msg.set("Waktu mulai wajib diisi.".into()); return;
         }
-        if event_date.get().is_empty() {
-            error.set(Some("Tanggal event wajib diisi.".into()));
-            return;
-        }
-        loading.set(true);
-        error.set(None);
-        let cats = categories.get().join(",");
+        let venue = f_venue.get_untracked();
+        if venue.trim().is_empty() { error_msg.set("Nama venue wajib diisi.".into()); return; }
+        let city = f_city.get_untracked();
+        if city.trim().is_empty() { error_msg.set("Kota wajib diisi.".into()); return; }
+
+        let cats_str = cats.join(",");
+        let start_iso = format!("{}T{}:00Z", date, time);
+        submitting.set(true);
 
         leptos::task::spawn_local(async move {
-            match create_merchant_event(
-                name.get(),
-                description.get(),
-                venue.get(),
-                city.get(),
-                event_date.get(),
-                start_time.get(),
-                cats,
-            ).await {
-                Ok(slug) => {
-                    let _ = &slug; // used inside wasm32 cfg block
+            match create_merchant_event(name, desc, venue, city, start_iso.clone(), start_iso, cats_str).await {
+                Ok(_slug) => {
+                    success_msg.set("Event berhasil dibuat!".into());
+                    submitting.set(false);
                     #[cfg(target_arch = "wasm32")]
                     if let Some(win) = web_sys::window() {
-                        let path = if slug.is_empty() { "/merchant".to_string() }
-                            else { format!("/events/{slug}") };
+                        let path = if _slug.is_empty() { "/merchant".to_string() }
+                            else { format!("/merchant/events/{}/edit", _slug) };
                         let _ = win.location().replace(&path);
                     }
                 }
                 Err(e) => {
-                    error.set(Some(e.to_string()));
-                    loading.set(false);
+                    error_msg.set(format!("Gagal membuat event: {}", e));
+                    submitting.set(false);
                 }
             }
         });
     };
 
     view! {
-        <div class="page-header">
-            <div class="container">
-                <p class="page-header__eyebrow">"// merchant hub"</p>
-                <h1 class="page-header__title">"Buat Event Baru"</h1>
-            </div>
-        </div>
+        <div class="medit-page">
+            <header class="page-header medit-page-header">
+                <A href="/merchant" attr:class="back-btn" attr:aria-label="Kembali">
+                    <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.5"
+                        stroke-linecap="round"
+                    >
+                        <polyline points="15 18 9 12 15 6" />
+                    </svg>
+                </A>
+                <span class="page-logo">"BUAT EVENT"</span>
+                <div class="header-actions">
+                    <ThemeToggle />
+                    <A href="/notifications" attr:class="bell-btn" attr:aria-label="Notifikasi">
+                        <svg
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                        >
+                            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                        </svg>
+                    </A>
+                </div>
+            </header>
 
-        <div class="container" style="padding-bottom:4rem;max-width:720px">
-            <div style="margin-bottom:1.25rem">
-                <A href="/merchant" attr:class="btn btn--ghost btn--sm">"← Merchant Hub"</A>
-            </div>
+            <div class="medit-container">
 
-            {move || {
-                if !is_logged_in() && auth.get().is_some() {
-                    return view! {
-                        <div style="text-align:center;padding:4rem 0">
-                            <A href="/login" attr:class="btn btn--accent">"Masuk"</A>
-                        </div>
-                    }.into_any();
-                }
-
-                view! {
-                    <div style="background:var(--clr-surface);border:1px solid var(--clr-border);border-radius:16px;padding:2rem">
-                        {move || error.get().map(|e| view! { <div class="alert alert--error" style="margin-bottom:1.25rem">{e}</div> })}
-
-                        <form on:submit=on_submit>
-                            // ── Nama Event ──────────────────────────────────
-                            <div class="form-group">
-                                <label>"Nama Event *"</label>
-                                <input
-                                    type="text"
-                                    placeholder="Contoh: Jakarta Music Festival 2025"
-                                    prop:value=name
-                                    on:input=move |ev| name.set(event_target_value(&ev))
-                                />
-                            </div>
-
-                            // ── Deskripsi ────────────────────────────────────
-                            <div class="form-group">
-                                <label>"Deskripsi"</label>
-                                <textarea
-                                    placeholder="Deskripsikan event kamu..."
-                                    rows="4"
-                                    style="width:100%;background:var(--clr-bg);border:1px solid var(--clr-border);border-radius:8px;padding:.75rem;color:inherit;font-size:.875rem;resize:vertical"
-                                    prop:value=description
-                                    on:input=move |ev| description.set(event_target_value(&ev))
-                                />
-                            </div>
-
-                            // ── Tanggal & Waktu ──────────────────────────────
-                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
-                                <div class="form-group">
-                                    <label>"Tanggal Event *"</label>
-                                    <input
-                                        type="date"
-                                        prop:value=event_date
-                                        on:input=move |ev| event_date.set(event_target_value(&ev))
-                                    />
+                // ── Feedback ──────────────────────────────────────────────────
+                {move || {
+                    (!error_msg.get().is_empty())
+                        .then(|| {
+                            view! {
+                                <div class="medit-error-banner">
+                                    <svg
+                                        width="14"
+                                        height="14"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                        stroke-linecap="round"
+                                    >
+                                        <circle cx="12" cy="12" r="10" />
+                                        <line x1="12" y1="8" x2="12" y2="12" />
+                                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                                    </svg>
+                                    {move || error_msg.get()}
                                 </div>
-                                <div class="form-group">
-                                    <label>"Waktu Mulai"</label>
-                                    <input
-                                        type="time"
-                                        prop:value=start_time
-                                        on:input=move |ev| start_time.set(event_target_value(&ev))
-                                    />
+                            }
+                        })
+                }}
+                {move || {
+                    (!success_msg.get().is_empty())
+                        .then(|| {
+                            view! {
+                                <div class="medit-success-banner">
+                                    <svg
+                                        width="14"
+                                        height="14"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                        stroke-linecap="round"
+                                    >
+                                        <polyline points="20 6 9 17 4 12" />
+                                    </svg>
+                                    {move || success_msg.get()}
                                 </div>
-                            </div>
-
-                            // ── Venue & Kota ─────────────────────────────────
-                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
-                                <div class="form-group">
-                                    <label>"Venue / Lokasi"</label>
-                                    <input
-                                        type="text"
-                                        placeholder="Gelora Bung Karno..."
-                                        prop:value=venue
-                                        on:input=move |ev| venue.set(event_target_value(&ev))
-                                    />
-                                </div>
-                                <div class="form-group">
-                                    <label>"Kota"</label>
-                                    <input
-                                        type="text"
-                                        placeholder="Jakarta"
-                                        prop:value=city
-                                        on:input=move |ev| city.set(event_target_value(&ev))
-                                    />
-                                </div>
-                            </div>
-
-                            // ── Kategori ─────────────────────────────────────
-                            <div class="form-group">
-                                <label>"Kategori"</label>
-                                <div style="display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.375rem">
-                                    {CATEGORY_OPTIONS.iter().map(|cat| {
-                                        let c = cat.to_string();
-                                        let c2 = c.clone();
-                                        view! {
-                                            <button
-                                                type="button"
-                                                class=move || {
-                                                    if categories.get().contains(&c) {
-                                                        "btn btn--accent btn--sm"
-                                                    } else {
-                                                        "btn btn--ghost btn--sm"
-                                                    }
-                                                }
-                                                on:click=move |_| toggle_cat(c2.clone())
-                                            >{*cat}</button>
-                                        }
-                                    }).collect_view()}
-                                </div>
-                            </div>
-
-                            // ── Submit ───────────────────────────────────────
-                            <div style="margin-top:1.5rem;display:flex;gap:.75rem">
-                                <button
-                                    type="submit"
-                                    class="btn btn--accent btn--lg"
-                                    disabled=move || loading.get()
-                                >
-                                    {move || if loading.get() { "Membuat Event..." } else { "Buat Event" }}
-                                </button>
-                                <A href="/merchant" attr:class="btn btn--ghost btn--lg">"Batal"</A>
-                            </div>
-                        </form>
+                            }
+                        })
+                }}
+                // ── INFO DASAR ────────────────────────────────────────────────
+                <div class="medit-section-header">
+                    <span class="medit-section-label">"INFO DASAR"</span>
+                </div>
+                <div class="medit-field-group">
+                    <label class="medit-field-label">"NAMA EVENT"</label>
+                    <input
+                        type="text"
+                        class="medit-input"
+                        placeholder="cth. Konser Jazz Malam Akhir Pekan"
+                        prop:value=move || f_name.get()
+                        on:input=move |e| f_name.set(event_target_value(&e))
+                    />
+                </div>
+                <div class="medit-field-group">
+                    <label class="medit-field-label">"DESKRIPSI"</label>
+                    <textarea
+                        class="medit-input medit-textarea"
+                        placeholder="Ceritakan tentang event Anda..."
+                        prop:value=move || f_desc.get()
+                        on:input=move |e| f_desc.set(event_target_value(&e))
+                    ></textarea>
+                </div>
+                // ── KATEGORI ──────────────────────────────────────────────────
+                <div class="medit-field-group">
+                    <label class="medit-field-label">"KATEGORI"</label>
+                    <div class="medit-category-grid">
+                        {CATEGORIES
+                            .iter()
+                            .map(|cat| {
+                                let c = cat.to_string();
+                                let c2 = c.clone();
+                                view! {
+                                    <label class="medit-checkbox-label">
+                                        <input
+                                            type="checkbox"
+                                            on:change=move |_| {
+                                                f_cat
+                                                    .update(|cats| {
+                                                        if cats.contains(&c) {
+                                                            cats.retain(|x| x != &c);
+                                                        } else {
+                                                            cats.push(c.clone());
+                                                        }
+                                                    });
+                                            }
+                                        />
+                                        <span>{c2}</span>
+                                    </label>
+                                }
+                            })
+                            .collect_view()}
                     </div>
-                }.into_any()
-            }}
+                </div>
+                // ── FOTO COVER ────────────────────────────────────────────────
+                <div class="medit-field-group">
+                    <label class="medit-field-label">"FOTO COVER"</label>
+                    <div class="medit-file-input-wrapper">
+                        <input
+                            type="file"
+                            class="medit-file-input"
+                            accept="image/*"
+                            on:change=on_cover_change
+                        />
+                        <span class="medit-file-input-label">"PILIH FOTO"</span>
+                    </div>
+                    {move || {
+                        cover_preview
+                            .get()
+                            .map(|url| {
+                                view! {
+                                    <div class="medit-cover-preview">
+                                        <img src=url alt="Cover preview" />
+                                    </div>
+                                }
+                            })
+                    }}
+                </div>
+                // ── STORY PREVIEW ─────────────────────────────────────────────
+                <EventStoryPreviewInline
+                    title=Signal::derive(move || f_name.get())
+                    cover_url=Signal::derive(move || cover_preview.get())
+                    description=Signal::derive(move || f_desc.get())
+                    on_share_click=Callback::new(move |_| {
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            let params = web_sys::UrlSearchParams::new().expect("UrlSearchParams");
+                            params.append("event_title", &f_name.get_untracked());
+                            params
+                                .append(
+                                    "event_cover",
+                                    &cover_preview.get_untracked().unwrap_or_default(),
+                                );
+                            params.append("event_desc", &f_desc.get_untracked());
+                            params.append("event_slug", "draft");
+                            params.append("from_create", "1");
+                            let qs = params.to_string();
+                            _navigate(&format!("/story?{}", qs), Default::default());
+                        }
+                    })
+                />
+                // ── TANGGAL & WAKTU ───────────────────────────────────────────
+                <div class="medit-field-group">
+                    <label class="medit-field-label">"TANGGAL EVENT"</label>
+                    <input
+                        type="date"
+                        class="medit-input"
+                        prop:value=move || f_date.get()
+                        on:input=move |e| f_date.set(event_target_value(&e))
+                    />
+                </div>
+                <div class="medit-grid-2">
+                    <div class="medit-field-group">
+                        <label class="medit-field-label">"WAKTU MULAI"</label>
+                        <input
+                            type="time"
+                            class="medit-input"
+                            prop:value=move || f_time.get()
+                            on:input=move |e| f_time.set(event_target_value(&e))
+                        />
+                    </div>
+                    <div class="medit-field-group">
+                        <label class="medit-field-label">"WAKTU SELESAI"</label>
+                        <input
+                            type="time"
+                            class="medit-input"
+                            prop:value=move || f_end_time.get()
+                            on:input=move |e| f_end_time.set(event_target_value(&e))
+                        />
+                    </div>
+                </div>
+                // ── VENUE ─────────────────────────────────────────────────────
+                <div class="medit-field-group">
+                    <label class="medit-field-label">"NAMA VENUE"</label>
+                    <input
+                        type="text"
+                        class="medit-input"
+                        placeholder="cth. Gelora Bung Karno"
+                        prop:value=move || f_venue.get()
+                        on:input=move |e| f_venue.set(event_target_value(&e))
+                    />
+                </div>
+                <div class="medit-field-group">
+                    <label class="medit-field-label">"KOTA"</label>
+                    <input
+                        type="text"
+                        class="medit-input"
+                        placeholder="cth. Jakarta Pusat"
+                        prop:value=move || f_city.get()
+                        on:input=move |e| f_city.set(event_target_value(&e))
+                    />
+                </div>
+                // ── SUBMIT ────────────────────────────────────────────────────
+                <div class="medit-actions">
+                    <button
+                        class="medit-submit-btn"
+                        disabled=move || submitting.get()
+                        on:click=do_submit
+                    >
+                        {move || if submitting.get() { "Membuat Event..." } else { "BUAT EVENT" }}
+                    </button>
+                    <A href="/merchant" attr:class="medit-cancel-btn">
+                        "BATAL"
+                    </A>
+                </div>
+
+            </div>
         </div>
     }
 }

@@ -1,7 +1,5 @@
 //! service/storage.rs — RustFS S3-compatible image upload service.
 
-use std::sync::Arc;
-
 use aws_sdk_s3::{
     config::{BehaviorVersion, Builder, Credentials, Region},
     error::ProvideErrorMetadata,
@@ -130,7 +128,7 @@ impl StorageService {
         &self,
         data: Bytes,
         folder_name: &str,
-        content_type: &str,
+        _content_type: &str,
     ) -> AppResult<String> {
         if data.len() > MAX_SIZE {
             return Err(AppError::BadRequest(format!(

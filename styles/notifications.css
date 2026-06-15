@@ -12,7 +12,7 @@
     max-width: 480px;
     margin: 0 auto;
     position: relative;
-    overflow-x: hidden;
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 12px));
     color: var(--text-primary);
     font-family: var(--font-body);
 }

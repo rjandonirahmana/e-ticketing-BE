@@ -22,6 +22,7 @@ use crate::{
 // ── Konfigurasi ───────────────────────────────────────────────────────────────
 
 /// Batas upload story per hari untuk user non-premium.
+#[allow(dead_code)]
 const FREE_DAILY_LIMIT: i64 = 1;
 
 /// Max ukuran file story: 50 MB (untuk video).
@@ -198,8 +199,7 @@ impl<R: StoryRepository> StoryService<R> {
                     media_label
                 ),
                 kind: "story".into(),
-                order_id: None,
-                ticket_id: None,
+                target_id: story_id.clone().into(),
             };
 
             if let Err(e) = notif_store.create(input).await {

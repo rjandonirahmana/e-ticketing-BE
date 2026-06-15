@@ -1,15 +1,83 @@
-//! Stories store (web) — tipe model di-share dengan `csr::state::stories`
-//! agar konsisten dengan service `fetch_story_groups()` yang mengembalikan
-//! `csr::state::stories::StoryGroup`. Tidak ada lagi definisi tipe duplikat.
+//! Stories store (web) — definisi tipe model kanonik berada di file ini.
+//! Data di-fetch via server function `web::api::get_story_groups()` (jalur SSR).
+use chrono::{DateTime, Utc};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use serde::{Deserialize, Serialize};
 
-use crate::csr::services::story as story_svc;
+// ── Model (definisi kanonik — sebelumnya di csr::state::stories) ───────────────
 
-// ── Model (re-export tipe kanonik dari csr) ───────────────────────────────────
-pub use crate::csr::state::stories::{
-    OverlayType, StoryGroup, StoryItem, StoryMediaType, StoryOverlay,
-};
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StoryMediaType {
+    Image,
+    Video,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OverlayType {
+    Text,
+    Sticker,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StoryOverlay {
+    pub id: String,
+    pub overlay_type: OverlayType,
+    pub x: f64,
+    pub y: f64,
+    #[serde(default)]
+    pub content: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub font_size: Option<i32>,
+    #[serde(default)]
+    pub rotation: Option<f64>,
+    #[serde(default)]
+    pub emoji: Option<String>,
+    #[serde(default)]
+    pub scale: Option<f64>,
+    #[serde(default)]
+    pub z_index: i32,
+    #[serde(default)]
+    pub text_style: Option<String>,
+    #[serde(default)]
+    pub text_align: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StoryItem {
+    pub id: String,
+    pub user_id: String,
+    pub username: String,
+    pub avatar_url: String,
+    pub media_url: String,
+    pub media_type: StoryMediaType,
+    #[serde(default)]
+    pub filter: Option<String>,
+    #[serde(default)]
+    pub overlays: Vec<StoryOverlay>,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    #[serde(default)]
+    pub viewed: bool,
+    #[serde(default)]
+    pub event_id: Option<String>,
+    #[serde(default)]
+    pub event_slug: Option<String>,
+    #[serde(default)]
+    pub event_title: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StoryGroup {
+    pub user_id: String,
+    pub username: String,
+    pub avatar_url: String,
+    #[serde(default)]
+    pub all_viewed: bool,
+    pub stories: Vec<StoryItem>,
+}
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
@@ -37,7 +105,7 @@ impl StoriesCtx {
         spawn_local(async move {
             ctx.loading.set(true);
             ctx.error.set(None);
-            match story_svc::fetch_story_groups().await {
+            match crate::web::api::get_story_groups().await {
                 Ok(groups) if !groups.is_empty() => ctx.groups.set(groups),
                 Ok(_) => ctx.groups.set(mock_story_groups()),
                 Err(_) => ctx.groups.set(mock_story_groups()),
@@ -119,9 +187,10 @@ impl StoriesCtx {
 
     pub fn clear_interval(&self) {
         let handle = untrack(|| self.interval_handle.get());
-        if let Some(id) = handle {
+        if let Some(_id) = handle {
+            #[cfg(target_arch = "wasm32")]
             if let Some(win) = web_sys::window() {
-                win.clear_interval_with_handle(id);
+                win.clear_interval_with_handle(_id);
             }
             untrack(|| self.interval_handle.set(None));
         }

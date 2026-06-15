@@ -11,11 +11,87 @@
 use leptos::prelude::*;
 use leptos_router::components::A;
 
-use crate::csr::hooks::ThemeToggle;
+use crate::web::hooks::ThemeToggle;
 use crate::web::api::get_notifications;
 use crate::web::app::AuthResource;
 use crate::web::components::BottomNav;
 use crate::web::models::NotificationItem;
+
+// ── Shimmer skeleton list (5 cards, 2 groups, staggered delay) ───────────────
+
+#[component]
+fn NotifListSkeleton() -> impl IntoView {
+    view! {
+        <div class="notif-list">
+            // ── TODAY ──────────────────────────────────────────────────────
+            <div class="notif-group">
+                <span class="shimmer-section-label"
+                    style="animation-delay:0s;display:block;"></span>
+                // Card 1
+                <div class="notif-card notif-card--shimmer">
+                    <div class="shimmer-icon" style="animation-delay:0.04s;"></div>
+                    <div class="notif-content">
+                        <div class="notif-row-top">
+                            <div class="shimmer-line" style="width:55%;animation-delay:0.06s;"></div>
+                            <div class="shimmer-bg" style="width:38px;height:18px;border-radius:100px;animation-delay:0.08s;"></div>
+                        </div>
+                        <div class="shimmer-line shimmer-line--medium" style="animation-delay:0.1s;"></div>
+                    </div>
+                </div>
+                // Card 2
+                <div class="notif-card notif-card--shimmer">
+                    <div class="shimmer-icon" style="animation-delay:0.12s;"></div>
+                    <div class="notif-content">
+                        <div class="notif-row-top">
+                            <div class="shimmer-line" style="width:65%;animation-delay:0.14s;"></div>
+                            <div class="shimmer-bg" style="width:44px;height:10px;border-radius:4px;animation-delay:0.16s;"></div>
+                        </div>
+                        <div class="shimmer-line shimmer-line--long" style="width:70%;animation-delay:0.18s;"></div>
+                    </div>
+                </div>
+                // Card 3
+                <div class="notif-card notif-card--shimmer">
+                    <div class="shimmer-icon" style="animation-delay:0.2s;"></div>
+                    <div class="notif-content">
+                        <div class="notif-row-top">
+                            <div class="shimmer-line" style="width:72%;animation-delay:0.22s;"></div>
+                            <div class="shimmer-bg" style="width:38px;height:18px;border-radius:100px;animation-delay:0.24s;"></div>
+                        </div>
+                        <div class="shimmer-line shimmer-line--medium" style="width:90%;animation-delay:0.26s;"></div>
+                    </div>
+                </div>
+            </div>
+
+            // ── PROMOTIONS ─────────────────────────────────────────────────
+            <div class="notif-group">
+                <span class="shimmer-section-label"
+                    style="width:80px;animation-delay:0.3s;display:block;"></span>
+                // Card 4
+                <div class="notif-card notif-card--shimmer">
+                    <div class="shimmer-icon" style="animation-delay:0.33s;"></div>
+                    <div class="notif-content">
+                        <div class="notif-row-top">
+                            <div class="shimmer-line" style="width:50%;animation-delay:0.35s;"></div>
+                            <div class="shimmer-bg" style="width:46px;height:18px;border-radius:100px;animation-delay:0.37s;"></div>
+                        </div>
+                        <div class="shimmer-line shimmer-line--medium" style="width:75%;animation-delay:0.39s;"></div>
+                    </div>
+                </div>
+                // Card 5
+                <div class="notif-card notif-card--shimmer">
+                    <div class="shimmer-icon" style="animation-delay:0.43s;"></div>
+                    <div class="notif-content">
+                        <div class="notif-row-top">
+                            <div class="shimmer-line" style="width:60%;animation-delay:0.45s;"></div>
+                            <div class="shimmer-bg" style="width:44px;height:10px;border-radius:4px;animation-delay:0.47s;"></div>
+                        </div>
+                        <div class="shimmer-line shimmer-line--long" style="width:85%;animation-delay:0.49s;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+}
 
 // ── View model (hasil derivasi server-side, setara `be_to_notif` di CSR) ──────
 #[derive(Clone)]
@@ -122,14 +198,7 @@ pub fn NotificationsPage() -> impl IntoView {
                 </div>
             </header>
 
-            <Suspense fallback=|| {
-                view! {
-                    <div class="loading">
-                        <div class="loading__spinner" />
-                        <span>"Memuat notifikasi..."</span>
-                    </div>
-                }
-            }>
+            <Suspense fallback=|| view! { <NotifListSkeleton/> }>
                 {move || {
                     if !is_logged_in() && auth.get().is_some() {
                         return view! {

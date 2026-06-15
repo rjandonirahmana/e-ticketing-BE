@@ -1,25 +1,11 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use serde::Deserialize;
 
-use crate::csr::services::client::get_private;
-
-// ── BE response type ──────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Deserialize)]
-struct BeNotification {
-    pub id: String,
-    pub kind: String,
-    pub title: String,
-    pub body: String,
-    pub is_read: bool,
-    #[serde(default)]
-    pub order_id: Option<String>,
-    #[serde(default)]
-    pub ticket_id: Option<String>,
-    #[serde(default)]
-    pub created_at: Option<String>,
-}
+use crate::web::api::{
+    get_notif_unread_count, get_notifications, mark_all_notifications_read,
+    mark_notification_read as sf_mark_read,
+};
+use crate::web::models::NotificationItem;
 
 // ── Frontend Notif model ──────────────────────────────────────────────────────
 
@@ -39,7 +25,7 @@ pub struct Notif {
     pub is_read: bool,
 }
 
-fn be_to_notif(n: BeNotification) -> Notif {
+fn item_to_notif(n: NotificationItem) -> Notif {
     // Tentukan pill berdasarkan kind
     let (pill, pill_kind) = match n.kind.as_str() {
         "payment_success" | "order_paid" => (Some("PAID".into()), "live".to_string()),
@@ -49,21 +35,17 @@ fn be_to_notif(n: BeNotification) -> Notif {
         _ => (None, "new".to_string()),
     };
 
-    // CTA dan href berdasarkan relasi order/ticket
-    let (cta, cta_href) = if let Some(ref oid) = n.order_id {
-        (Some("Lihat Order".into()), Some(format!("/orders/{}", oid)))
-    } else if let Some(ref tid) = n.ticket_id {
-        (Some("Lihat Tiket".into()), Some(format!("/tickets/{}", tid)))
-    } else {
-        (None, None)
+    // CTA dan href berdasarkan kind + target_id
+    let (cta, cta_href) = match (n.kind.as_str(), n.target_id.as_deref()) {
+        ("order", Some(id))  => (Some("Lihat Order".into()), Some(format!("/orders/{}", id))),
+        ("ticket", Some(id)) => (Some("Lihat Tiket".into()), Some(format!("/tickets/{}", id))),
+        _                    => (None, None),
     };
 
-    // Format waktu dari ISO timestamp
+    // Format waktu dari timestamp (YYYY-MM-DD HH:MM)
     let time = n
         .created_at
-        .as_deref()
-        .and_then(|s| s.get(..16))
-        .map(|s| s.replace('T', " "))
+        .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
         .unwrap_or_else(|| "—".into());
 
     // Tentukan section berdasarkan kind
@@ -98,11 +80,6 @@ pub struct NotificationsCtx {
     pub error: RwSignal<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct UnreadCountResp {
-    count: i64,
-}
-
 impl NotificationsCtx {
     pub fn load(&self) {
         // SSR guard: spawn_local tidak tersedia di server
@@ -119,30 +96,27 @@ impl NotificationsCtx {
         let error = self.error;
 
         spawn_local(async move {
-            // Fetch notifications list
-            match get_private::<Vec<BeNotification>>("/notifications").await {
+            match get_notifications().await {
                 Ok(list) => {
-                    let mapped: Vec<Notif> = list.into_iter().map(be_to_notif).collect();
+                    let mapped: Vec<Notif> = list.into_iter().map(item_to_notif).collect();
                     items.set(mapped);
                 }
-                Err(e) => error.set(e.message),
+                Err(e) => error.set(e.to_string()),
             }
 
-            // Fetch unread count (badge)
-            if let Ok(resp) = get_private::<UnreadCountResp>("/notifications/unread-count").await {
-                unread_count.set(resp.count);
+            if let Ok(count) = get_notif_unread_count().await {
+                unread_count.set(count);
             }
 
             loading.set(false);
         });
     }
 
-    /// Tandai satu notif sebagai dibaca (optimistic update + API call).
+    /// Tandai satu notif sebagai dibaca (optimistic update + server fn).
     pub fn mark_read(&self, id: String) {
         let items = self.items;
         let unread_count = self.unread_count;
 
-        // Optimistic: update UI langsung
         items.update(|list| {
             if let Some(n) = list.iter_mut().find(|n| n.id == id) {
                 if !n.is_read {
@@ -154,10 +128,7 @@ impl NotificationsCtx {
 
         let id_clone = id.clone();
         spawn_local(async move {
-            use crate::csr::services::client::post_private;
-            let path = format!("/notifications/{}/read", id_clone);
-            let _: Result<serde_json::Value, _> =
-                post_private(&path, &serde_json::json!({})).await;
+            let _ = sf_mark_read(id_clone).await;
         });
     }
 
@@ -165,7 +136,6 @@ impl NotificationsCtx {
         let items = self.items;
         let unread_count = self.unread_count;
 
-        // Optimistic
         items.update(|list| {
             for n in list.iter_mut() {
                 n.is_read = true;
@@ -174,9 +144,7 @@ impl NotificationsCtx {
         unread_count.set(0);
 
         spawn_local(async move {
-            use crate::csr::services::client::post_private;
-            let _: Result<serde_json::Value, _> =
-                post_private("/notifications/read-all", &serde_json::json!({})).await;
+            let _ = mark_all_notifications_read().await;
         });
     }
 }

@@ -285,49 +285,6 @@ pub fn OrderCreatedPage() -> impl IntoView {
                 }.into_any()
             }}
 
-            <style>
-                "
-                .oc-page { min-height:100vh; display:flex; flex-direction:column; }
-                .oc-empty { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:60px 24px; color:#6666aa; }
-                .oc-hero { display:flex; flex-direction:column; align-items:center; padding:32px 24px 20px; text-align:center; }
-                .oc-hero-icon { width:64px; height:64px; border-radius:50%; background:rgba(200,255,94,0.1); border:1px solid rgba(200,255,94,0.25); display:flex; align-items:center; justify-content:center; color:#c8ff5e; margin-bottom:16px; }
-                .oc-hero-title { font-family:'Bebas Neue',sans-serif; font-size:26px; letter-spacing:3px; color:#fff; margin:0 0 8px; }
-                .oc-hero-sub { color:#6666aa; font-size:13px; }
-                .oc-card { margin:0 16px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:20px; }
-                .oc-card-header { display:flex; align-items:center; gap:6px; margin-bottom:12px; }
-                .oc-live-dot { width:8px; height:8px; background:#c8ff5e; border-radius:50%; animation:oc-blink 1.2s infinite; }
-                @keyframes oc-blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
-                .oc-live-label { font-size:10px; letter-spacing:2px; color:#c8ff5e; font-weight:600; }
-                .oc-event-name { font-size:18px; font-weight:700; color:#fff; margin:0 0 16px; }
-                .oc-ticket-section,.oc-price-section,.oc-meta-section { padding-top:16px; border-top:1px solid rgba(255,255,255,0.06); margin-top:16px; }
-                .oc-section-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
-                .oc-section-head { font-size:10px; letter-spacing:1.5px; color:#444466; font-weight:600; }
-                .oc-section-badge { font-size:11px; background:rgba(200,255,94,0.1); color:#c8ff5e; padding:3px 10px; border-radius:100px; }
-                .oc-ticket-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; }
-                .oc-ticket-name { font-size:13px; color:#ccc; font-weight:500; }
-                .oc-ticket-qty { font-size:11px; color:#6666aa; margin-top:2px; }
-                .oc-ticket-price { font-size:13px; color:#c8ff5e; font-weight:600; }
-                .oc-price-total-row { display:flex; justify-content:space-between; align-items:center; }
-                .oc-price-total-label { font-size:11px; letter-spacing:1.5px; color:#8888aa; font-weight:600; }
-                .oc-price-total-amt { font-size:22px; font-weight:800; color:#c8ff5e; font-family:'Bebas Neue',sans-serif; }
-                .oc-meta-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; }
-                .oc-meta-label { font-size:12px; color:#6666aa; }
-                .oc-meta-val { font-size:13px; color:#ccc; }
-                .oc-expiry { color:#ff6b6b; }
-                .oc-status-badge { display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; letter-spacing:1px; color:#c8ff5e; }
-                .oc-status-dot { width:6px; height:6px; background:#c8ff5e; border-radius:50%; }
-                .oc-pay-section { margin:0 16px 24px; display:flex; flex-direction:column; align-items:center; gap:16px; }
-                .oc-pay-head { font-size:11px; letter-spacing:2px; color:#6666aa; font-weight:600; }
-                .oc-qr-wrap { background:white; border-radius:12px; padding:8px; }
-                .oc-copy-btn { display:flex; align-items:center; gap:8px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color:#aaa; border-radius:10px; padding:10px 20px; font-size:12px; letter-spacing:1px; cursor:pointer; width:100%; justify-content:center; }
-                .oc-or-divider { display:flex; align-items:center; gap:12px; width:100%; color:#444466; font-size:11px; letter-spacing:1px; }
-                .oc-or-divider::before,.oc-or-divider::after { content:''; flex:1; height:1px; background:rgba(255,255,255,0.08); }
-                .oc-bank-btn { display:flex; align-items:center; justify-content:center; gap:10px; background:linear-gradient(135deg,#4f6bff,#7b5cff); color:#fff; border:none; border-radius:14px; padding:16px 24px; font-size:13px; font-weight:700; letter-spacing:1.5px; cursor:pointer; width:100%; }
-                .oc-bank-btn:disabled { opacity:0.6; cursor:not-allowed; }
-                .pay-error { color:#ff6b6b; font-size:13px; text-align:center; }
-                .oc-terms { color:#333355; font-size:9px; letter-spacing:0.5px; line-height:1.6; text-align:center; padding:0 24px 32px; }
-                "
-            </style>
         </div>
     }
 }

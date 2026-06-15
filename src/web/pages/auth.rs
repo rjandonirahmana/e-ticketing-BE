@@ -1,29 +1,22 @@
-//! auth.rs — Halaman Login & Register dengan SSR cookie auth.
-//!
-//! ## Alur Auth
-//!
-//! **Login:**
-//!   1. User submit form → `login_action` server function
-//!   2. Server validasi kredensial ke backend API
-//!   3. Jika OK: server set HttpOnly cookie `pulse_token`
-//!   4. Client lakukan full-page navigation ke "/" via `window.location.replace`
-//!      (bukan client-side navigate) agar SSR re-baca cookie baru
-//!
-//! **Register:**
-//!   1. User submit form → `register_action` server function
-//!   2. Jika OK: tampilkan success message, tunggu 1.5s, redirect ke /login
-//!   3. Timeout menggunakan `gloo_timers::future::TimeoutFuture` dalam
-//!      `spawn_local` — tidak ada memory leak (tidak ada `Closure::forget`)
-//!
-//! ## Tidak ada memory leak
-//! Pattern lama `cb.forget()` (raw wasm_bindgen Closure) diganti dengan
-//! `gloo_timers::future::TimeoutFuture::new(ms).await` di dalam `spawn_local`.
-//! Rust future di-drop otomatis setelah selesai — zero leaks.
-
 use leptos::prelude::*;
-use leptos_router::{components::A, hooks::use_navigate};
+use leptos_meta::*;
+use leptos_router::components::A;
+use leptos_router::hooks::use_navigate;
 
 use crate::web::api::{login_action, register_action};
+use crate::web::hooks::ThemeToggle;
+
+// ── Grid background (inline — no component dependency) ────────────────────────
+#[component]
+fn GridBackground() -> impl IntoView {
+    view! {
+        <div class="grid-bg">
+            <div class="grid-lines"></div>
+            <div class="orb orb-1"></div>
+            <div class="orb orb-2"></div>
+        </div>
+    }
+}
 
 // ── Login Page ─────────────────────────────────────────────────────────────────
 
@@ -33,6 +26,8 @@ pub fn LoginPage() -> impl IntoView {
     let password = RwSignal::new(String::new());
     let loading  = RwSignal::new(false);
     let error    = RwSignal::new(Option::<String>::None);
+    let pass_focused = RwSignal::new(false);
+    let phone_focused = RwSignal::new(false);
 
     let on_submit = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
@@ -48,12 +43,9 @@ pub fn LoginPage() -> impl IntoView {
         leptos::task::spawn_local(async move {
             match login_action(ph, pw).await {
                 Ok(_user) => {
-                    // Cookie sudah di-set server-side oleh login_action.
-                    // Full-page navigation agar SSR re-baca cookie baru.
-                    // Tidak pakai use_navigate karena itu client-side only.
                     #[cfg(target_arch = "wasm32")]
                     if let Some(win) = web_sys::window() {
-                        let _ = win.location().replace("/");
+                        let _ = win.location().replace("/explore");
                     }
                 }
                 Err(e) => {
@@ -65,57 +57,123 @@ pub fn LoginPage() -> impl IntoView {
     };
 
     view! {
-        <div class="auth-page">
-            <div class="auth-box">
-                <div class="auth-box__logo">"PUL" <span>"SE"</span></div>
-                <p class="auth-box__tagline">"Temukan event impianmu"</p>
+        <Title text="Masuk — PULSE" />
+        <Meta name="description" content="Masuk ke akun PULSE kamu untuk beli tiket dan kelola pesananmu." />
+        <GridBackground />
+        <main class="auth-page">
+            <header class="auth-header animate-fade-up">
+                <span class="kinetic-logo">"KINETIC"</span>
+                <div class="header-actions">
+                    <A href="/" attr:class="home-link" attr:title="Home">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2h-5v-8H9v8H5a2 2 0 0 1-2-2z"/>
+                        </svg>
+                    </A>
+                    <span class="header-badge">"SECURE LOGIN"</span>
+                    <ThemeToggle/>
+                </div>
+            </header>
 
-                <h2 class="auth-box__title">"Masuk ke Akun"</h2>
+            <section class="animate-fade-up animate-fade-up-delay-1">
+                <h1 class="hero-title">"MASUK KE"<br/>"AKUN"</h1>
+                <p class="hero-sub">"Akses tiket, pemesanan, dan pengalaman event kamu."</p>
+            </section>
 
-                {move || error.get().map(|e| view! {
-                    <div class="alert alert--error">{e}</div>
-                })}
+            <div class="auth-card animate-fade-up animate-fade-up-delay-2">
+                <form on:submit=on_submit class="auth-form" novalidate=true>
+                    {move || error.get().map(|e| view! {
+                        <div class="error-banner" role="alert">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+                            </svg>
+                            <span>{e}</span>
+                        </div>
+                    })}
 
-                <form on:submit=on_submit>
-                    <div class="form-group">
-                        <label>"Nomor HP"</label>
-                        <input
-                            type="tel"
-                            placeholder="+62 812 xxxx xxxx"
-                            prop:value=phone
-                            on:input=move |ev| phone.set(event_target_value(&ev))
-                        />
+                    <div class="field-wrap">
+                        <label for="phone" class="field-label">"Nomor HP"</label>
+                        <div class=move || if phone_focused.get() { "field-box field-box--focused" } else { "field-box" }>
+                            <input
+                                id="phone"
+                                type="tel"
+                                class="field-input"
+                                placeholder="+62 812 xxxx xxxx"
+                                autocomplete="tel"
+                                disabled=move || loading.get()
+                                prop:value=phone
+                                on:input=move |ev| phone.set(event_target_value(&ev))
+                                on:focus=move |_| phone_focused.set(true)
+                                on:blur=move |_| phone_focused.set(false)
+                            />
+                        </div>
                     </div>
 
-                    <div class="form-group">
-                        <label>"Password"</label>
-                        <input
-                            type="password"
-                            placeholder="••••••••"
-                            prop:value=password
-                            on:input=move |ev| password.set(event_target_value(&ev))
-                        />
+                    <div class="field-wrap">
+                        <label for="password" class="field-label">"Password"</label>
+                        <div class=move || if pass_focused.get() { "field-box field-box--focused" } else { "field-box" }>
+                            <input
+                                id="password"
+                                type="password"
+                                class="field-input"
+                                placeholder="••••••••"
+                                autocomplete="current-password"
+                                disabled=move || loading.get()
+                                prop:value=password
+                                on:input=move |ev| password.set(event_target_value(&ev))
+                                on:focus=move |_| pass_focused.set(true)
+                                on:blur=move |_| pass_focused.set(false)
+                            />
+                        </div>
                     </div>
 
-                    <button
-                        type="submit"
-                        class="btn btn--accent btn--full btn--lg"
-                        disabled=move || loading.get()
-                    >
-                        {move || if loading.get() { "Masuk..." } else { "Masuk" }}
+                    <div class="form-row">
+                        <A href="/forgot-password" attr:class="forgot-link">"Lupa password?"</A>
+                    </div>
+
+                    <button type="submit" disabled=move || loading.get() class="submit-btn">
+                        {move || if loading.get() {
+                            view! {
+                                <span class="btn-loading">
+                                    <span class="spinner"></span>
+                                    "MASUK..."
+                                </span>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <>
+                                    "MASUK"
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                        <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+                                    </svg>
+                                </>
+                            }.into_any()
+                        }}
                     </button>
                 </form>
 
-                <div class="form-divider">"atau"</div>
+                <div class="divider"><span class="divider-text">"atau"</span></div>
 
-                <A href="/register" attr:class="btn btn--ghost btn--full">
-                    "Belum punya akun? Daftar"
-                </A>
-                <A href="/forgot-password" attr:class="btn btn--ghost btn--full" attr:style="margin-top:.5rem;font-size:.875rem">
-                    "Lupa password?"
-                </A>
+                <p class="auth-prompt">
+                    "Belum punya akun? "
+                    <A href="/register" attr:class="auth-prompt-link">"Daftar sekarang →"</A>
+                </p>
             </div>
-        </div>
+
+            <div class="trust-row animate-fade-up animate-fade-up-delay-3">
+                <div class="trust-item">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+                    <span>"SSL Aman"</span>
+                </div>
+                <div class="trust-item">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    <span>"Terverifikasi"</span>
+                </div>
+                <div class="trust-item">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    <span>"Platform Terpercaya"</span>
+                </div>
+            </div>
+        </main>
     }
 }
 
@@ -129,10 +187,9 @@ pub fn RegisterPage() -> impl IntoView {
     let loading = RwSignal::new(false);
     let error   = RwSignal::new(Option::<String>::None);
     let success = RwSignal::new(false);
+    let name_focused  = RwSignal::new(false);
+    let phone_focused = RwSignal::new(false);
 
-    // `use_navigate` harus dipanggil di level komponen (saat render),
-    // bukan di dalam closure atau async block.
-    // NavigateFn bersifat Clone sehingga aman di-move ke async block.
     let navigate = use_navigate();
 
     let on_submit = move |ev: leptos::ev::SubmitEvent| {
@@ -148,28 +205,18 @@ pub fn RegisterPage() -> impl IntoView {
         loading.set(true);
         error.set(None);
 
-        // Clone navigate sebelum move ke async block.
-        let nav = navigate.clone();
+        let _nav = navigate.clone();
 
         leptos::task::spawn_local(async move {
-            match register_action(n, ph, role.get()).await {
+            match register_action(n, ph.clone(), role.get()).await {
                 Ok(_) => {
                     success.set(true);
                     loading.set(false);
-
-                    // Tunggu 1.5 detik agar user melihat pesan sukses,
-                    // kemudian navigasi ke /login.
-                    //
-                    // Menggunakan gloo_timers::future::TimeoutFuture (bukan
-                    // raw wasm_bindgen::Closure + set_timeout + cb.forget()).
-                    //
-                    // TimeoutFuture adalah Future yang resolve setelah delay;
-                    // ketika di-drop (setelah .await selesai), tidak ada
-                    // resource yang leaked — zero memory leak.
                     #[cfg(target_arch = "wasm32")]
                     {
-                        gloo_timers::future::TimeoutFuture::new(1500).await;
-                        nav("/login", Default::default());
+                        gloo_timers::future::TimeoutFuture::new(1200).await;
+                        let target = format!("/verify-otp?phone={}", urlencoding_minimal(&ph));
+                        _nav(&target, Default::default());
                     }
                 }
                 Err(e) => {
@@ -181,67 +228,144 @@ pub fn RegisterPage() -> impl IntoView {
     };
 
     view! {
-        <div class="auth-page">
-            <div class="auth-box">
-                <div class="auth-box__logo">"PUL" <span>"SE"</span></div>
-                <p class="auth-box__tagline">"Buat akun gratis sekarang"</p>
+        <Title text="Daftar — PULSE" />
+        <Meta name="description" content="Buat akun PULSE gratis dan mulai beli tiket event favoritmu." />
+        <GridBackground />
+        <main class="auth-page">
+            <header class="auth-header">
+                <A href="/login" attr:class="back-btn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+                </A>
+                <span class="auth-logo">"KINETIC"</span>
+                <ThemeToggle/>
+            </header>
 
-                <h2 class="auth-box__title">"Daftar"</h2>
+            <section>
+                <h1 class="hero-title">"BUAT AKUN"<br/>"GRATIS"</h1>
+                <p class="hero-sub">"Daftar dan temukan ribuan event seru di seluruh Indonesia."</p>
+            </section>
 
-                <Show when=move || success.get()>
-                    <div class="alert alert--success">
-                        "Registrasi berhasil! Mengalihkan ke halaman masuk..."
+            <div class="auth-card">
+                <form on:submit=on_submit class="auth-form" novalidate=true>
+                    <Show when=move || success.get()>
+                        <div class="success-banner" role="status">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#39ff8a" stroke-width="2">
+                                <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+                            </svg>
+                            <span>"Registrasi berhasil! Mengarahkan ke verifikasi..."</span>
+                        </div>
+                    </Show>
+
+                    {move || error.get().map(|e| view! {
+                        <div class="error-banner" role="alert">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+                            </svg>
+                            <span>{e}</span>
+                        </div>
+                    })}
+
+                    <div class="field-wrap">
+                        <label for="name" class="field-label">"Nama Lengkap"</label>
+                        <div class=move || if name_focused.get() { "field-box field-box--focused" } else { "field-box" }>
+                            <input
+                                id="name"
+                                type="text"
+                                class="field-input"
+                                placeholder="John Doe"
+                                autocomplete="name"
+                                disabled=move || loading.get()
+                                prop:value=name
+                                on:input=move |ev| name.set(event_target_value(&ev))
+                                on:focus=move |_| name_focused.set(true)
+                                on:blur=move |_| name_focused.set(false)
+                            />
+                        </div>
                     </div>
-                </Show>
 
-                {move || error.get().map(|e| view! {
-                    <div class="alert alert--error">{e}</div>
-                })}
-
-                <form on:submit=on_submit>
-                    <div class="form-group">
-                        <label>"Nama Lengkap"</label>
-                        <input
-                            type="text"
-                            placeholder="John Doe"
-                            prop:value=name
-                            on:input=move |ev| name.set(event_target_value(&ev))
-                        />
+                    <div class="field-wrap">
+                        <label for="phone" class="field-label">"Nomor WhatsApp"</label>
+                        <div class=move || if phone_focused.get() { "field-box field-box--focused" } else { "field-box" }>
+                            <input
+                                id="phone"
+                                type="tel"
+                                class="field-input"
+                                placeholder="+62 812 xxxx xxxx"
+                                autocomplete="tel"
+                                disabled=move || loading.get()
+                                prop:value=phone
+                                on:input=move |ev| phone.set(event_target_value(&ev))
+                                on:focus=move |_| phone_focused.set(true)
+                                on:blur=move |_| phone_focused.set(false)
+                            />
+                        </div>
                     </div>
 
-                    <div class="form-group">
-                        <label>"Nomor HP"</label>
-                        <input
-                            type="tel"
-                            placeholder="+62 812 xxxx xxxx"
-                            prop:value=phone
-                            on:input=move |ev| phone.set(event_target_value(&ev))
-                        />
-                    </div>
-
-                    <div class="form-group">
-                        <label>"Daftar sebagai"</label>
-                        <select on:change=move |ev| role.set(event_target_value(&ev))>
-                            <option value="customer">"Pembeli Tiket"</option>
-                            <option value="merchant">"Event Organizer / Merchant"</option>
-                        </select>
+                    <div class="field-wrap">
+                        <label for="role" class="field-label">"Daftar sebagai"</label>
+                        <div class="field-box">
+                            <select
+                                id="role"
+                                class="field-input"
+                                on:change=move |ev| role.set(event_target_value(&ev))
+                            >
+                                <option value="customer">"Pembeli Tiket"</option>
+                                <option value="merchant">"Event Organizer / Merchant"</option>
+                            </select>
+                        </div>
                     </div>
 
                     <button
                         type="submit"
-                        class="btn btn--accent btn--full btn--lg"
                         disabled=move || loading.get() || success.get()
+                        class="submit-btn"
                     >
-                        {move || if loading.get() { "Mendaftar..." } else { "Daftar Sekarang" }}
+                        {move || if loading.get() {
+                            view! {
+                                <span class="btn-loading">
+                                    <span class="spinner"></span>
+                                    "MENDAFTAR..."
+                                </span>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <>
+                                    "DAFTAR SEKARANG"
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                        <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+                                    </svg>
+                                </>
+                            }.into_any()
+                        }}
                     </button>
                 </form>
 
-                <div class="form-divider">"atau"</div>
+                <div class="divider"><span class="divider-text">"atau"</span></div>
 
-                <A href="/login" attr:class="btn btn--ghost btn--full">
-                    "Sudah punya akun? Masuk"
-                </A>
+                <p class="auth-prompt">
+                    "Sudah punya akun? "
+                    <A href="/login" attr:class="auth-prompt-link">"Masuk →"</A>
+                </p>
             </div>
-        </div>
+        </main>
     }
+}
+
+#[allow(dead_code)]
+fn urlencoding_minimal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' | '+' => out.push(c),
+            _ => {
+                let mut buf = [0u8; 4];
+                for b in c.encode_utf8(&mut buf).bytes() {
+                    out.push_str(&format!("%{:02X}", b));
+                }
+            }
+        }
+    }
+    out
 }

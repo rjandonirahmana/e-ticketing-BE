@@ -10,7 +10,7 @@
 use leptos::prelude::*;
 use leptos_router::components::A;
 
-use crate::csr::hooks::ThemeToggle;
+use crate::web::hooks::ThemeToggle;
 use crate::web::api::get_my_orders;
 use crate::web::app::AuthResource;
 use crate::web::components::{BottomNav, EmptyState, OrderCardShimmer};
@@ -44,12 +44,38 @@ pub fn OrdersPage() -> impl IntoView {
     let filter = RwSignal::new("All".to_string());
     let query = RwSignal::new(String::new());
 
+    let filtered_orders = Memo::new(move |_| {
+        let q = query.get().to_lowercase();
+        let f = filter.get();
+        match orders.get() {
+            Some(Ok(list)) => list
+                .into_iter()
+                .filter(|o| {
+                    let (_, kind) = classify(&o.status);
+                    let status_match = match f.as_str() {
+                        "Waiting for Payment" => kind == "pending",
+                        "Paid" => kind == "paid",
+                        _ => true,
+                    };
+                    let ev = o.event_name.as_deref().unwrap_or("").to_lowercase();
+                    let vn = o.venue.as_deref().unwrap_or("").to_lowercase();
+                    let search_match = q.is_empty()
+                        || ev.contains(&q)
+                        || vn.contains(&q)
+                        || o.order_code.to_lowercase().contains(&q);
+                    status_match && search_match
+                })
+                .collect::<Vec<_>>(),
+            _ => vec![],
+        }
+    });
+
     view! {
         <div class="page orders-page">
             <header class="page-header">
                 <A href="/explore" attr:class="back-btn">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        stroke-width="2.5" stroke-linecap="round">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
                         <polyline points="15 18 9 12 15 6" />
                     </svg>
                 </A>
@@ -57,8 +83,8 @@ pub fn OrdersPage() -> impl IntoView {
                 <div class="header-actions">
                     <ThemeToggle />
                     <button class="icon-btn" aria-label="More">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" stroke-linecap="round">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round">
                             <circle cx="12" cy="5" r="1.4" />
                             <circle cx="12" cy="12" r="1.4" />
                             <circle cx="12" cy="19" r="1.4" />
@@ -66,11 +92,9 @@ pub fn OrdersPage() -> impl IntoView {
                     </button>
                 </div>
             </header>
-
-            // Search bar
             <div class="orders-search">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    stroke-width="2" stroke-linecap="round">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round">
                     <circle cx="11" cy="11" r="8" />
                     <line x1="21" y1="21" x2="16.65" y2="16.65" />
                 </svg>
@@ -82,40 +106,31 @@ pub fn OrdersPage() -> impl IntoView {
                     on:input=move |ev| query.set(event_target_value(&ev))
                 />
             </div>
-
-            // Filter tabs
             <div class="filter-tabs">
-                {["All", "Waiting for Payment", "Paid"]
-                    .iter()
-                    .map(|f| {
-                        let label = *f;
-                        let cls = move || {
-                            if filter.get() == label {
-                                "filter-tab filter-tab--active"
-                            } else {
-                                "filter-tab"
-                            }
-                        };
-                        view! {
-                            <button class=cls on:click=move |_| filter.set(label.into())>
-                                {label}
-                            </button>
-                        }
-                    })
-                    .collect_view()}
-            </div>
-
-            <div class="orders-list">
-                <Suspense fallback=|| {
+                {["All", "Waiting for Payment", "Paid"].iter().map(|f| {
+                    let label = *f;
+                    let cls = move || {
+                        if filter.get() == label { "filter-tab filter-tab--active" }
+                        else { "filter-tab" }
+                    };
                     view! {
-                        <OrderCardShimmer />
-                        <OrderCardShimmer />
-                        <OrderCardShimmer />
+                        <button class=cls on:click=move |_| filter.set(label.into())>
+                            {label}
+                        </button>
                     }
-                }>
-                    {move || {
-                        if !is_logged_in() && auth.get().is_some() {
-                            return view! {
+                }).collect_view()}
+            </div>
+            <Suspense fallback=|| view! {
+                <div class="orders-list">
+                    <OrderCardShimmer />
+                    <OrderCardShimmer />
+                    <OrderCardShimmer />
+                </div>
+            }>
+                {move || {
+                    orders.get().map(|res| {
+                        let orders_content = if !is_logged_in() && auth.get().is_some() {
+                            view! {
                                 <EmptyState
                                     icon="🔒"
                                     title="HARUS MASUK"
@@ -123,97 +138,63 @@ pub fn OrdersPage() -> impl IntoView {
                                     cta_label="MASUK"
                                     cta_href="/login"
                                 />
-                            }
-                                .into_any();
-                        }
-
-                        orders
-                            .get()
-                            .map(|res| {
-                                let list = match res {
-                                    Ok(list) => list,
-                                    Err(_) => {
-                                        return view! {
-                                            <EmptyState
-                                                icon="⚠️"
-                                                title="TERJADI KESALAHAN"
-                                                body="Gagal memuat order. Coba login ulang."
-                                            />
+                            }.into_any()
+                        } else {
+                            match res {
+                                Err(_) => view! {
+                                    <EmptyState
+                                        icon="⚠️"
+                                        title="TERJADI KESALAHAN"
+                                        body="Gagal memuat order. Coba login ulang."
+                                    />
+                                }.into_any(),
+                                Ok(_) => view! {
+                                    {move || {
+                                        let f = filter.get();
+                                        let filtered = filtered_orders.get();
+                                        if filtered.is_empty() {
+                                            let (icon, title, body) = match f.as_str() {
+                                                "Waiting for Payment" => (
+                                                    "🕐",
+                                                    "TIDAK ADA PESANAN PENDING",
+                                                    "Pesanan yang menunggu pembayaran akan muncul di sini.",
+                                                ),
+                                                "Paid" => (
+                                                    "✅",
+                                                    "BELUM ADA PESANAN SELESAI",
+                                                    "Pesanan yang sudah dibayar akan muncul di sini.",
+                                                ),
+                                                _ => (
+                                                    "🛒",
+                                                    "BELUM ADA PESANAN",
+                                                    "Pesanan Anda akan muncul di sini setelah melakukan pembelian.",
+                                                ),
+                                            };
+                                            view! {
+                                                <EmptyState
+                                                    icon=icon
+                                                    title=title
+                                                    body=body
+                                                    cta_label="JELAJAHI EVENT"
+                                                    cta_href="/explore"
+                                                />
+                                            }.into_any()
+                                        } else {
+                                            filtered.into_iter().map(order_card).collect_view().into_any()
                                         }
-                                            .into_any();
-                                    }
-                                };
+                                    }}
+                                }.into_any(),
+                            }
+                        };
 
-                                let q = query.get().to_lowercase();
-                                let f = filter.get();
-                                let filtered: Vec<OrderListItem> = list
-                                    .into_iter()
-                                    .filter(|o| {
-                                        let (_, kind) = classify(&o.status);
-                                        let status_match = match f.as_str() {
-                                            "Waiting for Payment" => kind == "pending",
-                                            "Paid" => kind == "paid",
-                                            _ => true,
-                                        };
-                                        let ev = o
-                                            .event_name
-                                            .as_deref()
-                                            .unwrap_or("")
-                                            .to_lowercase();
-                                        let vn = o
-                                            .venue
-                                            .as_deref()
-                                            .unwrap_or("")
-                                            .to_lowercase();
-                                        let search_match = q.is_empty()
-                                            || ev.contains(&q)
-                                            || vn.contains(&q)
-                                            || o.order_code.to_lowercase().contains(&q);
-                                        status_match && search_match
-                                    })
-                                    .collect();
-
-                                if filtered.is_empty() {
-                                    let (icon, title, body) = match f.as_str() {
-                                        "Waiting for Payment" => (
-                                            "🕐",
-                                            "TIDAK ADA PESANAN PENDING",
-                                            "Pesanan yang menunggu pembayaran akan muncul di sini.",
-                                        ),
-                                        "Paid" => (
-                                            "✅",
-                                            "BELUM ADA PESANAN SELESAI",
-                                            "Pesanan yang sudah dibayar akan muncul di sini.",
-                                        ),
-                                        _ => (
-                                            "🛒",
-                                            "BELUM ADA PESANAN",
-                                            "Pesanan Anda akan muncul di sini setelah melakukan pembelian.",
-                                        ),
-                                    };
-                                    view! {
-                                        <EmptyState
-                                            icon=icon
-                                            title=title
-                                            body=body
-                                            cta_label="JELAJAHI EVENT"
-                                            cta_href="/explore"
-                                        />
-                                    }
-                                        .into_any()
-                                } else {
-                                    filtered
-                                        .into_iter()
-                                        .map(order_card)
-                                        .collect_view()
-                                        .into_any()
-                                }
-                            })
-                            .unwrap_or_else(|| view! { <span></span> }.into_any())
-                    }}
-                </Suspense>
-            </div>
-
+                        view! {
+                            <div class="orders-list">
+                                {orders_content}
+                            </div>
+                        }.into_any()
+                    })
+                }}
+            </Suspense>
             <BottomNav active="orders" />
         </div>
     }

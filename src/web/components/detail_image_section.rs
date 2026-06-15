@@ -10,7 +10,9 @@
 //! - Grid layout adaptif dengan horizontal scroll: foto ditampilkan dalam grid
 //!   yang bisa di-scroll ke kanan.
 
-use crate::csr::services::event::{DetailImageMeta, DetailImagePayload, DetailImageUploadItem};
+use crate::web::services::event::DetailImagePayload;
+#[cfg(target_arch = "wasm32")]
+use crate::web::services::event::{DetailImageMeta, DetailImageUploadItem};
 use leptos::prelude::*;
 
 // ─── State satu foto draft ────────────────────────────────────────────────────
@@ -24,6 +26,7 @@ pub struct DetailImageDraft {
     /// None berarti foto BARU dari file picker, perlu dikirim sebagai file.
     pub uploaded_url: Option<String>,
     /// File asli — Some hanya untuk foto baru yang belum pernah di-upload.
+    #[cfg(target_arch = "wasm32")]
     pub file: Option<web_sys::File>,
     pub image_type: RwSignal<String>,
     pub caption: RwSignal<String>,
@@ -31,6 +34,7 @@ pub struct DetailImageDraft {
 
 impl DetailImageDraft {
     /// Foto baru dari file picker.
+    #[cfg(target_arch = "wasm32")]
     pub fn from_file(file: web_sys::File, preview_url: String) -> Self {
         Self {
             preview_url,
@@ -46,6 +50,7 @@ impl DetailImageDraft {
         Self {
             preview_url: payload.url.clone(),
             uploaded_url: Some(payload.url.clone()),
+            #[cfg(target_arch = "wasm32")]
             file: None,
             image_type: RwSignal::new(payload.image_type.clone()),
             caption: RwSignal::new(payload.caption.clone()),
@@ -104,6 +109,7 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
     let active_idx: RwSignal<Option<usize>> = RwSignal::new(None);
 
     // ── Tambah file ───────────────────────────────────────────────────────────
+    #[cfg(target_arch = "wasm32")]
     let on_add_file = move |ev: leptos::ev::Event| {
         use leptos::wasm_bindgen::JsCast;
 
@@ -155,6 +161,8 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
         active_idx.set(Some(new_idx));
         input.set_value("");
     };
+    #[cfg(not(target_arch = "wasm32"))]
+    let on_add_file = move |_: leptos::ev::Event| {};
 
     view! {
         <div style="display:flex;flex-direction:column;gap:12px">
@@ -520,6 +528,7 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
 ///
 /// Dipanggil di `do_submit` pada halaman create/edit sebelum memanggil API.
 /// Tidak ada network call di sini — semua I/O dilakukan di service layer.
+#[cfg(target_arch = "wasm32")]
 pub async fn collect_detail_drafts(
     drafts: &[DetailImageDraft],
 ) -> (Vec<DetailImageUploadItem>, Vec<DetailImagePayload>) {

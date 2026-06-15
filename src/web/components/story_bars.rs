@@ -1,7 +1,8 @@
 use leptos::prelude::*;
 
-use crate::csr::state::stories::use_stories_store;
+use crate::web::state::stories::use_stories_store;
 
+#[cfg(target_arch = "wasm32")]
 fn store_from_page() {
     let from = web_sys::window()
         .and_then(|w| w.location().pathname().ok())
@@ -15,6 +16,9 @@ fn store_from_page() {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn store_from_page() {}
+
 #[component]
 pub fn StoryBar() -> impl IntoView {
     // use_stories_store() → StoriesCtx
@@ -26,7 +30,7 @@ pub fn StoryBar() -> impl IntoView {
             // ── Tombol "Cerita Anda" ─────────────────────────────────────
             <div class="story-item">
                 <a
-                    href="/stories/new"
+                    href="/story"
                     class="story-add-btn"
                     aria-label="Tambah cerita"
                     on:click=move |_| store_from_page()
