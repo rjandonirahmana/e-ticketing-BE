@@ -38,10 +38,23 @@ COPY proto/    ./proto/
 COPY styles/   ./styles/
 
 # Build WASM + CSS → target/site/
+#
+# FIX naming bug: cargo-leptos kadang menulis binary wasm sebagai
+# "<output-name>.wasm" (tanpa suffix "_bg"), padahal e-ticketing.js (loader)
+# selalu meminta "<output-name>_bg.wasm" — mismatch ini bikin WASM 404 di
+# runtime, hydration tidak pernah jalan, dan SEMUA page jadi "loading terus"
+# karena client JS runtime tidak pernah start. Self-heal di sini: kalau
+# "_bg.wasm" tidak ada tapi varian tanpa "_bg" ada, copy ke nama yang benar.
 RUN --mount=type=cache,id=cargo-registry-debian,target=/usr/local/cargo/registry \
     --mount=type=cache,id=target-frontend,target=/app/target \
     cargo leptos build --release 2>&1 \
-    && cp -r /app/target/site /app/site-out
+    && cp -r /app/target/site /app/site-out \
+    && cd /app/site-out/pkg \
+    && if [ ! -f e-ticketing_bg.wasm ] && [ -f e-ticketing.wasm ]; then \
+    cp e-ticketing.wasm e-ticketing_bg.wasm; \
+    fi \
+    && ls -la /app/site-out/pkg \
+    && test -f e-ticketing_bg.wasm
 
 # ── Stage 2: Build backend binary (musl static) ───────────────────────────────
 FROM rustlang/rust:nightly-alpine AS backend-builder
