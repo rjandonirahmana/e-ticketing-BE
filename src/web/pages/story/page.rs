@@ -156,8 +156,12 @@ pub fn StoryPage() -> impl IntoView {
     let prefill_date    = move || query.with(|q| q.get("event_date").unwrap_or_default());
     let prefill_venue   = move || query.with(|q| q.get("event_venue").unwrap_or_default());
     let prefill_price   = move || query.with(|q| q.get("event_price").unwrap_or_default());
+    // Ticket-share mode: story dibuat dari ticket detail. Tidak ada event_slug
+    // (jadi tidak pernah di-persist sebagai event link) — hanya tampil di kartu canvas.
+    let prefill_is_ticket = move || query.with(|q| q.get("is_ticket").unwrap_or_default()) == "1";
+    let prefill_ticket_ref = move || query.with(|q| q.get("ticket_ref").unwrap_or_default());
 
-    let has_event_prefill = Memo::new(move |_| !prefill_slug().is_empty());
+    let has_event_prefill = Memo::new(move |_| !prefill_slug().is_empty() || prefill_is_ticket());
     let user_overrode_prefill = RwSignal::new(false);
     let event_meta_sig  : RwSignal<Option<EventStoryMeta>> = RwSignal::new(None);
     let event_cover_url : StoredValue<String> = StoredValue::new(String::new());
@@ -174,12 +178,14 @@ pub fn StoryPage() -> impl IntoView {
 
     // ── Effect: inisiasi mode event ───────────────────────────────────────────
     Effect::new(move |_| {
-        let slug  = prefill_slug();
-        let title = prefill_title();
-        let cover = prefill_cover();
-        let id    = prefill_id();
-        let desc  = prefill_desc();
-        if slug.is_empty() || cover.is_empty() { return; }
+        let slug      = prefill_slug();
+        let title     = prefill_title();
+        let cover     = prefill_cover();
+        let id        = prefill_id();
+        let desc      = prefill_desc();
+        let is_ticket = prefill_is_ticket();
+        let ticket_ref = prefill_ticket_ref();
+        if (slug.is_empty() && !is_ticket) || cover.is_empty() { return; }
 
         let from_create = query.with(|q| q.get("from_create").unwrap_or_default()) == "1";
         if from_create && slug == "draft" {
@@ -191,9 +197,12 @@ pub fn StoryPage() -> impl IntoView {
             event_meta_sig.set(None);
             return;
         }
+        // Dedup key: slug untuk mode event, "ticket:<ref>" untuk mode ticket-share
+        // (tidak pernah dikirim sebagai event_slug ke backend).
+        let dedup_key = if is_ticket { format!("ticket:{}", ticket_ref) } else { slug.clone() };
         let last = last_prefilled_slug.get_value();
-        if !last.is_empty() && last == slug { return; }
-        last_prefilled_slug.set_value(slug.clone());
+        if !last.is_empty() && last == dedup_key { return; }
+        last_prefilled_slug.set_value(dedup_key);
         cover_load_version.update(|v| *v = v.wrapping_add(1));
         cover_img_ready.set(false);
         is_video.set(false);
@@ -227,7 +236,9 @@ pub fn StoryPage() -> impl IntoView {
             }
         }
 
-        event_meta_sig.set(Some(EventStoryMeta { event_id: id, event_slug: slug, event_title: title }));
+        // event_slug kosong di mode ticket → tidak pernah ter-persist sebagai link event.
+        let event_slug = if is_ticket { String::new() } else { slug };
+        event_meta_sig.set(Some(EventStoryMeta { event_id: id, event_slug, event_title: title }));
         overlays.set(Vec::new());
     });
 
@@ -486,7 +497,7 @@ pub fn StoryPage() -> impl IntoView {
                 let has_overlays = !ovls_snapshot.is_empty();
                 if !has_overlays || is_vid {
                     #[cfg(target_arch = "wasm32")]
-                    match upload_story_file(&file, None).await {
+                    match upload_story_file(&file, None, None).await {
                         Ok(_)  => { ctx.uploading.set(false); ctx.load(); }
                         Err(e) => { ctx.uploading.set(false); web_sys::console::error_1(&format!("Upload gagal: {}", e).into()); }
                     }
@@ -533,7 +544,7 @@ pub fn StoryPage() -> impl IntoView {
                     Ok(f) => f, Err(_) => { ctx.uploading.set(false); return; }
                 };
                 #[cfg(target_arch = "wasm32")]
-                match upload_story_file(&upload_file, None).await {
+                match upload_story_file(&upload_file, None, None).await {
                     Ok(_)  => { ctx.uploading.set(false); ctx.load(); }
                     Err(e) => { ctx.uploading.set(false); web_sys::console::error_1(&format!("upload overlay: {}", e).into()); }
                 }
@@ -587,13 +598,14 @@ pub fn StoryPage() -> impl IntoView {
                 let file = match web_sys::File::new_with_blob_sequence_and_options(&bits, &format!("event_story.{}", export_ext()), &opts) {
                     Ok(f) => f, Err(_) => { ctx.uploading.set(false); return; }
                 };
+                let title_opt = if title.is_empty() { None } else { Some(title.clone()) };
                 #[cfg(target_arch = "wasm32")]
-                match upload_story_file(&file, slug).await {
+                match upload_story_file(&file, slug, title_opt).await {
                     Ok(_)  => { ctx.uploading.set(false); ctx.load(); }
                     Err(e) => { ctx.uploading.set(false); web_sys::console::error_1(&format!("event story upload: {}", e).into()); }
                 }
                 #[cfg(not(target_arch = "wasm32"))]
-                { let _ = (file, slug); ctx.uploading.set(false); }
+                { let _ = (file, slug, title_opt); ctx.uploading.set(false); }
             });
         }
     };

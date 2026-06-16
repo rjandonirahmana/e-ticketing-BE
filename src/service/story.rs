@@ -94,6 +94,7 @@ impl<R: StoryRepository> StoryService<R> {
         user_id: &str,
         media_bytes: Bytes,
         slug: Option<String>,
+        title: Option<String>,
     ) -> AppResult<UploadStoryResponse> {
         // ── 1. Validasi ukuran ────────────────────────────────────────────────
         if media_bytes.len() > MAX_FILE_SIZE {
@@ -147,7 +148,7 @@ impl<R: StoryRepository> StoryService<R> {
         // ── 4. Resolve event info dari slug (opsional) ────────────────────────
         let (event_id, event_slug, event_title): (Option<String>, Option<String>, Option<String>) =
             match slug {
-                Some(s) if !s.is_empty() => (None, Some(s), None),
+                Some(s) if !s.is_empty() => (None, Some(s), title.filter(|t| !t.is_empty())),
                 _ => (None, None, None),
             };
 

@@ -1,7 +1,7 @@
 //! upload.rs — Axum multipart handler for story media upload.
 //!
 //! POST /upload/story   — multipart/form-data
-//!   fields: file (required), slug (optional event slug)
+//!   fields: file (required), slug (optional event slug), title (optional event title)
 //!
 //! Auth: HttpOnly cookie `pulse_token`.
 
@@ -50,6 +50,7 @@ pub async fn story_upload(
 
     let mut media_bytes: Option<Bytes> = None;
     let mut slug: Option<String> = None;
+    let mut title: Option<String> = None;
 
     while let Some(field) = multipart.next_field().await.map_err(|e| {
         (
@@ -74,6 +75,12 @@ pub async fn story_upload(
                     slug = Some(text);
                 }
             }
+            "title" => {
+                let text = field.text().await.unwrap_or_default();
+                if !text.is_empty() {
+                    title = Some(text);
+                }
+            }
             _ => {}
         }
     }
@@ -87,7 +94,7 @@ pub async fn story_upload(
 
     let res = state
         .story_svc
-        .upload(&claims.user_id, bytes, slug)
+        .upload(&claims.user_id, bytes, slug, title)
         .await
         .map_err(|e| {
             (

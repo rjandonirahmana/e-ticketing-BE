@@ -93,6 +93,8 @@ pub fn StoryViewer() -> impl IntoView {
     let active_hearts = RwSignal::new(0_u32);
     // Instagram-style loading: true while image is loading, false once loaded
     let img_loading = RwSignal::new(false);
+    // Tap-to-reveal "klik detail" tag pada frame event — mirip product tag IG
+    let show_detail_tag = RwSignal::new(false);
 
     let last_tap = StoredValue::new(None::<(f64, f64, f64)>);
 
@@ -443,6 +445,13 @@ pub fn StoryViewer() -> impl IntoView {
         }
     });
 
+    // Sembunyikan tag "klik detail" setiap kali story aktif berganti
+    Effect::new(move |_| {
+        let _si = ctx.active_story_idx.get();
+        let _gi = ctx.active_group.get();
+        show_detail_tag.set(false);
+    });
+
     // ══════════════════════════════════════════════════════════════════
     // EFFECT: Preload story berikutnya (dengan cancellation)
     // ══════════════════════════════════════════════════════════════════
@@ -544,6 +553,7 @@ pub fn StoryViewer() -> impl IntoView {
             if dx.abs() > dy.abs() && dx.abs() > SWIPE_THRESHOLD_PX && dt < 500.0 {
                 // Swipe horizontal → prev/next story
                 touch_handled.set_value(true);
+                show_detail_tag.set(false);
                 if dx < 0.0 {
                     ctx.next();
                 } else {
@@ -618,9 +628,22 @@ pub fn StoryViewer() -> impl IntoView {
         last_tap.set_value(Some((x, y, now)));
 
         if x < w * 0.33 {
+            show_detail_tag.set(false);
             ctx.prev();
         } else if x > w * 0.67 {
+            show_detail_tag.set(false);
             ctx.next();
+        } else {
+            // Tap di tengah frame — tampilkan/sembunyikan tag "klik detail"
+            // hanya jika story ini punya event_slug untuk dituju.
+            let has_slug = ctx
+                .with_current_story(|s| s.event_slug.clone())
+                .flatten()
+                .map(|s| !s.is_empty())
+                .unwrap_or(false);
+            if has_slug {
+                show_detail_tag.update(|v| *v = !*v);
+            }
         }
     };
 
@@ -952,6 +975,40 @@ pub fn StoryViewer() -> impl IntoView {
                             }
                         })}
                     </div>
+
+                    // ── Tap-to-reveal "klik detail" tag ──────────────────────
+                    // Muncul saat frame di-tap (di tengah) dan story punya event_slug.
+                    // Mirip product/location tag Instagram: tap frame → muncul tag → tap tag → navigasi.
+                    {move || {
+                        if !show_detail_tag.get() {
+                            return None;
+                        }
+                        ctx.with_current_story(|s| s.event_slug.clone())
+                            .flatten()
+                            .filter(|slug| !slug.is_empty())
+                            .map(|slug| {
+                                let slug_nav = slug.clone();
+                                view! {
+                                    <button class="sv-detail-tag"
+                                            on:click=move |ev| {
+                                                ev.stop_propagation();
+                                                if let Some(win) = web_sys::window() {
+                                                    let _ = win.location()
+                                                        .set_href(&format!("/events/{}", slug_nav));
+                                                }
+                                            }>
+                                        <svg width="16" height="16" viewBox="0 0 24 24"
+                                             fill="none" stroke="currentColor"
+                                             stroke-width="2" stroke-linecap="round">
+                                            <circle cx="12" cy="12" r="10"/>
+                                            <line x1="12" y1="16" x2="12" y2="11"/>
+                                            <circle cx="12" cy="8" r="0.5" fill="currentColor"/>
+                                        </svg>
+                                        <span>"Klik Detail"</span>
+                                    </button>
+                                }
+                            })
+                    }}
 
                     // ── Pulse badge ───────────────────────────────────
                     <div class="sv-pulse-badge">

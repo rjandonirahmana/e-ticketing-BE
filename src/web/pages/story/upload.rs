@@ -6,6 +6,7 @@
 pub(super) async fn upload_story_file(
     file: &web_sys::File,
     slug: Option<String>,
+    title: Option<String>,
 ) -> Result<(), String> {
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
@@ -14,6 +15,9 @@ pub(super) async fn upload_story_file(
     form.append_with_blob("media", file).map_err(|e| format!("{:?}", e))?;
     if let Some(s) = slug {
         form.append_with_str("slug", &s).map_err(|e| format!("{:?}", e))?;
+    }
+    if let Some(t) = title {
+        form.append_with_str("title", &t).map_err(|e| format!("{:?}", e))?;
     }
 
     let opts = web_sys::RequestInit::new();

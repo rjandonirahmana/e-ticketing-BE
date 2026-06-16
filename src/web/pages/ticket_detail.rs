@@ -10,13 +10,26 @@
 use chrono::{DateTime, FixedOffset, Utc};
 use leptos::prelude::*;
 use leptos_router::components::A;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::web::hooks::ThemeToggle;
 use crate::web::utils::format_idr;
 use crate::web::api::get_ticket_detail;
 use crate::web::app::AuthResource;
 use crate::web::components::BottomNav;
+
+// ── Mask ticket code untuk story: tampilkan 4 char depan + 4 char belakang,
+// ── sisanya disensor. ID tiket asli tidak pernah dikirim ke flow story.
+fn mask_ticket_code(code: &str) -> String {
+    let chars: Vec<char> = code.chars().collect();
+    let n = chars.len();
+    if n <= 8 {
+        return "•".repeat(n.max(4));
+    }
+    let head: String = chars[..4].iter().collect();
+    let tail: String = chars[n - 4..].iter().collect();
+    format!("{head}••••{tail}")
+}
 
 // ── Shimmer skeleton (mirrors td-* layout, staggered delay top→bottom) ────────
 
@@ -133,6 +146,7 @@ pub fn TicketDetailPage() -> impl IntoView {
 
     let auth = use_context::<AuthResource>().expect("AuthResource missing");
     let is_logged_in = move || auth.get().and_then(|r| r.ok()).flatten().is_some();
+    let navigate = use_navigate();
 
     let ticket = Resource::new(
         move || (ticket_id(), is_logged_in()),
@@ -157,16 +171,6 @@ pub fn TicketDetailPage() -> impl IntoView {
                 <span class="td-page-title">"Ticket Details"</span>
                 <div class="header-actions">
                     <ThemeToggle />
-                    <button class="icon-btn" aria-label="Share">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <circle cx="18" cy="5" r="3" />
-                            <circle cx="6" cy="12" r="3" />
-                            <circle cx="18" cy="19" r="3" />
-                            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-                        </svg>
-                    </button>
                 </div>
             </header>
 
@@ -228,6 +232,39 @@ pub fn TicketDetailPage() -> impl IntoView {
                                         });
                                     let status_badge = t.status.to_uppercase();
                                     let qr_ref = format!("TICKET#{}", t.ticket_code);
+
+                                    // ── Share to story: ticket_code ASLI tidak pernah ikut —
+                                    // hanya versi tersensor yang dikirim via query param.
+                                    let _masked_code    = mask_ticket_code(&t.ticket_code);
+                                    let _share_title    = t.event_name.clone();
+                                    let _share_cover    = cover.clone();
+                                    let _share_event_id = t.event_id.clone();
+                                    let _share_date     = date_str.clone();
+                                    let _share_venue    = venue.clone();
+                                    let _nav_share = navigate.clone();
+                                    let share_to_story = move |_: web_sys::MouseEvent| {
+                                        #[cfg(target_arch = "wasm32")]
+                                        {
+                                            let params = web_sys::UrlSearchParams::new()
+                                                .expect("UrlSearchParams");
+                                            params.append("event_id",    &_share_event_id);
+                                            params.append("event_title", &_share_title);
+                                            params.append("event_cover", &_share_cover);
+                                            params.append("event_date",  &_share_date);
+                                            params.append("event_venue", &_share_venue);
+                                            params.append("event_price", &format!("🎫 {}", _masked_code));
+                                            params.append("is_ticket",   "1");
+                                            params.append("ticket_ref",  &_masked_code);
+                                            if let Some(win) = web_sys::window() {
+                                                if let Ok(Some(storage)) = win.session_storage() {
+                                                    let _ = storage.set_item("story_hero_transition", "event");
+                                                    let _ = storage.set_item("story_hero_cover", &_share_cover);
+                                                }
+                                            }
+                                            let qs = params.to_string();
+                                            _nav_share(&format!("/story?{}", qs), Default::default());
+                                        }
+                                    };
 
                                     view! {
                                         <div class="td-mobile-layout">
@@ -352,6 +389,18 @@ pub fn TicketDetailPage() -> impl IntoView {
                                                         <line x1="3" y1="10" x2="21" y2="10" />
                                                     </svg>
                                                     <span>"Add to Calendar"</span>
+                                                </button>
+                                                <button class="td-btn td-btn--ghost" on:click=share_to_story>
+                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                                        stroke="currentColor" stroke-width="2"
+                                                        stroke-linecap="round" stroke-linejoin="round">
+                                                        <circle cx="18" cy="5" r="3" />
+                                                        <circle cx="6" cy="12" r="3" />
+                                                        <circle cx="18" cy="19" r="3" />
+                                                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                                                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                                                    </svg>
+                                                    <span>"Share to Story"</span>
                                                 </button>
                                             </div>
 

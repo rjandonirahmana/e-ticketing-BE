@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # ═══════════════════════════════════════════════════════════════════════════════
 # Dockerfile — PULSE Platform (Backend API + Leptos SSR Frontend)
 #
@@ -9,6 +10,13 @@
 # Usage:
 #   docker build -t pulse .
 #   docker run -p 3000:3000 --env-file .env pulse
+#
+# Catatan kecepatan build:
+#   Cache mounts (--mount=type=cache) di bawah membuat ~/.cargo/registry dan
+#   target/ persist antar build (BuildKit), jadi dependency yang sudah pernah
+#   dikompilasi tidak diulang dari nol setiap kali. Tanpa ini, setiap build
+#   mengompilasi ulang seluruh dependency tree (tokio/axum/leptos/tonic dst)
+#   dari awal — itu sumber utama build yang lama.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── Stage 1: Build frontend assets (WASM + CSS) ───────────────────────────────
@@ -20,7 +28,8 @@ RUN apt-get update && apt-get install -y \
 
 # Install wasm-pack + cargo-leptos
 RUN rustup target add wasm32-unknown-unknown
-RUN cargo install cargo-leptos --locked
+RUN --mount=type=cache,id=cargo-registry-debian,target=/usr/local/cargo/registry \
+    cargo install cargo-leptos --locked
 
 WORKDIR /app
 COPY Cargo.toml Cargo.lock build.rs ./
@@ -29,7 +38,10 @@ COPY proto/    ./proto/
 COPY styles/   ./styles/
 
 # Build WASM + CSS → target/site/
-RUN cargo leptos build --release 2>&1
+RUN --mount=type=cache,id=cargo-registry-debian,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=target-frontend,target=/app/target \
+    cargo leptos build --release 2>&1 \
+    && cp -r /app/target/site /app/site-out
 
 # ── Stage 2: Build backend binary (musl static) ───────────────────────────────
 FROM rustlang/rust:nightly-alpine AS backend-builder
@@ -41,10 +53,6 @@ RUN apk add --no-cache \
     protobuf protobuf-dev \
     curl
 
-RUN rustup target add x86_64-unknown-linux-musl
-RUN rustup target add wasm32-unknown-unknown
-RUN cargo install cargo-leptos --locked
-
 WORKDIR /app
 
 ENV OPENSSL_STATIC=1
@@ -52,12 +60,15 @@ ENV PKG_CONFIG_ALLOW_CROSS=1
 
 # Copy seluruh source
 COPY . .
-# Copy frontend assets yang sudah dibangun
-COPY --from=frontend-builder /app/target/site ./target/site
 
-# Build binary backend (dengan SSR embedded)
-# cargo leptos build --release akan menghasilkan binary di target/server/
-RUN cargo leptos build --release 2>&1
+# Build binary backend saja (default feature = ssr, lihat Cargo.toml).
+# Tidak perlu cargo-leptos / wasm32 target di sini — sebelumnya step ini
+# membangun ulang seluruh WASM frontend untuk kedua kalinya (padahal sudah
+# dibangun di Stage 1), itu sumber pemborosan waktu terbesar di build ini.
+RUN --mount=type=cache,id=cargo-registry-alpine,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=target-backend,target=/app/target \
+    cargo build --release --bin e-ticketing 2>&1 \
+    && cp /app/target/release/e-ticketing /app/e-ticketing-out
 
 # ── Stage 3: Runtime ───────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
@@ -69,9 +80,14 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Binary backend (SSR embedded)
-COPY --from=backend-builder /app/target/release/e-ticketing ./e-ticketing
+COPY --from=backend-builder /app/e-ticketing-out ./e-ticketing
 # Static assets frontend (WASM, JS, CSS)
-COPY --from=backend-builder /app/target/site ./target/site
+COPY --from=frontend-builder /app/site-out ./target/site
+
+# Cargo.toml dibutuhkan SAAT RUNTIME — main.rs membaca [package.metadata.leptos]
+# dari sini via get_configuration(Some("Cargo.toml")) untuk site-addr/site-root dst.
+# Tanpa ini binary langsung exit dengan "Cargo.toml not found in package root".
+COPY --from=backend-builder /app/Cargo.toml ./Cargo.toml
 
 # Buat direktori untuk proto jika diperlukan
 COPY --from=backend-builder /app/proto ./proto

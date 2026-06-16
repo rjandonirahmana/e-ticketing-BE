@@ -121,6 +121,11 @@ web-sys = { version = "0.3", features = [
     "Request",
     "RequestInit",
     "Response",
+    "MediaDevices",
+    "MediaStream",
+    "MediaStreamConstraints",
+    "MediaStreamTrack",
+    "MediaTrackConstraints",
 ] }
 
 # ── Server-only deps (TIDAK dikompilasi untuk wasm32) ─────────────────────────

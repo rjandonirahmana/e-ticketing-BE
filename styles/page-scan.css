@@ -100,10 +100,17 @@
 }
 
 .scan-video {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
     border-radius: 18px;
+    opacity: 0;
+    pointer-events: none;
+}
+.scan-video--active {
+    opacity: 1;
 }
 
 /* Corner frame overlay */
