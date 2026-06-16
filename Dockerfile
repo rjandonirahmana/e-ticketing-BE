@@ -15,7 +15,7 @@
 FROM rustlang/rust:nightly AS frontend-builder
 
 RUN apt-get update && apt-get install -y \
-    curl binaryen \
+    curl binaryen protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
 # Install wasm-pack + cargo-leptos
