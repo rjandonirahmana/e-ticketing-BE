@@ -1,2 +1,13 @@
 [env]
 MACOSX_DEPLOYMENT_TARGET = "15.0"
+
+# Scoped wasm-only flags: ukuran WASM ditekan habis-habisan tanpa menyentuh
+# binary native (musl) yang dibangun untuk performa, bukan ukuran.
+# panic=abort di sini AMAN karena hanya berlaku untuk wasm32 — binary native
+# (server) tetap pakai unwind default, jadi satu panic di request handler
+# tidak akan mematikan seluruh proses server.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "opt-level=z", "-C", "panic=abort", "-C", "codegen-units=1"]
+
+[target.x86_64-unknown-linux-musl]
+rustflags = ["-C", "opt-level=3"]

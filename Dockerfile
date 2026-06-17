@@ -1,109 +1,112 @@
 # syntax=docker/dockerfile:1.7
 # ═══════════════════════════════════════════════════════════════════════════════
-# Dockerfile — PULSE Platform (Backend API + Leptos SSR Frontend)
+# Dockerfile — e-ticketing Platform (Leptos SSR + Axum)
 #
 # Build pipeline:
-#   Stage 1: Install cargo-leptos + build WASM/CSS (frontend assets)
-#   Stage 2: Build backend binary yang meng-embed SSR (musl static)
-#   Stage 3: Runtime minimal (scratch)
+#   Stage 1 (builder): Alpine Rust nightly
+#     a. Install cargo-leptos — own image layer, only reruns on toolchain change
+#     b. Pre-compile all deps (dummy src) — cached until Cargo.toml/lock changes
+#     c. cargo leptos build --release — WASM + SSR in a single pass, no double compile
+#   Stage 2 (runtime): debian:bookworm-slim — musl static binary runs on glibc Linux
 #
-# Usage:
-#   docker build -t pulse .
-#   docker run -p 3000:3000 --env-file .env pulse
+# Why single Alpine stage:
+#   Previous design used rustlang/rust:nightly (Debian) for frontend and
+#   rustlang/rust:nightly-alpine for backend. Different toolchains forced separate
+#   cache mount IDs that never share artifacts, causing the SSR backend to be
+#   compiled twice from scratch (once inside cargo leptos build, once standalone).
+#   Single Alpine stage with consistent cache IDs eliminates that.
 #
-# Catatan kecepatan build:
-#   Cache mounts (--mount=type=cache) di bawah membuat ~/.cargo/registry dan
-#   target/ persist antar build (BuildKit), jadi dependency yang sudah pernah
-#   dikompilasi tidak diulang dari nol setiap kali. Tanpa ini, setiap build
-#   mengompilasi ulang seluruh dependency tree (tokio/axum/leptos/tonic dst)
-#   dari awal — itu sumber utama build yang lama.
+# Cache mount strategy:
+#   id=cargo-registry — shared across all RUN commands for Cargo crate downloads
+#   id=target         — shared across dep pre-compile + final build; native and
+#                       WASM artifacts land in non-overlapping subdirs
+#                       (target/release/ vs target/wasm32-unknown-unknown/release/)
+#                       so a single mount covers both without conflict
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# ── Stage 1: Build frontend assets (WASM + CSS) ───────────────────────────────
-FROM rustlang/rust:nightly AS frontend-builder
-
-RUN apt-get update && apt-get install -y \
-    curl binaryen protobuf-compiler \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install wasm-pack + cargo-leptos
-RUN rustup target add wasm32-unknown-unknown
-RUN --mount=type=cache,id=cargo-registry-debian,target=/usr/local/cargo/registry \
-    cargo install cargo-leptos --locked
-
-WORKDIR /app
-COPY Cargo.toml Cargo.lock build.rs ./
-COPY src/      ./src/
-COPY proto/    ./proto/
-COPY styles/   ./styles/
-
-# Build WASM + CSS → target/site/
-#
-# FIX naming bug: cargo-leptos kadang menulis binary wasm sebagai
-# "<output-name>.wasm" (tanpa suffix "_bg"), padahal e-ticketing.js (loader)
-# selalu meminta "<output-name>_bg.wasm" — mismatch ini bikin WASM 404 di
-# runtime, hydration tidak pernah jalan, dan SEMUA page jadi "loading terus"
-# karena client JS runtime tidak pernah start. Self-heal di sini: kalau
-# "_bg.wasm" tidak ada tapi varian tanpa "_bg" ada, copy ke nama yang benar.
-RUN --mount=type=cache,id=cargo-registry-debian,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=target-frontend,target=/app/target \
-    cargo leptos build --release 2>&1 \
-    && cp -r /app/target/site /app/site-out \
-    && cd /app/site-out/pkg \
-    && if [ ! -f e-ticketing_bg.wasm ] && [ -f e-ticketing.wasm ]; then \
-    cp e-ticketing.wasm e-ticketing_bg.wasm; \
-    fi \
-    && ls -la /app/site-out/pkg \
-    && test -f e-ticketing_bg.wasm
-
-# ── Stage 2: Build backend binary (musl static) ───────────────────────────────
-FROM rustlang/rust:nightly-alpine AS backend-builder
+# ── Builder ───────────────────────────────────────────────────────────────────
+FROM rustlang/rust:nightly-alpine AS builder
 
 RUN apk add --no-cache \
     musl-dev g++ make perl pkgconfig \
     openssl-dev openssl-libs-static \
     zlib-dev zlib-static \
     protobuf protobuf-dev \
-    curl
+    curl binaryen
 
-WORKDIR /app
+RUN rustup target add wasm32-unknown-unknown
+
+# Compiled once as an image layer — reruns only when the Alpine base or nightly
+# toolchain version changes, not on source or dependency changes.
+RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
+    cargo install cargo-leptos --locked
 
 ENV OPENSSL_STATIC=1
 ENV PKG_CONFIG_ALLOW_CROSS=1
+WORKDIR /app
 
-# Copy seluruh source
-COPY . .
+# ── Dependency pre-compilation ─────────────────────────────────────────────────
+# Copy manifests and generated inputs only. This layer is invalidated when
+# Cargo.toml, Cargo.lock, build.rs, proto files, or styles change — not on
+# edits to src/. That keeps dep compilation out of the hot path for code changes.
+COPY Cargo.toml Cargo.lock build.rs ./
+COPY proto/ ./proto/
+COPY styles/ ./styles/
 
-# Build binary backend saja (default feature = ssr, lihat Cargo.toml).
-# Tidak perlu cargo-leptos / wasm32 target di sini — sebelumnya step ini
-# membangun ulang seluruh WASM frontend untuk kedua kalinya (padahal sudah
-# dibangun di Stage 1), itu sumber pemborosan waktu terbesar di build ini.
-RUN --mount=type=cache,id=cargo-registry-alpine,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=target-backend,target=/app/target \
-    cargo build --release --bin e-ticketing 2>&1 \
-    && cp /app/target/release/e-ticketing /app/e-ticketing-out
+# Minimal dummy source lets Cargo compile and cache all dependencies even though
+# the final binary/lib won't link. The || true discards the expected link error.
+RUN mkdir -p src && \
+    printf 'fn main() {}' > src/main.rs && \
+    printf '' > src/lib.rs
 
-# ── Stage 3: Runtime ───────────────────────────────────────────────────────────
+# SSR (native musl) deps — artifacts land in target/release/deps/
+RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=target,target=/app/target \
+    cargo build --release --features ssr 2>&1 || true
+
+# WASM/hydrate deps — artifacts land in target/wasm32-unknown-unknown/release/deps/
+RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=target,target=/app/target \
+    cargo build --release --target wasm32-unknown-unknown --features hydrate 2>&1 || true
+
+# ── Final build ────────────────────────────────────────────────────────────────
+COPY src/ ./src/
+# Signal Cargo that source changed after the dummy→real source swap above.
+RUN touch src/main.rs src/lib.rs
+
+# Single cargo leptos build pass: compiles WASM (hydrate) + SSR binary together
+# using bin-features=["ssr"] and lib-features=["hydrate"] from Cargo.toml metadata.
+# Dep artifacts already in id=target cache — only changed source files recompile.
+#
+# FIX naming bug: cargo-leptos occasionally writes the WASM binary as
+# e-ticketing.wasm instead of e-ticketing_bg.wasm. The JS loader always
+# requests the _bg suffix, so a missing file → WASM 404 → hydration never starts
+# → every interactive page stays in a loading state forever. Copy to the expected
+# name when needed.
+RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=target,target=/app/target \
+    cargo leptos build --release 2>&1 \
+    && cp /app/target/release/e-ticketing /app/e-ticketing-bin \
+    && cp -r /app/target/site /app/site-out \
+    && cd /app/site-out/pkg \
+    && if [ ! -f e-ticketing_bg.wasm ] && [ -f e-ticketing.wasm ]; then \
+       cp e-ticketing.wasm e-ticketing_bg.wasm; \
+       fi \
+    && test -f e-ticketing_bg.wasm
+
+# ── Runtime ───────────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
 
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Binary backend (SSR embedded)
-COPY --from=backend-builder /app/e-ticketing-out ./e-ticketing
-# Static assets frontend (WASM, JS, CSS)
-COPY --from=frontend-builder /app/site-out ./target/site
-
-# Cargo.toml dibutuhkan SAAT RUNTIME — main.rs membaca [package.metadata.leptos]
-# dari sini via get_configuration(Some("Cargo.toml")) untuk site-addr/site-root dst.
-# Tanpa ini binary langsung exit dengan "Cargo.toml not found in package root".
-COPY --from=backend-builder /app/Cargo.toml ./Cargo.toml
-
-# Buat direktori untuk proto jika diperlukan
-COPY --from=backend-builder /app/proto ./proto
+COPY --from=builder /app/e-ticketing-bin ./e-ticketing
+COPY --from=builder /app/site-out        ./target/site
+# Cargo.toml required at runtime: main.rs calls get_configuration(Some("Cargo.toml"))
+# to read [package.metadata.leptos] for site-addr/site-root. Missing → immediate exit.
+COPY --from=builder /app/Cargo.toml      ./Cargo.toml
+COPY --from=builder /app/proto           ./proto
 
 EXPOSE 3000
 
