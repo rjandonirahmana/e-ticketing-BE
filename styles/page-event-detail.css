@@ -119,7 +119,7 @@
     letter-spacing: 0.08em;
 }
 
-/* ── Tier Add button (pill lime, saat qty = 0) ──────────────────────────────── */
+/* ── Tier Add button ─────────────────────────────────────────────────────────── */
 .tier-add-btn {
     font-family: var(--font-body);
     font-size: 12px;
@@ -127,8 +127,8 @@
     letter-spacing: 0.08em;
     padding: 10px 22px;
     border-radius: 100px;
-    background: var(--accent-lime);
-    color: var(--text-on-accent);
+    background: var(--color-primary);
+    color: var(--color-primary-text);
     border: none;
     cursor: pointer;
     transition:
@@ -153,8 +153,8 @@
 
 .ed-secure-btn {
     padding: 14px 26px;
-    background: var(--accent-lime);
-    color: var(--text-on-accent);
+    background: var(--color-primary);
+    color: var(--color-primary-text);
     border: none;
     border-radius: 100px;
     font-family: var(--font-body);
@@ -167,6 +167,7 @@
         opacity 0.15s,
         transform 0.1s;
     white-space: nowrap;
+    box-shadow: 0 4px 16px var(--color-primary-glow);
 }
 .ed-secure-btn:hover {
     opacity: 0.9;
@@ -180,7 +181,15 @@
     transform: none;
 }
 
-/* ── Light mode overrides untuk styles baru ─────────────────────────────────── */
+/* ── Footer cart qty badge (shown instead of starting-price when cart has items) */
+.footer-cart-qty {
+    font-family: var(--font-display);
+    font-size: 28px;
+    color: var(--color-primary);
+    line-height: 1;
+}
+
+/* ── Light mode overrides ────────────────────────────────────────────────────── */
 [data-theme="light"] .ed-cat-badge {
     background: rgba(0, 0, 20, 0.08);
     color: var(--text-primary);
@@ -188,11 +197,6 @@
 }
 [data-theme="light"] .ed-chip {
     border-color: var(--border-strong);
-}
-[data-theme="light"] .tier-add-btn,
-[data-theme="light"] .ed-secure-btn {
-    background: var(--accent-lime);
-    color: var(--text-on-accent);
 }
 
 .detail-hero {
@@ -247,7 +251,7 @@
 .starting-price {
     font-family: var(--font-display);
     font-size: 36px;
-    color: var(--accent-lime);
+    color: var(--color-primary);
     line-height: 1;
 }
 .info-section {
@@ -501,8 +505,8 @@
     cursor: not-allowed;
 }
 .qty-btn--plus {
-    background: var(--accent-blue);
-    color: white;
+    background: var(--color-primary);
+    color: var(--color-primary-text);
 }
 .qty-val {
     width: 40px;
@@ -1053,7 +1057,7 @@
 .ed-hero-starting .starting-price {
     font-family: var(--font-display);
     font-size: 32px;
-    color: var(--accent-lime);
+    color: var(--color-primary);
     line-height: 1;
 }
 
@@ -1427,8 +1431,8 @@
     cursor: not-allowed;
 }
 .qty-btn--plus {
-    background: var(--accent-blue);
-    color: white;
+    background: var(--color-primary);
+    color: var(--color-primary-text);
 }
 .qty-val {
     width: 40px;

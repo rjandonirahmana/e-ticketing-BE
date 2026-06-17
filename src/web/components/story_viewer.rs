@@ -214,7 +214,7 @@ pub fn StoryViewer() -> impl IntoView {
 
                 // Update progress fill
                 if let Some(node_ref) = fills.get(st.active_idx) {
-                    if let Some(el) = node_ref.get() {
+                    if let Some(el) = node_ref.get_untracked() {
                         let html_el: &web_sys::HtmlElement = el.unchecked_ref();
                         _transform_buf.update_value(|buf| {
                             buf.clear();
@@ -228,7 +228,7 @@ pub fn StoryViewer() -> impl IntoView {
                 if p >= 1.0 {
                     // Snap fill to 1 then advance
                     if let Some(nr) = fills.get(st.active_idx) {
-                        if let Some(el) = nr.get() {
+                        if let Some(el) = nr.get_untracked() {
                             let _ = el
                                 .unchecked_ref::<web_sys::HtmlElement>()
                                 .style()

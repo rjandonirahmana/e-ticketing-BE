@@ -126,6 +126,7 @@ async fn main() -> Result<()> {
             move || shell(opts.clone())
         })
         .fallback(leptos_axum::file_and_error_handler(shell))
+        .layer(axum::middleware::from_fn(pkg_no_cache))
         // Provide AppState as Axum Extension so server functions can extract it
         .layer(axum::Extension(state.clone()))
         .with_state(leptos_options);
@@ -172,6 +173,24 @@ fn build_cors(_cfg: &AppConfig) -> tower_http::cors::CorsLayer {
             .allow_headers(Any)
             .allow_origin(Any)
     }
+}
+
+/// Prevent browsers from caching /pkg/* (JS/WASM) across deploys.
+/// Without this, stale JS + new WASM causes "is not a function" hydration crashes.
+async fn pkg_no_cache(
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let is_pkg = req.uri().path().starts_with("/pkg/");
+    let mut res = next.run(req).await;
+    if is_pkg {
+        let headers = res.headers_mut();
+        headers.insert(
+            axum::http::header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-cache, must-revalidate"),
+        );
+    }
+    res
 }
 
 async fn shutdown_signal() {

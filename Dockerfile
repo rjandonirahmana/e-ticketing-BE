@@ -92,7 +92,8 @@ RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
     && if [ ! -f e-ticketing_bg.wasm ] && [ -f e-ticketing.wasm ]; then \
        cp e-ticketing.wasm e-ticketing_bg.wasm; \
        fi \
-    && test -f e-ticketing_bg.wasm
+    && (ls -la e-ticketing*.wasm || true) \
+    && test -f e-ticketing_bg.wasm || test -f e-ticketing.wasm
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime

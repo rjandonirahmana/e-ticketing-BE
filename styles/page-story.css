@@ -2109,6 +2109,15 @@
     white-space: nowrap;
 }
 
+.sc-event-card-ticket-label {
+    margin-top: clamp(6px, 1.8cqw, 10px);
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: clamp(11px, 3.2cqw, 16px);
+    font-weight: 500;
+    color: rgba(255,255,255,0.55);
+    letter-spacing: 0.01em;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────
    DRAGGABLE OVERLAYS (drg-*)
    ───────────────────────────────────────────────────────────────────────── */

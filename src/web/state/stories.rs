@@ -138,14 +138,14 @@ impl StoriesCtx {
     }
 
     pub fn next(&self) {
-        let Some(gi) = self.active_group.get() else {
+        let Some(gi) = self.active_group.get_untracked() else {
             return;
         };
-        let groups = self.groups.get();
+        let groups = self.groups.get_untracked();
         let Some(group) = groups.get(gi) else {
             return;
         };
-        let si = self.active_story_idx.get();
+        let si = self.active_story_idx.get_untracked();
 
         if si + 1 < group.stories.len() {
             self.active_story_idx.set(si + 1);
@@ -163,16 +163,16 @@ impl StoriesCtx {
     }
 
     pub fn prev(&self) {
-        let Some(gi) = self.active_group.get() else {
+        let Some(gi) = self.active_group.get_untracked() else {
             return;
         };
-        let si = self.active_story_idx.get();
+        let si = self.active_story_idx.get_untracked();
         if si > 0 {
             self.active_story_idx.set(si - 1);
             self.progress.set(0.0);
         } else if gi > 0 {
             self.clear_interval();
-            let groups = self.groups.get();
+            let groups = self.groups.get_untracked();
             let prev_len = groups.get(gi - 1).map(|g| g.stories.len()).unwrap_or(1);
             self.active_group.set(Some(gi - 1));
             self.active_story_idx.set(prev_len.saturating_sub(1));
@@ -197,10 +197,10 @@ impl StoriesCtx {
     }
 
     fn mark_current_viewed(&self) {
-        let Some(gi) = self.active_group.get() else {
+        let Some(gi) = self.active_group.get_untracked() else {
             return;
         };
-        let si = self.active_story_idx.get();
+        let si = self.active_story_idx.get_untracked();
         self.groups.update(|groups| {
             if let Some(group) = groups.get_mut(gi) {
                 if let Some(story) = group.stories.get_mut(si) {

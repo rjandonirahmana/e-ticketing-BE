@@ -44,6 +44,13 @@
     --scrollbar-track: #080810;
     --scrollbar-thumb: #1e1e30;
 
+    /* Adaptive primary CTA — lime in dark, blue in light */
+    --color-primary: var(--accent-lime);
+    --color-primary-text: var(--text-on-accent);
+    --color-primary-glow: rgba(200, 255, 94, 0.4);
+    --color-primary-soft: rgba(200, 255, 94, 0.07);
+    --color-primary-border: rgba(200, 255, 94, 0.3);
+
     --bdot-inactive: rgba(255, 255, 255, 0.2);
     --chip-active-bg: #ffffff;
     --chip-active-text: #080810;
@@ -156,6 +163,12 @@
 
     --scrollbar-track: #e2e2f0;
     --scrollbar-thumb: #bebede;
+
+    --color-primary: var(--accent-blue);
+    --color-primary-text: #ffffff;
+    --color-primary-glow: rgba(45, 78, 224, 0.3);
+    --color-primary-soft: rgba(45, 78, 224, 0.07);
+    --color-primary-border: rgba(45, 78, 224, 0.3);
 
     --bdot-inactive: rgba(0, 0, 30, 0.18);
     --chip-active-bg: #0c0c1a;
@@ -321,12 +334,12 @@
     color: var(--accent-blue);
 }
 [data-theme="light"] .method-card--active {
-    border-color: rgba(45, 78, 224, 0.4);
-    background: rgba(45, 78, 224, 0.05);
+    border-color: var(--color-primary-border);
+    background: var(--color-primary-soft);
 }
 [data-theme="light"] .method-check {
-    background: var(--accent-blue);
-    color: #fff;
+    background: var(--color-primary);
+    color: var(--color-primary-text);
 }
 [data-theme="light"] .nd-pay-icon,
 [data-theme="light"] .vl-addr-icon,

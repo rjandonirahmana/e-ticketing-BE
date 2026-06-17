@@ -36,8 +36,8 @@
 .browse-btn {
     padding: 13px 28px;
     min-height: 44px;
-    background: linear-gradient(135deg, var(--accent-blue), var(--accent-violet));
-    color: white;
+    background: var(--color-primary);
+    color: var(--color-primary-text);
     border-radius: 100px;
     text-decoration: none;
     font-family: var(--font-body);
@@ -97,7 +97,7 @@
 .item-price {
     font-family: var(--font-body);
     font-size: 14px;
-    color: var(--accent-lime);
+    color: var(--color-primary);
     margin-top: 4px;
     font-weight: 700;
 }
@@ -148,8 +148,8 @@
 }
 .iq-btn:active { opacity: 0.7; }
 .iq-btn--add {
-    background: var(--accent-blue);
-    color: white;
+    background: var(--color-primary);
+    color: var(--color-primary-text);
 }
 .iq-val {
     width: 32px;
@@ -207,7 +207,7 @@
 .summary-total-val {
     font-family: var(--font-display);
     font-size: 28px;
-    color: var(--text-primary);
+    color: var(--color-primary);
 }
 .cart-footer {
     position: fixed;
@@ -261,7 +261,7 @@
 .footer-total {
     font-family: var(--font-display);
     font-size: 20px;
-    color: var(--text-primary);
+    color: var(--color-primary);
 }
 .proceed-btn {
     display: flex;
@@ -269,8 +269,8 @@
     gap: 8px;
     padding: 13px 22px;
     min-height: 44px;
-    background: linear-gradient(135deg, var(--accent-blue), var(--accent-violet));
-    color: white;
+    background: var(--color-primary);
+    color: var(--color-primary-text);
     border: none;
     border-radius: 100px;
     font-family: var(--font-body);
@@ -326,7 +326,7 @@
 .section-badge {
     font-family: var(--font-body);
     font-size: 10px;
-    color: var(--accent-lime);
+    color: var(--color-primary);
     letter-spacing: 0.1em;
 }
 .order-items {
@@ -407,8 +407,8 @@
     color: var(--text-primary);
 }
 .method-card--active {
-    border-color: rgba(200, 255, 94, 0.4);
-    background: rgba(200, 255, 94, 0.04);
+    border-color: var(--color-primary-border);
+    background: var(--color-primary-soft);
 }
 .method-icon {
     display: flex;
@@ -434,7 +434,7 @@
 .method-check {
     width: 22px;
     height: 22px;
-    background: var(--accent-lime);
+    background: var(--color-primary);
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -536,7 +536,7 @@
 .total-final-amt {
     font-family: var(--font-display);
     font-size: 36px;
-    color: var(--accent-lime);
+    color: var(--color-primary);
 }
 .confirm-section {
     padding: 24px 20px;
@@ -553,8 +553,8 @@
 .confirm-btn {
     width: 100%;
     padding: 16px;
-    background: linear-gradient(135deg, var(--accent-blue), var(--accent-violet));
-    color: white;
+    background: var(--color-primary);
+    color: var(--color-primary-text);
     border: none;
     border-radius: 100px;
     font-family: var(--font-body);
@@ -567,6 +567,7 @@
     justify-content: center;
     gap: 10px;
     transition: opacity 0.2s;
+    box-shadow: 0 4px 20px var(--color-primary-glow);
 }
 .confirm-btn:disabled {
     opacity: 0.5;
@@ -602,8 +603,8 @@
 .pay-bar-btn {
     width: 100%;
     padding: 16px;
-    background: var(--accent-lime);
-    color: var(--text-on-accent);
+    background: var(--color-primary);
+    color: var(--color-primary-text);
     border: none;
     border-radius: 100px;
     font-family: var(--font-body);
@@ -612,6 +613,7 @@
     font-weight: 700;
     cursor: pointer;
     transition: opacity 0.2s;
+    box-shadow: 0 4px 20px var(--color-primary-glow);
 }
 .pay-bar-btn:disabled {
     opacity: 0.4;

@@ -428,25 +428,30 @@ pub fn EventDetailPage() -> impl IntoView {
                                     </div>
                                 </div>
 
-                                // ── Sticky footer: cart total + Secure Tickets ────────
+                                // ── Sticky footer: starting price + Secure Tickets ───
                                 <div class="sticky-footer ed-mobile-footer">
                                     <div class="ed-footer-starting">
-                                        <span class="footer-label">"STARTING FROM"</span>
-                                        <span class="starting-price">
-                                            {move || {
-                                                let sub: i64 = cart_ctx.items.with(|v| {
-                                                    v.iter()
-                                                        .filter(|i| i.event_id == ev_id_price)
-                                                        .map(|i| i.unit_price * i.quantity as i64)
-                                                        .sum()
-                                                });
-                                                if sub == 0 {
-                                                    format_price(base_price)
-                                                } else {
-                                                    format_price(sub as f64)
-                                                }
-                                            }}
-                                        </span>
+                                        {move || {
+                                            let qty: i32 = cart_ctx.items.with(|v| {
+                                                v.iter()
+                                                    .filter(|i| i.event_id == ev_id_price)
+                                                    .map(|i| i.quantity)
+                                                    .sum()
+                                            });
+                                            if qty > 0 {
+                                                view! {
+                                                    <span class="footer-label">"IN CART"</span>
+                                                    <span class="footer-cart-qty">
+                                                        {format!("{} TICKET{}", qty, if qty == 1 { "" } else { "S" })}
+                                                    </span>
+                                                }.into_any()
+                                            } else {
+                                                view! {
+                                                    <span class="footer-label">"STARTING FROM"</span>
+                                                    <span class="starting-price">{format_price(base_price)}</span>
+                                                }.into_any()
+                                            }
+                                        }}
                                     </div>
                                     {move || {
                                         let ti: i32 = cart_ctx.items.with(|v| {

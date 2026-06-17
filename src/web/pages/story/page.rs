@@ -415,14 +415,15 @@ pub fn StoryPage() -> impl IntoView {
         let scale  = bg_scale.get_untracked();
 
         if has_event_prefill.get_untracked() && !user_overrode_prefill.get_untracked() {
-            let cover     = event_cover_url.get_value();
-            let bg_m      = bg_mode.get_untracked();
-            let bg_c      = bg_solid_color.get_untracked();
-            let ev_filter = filter_dipilih.get_untracked();
-            let title     = prefill_title();
-            let date      = prefill_date();
-            let venue     = prefill_venue();
-            let price     = prefill_price();
+            let cover       = event_cover_url.get_value();
+            let bg_m        = bg_mode.get_untracked();
+            let bg_c        = bg_solid_color.get_untracked();
+            let ev_filter   = filter_dipilih.get_untracked();
+            let title       = prefill_title();
+            let date        = prefill_date();
+            let venue       = prefill_venue();
+            let price       = prefill_price();
+            let is_ticket_d = prefill_is_ticket();
             sedang_mengunduh.set(true);
             let navigate_sv2 = navigate_sv;
             spawn_local(async move {
@@ -431,7 +432,7 @@ pub fn StoryPage() -> impl IntoView {
                 let Some((canvas, ctx, cw, ch)) = create_export_canvas(dpr) else { sedang_mengunduh.set(false); return; };
                 if let Err(e) = render_event_card_to_canvas(
                     &ctx, cw, ch, &cover, &bg_m, &bg_c, &ev_filter,
-                    &title, &date, &venue, &price,
+                    &title, &date, &venue, &price, is_ticket_d,
                 ).await {
                     web_sys::console::warn_1(&format!("event card render: {}", e).into());
                     ctx.set_fill_style_str("#0d0d18");
@@ -565,6 +566,7 @@ pub fn StoryPage() -> impl IntoView {
             let date         = prefill_date();
             let venue        = prefill_venue();
             let price        = prefill_price();
+            let is_ticket_u  = prefill_is_ticket();
             if cover.is_empty() { error_unggah.set(Some("Cover event tidak tersedia di URL.".into())); return; }
             sedang_mengunggah.set(true);
             store_ctx.uploading.set(true);
@@ -578,7 +580,7 @@ pub fn StoryPage() -> impl IntoView {
                 let Some((canvas, render_ctx, cw, ch)) = create_export_canvas(dpr) else { ctx.uploading.set(false); return; };
                 if let Err(e) = render_event_card_to_canvas(
                     &render_ctx, cw, ch, &cover, &ev_bg_mode, &ev_bg_color, &ev_filter,
-                    &title, &date, &venue, &price,
+                    &title, &date, &venue, &price, is_ticket_u,
                 ).await {
                     web_sys::console::warn_1(&format!("event card render: {}", e).into());
                 }
@@ -845,6 +847,9 @@ pub fn StoryPage() -> impl IntoView {
                                                         <span class="sc-event-card-venue">{move || prefill_venue()}</span>
                                                     </div>
                                                     <div class="sc-event-card-price-pill">{move || prefill_price()}</div>
+                                                    <Show when=move || prefill_is_ticket()>
+                                                        <div class="sc-event-card-ticket-label">"✓ Tiket berhasil dibeli"</div>
+                                                    </Show>
                                                 </div>
                                             </div>
                                         </div>

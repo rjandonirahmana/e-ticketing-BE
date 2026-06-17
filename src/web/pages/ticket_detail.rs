@@ -241,6 +241,12 @@ pub fn TicketDetailPage() -> impl IntoView {
                                     let _share_event_id = t.event_id.clone();
                                     let _share_date     = date_str.clone();
                                     let _share_venue    = venue.clone();
+                                    let _share_tier     = t.variant_name.clone();
+                                    let _share_price_str = if t.unit_price == 0.0 {
+                                        "Gratis".to_string()
+                                    } else {
+                                        format_idr(t.unit_price as i64)
+                                    };
                                     let _nav_share = navigate.clone();
                                     let share_to_story = move |_: web_sys::MouseEvent| {
                                         #[cfg(target_arch = "wasm32")]
@@ -252,7 +258,7 @@ pub fn TicketDetailPage() -> impl IntoView {
                                             params.append("event_cover", &_share_cover);
                                             params.append("event_date",  &_share_date);
                                             params.append("event_venue", &_share_venue);
-                                            params.append("event_price", &format!("🎫 {}", _masked_code));
+                                            params.append("event_price", &format!("{} · {}", _share_tier, _share_price_str));
                                             params.append("is_ticket",   "1");
                                             params.append("ticket_ref",  &_masked_code);
                                             if let Some(win) = web_sys::window() {

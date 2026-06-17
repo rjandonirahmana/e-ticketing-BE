@@ -516,6 +516,7 @@ pub(super) async fn render_event_card_to_canvas(
     date: &str,
     venue: &str,
     price: &str,
+    is_ticket: bool,
 ) -> Result<(), String> {
     // ── Load cover image ─────────────────────────────────────────────────────
     let img = load_cover_img(cover_url).await?;
@@ -568,9 +569,11 @@ pub(super) async fn render_event_card_to_canvas(
     let sep_gap     = cw * 0.016;
     let meta_lbl_fs = cw * 0.0175;
     let meta_row_fs = cw * 0.024;
-    let pill_fs     = cw * 0.025;
-    let pill_h      = pill_fs * 2.2;
-    let pill_pad_x  = cw * 0.022;
+    let pill_fs       = cw * 0.025;
+    let pill_h        = pill_fs * 2.2;
+    let pill_pad_x    = cw * 0.022;
+    let ticket_lbl_fs = cw * 0.019;
+    let ticket_lbl_h  = ticket_lbl_fs * 2.0;
 
     // Measure wrapped title (needs correct font set first)
     ctx.set_font(&format!(
@@ -585,7 +588,9 @@ pub(super) async fn render_event_card_to_canvas(
                + sep_gap + 2.0 + sep_gap
                + (meta_lbl_fs + 8.0) + 8.0
                + meta_row_h + 20.0
-               + pill_h + pad;
+               + pill_h
+               + (if is_ticket { 10.0 + ticket_lbl_h } else { 0.0 })
+               + pad;
     let card_h = cover_h + body_h;
     let card_y = ((ch - card_h) * 0.42).max(cw * 0.05);
 
@@ -721,6 +726,21 @@ pub(super) async fn render_event_card_to_canvas(
         ctx.set_text_align("left");
         ctx.set_text_baseline("middle");
         let _ = ctx.fill_text(price, card_x + pad + pill_pad_x, pill_top + pill_h * 0.5);
+
+        // Ticket success label
+        if is_ticket {
+            let lbl_top = pill_top + pill_h + 10.0;
+            ctx.set_font(&format!(
+                "500 {ticket_lbl_fs}px -apple-system, BlinkMacSystemFont, sans-serif"
+            ));
+            ctx.set_fill_style_str("rgba(255,255,255,0.55)");
+            ctx.set_text_baseline("middle");
+            let _ = ctx.fill_text(
+                "✓ Tiket berhasil dibeli",
+                card_x + pad,
+                lbl_top + ticket_lbl_h * 0.5,
+            );
+        }
     }
 
     Ok(())

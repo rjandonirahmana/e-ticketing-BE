@@ -5,6 +5,7 @@ use leptos_router::components::A;
 use leptos_router::hooks::use_navigate;
 
 use crate::web::app::CartContext;
+use crate::web::components::ThemeToggle;
 
 fn format_idr(amount: i64) -> String {
     if amount == 0 {
@@ -34,18 +35,27 @@ pub fn CartPage() -> impl IntoView {
     view! {
         <div class="page cart-page">
             <header class="page-header">
-                <A href="/" attr:class="back-btn">
+                <button class="back-btn" aria-label="Back"
+                    on:click=move |_| {
+                        #[cfg(target_arch = "wasm32")]
+                        if let Some(win) = web_sys::window() {
+                            let _ = win.history().ok().map(|h| h.back());
+                        }
+                    }>
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
                         <polyline points="15 18 9 12 15 6"/>
                     </svg>
-                </A>
-                <span class="page-logo">"PULSE"</span>
-                <A href="/profile" attr:class="nav-avatar">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                        <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
-                        <circle cx="12" cy="7" r="4"/>
-                    </svg>
-                </A>
+                </button>
+                <span class="page-logo">"KINETIC"</span>
+                <div class="header-actions">
+                    <ThemeToggle />
+                    <A href="/profile" attr:class="nav-avatar">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+                            <circle cx="12" cy="7" r="4"/>
+                        </svg>
+                    </A>
+                </div>
             </header>
 
             <div class="cart-title-wrap">
