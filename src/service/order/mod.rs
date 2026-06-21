@@ -1,10 +1,15 @@
+pub mod lock;
+mod metrics;
+
+use lock::{QueueMode, VariantLockGuard};
+
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::time::{sleep, timeout, Duration};
-use validator::Validate;
 
 use deadpool_postgres::Pool;
 use rust_decimal::Decimal;
+use tokio::time::{sleep, timeout};
+use validator::Validate;
 
 use crate::models::notification::CreateNotificationInput;
 use crate::models::orders::{
@@ -12,7 +17,7 @@ use crate::models::orders::{
     PayOrderRequest,
 };
 use crate::repository::order::{
-    ItemRow, LockedVariant, OrderRepository, OrderTx, OversellError, LUA_RELEASE,
+    ItemRow, LockedVariant, OrderRepository, OrderTx, OversellError,
 };
 use crate::repository::ticket::TicketRepository;
 use crate::service::group_chat::GroupChatService;
@@ -21,205 +26,21 @@ use crate::service::notification_store::NotificationStoreService;
 use crate::utils::error::{AppError, AppResult};
 use crate::utils::ulid::{bin_to_ulid_ref, id_to_vec, new_ulid, ulid_to_vec};
 
-// ── Konstanta ─────────────────────────────────────────────────────────────────
-
-const LOCK_TTL_MS: u64 = 25_000;
-const LOCK_RETRIES: u8 = 3;
-const LOCK_DELAY_MS: u64 = 80;
-const MAX_TX_RETRY: u8 = 3;
-
-/// TX_TIMEOUT harus < LOCK_TTL_MS.
-/// Margin 13 detik (25s TTL − 12s timeout) sudah aman — heartbeat tidak diperlukan.
-const TX_TIMEOUT: Duration = Duration::from_secs(12);
-
-// ── QueueMode ─────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Default)]
-pub enum QueueMode {
-    #[default]
-    Off,
-    #[allow(dead_code)]
-    Soft { max_rps: u32, window_ms: u64 },
-    #[allow(dead_code)]
-    Strict,
-}
-
-// ── VariantLockGuard ──────────────────────────────────────────────────────────
-
-pub(crate) struct VariantLockGuard {
-    redis: redis::aio::ConnectionManager,
-    /// Arc sehingga ownership bisa di-share tanpa clone Vec<String>.
-    pub(crate) acquired_keys: Arc<Vec<String>>,
-    pub(crate) lock_val: Arc<str>,
-}
-
-impl VariantLockGuard {
-    pub async fn acquire(
-        redis: redis::aio::ConnectionManager,
-        variant_ids: &[&str],
-    ) -> AppResult<Self> {
-        let mut sorted: Vec<&str> = variant_ids.to_vec();
-        // Sort untuk konsistensi urutan akuisisi → cegah deadlock.
-        sorted.sort_unstable();
-        sorted.dedup();
-
-        let lock_val: Arc<str> = Arc::from(new_ulid().as_str());
-        let keys: Vec<String> = sorted
-            .iter()
-            .map(|id| format!("order:lock:variant:{}", id))
-            .collect();
-
-        let mut acquired: Vec<String> = Vec::with_capacity(keys.len());
-        let mut redis_conn = redis;
-
-        for key in &keys {
-            let mut ok = false;
-            for attempt in 0..=LOCK_RETRIES {
-                let res: redis::RedisResult<Option<String>> = redis::cmd("SET")
-                    .arg(key)
-                    .arg(lock_val.as_ref())
-                    .arg("NX")
-                    .arg("PX")
-                    .arg(LOCK_TTL_MS)
-                    .query_async(&mut redis_conn)
-                    .await;
-
-                match res {
-                    Ok(Some(_)) => {
-                        ok = true;
-                        break;
-                    }
-                    Ok(None) if attempt < LOCK_RETRIES => {
-                        sleep(Duration::from_millis(LOCK_DELAY_MS)).await;
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        release_keys(&mut redis_conn, &acquired, &lock_val).await;
-                        return Err(AppError::Internal(anyhow::anyhow!("Redis lock error: {e}")));
-                    }
-                }
-            }
-
-            if !ok {
-                release_keys(&mut redis_conn, &acquired, &lock_val).await;
-                return Err(AppError::Conflict(
-                    "Tiket sedang dipesan pengguna lain, coba lagi sebentar".into(),
-                ));
-            }
-            acquired.push(key.clone());
-        }
-
-        Ok(Self {
-            redis: redis_conn,
-            acquired_keys: Arc::new(acquired),
-            lock_val,
-        })
-    }
-
-    pub async fn release(&mut self) {
-        if self.acquired_keys.is_empty() {
-            return;
-        }
-        release_keys(&mut self.redis, &self.acquired_keys, &self.lock_val).await;
-        self.acquired_keys = Arc::new(Vec::new());
-    }
-}
-
-/// Drop hanya log — tidak spawn task.
-/// Redis TTL (PX 25_000) adalah safety net jika release() terlewat.
-impl Drop for VariantLockGuard {
-    fn drop(&mut self) {
-        if !self.acquired_keys.is_empty() {
-            tracing::error!(
-                keys = ?self.acquired_keys.as_ref(),
-                "VariantLockGuard dropped tanpa release! Lock expire via Redis TTL."
-            );
-        }
-    }
-}
-
-async fn release_keys(redis: &mut redis::aio::ConnectionManager, keys: &[String], lock_val: &str) {
-    let script = redis::Script::new(LUA_RELEASE);
-    for key in keys {
-        let _ = script
-            .key(key.as_str())
-            .arg(lock_val)
-            .invoke_async::<i64>(redis)
-            .await;
-    }
-}
-
-// ── Metrics ───────────────────────────────────────────────────────────────────
-
-struct OrderMetrics;
-
-impl OrderMetrics {
-    fn lock_acquired(variant_count: usize) {
-        tracing::debug!(variant_count, event = "lock_acquired");
-    }
-    fn lock_conflict() {
-        tracing::warn!(event = "lock_conflict");
-    }
-    fn tx_retry(attempt: u8, reason: &str) {
-        tracing::warn!(attempt, reason, event = "tx_retry");
-    }
-    fn tx_timeout() {
-        tracing::error!(event = "tx_timeout", timeout_secs = TX_TIMEOUT.as_secs());
-    }
-    fn oversell_rejected(variant_ids: &[String]) {
-        tracing::warn!(variants = ?variant_ids, event = "oversell_rejected");
-    }
-    fn idempotency_conflict(customer_id: &str) {
-        tracing::info!(customer_id, event = "idempotency_conflict");
-    }
-    fn order_created(order_id: &str, total: Decimal, item_count: usize) {
-        tracing::info!(order_id, total = %total, item_count, event = "order_created");
-    }
-    fn order_paid(order_id: &str, payment_method: &str) {
-        tracing::info!(order_id, payment_method, event = "order_paid");
-    }
-    fn order_cancelled(order_id: &str) {
-        tracing::info!(order_id, event = "order_cancelled");
-    }
-}
-
-// ── Helper ────────────────────────────────────────────────────────────────────
-
-fn is_retryable_pg_error(e: &anyhow::Error) -> bool {
-    if let Some(pg_err) = e.downcast_ref::<tokio_postgres::Error>() {
-        if let Some(db_err) = pg_err.as_db_error() {
-            let code = db_err.code().code();
-            // 40001 = serialization_failure, 40P01 = deadlock_detected
-            return code == "40001" || code == "40P01";
-        }
-    }
-    false
-}
-
-/// FIX [P2-8]: Jitter tanpa external rand dependency.
-fn backoff_with_jitter(attempt: u8) -> Duration {
-    let base_ms = 20 * (attempt as u64 + 1);
-    let jitter_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos() as u64
-        % (base_ms + 1);
-    Duration::from_millis(base_ms + jitter_ms)
-}
+use self::lock::{release_keys, LOCK_RETRIES, LOCK_TTL_MS, LOCK_DELAY_MS};
+use self::metrics::{
+    backoff_with_jitter, is_retryable_pg_error, OrderMetrics, MAX_TX_RETRY, TX_TIMEOUT,
+};
 
 // ── OrderService ──────────────────────────────────────────────────────────────
 
 pub struct OrderService {
-    repo: Arc<dyn OrderRepository>,
-    redis: redis::aio::ConnectionManager,
-    pool: Pool,
-    notifier: Arc<NotificationService>,
-    /// Notifikasi in-app (tabel notifications).
-    notif_store: Arc<NotificationStoreService>,
-    /// Untuk mengambil ticket id setelah pembayaran (notif kind "ticket").
-    ticket_repo: Arc<dyn TicketRepository>,
-    /// Untuk auto-join group chat setelah pembayaran berhasil.
-    group_svc: Arc<GroupChatService>,
+    pub(super) repo: Arc<dyn OrderRepository>,
+    pub(super) redis: redis::aio::ConnectionManager,
+    pub(super) pool: Pool,
+    pub(super) notifier: Arc<NotificationService>,
+    pub(super) notif_store: Arc<NotificationStoreService>,
+    pub(super) ticket_repo: Arc<dyn TicketRepository>,
+    pub(super) group_svc: Arc<GroupChatService>,
 }
 
 impl OrderService {
@@ -282,11 +103,9 @@ impl OrderService {
 
             match tx_result {
                 Ok(Ok(v)) => {
-                    // WA notify — fire-and-forget.
                     self.notifier
                         .notify_order_created(customer_id.to_string(), v.clone());
 
-                    // In-app notif — kind "order", target = order id. Fire-and-forget.
                     {
                         let notif_store = self.notif_store.clone();
                         let uid = customer_id.to_string();
@@ -359,7 +178,6 @@ impl OrderService {
             .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("begin tx: {e}")))?;
 
-        // ─ 1. Single-pass aggregation ─────────────────────────────────────────
         let mut qty_per_variant: HashMap<&str, i32> = HashMap::new();
         let mut bytes_per_variant: HashMap<&str, Vec<u8>> = HashMap::new();
 
@@ -374,7 +192,6 @@ impl OrderService {
 
         let id_bytes_list: Vec<Vec<u8>> = bytes_per_variant.into_values().collect();
 
-        // ─ 2. SELECT FOR UPDATE ───────────────────────────────────────────────
         let variants = OrderTx::lock_variants(&tx, &id_bytes_list)
             .await
             .map_err(AppError::Internal)?;
@@ -382,7 +199,6 @@ impl OrderService {
         let variant_map: HashMap<&str, &LockedVariant> =
             variants.iter().map(|v| (v.ulid.as_str(), v)).collect();
 
-        // ─ 3. Validasi stok, is_active, max_per_order ────────────────────────
         for (vid, &total_qty) in &qty_per_variant {
             let v = variant_map
                 .get(vid)
@@ -411,7 +227,6 @@ impl OrderService {
             }
         }
 
-        // ─ 4. Bangun item_rows + hitung grand total ───────────────────────────
         let order_id = new_ulid();
         let order_id_bytes = ulid_to_vec(&order_id).map_err(AppError::Internal)?;
         let mut grand_total = Decimal::ZERO;
@@ -434,7 +249,6 @@ impl OrderService {
             });
         }
 
-        // ─ 5. INSERT order — atomic idempotency CTE ───────────────────────────
         let customer_bytes = id_to_vec(customer_id).map_err(AppError::Internal)?;
         let order_code = {
             let suffix = &order_id[order_id.len().saturating_sub(8)..];
@@ -469,12 +283,10 @@ impl OrderService {
             return Ok(build_detail_response(order, items));
         }
 
-        // ─ 6. Batch INSERT order_items ────────────────────────────────────────
         OrderTx::insert_order_items_batch(&tx, &order_id_bytes, &item_rows)
             .await
             .map_err(AppError::Internal)?;
 
-        // ─ 7. Batch UPDATE sold — DB-level oversell guard ─────────────────────
         let bump: Vec<(&[u8], i32)> = item_rows
             .iter()
             .map(|row| (row.var_bytes.as_slice(), row.qty))
@@ -503,14 +315,12 @@ impl OrderService {
             }
         })?;
 
-        // ─ Commit ─────────────────────────────────────────────────────────────
         tx.commit()
             .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("commit: {e}")))?;
 
         OrderMetrics::order_created(&order.id, grand_total, item_rows.len());
 
-        // ─ Response dari in-memory (tanpa query tambahan) ─────────────────────
         let items: Vec<OrderItemResponse> = req
             .items
             .iter()
@@ -641,7 +451,6 @@ impl OrderService {
 
         let paid_response = build_detail_response(paid_order, items);
 
-        // Auto-join group chat — fire-and-forget.
         let group_svc = self.group_svc.clone();
         let uid = viewer_id.to_string();
         let uname = user_name.to_string();
@@ -661,12 +470,9 @@ impl OrderService {
             }
         });
 
-        // WA notify — fire-and-forget.
         self.notifier
             .notify_order_paid(viewer_id.to_string(), paid_response.clone());
 
-        // In-app notif — kind "ticket" per tiket terbit, target = ticket id.
-        // Ticket id diambil via TicketRepository (tiket sudah ter-commit di atas).
         {
             let notif_store = self.notif_store.clone();
             let ticket_repo = self.ticket_repo.clone();
@@ -761,7 +567,10 @@ impl OrderService {
 
 // ── Builder helper ────────────────────────────────────────────────────────────
 
-fn build_detail_response(order: Order, items: Vec<OrderItemResponse>) -> OrderDetailResponse {
+pub(super) fn build_detail_response(
+    order: Order,
+    items: Vec<OrderItemResponse>,
+) -> OrderDetailResponse {
     OrderDetailResponse {
         id: order.id,
         customer_id: order.customer_id,

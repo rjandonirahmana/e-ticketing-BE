@@ -46,6 +46,7 @@ pub async fn create(
 ) -> AppResult<impl IntoResponse> {
     let mut media_bytes: Option<Bytes> = None;
     let mut slug: Option<String> = None;
+    let mut title: Option<String> = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -72,6 +73,12 @@ pub async fn create(
                     slug = Some(text);
                 }
             }
+            "title" => {
+                let text = field.text().await.unwrap_or_default();
+                if !text.is_empty() {
+                    title = Some(text);
+                }
+            }
             _ => {} // abaikan field lain
         }
     }
@@ -79,7 +86,10 @@ pub async fn create(
     let bytes =
         media_bytes.ok_or_else(|| AppError::BadRequest("Field 'media' wajib diisi".into()))?;
 
-    let resp = state.story_svc.upload(user.id(), bytes, slug).await?;
+    let resp = state
+        .story_svc
+        .upload(user.id(), bytes, slug, title)
+        .await?;
 
     Ok((StatusCode::CREATED, Json(resp)))
 }

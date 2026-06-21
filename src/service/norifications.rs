@@ -1,4 +1,4 @@
-use redis::{aio::ConnectionManager as RedisConn, AsyncCommands};
+use redis::aio::ConnectionManager as RedisConn;
 use reqwest::Client as HttpClient;
 use serde_json::json;
 use std::sync::Arc;

@@ -4,12 +4,11 @@
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use chrono::Utc;
 use deadpool_postgres::Pool;
 use serde_json::Value as JsonValue;
 use tokio_postgres::Row;
 
-use super::db::{exec_drop, exec_first, exec_one, exec_rows, get_conn};
+use super::db::get_conn;
 use crate::models::stories::{Story, StoryGroupResponse, StoryItemResponse, UserSubscription};
 use crate::utils::ulid::{bin_to_ulid, bin_to_ulid_opt, id_to_vec, new_ulid, ulid_to_vec};
 
@@ -92,11 +91,7 @@ pub trait StoryRepository: Send + Sync {
     async fn find_by_id(&self, story_id: &str) -> Result<Option<Story>>;
 
     /// Aktifkan premium subscription untuk user.
-    async fn activate_premium(
-        &self,
-        user_id: &str,
-        days: i64,
-    ) -> Result<UserSubscription>;
+    async fn activate_premium(&self, user_id: &str, days: i64) -> Result<UserSubscription>;
 }
 
 // ── PostgreSQL implementation ─────────────────────────────────────────────────

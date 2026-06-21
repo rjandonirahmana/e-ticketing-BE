@@ -123,14 +123,6 @@ impl AppState {
             notification_store_svc.clone(),
         )); // ← NEW
 
-        let _ = storage.init().await.map_err(|e| {
-            tracing::error!("Storage init failed: {:?}", e);
-            e
-        });
-        if let Err(e) = storage.check_health().await {
-            tracing::error!("❌ RustFS health check failed at startup: {:?}", e);
-        }
-
         Self {
             pool,
             jwt,

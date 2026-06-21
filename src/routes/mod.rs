@@ -10,6 +10,7 @@ pub mod notifications;
 pub mod orders;
 pub mod stories; // ← NEW
 pub mod tickets;
+pub mod upload;
 
 use std::sync::Arc;
 
