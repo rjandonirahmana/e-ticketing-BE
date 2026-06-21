@@ -129,37 +129,16 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                 // Synchronous/blocking — eksekusi sebelum CSS apapun di-parse.
                 <script inner_html=r#"(function(){try{var t=localStorage.getItem('kinetic.theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();"# />
 
-                // ── Fix FOUC #2: Semua CSS di-inline ────────────────────────
-                // Tidak ada <link> = tidak ada round-trip = tidak ada 404.
-                // Path relatif dari src/web/app.rs ke styles/ di root proyek.
-                <style inner_html=include_str!("../../styles/tokens.css") />
-                <style inner_html=include_str!("../../styles/base.css") />
-                <style inner_html=include_str!("../../styles/components.css") />
-                <style inner_html=include_str!("../../styles/page-home.css") />
-                <style inner_html=include_str!("../../styles/page-explore.css") />
-                <style inner_html=include_str!("../../styles/page-event-detail.css") />
-                <style inner_html=include_str!("../../styles/page-auth.css") />
-                <style inner_html=include_str!("../../styles/page-tickets.css") />
-                <style inner_html=include_str!("../../styles/page-ticket-detail.css") />
-                <style inner_html=include_str!("../../styles/page-orders.css") />
-                <style inner_html=include_str!("../../styles/page-order-detail.css") />
-                <style inner_html=include_str!("../../styles/page-order-tickets.css") />
-                <style inner_html=include_str!("../../styles/page-profile.css") />
-                <style inner_html=include_str!("../../styles/page-merchant.css") />
-                <style inner_html=include_str!("../../styles/page-merchant-event.css") />
-                <style inner_html=include_str!("../../styles/page-merchant-landing.css") />
-                <style inner_html=include_str!("../../styles/page-admin.css") />
-                <style inner_html=include_str!("../../styles/page-messages.css") />
-                <style inner_html=include_str!("../../styles/page-notifications.css") />
-                <style inner_html=include_str!("../../styles/notifications.css") />
-                <style inner_html=include_str!("../../styles/page-cart.css") />
-                <style inner_html=include_str!("../../styles/page-scan.css") />
-                <style inner_html=include_str!("../../styles/page-story.css") />
-                <style inner_html=include_str!("../../styles/page-misc.css") />
-                <style inner_html=include_str!("../../styles/subscription.css") />
-                <style inner_html=include_str!("../../styles/profile_premium.css") />
-                <style inner_html=include_str!("../../styles/message_stories.css") />
-                <style inner_html=include_str!("../../styles/page-pulse-apply.css") />
+                // ── CSS: single cached external file ────────────────────────
+                // Render-blocking <link rel="stylesheet"> in <head> keeps the
+                // same zero-FOUC guarantee as inline CSS (browser pauses paint
+                // until the file arrives). Benefit over inline: after the first
+                // visit the browser caches the file for 24 h — every subsequent
+                // load costs 0 CSS bytes, making the HTML response ~120 KB
+                // smaller. The preload hint starts the fetch during HTML parsing,
+                // before the stylesheet link is reached, minimising block time.
+                <link rel="preload" href="/styles/app.css" attr:as="style" />
+                <link rel="stylesheet" href="/styles/app.css" />
 
                 // ── Fonts ────────────────────────────────────────────────────
                 <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -168,6 +147,22 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                     href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap"
                     rel="stylesheet"
                 />
+
+                // ── WASM + JS preloads ───────────────────────────────────────
+                // Start downloading the WASM binary and its JS loader during
+                // HTML head parsing — before HydrationScripts script tags tell
+                // the browser to fetch them. Overlaps WASM download with CSS
+                // render + remaining HTML parse, cutting time-to-interactive
+                // on first visit. crossorigin="" is required so the preloaded
+                // response is reusable by the fetch() inside the loader.
+                <link
+                    rel="preload"
+                    href="/pkg/e-ticketing_bg.wasm"
+                    attr:as="fetch"
+                    attr:type="application/wasm"
+                    crossorigin=""
+                />
+                <link rel="modulepreload" href="/pkg/e-ticketing.js" />
 
                 // ── Leptos infrastructure ────────────────────────────────────
                 <AutoReload options=options.clone() />

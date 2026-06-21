@@ -22,11 +22,34 @@ use crate::service::{
 use crate::utils::jwt::JwtService;
 use crate::ws::manager::WsManager;
 use deadpool_postgres::Pool;
+use moka::future::Cache;
 use redis::aio::ConnectionManager;
 use reqwest::Client as HttpClient;
 
 pub type DefaultBannerSvc = BannerService<PgBannerRepository>;
 pub type DefaultStorySvc = StoryService<PgStoryRepository>;
+
+/// In-process TTL cache untuk data publik yang jarang berubah.
+/// Mencegah DB hit berulang per SSR request pada data statis.
+pub struct PublicCache {
+    pub banners: Cache<(), Vec<crate::models::banners::Banner>>,
+    pub categories: Cache<(), Vec<String>>,
+}
+
+impl PublicCache {
+    pub fn new() -> Self {
+        Self {
+            banners: Cache::builder()
+                .max_capacity(1)
+                .time_to_live(Duration::from_secs(60))
+                .build(),
+            categories: Cache::builder()
+                .max_capacity(1)
+                .time_to_live(Duration::from_secs(300))
+                .build(),
+        }
+    }
+}
 
 pub struct AppState {
     #[allow(dead_code)]
@@ -46,6 +69,8 @@ pub struct AppState {
     pub notification_store_svc: Arc<NotificationStoreService>,
     /// Service untuk story & premium subscription.
     pub story_svc: Arc<DefaultStorySvc>,
+    /// In-process cache untuk data publik (banners, categories).
+    pub pub_cache: Arc<PublicCache>,
 }
 
 impl AppState {
@@ -139,7 +164,8 @@ impl AppState {
             storage,
             banner_svc,
             notification_store_svc,
-            story_svc, // ← NEW
+            story_svc,
+            pub_cache: Arc::new(PublicCache::new()),
         }
     }
 }

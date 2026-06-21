@@ -42,22 +42,31 @@ pub async fn get_event_detail(slug: String) -> Result<EventWithVariants, ServerF
 #[server(GetCategories, "/api-fn")]
 pub async fn get_categories() -> Result<Vec<String>, ServerFnError> {
     let state = app_state().await?;
-    return state
+    if let Some(cached) = state.pub_cache.categories.get(&()).await {
+        return Ok(cached);
+    }
+    let cats = state
         .event_svc
         .list_categories()
         .await
-        .map_err(map_app_error);
+        .map_err(map_app_error)?;
+    state.pub_cache.categories.insert((), cats.clone()).await;
+    Ok(cats)
 }
 
 #[server(GetBanners, "/api-fn")]
 pub async fn get_banners() -> Result<Vec<Banner>, ServerFnError> {
     let state = app_state().await?;
+    if let Some(cached) = state.pub_cache.banners.get(&()).await {
+        return Ok(cached.into_iter().map(srv_banner_to_web).collect());
+    }
     let banners = state
         .banner_svc
         .list_active(None)
         .await
         .map_err(map_app_error)?;
-    return Ok(banners.into_iter().map(srv_banner_to_web).collect());
+    state.pub_cache.banners.insert((), banners.clone()).await;
+    Ok(banners.into_iter().map(srv_banner_to_web).collect())
 }
 
 #[server(GetEventLocation, "/api-fn")]

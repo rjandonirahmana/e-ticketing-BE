@@ -218,7 +218,7 @@ pub struct ChatMessage {
     pub sender_name: String,
     pub content: String,
     pub sent_at: u64,
-    #[serde(default)]
+    #[serde(default, alias = "msg_type")]
     pub message_type: String,
 }
 

@@ -22,6 +22,7 @@ use e_ticketing::config::{config::AppConfig, database::create_pool};
 use e_ticketing::service::telegram::TelegramService;
 use e_ticketing::state::AppState;
 use e_ticketing::utils::error::init_telegram_notifier;
+use e_ticketing::api::rest_router;
 use e_ticketing::web::api::upload::story_upload;
 use e_ticketing::web::app::{shell, App};
 use e_ticketing::ws::handler::WsAppState;
@@ -136,12 +137,17 @@ async fn main() -> Result<()> {
         .route("/upload/story", axum::routing::post(story_upload))
         .layer(axum::Extension(state.clone()));
 
-    // ── WebSocket + CSS assets + SSR ─────────────────────────────────────────
+    // ── REST API router (Next.js frontend) ───────────────────────────────────
+    let rest_api = rest_router().with_state(state.clone());
+
+    // ── WebSocket + REST API + CSS assets + SSR ───────────────────────────────
     let app = chat_router(ws_state, state.clone())
         .layer(cors)
         .merge(e_ticketing::web::assets::router())
         .merge(upload_router)
-        .merge(leptos_router);
+        .merge(rest_api)
+        .merge(leptos_router)
+        .layer(tower_http::compression::CompressionLayer::new());
 
     let listener = TcpListener::bind(&bind_addr).await?;
     tracing::info!("Pulse (SSR + WebSocket) listening on http://{}", bind_addr);

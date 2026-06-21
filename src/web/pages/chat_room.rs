@@ -62,26 +62,34 @@ pub fn ChatRoomPage() -> impl IntoView {
 
     let msg_list_ref = NodeRef::<leptos::html::Div>::new();
 
+    // Defined here so do_send can capture it outside the #[cfg] block.
+    #[cfg(target_arch = "wasm32")]
+    let ws_store: StoredValue<Option<web_sys::WebSocket>> = StoredValue::new(None);
+
     // ── WebSocket (WASM only) ─────────────────────────────────────────────────
     #[cfg(target_arch = "wasm32")]
     {
         use wasm_bindgen::prelude::*;
         use wasm_bindgen::JsCast;
         use web_sys::WebSocket;
-
-        let ws_store: StoredValue<Option<WebSocket>> = StoredValue::new(None);
         let cb_onmessage: StoredValue<Option<JsValue>> = StoredValue::new(None);
         let cb_onopen:    StoredValue<Option<JsValue>> = StoredValue::new(None);
         let cb_onclose:   StoredValue<Option<JsValue>> = StoredValue::new(None);
         let cb_onerror:   StoredValue<Option<JsValue>> = StoredValue::new(None);
 
         Effect::new(move |_| {
-            let token = auth.get().and_then(|r| r.ok()).flatten();
-            if token.is_none() { return; }
+            // Guard: hanya konek jika sudah login
+            if !is_logged_in() { return; }
 
-            let proto  = if web_sys::window().map(|w| w.location().protocol().unwrap_or_default() == "https:").unwrap_or(false) { "wss" } else { "ws" };
-            let host   = web_sys::window().and_then(|w| w.location().host().ok()).unwrap_or_default();
-            let url    = format!("{}://{}/ws/chat", proto, host);
+            let proto = if web_sys::window()
+                .map(|w| w.location().protocol().unwrap_or_default() == "https:")
+                .unwrap_or(false) { "wss" } else { "ws" };
+            let host = web_sys::window()
+                .and_then(|w| w.location().host().ok())
+                .unwrap_or_default();
+            // Browser otomatis kirim cookie pulse_token (HttpOnly, SameSite=Lax)
+            // saat WebSocket upgrade ke same-origin — tidak perlu token di URL.
+            let url = format!("{}://{}/api/ws/chat", proto, host);
 
             let Ok(ws) = WebSocket::new(&url) else {
                 error_msg.set("Tidak dapat terhubung ke server.".into());
@@ -93,19 +101,52 @@ pub fn ChatRoomPage() -> impl IntoView {
                 move |e: web_sys::MessageEvent| {
                     let Ok(txt) = e.data().dyn_into::<web_sys::js_sys::JsString>() else { return };
                     let s: String = txt.into();
-                    if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&s) {
-                        if msg.get("type").and_then(|t| t.as_str()) == Some("new_message") {
-                            if let Ok(m) = serde_json::from_value::<ChatMessage>(
-                                msg.get("data").cloned().unwrap_or_default()
-                            ) {
+                    let Ok(evt) = serde_json::from_str::<serde_json::Value>(&s) else { return };
+                    match evt.get("type").and_then(|t| t.as_str()) {
+                        Some("new_message") => {
+                            // Fields are at top-level — #[serde(tag="type")] flattens newtype variant.
+                            // ChatMessage.message_type has alias "msg_type" to match server field.
+                            if let Ok(m) = serde_json::from_str::<ChatMessage>(&s) {
+                                let my_id = current_user_id().unwrap_or_default();
                                 live_msgs.update(|v| {
-                                    if !v.iter().any(|x| x.id == m.id) { v.push(m); }
+                                    // Standard dedup: server already confirmed this id.
+                                    if v.iter().any(|x| x.id == m.id) { return; }
+                                    // For self-messages: merge with matching optimistic entry
+                                    // instead of pushing a new one.
+                                    // Prevents duplicate when broadcast arrives before ack
+                                    // (server sends both new_message to all members AND ack to sender).
+                                    if m.sender_id == my_id {
+                                        if let Some(opt) = v.iter_mut().find(|x| {
+                                            x.id.starts_with("_opt_") && x.content == m.content
+                                        }) {
+                                            opt.id = m.id.clone();
+                                            opt.sent_at = m.sent_at;
+                                            return;
+                                        }
+                                    }
+                                    v.push(m);
                                 });
                                 if let Some(el) = scroll_ref.get() {
                                     el.set_scroll_top(el.scroll_height());
                                 }
                             }
                         }
+                        Some("ack") => {
+                            // Replace optimistic id (client_id) with real server msg_id.
+                            if let (Some(msg_id), Some(client_id)) = (
+                                evt.get("msg_id").and_then(|v| v.as_str()),
+                                evt.get("client_id").and_then(|v| v.as_str()),
+                            ) {
+                                let msg_id = msg_id.to_string();
+                                let client_id = client_id.to_string();
+                                live_msgs.update(|v| {
+                                    if let Some(m) = v.iter_mut().find(|m| m.id == client_id) {
+                                        m.id = msg_id;
+                                    }
+                                });
+                            }
+                        }
+                        _ => {}
                     }
                 },
             );
@@ -144,24 +185,64 @@ pub fn ChatRoomPage() -> impl IntoView {
                 cb_onerror.set_value(None);
             });
         });
+
+        // Scroll to bottom once history finishes loading.
+        // Uses rAF so the DOM is fully painted before we read scroll_height.
+        Effect::new(move |_| {
+            if history.get().is_some() {
+                let list_ref = msg_list_ref;
+                let cb = wasm_bindgen::closure::Closure::once(move || {
+                    if let Some(el) = list_ref.get() {
+                        el.set_scroll_top(el.scroll_height());
+                    }
+                });
+                if let Some(win) = web_sys::window() {
+                    let _ = win.request_animation_frame(cb.as_ref().unchecked_ref());
+                }
+                cb.forget();
+            }
+        });
     }
 
     let do_send = move || {
         let content = text_input.get_untracked().trim().to_string();
         if content.is_empty() { return; }
+        let client_id = format!("_opt_{}", js_sys_now());
         text_input.set(String::new());
-        // Optimistic local append — WS will confirm from server
         let me_id = current_user_id().unwrap_or_default();
         let msg = ChatMessage {
-            id: format!("local-{}", js_sys_now()),
+            id: client_id.clone(),
             room_id: room_id(),
             sender_id: me_id,
             sender_name: "You".into(),
-            content,
+            content: content.clone(),
             sent_at: 0,
             message_type: "text".into(),
         };
         live_msgs.update(|v| v.push(msg));
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let payload = serde_json::json!({
+                "type": "send_text",
+                "room_id": room_id(),
+                "content": content,
+                "client_id": client_id,
+            }).to_string();
+            ws_store.with_value(|opt| {
+                if let Some(ws) = opt {
+                    if ws.ready_state() == web_sys::WebSocket::OPEN {
+                        if ws.send_with_str(&payload).is_err() {
+                            error_msg.set("Gagal kirim pesan.".into());
+                        }
+                    } else {
+                        error_msg.set("Koneksi terputus, coba lagi.".into());
+                    }
+                } else {
+                    error_msg.set("Tidak terhubung.".into());
+                }
+            });
+        }
     };
 
     view! {

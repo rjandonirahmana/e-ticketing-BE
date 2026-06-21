@@ -70,7 +70,8 @@ pub fn provide_banners_store() {
         items:   RwSignal::new(Vec::new()),
         loading: RwSignal::new(false),
     };
-    ctx.load();
+    // Tidak auto-load: home page pakai Resource::new sendiri, tidak ada komponen
+    // yang membaca dari store ini — menghindari get_events() yang sia-sia.
     provide_context(ctx);
 }
 

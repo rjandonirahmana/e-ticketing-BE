@@ -77,6 +77,7 @@ impl EventsCtx {
         if is_server() {
             return;
         }
+        leptos::logging::log!("[EventsStore] load_cat: category={:?}", category);
         self.loading.set(true);
 
         // Increment generation so any in-flight fetch from the previous
@@ -92,16 +93,31 @@ impl EventsCtx {
         spawn_local(async move {
             let cat = if category == "All" { String::new() } else { category };
             let cat_opt = if cat.is_empty() { None } else { Some(cat) };
-            let result = get_events(Some(1), None, cat_opt, None, Some(40)).await;
 
-            // Only commit result if this is still the current fetch.
-            // Always clear loading regardless — prevents getting stuck if
-            // the effect fires twice during Leptos hydration (gen mismatch
-            // on the stale task would otherwise leave loading=true forever).
-            if fetch_gen.get_untracked() == gen {
-                match result {
-                    Ok(res) => items.set(res.data.iter().map(event_to_explore).collect()),
-                    Err(e) => error.set(e.to_string()),
+            leptos::logging::log!("[EventsStore] get_events fetch starting...");
+
+            // Race the server function against a 12-second safety timeout.
+            // Prevents infinite shimmer if the DB query hangs or network drops.
+            let fetch = get_events(Some(1), None, cat_opt, None, Some(40));
+            let timeout = gloo_timers::future::TimeoutFuture::new(12_000);
+
+            let result = futures::future::select(Box::pin(fetch), Box::pin(timeout)).await;
+
+            match result {
+                futures::future::Either::Left((srv_result, _)) => {
+                    leptos::logging::log!("[EventsStore] get_events ok={}", srv_result.is_ok());
+                    if fetch_gen.get_untracked() == gen {
+                        match srv_result {
+                            Ok(res) => items.set(res.data.iter().map(event_to_explore).collect()),
+                            Err(e) => error.set(e.to_string()),
+                        }
+                    }
+                }
+                futures::future::Either::Right(_) => {
+                    leptos::logging::log!("[EventsStore] get_events TIMED OUT after 12s");
+                    if fetch_gen.get_untracked() == gen {
+                        error.set("Koneksi ke server habis waktu. Coba refresh.".to_string());
+                    }
                 }
             }
             loading.set(false);

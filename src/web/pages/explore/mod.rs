@@ -47,7 +47,9 @@ pub fn ExplorePage() -> impl IntoView {
     let store = use_events_store();
 
     Effect::new(move |_| {
-        store.load_cat(active_cat.get());
+        let cat = active_cat.get();
+        leptos::logging::log!("[ExplorePage] Effect fired: cat={:?}", cat);
+        store.load_cat(cat);
     });
 
     let close_gen = RwSignal::new(0u32);
@@ -399,6 +401,23 @@ pub fn ExplorePage() -> impl IntoView {
                             })
                             .collect_view()
                             .into_any()
+                    } else if !store.error.with(|e| e.is_empty()) {
+                        view! {
+                            <div class="exp-empty">
+                                <EmptyState
+                                    icon="⚠️"
+                                    title="Gagal Memuat"
+                                    body="Tidak bisa terhubung ke server. Coba muat ulang halaman."
+                                />
+                                <button
+                                    class="exp-reset-btn"
+                                    on:click=move |_| store.load_cat(active_cat.get_untracked())
+                                >
+                                    "Coba Lagi"
+                                </button>
+                            </div>
+                        }
+                        .into_any()
                     } else {
                         let list = filtered.get();
                         if list.is_empty() {

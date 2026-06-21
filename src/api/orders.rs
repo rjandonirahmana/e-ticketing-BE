@@ -1,0 +1,188 @@
+//! api/orders.rs — Orders & Tickets REST endpoints (semua private).
+//!
+//! GET  /api/orders
+//! GET  /api/orders/:id
+//! GET  /api/orders/:id/tickets
+//! POST /api/orders
+//! GET  /api/tickets              (query: filter, page, pageSize)
+//! GET  /api/tickets/:id
+//! POST /api/promos/validate
+
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    routing::{get, post},
+    Json, Router,
+};
+use serde::Deserialize;
+use std::sync::Arc;
+
+use crate::state::AppState;
+use super::extractor::{app_err, AuthUser};
+
+// ── Orders ────────────────────────────────────────────────────────────────────
+
+async fn list_orders(
+    AuthUser(claims): AuthUser,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let orders = state.order_svc.list_mine(&claims.user_id, 1, 100).await.map_err(app_err)?;
+    Ok(Json(serde_json::to_value(orders).unwrap_or_default()))
+}
+
+async fn get_order(
+    AuthUser(claims): AuthUser,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let order = state.order_svc.detail(&id, &claims.user_id).await.map_err(app_err)?;
+    Ok(Json(serde_json::to_value(order).unwrap_or_default()))
+}
+
+async fn get_order_tickets(
+    AuthUser(claims): AuthUser,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let tickets = state
+        .ticket_svc
+        .list_for_order(&id, &claims.user_id, 1, 100)
+        .await
+        .map_err(app_err)?;
+    Ok(Json(serde_json::to_value(tickets).unwrap_or_default()))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateOrderItem {
+    tier_id: String,
+    quantity: i32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateOrderReq {
+    items: Vec<CreateOrderItem>,
+    payment_method: Option<String>,
+    promo_code: Option<String>,
+}
+
+async fn create_order(
+    AuthUser(claims): AuthUser,
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<CreateOrderReq>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    use crate::models::orders::{CreateOrderItemRequest, CreateOrderRequest};
+    use rust_decimal::prelude::ToPrimitive;
+
+    if body.items.is_empty() {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({ "message": "Items tidak boleh kosong" })),
+        ));
+    }
+
+    let items: Vec<CreateOrderItemRequest> = body
+        .items
+        .into_iter()
+        .map(|i| CreateOrderItemRequest {
+            ticket_variant_id: i.tier_id,
+            quantity: i.quantity,
+        })
+        .collect();
+
+    let _ = (body.payment_method, body.promo_code); // reserved for future use
+
+    let req = CreateOrderRequest { idempotency_key: None, items };
+    let order = state.order_svc.create(&claims.user_id, req).await.map_err(app_err)?;
+
+    Ok(Json(serde_json::json!({
+        "order": {
+            "id": order.id,
+            "orderCode": order.order_code,
+            "status": order.status,
+            "totalAmount": order.total_amount.to_i64().unwrap_or(0),
+            "expiredAt": order.expired_at.map(|d| d.to_rfc3339()),
+            "createdAt": order.created_at.to_rfc3339(),
+            "items": order.items.iter().map(|i| serde_json::json!({
+                "eventName": i.event_name,
+                "variantName": i.variant_name,
+                "quantity": i.quantity,
+                "subtotal": i.subtotal,
+            })).collect::<Vec<_>>(),
+        },
+        "requiresRedirect": false,
+        "paymentUrl": "",
+    })))
+}
+
+// ── Tickets ───────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct TicketsQuery {
+    filter: Option<String>,
+    page: Option<i64>,
+    page_size: Option<i64>,
+}
+
+async fn list_tickets(
+    AuthUser(claims): AuthUser,
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<TicketsQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let page = q.page.unwrap_or(1);
+    let page_size = q.page_size.unwrap_or(20);
+    let _ = q.filter; // filter by status to be implemented in repo
+
+    let tickets = state
+        .ticket_svc
+        .list_for_customer(&claims.user_id, page, page_size)
+        .await
+        .map_err(app_err)?;
+    Ok(Json(serde_json::json!({ "tickets": serde_json::to_value(tickets).unwrap_or_default() })))
+}
+
+async fn get_ticket(
+    AuthUser(claims): AuthUser,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let ticket = state
+        .ticket_svc
+        .detail_for_customer(&id, &claims.user_id)
+        .await
+        .map_err(app_err)?;
+    Ok(Json(serde_json::to_value(ticket).unwrap_or_default()))
+}
+
+// ── Promos ────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ValidatePromoReq {
+    promo_code: String,
+    subtotal: f64,
+}
+
+async fn validate_promo(
+    AuthUser(_claims): AuthUser,
+    State(_state): State<Arc<AppState>>,
+    Json(body): Json<ValidatePromoReq>,
+) -> Json<serde_json::Value> {
+    let _ = (body.promo_code, body.subtotal);
+    // TODO: promo service belum diimplementasi
+    Json(serde_json::json!({ "valid": false, "discountIdr": 0, "message": "Kode promo tidak ditemukan" }))
+}
+
+// ── Router ────────────────────────────────────────────────────────────────────
+
+pub fn router() -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/orders", get(list_orders).post(create_order))
+        .route("/orders/{id}", get(get_order))
+        .route("/orders/{id}/tickets", get(get_order_tickets))
+        .route("/tickets", get(list_tickets))
+        .route("/tickets/{id}", get(get_ticket))
+        .route("/promos/validate", post(validate_promo))
+}

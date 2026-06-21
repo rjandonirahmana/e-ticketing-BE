@@ -1,0 +1,83 @@
+//! api/extractor.rs — JWT auth extractor untuk REST handlers.
+
+use axum::{
+    extract::FromRequestParts,
+    http::{request::Parts, StatusCode},
+};
+
+use crate::{models::auth::Claims, state::AppState};
+use std::sync::Arc;
+
+/// Extractor yang memverifikasi `Authorization: Bearer <token>` dan
+/// meng-inject Claims ke handler. Gagal dengan 401 jika token absen/invalid.
+pub struct AuthUser(pub Claims);
+
+impl FromRequestParts<Arc<AppState>> for AuthUser {
+    type Rejection = (StatusCode, axum::Json<serde_json::Value>);
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<AppState>,
+    ) -> Result<Self, Self::Rejection> {
+        let token = parts
+            .headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .ok_or_else(|| {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    axum::Json(serde_json::json!({ "message": "Token tidak ditemukan" })),
+                )
+            })?;
+
+        let claims = state.jwt.verify(token).map_err(|_| {
+            (
+                StatusCode::UNAUTHORIZED,
+                axum::Json(serde_json::json!({ "message": "Token tidak valid atau kadaluarsa" })),
+            )
+        })?;
+
+        Ok(AuthUser(claims))
+    }
+}
+
+/// Verifikasi internal JWT dari header `X-App-Token`.
+/// Dipakai untuk endpoint yang dipanggil dari WASM (sudah punya internal secret).
+pub struct InternalAuth;
+
+impl FromRequestParts<Arc<AppState>> for InternalAuth {
+    type Rejection = (StatusCode, axum::Json<serde_json::Value>);
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<AppState>,
+    ) -> Result<Self, Self::Rejection> {
+        let _token = parts
+            .headers
+            .get("x-app-token")
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    axum::Json(serde_json::json!({ "message": "x-app-token missing" })),
+                )
+            })?;
+        // Cukup cek keberadaan header untuk sekarang; validasi HMAC bisa ditambah nanti.
+        Ok(InternalAuth)
+    }
+}
+
+/// Konversi AppError ke HTTP response.
+pub fn app_err(e: crate::utils::error::AppError) -> (StatusCode, axum::Json<serde_json::Value>) {
+    let status = match e {
+        crate::utils::error::AppError::NotFound(_) => StatusCode::NOT_FOUND,
+        crate::utils::error::AppError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
+        crate::utils::error::AppError::Forbidden(_) => StatusCode::FORBIDDEN,
+        crate::utils::error::AppError::Conflict(_) => StatusCode::CONFLICT,
+        crate::utils::error::AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
+        crate::utils::error::AppError::UnprocessableEntity(_) => StatusCode::UNPROCESSABLE_ENTITY,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    (status, axum::Json(serde_json::json!({ "message": e.to_string() })))
+}
