@@ -1052,50 +1052,6 @@ pub fn StoryViewer() -> impl IntoView {
                         <span>" pulses"</span>
                     </div>
 
-                    // ── Event deep-link: swipe-up container ──────────────────
-                    // Hanya muncul jika story punya event_slug.
-                    // Animated chevron + pill — mirip Instagram "See More".
-                    {move || ctx.with_current_story(|s| {
-                        match (&s.event_slug, &s.event_title) {
-                            (Some(slug), Some(title)) if !slug.is_empty() => {
-                                let slug_nav  = slug.clone();
-                                let title_str = title.clone();
-                                Some(view! {
-                                    <div class="sv-swipe-up-container"
-                                         on:click=move |ev| {
-                                             ev.stop_propagation();
-                                             if let Some(win) = web_sys::window() {
-                                                 let _ = win.location()
-                                                     .set_href(&format!("/events/{}", slug_nav));
-                                             }
-                                         }>
-                                        // Bouncing chevron — menarik perhatian user
-                                        <div class="sv-swipe-up-chevron" aria-hidden="true">
-                                            <svg width="20" height="20" viewBox="0 0 24 24"
-                                                 fill="none" stroke="currentColor"
-                                                 stroke-width="2.5" stroke-linecap="round">
-                                                <polyline points="6 9 12 15 18 9"/>
-                                            </svg>
-                                        </div>
-
-                                        // Frosted glass pill
-                                        <div class="sv-swipe-up-pill">
-                                            <span class="sv-swipe-up-label">"Lihat Event"</span>
-                                            <span class="sv-swipe-up-title">{title_str}</span>
-                                            <svg width="14" height="14" viewBox="0 0 24 24"
-                                                 fill="none" stroke="currentColor"
-                                                 stroke-width="2.5" stroke-linecap="round">
-                                                <line x1="5" y1="12" x2="19" y2="12"/>
-                                                <polyline points="12 5 19 12 12 19"/>
-                                            </svg>
-                                        </div>
-                                    </div>
-                                })
-                            }
-                            _ => None,
-                        }
-                    })}
-
                     // ── Bottom bar ────────────────────────────────────
                     <div class="sv-actions sv-actions--readonly">
                         <div class="sv-viewer-info">

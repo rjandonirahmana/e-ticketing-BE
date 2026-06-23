@@ -106,21 +106,21 @@ pub fn ProfilePage() -> impl IntoView {
             <Suspense fallback=|| view! {
                 <div class="avatar-section">
                     <div class="avatar-ring">
-                        <div class="avatar-circle" style="background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
+                        <div class="avatar-circle shim" style="border-radius:50%"></div>
                     </div>
-                    <div style="width:140px;height:20px;border-radius:4px;margin:12px auto 6px;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
-                    <div style="width:180px;height:14px;border-radius:4px;margin:0 auto 8px;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
-                    <div style="width:90px;height:22px;border-radius:99px;margin:0 auto;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
+                    <div class="shim" style="width:140px;height:20px;margin:12px auto 6px"></div>
+                    <div class="shim" style="width:180px;height:14px;margin:0 auto 8px"></div>
+                    <div class="shim" style="width:90px;height:22px;border-radius:99px;margin:0 auto"></div>
                 </div>
                 <div class="stats-row stats-row--mobile-only">
-                    <div style="flex:1;height:64px;border-radius:12px;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
-                    <div style="flex:1;height:64px;border-radius:12px;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
+                    <div class="shim" style="flex:1;height:64px;border-radius:12px"></div>
+                    <div class="shim" style="flex:1;height:64px;border-radius:12px"></div>
                 </div>
                 <div class="menu-section">
-                    <div style="width:120px;height:12px;border-radius:4px;margin-bottom:10px;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
+                    <div class="shim" style="width:120px;height:12px;margin-bottom:10px"></div>
                     <div class="menu-list">
                         {(0..5).map(|_| view! {
-                            <div style="height:52px;border-radius:12px;margin-bottom:6px;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
+                            <div class="shim" style="height:52px;border-radius:12px;margin-bottom:6px"></div>
                         }).collect_view()}
                     </div>
                 </div>
