@@ -12,17 +12,17 @@ use bytes::Bytes;
 use crate::{
     models::{
         notification::CreateNotificationInput,
-        stories::{StoryGroupResponse, UploadStoryResponse, UserSubscription},
+        stories::{StoryGroupResponse, SubscriptionActivation, UploadStoryResponse},
     },
     repository::story::StoryRepository,
     service::{notification_store::NotificationStoreService, storage::StorageService},
     utils::error::{AppError, AppResult},
+    web::models::PendingSubOrder,
 };
 
 // ── Konfigurasi ───────────────────────────────────────────────────────────────
 
 /// Batas upload story per hari untuk user non-premium.
-#[allow(dead_code)]
 const FREE_DAILY_LIMIT: i64 = 1;
 
 /// Max ukuran file story: 50 MB (untuk video).
@@ -123,27 +123,27 @@ impl<R: StoryRepository> StoryService<R> {
             )));
         }
 
-        // // ── 3. Rate limit ─────────────────────────────────────────────────────
-        // let is_premium = self
-        //     .repo
-        //     .is_premium(user_id)
-        //     .await
-        //     .map_err(|e| AppError::Internal(e))?;
+        // ── 3. Rate limit ─────────────────────────────────────────────────────
+        let is_premium = self
+            .repo
+            .is_premium(user_id)
+            .await
+            .map_err(AppError::Internal)?;
 
-        // if !is_premium {
-        //     let count = self
-        //         .repo
-        //         .count_today(user_id)
-        //         .await
-        //         .map_err(|e| AppError::Internal(e))?;
-        //     if count >= FREE_DAILY_LIMIT {
-        //         return Err(AppError::Conflict(
-        //             "Kamu sudah membuat story hari ini. \
-        //              Upgrade ke Premium untuk upload tanpa batas."
-        //                 .into(),
-        //         ));
-        //     }
-        // }
+        if !is_premium {
+            let count = self
+                .repo
+                .count_today(user_id)
+                .await
+                .map_err(AppError::Internal)?;
+            if count >= FREE_DAILY_LIMIT {
+                return Err(AppError::Conflict(
+                    "Kamu sudah membuat story hari ini. \
+                     Upgrade ke Premium untuk upload tanpa batas."
+                        .into(),
+                ));
+            }
+        }
 
         // ── 4. Resolve event info dari slug (opsional) ────────────────────────
         let (event_id, event_slug, event_title): (Option<String>, Option<String>, Option<String>) =
@@ -268,15 +268,35 @@ impl<R: StoryRepository> StoryService<R> {
 
     // ── Activate premium ──────────────────────────────────────────────────────
 
-    pub async fn activate_premium(&self, user_id: &str, days: i64) -> AppResult<UserSubscription> {
+    pub async fn activate_premium(&self, user_id: &str, plan: &str, days: i64) -> AppResult<SubscriptionActivation> {
         if days < 1 || days > 3650 {
             return Err(AppError::BadRequest(
                 "Durasi premium harus antara 1–3650 hari".into(),
             ));
         }
         self.repo
-            .activate_premium(user_id, days)
+            .activate_premium(user_id, plan, days)
             .await
-            .map_err(|e| AppError::Internal(e))
+            .map_err(AppError::Internal)
+    }
+
+    pub async fn create_pending_subscription_order(&self, user_id: &str, plan: &str) -> AppResult<PendingSubOrder> {
+        self.repo
+            .create_pending_subscription_order(user_id, plan)
+            .await
+            .map_err(AppError::Internal)
+    }
+
+    pub async fn confirm_subscription_order(
+        &self,
+        order_id: &str,
+        user_id: &str,
+        plan: &str,
+        days: i64,
+    ) -> AppResult<SubscriptionActivation> {
+        self.repo
+            .confirm_subscription_order(order_id, user_id, plan, days)
+            .await
+            .map_err(AppError::Internal)
     }
 }

@@ -34,6 +34,11 @@ pub type DefaultStorySvc = StoryService<PgStoryRepository>;
 pub struct PublicCache {
     pub banners: Cache<(), Vec<crate::models::banners::Banner>>,
     pub categories: Cache<(), Vec<String>>,
+    /// Key: canonical query string (page|city|category|search|per_page).
+    /// 30 s TTL — cukup untuk meredam burst traffic tanpa data stale terasa.
+    pub events: Cache<String, crate::web::models::PaginatedEvents>,
+    /// Key: event slug. 60 s TTL — event detail jarang berubah.
+    pub event_detail: Cache<String, crate::web::models::EventWithVariants>,
 }
 
 impl PublicCache {
@@ -46,6 +51,14 @@ impl PublicCache {
             categories: Cache::builder()
                 .max_capacity(1)
                 .time_to_live(Duration::from_secs(300))
+                .build(),
+            events: Cache::builder()
+                .max_capacity(256)
+                .time_to_live(Duration::from_secs(30))
+                .build(),
+            event_detail: Cache::builder()
+                .max_capacity(512)
+                .time_to_live(Duration::from_secs(60))
                 .build(),
         }
     }

@@ -1,7 +1,7 @@
 pub mod lock;
 mod metrics;
 
-use lock::{QueueMode, VariantLockGuard};
+use lock::VariantLockGuard;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -26,7 +26,6 @@ use crate::service::notification_store::NotificationStoreService;
 use crate::utils::error::{AppError, AppResult};
 use crate::utils::ulid::{bin_to_ulid_ref, id_to_vec, new_ulid, ulid_to_vec};
 
-use self::lock::{release_keys, LOCK_RETRIES, LOCK_TTL_MS, LOCK_DELAY_MS};
 use self::metrics::{
     backoff_with_jitter, is_retryable_pg_error, OrderMetrics, MAX_TX_RETRY, TX_TIMEOUT,
 };
@@ -70,6 +69,7 @@ impl OrderService {
         &self,
         customer_id: &str,
         req: CreateOrderRequest,
+        is_premium: bool,
     ) -> AppResult<OrderDetailResponse> {
         req.validate()
             .map_err(|e| AppError::UnprocessableEntity(format!("{e}")))?;
@@ -86,7 +86,7 @@ impl OrderService {
         };
 
         for attempt in 0..MAX_TX_RETRY {
-            let mut lock = VariantLockGuard::acquire(self.redis.clone(), &variant_ids)
+            let mut lock = VariantLockGuard::acquire(self.redis.clone(), &variant_ids, is_premium)
                 .await
                 .map_err(|e| {
                     if matches!(e, AppError::Conflict(_)) {

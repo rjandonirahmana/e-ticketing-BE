@@ -2,9 +2,10 @@
 
 use leptos::prelude::*;
 use leptos_router::components::A;
+use leptos_router::hooks::use_navigate;
 
 use crate::web::api::create_subscription_order;
-use crate::web::app::AuthResource;
+use crate::web::app::PendingSubCtx;
 use crate::web::components::ThemeToggle;
 use crate::web::state::premium::use_premium_store;
 
@@ -72,6 +73,14 @@ struct Plan {
 
 const PLANS: &[Plan] = &[
     Plan {
+        id: "weekly",
+        label: "Mingguan",
+        price_label: "Rp 9.900",
+        per_month: "~Rp 42.900/bln",
+        badge: None,
+        savings: None,
+    },
+    Plan {
         id: "monthly",
         label: "Bulanan",
         price_label: "Rp 29.000",
@@ -87,57 +96,32 @@ const PLANS: &[Plan] = &[
         badge: Some("TERBAIK"),
         savings: Some("Hemat 43%"),
     },
+    Plan {
+        id: "lifetime",
+        label: "Seumur Hidup",
+        price_label: "Rp 499.000",
+        per_month: "Bayar sekali, akses selamanya",
+        badge: None,
+        savings: Some("Paling hemat"),
+    },
 ];
 
 // ── Komponen utama ────────────────────────────────────────────────────────────
 
 #[component]
 pub fn SubscriptionPage() -> impl IntoView {
-    let auth = use_context::<AuthResource>().expect("AuthResource missing");
-    let is_logged_in = move || auth.get().and_then(|r| r.ok()).flatten().is_some();
-
     let premium = use_premium_store();
 
+    let navigate = StoredValue::new(use_navigate());
+    let sub_ctx = use_context::<PendingSubCtx>().expect("PendingSubCtx missing");
+
     let selected = RwSignal::new("yearly");
-    let loading = RwSignal::new(false);
-    let error = RwSignal::new(Option::<String>::None);
+    let loading  = RwSignal::new(false);
+    let error    = RwSignal::new(Option::<String>::None);
 
     Effect::new(move |_| {
         premium.load();
     });
-
-    let on_subscribe = move |_| {
-        if !is_logged_in() {
-            #[cfg(target_arch = "wasm32")]
-            if let Some(win) = web_sys::window() {
-                let _ = win.location().replace("/login");
-            }
-            return;
-        }
-        loading.set(true);
-        error.set(None);
-        let plan = selected.get().to_string();
-        leptos::task::spawn_local(async move {
-            match create_subscription_order(plan).await {
-                Ok(order_id) => {
-                    let _ = &order_id;
-                    #[cfg(target_arch = "wasm32")]
-                    if let Some(win) = web_sys::window() {
-                        let path = if order_id.is_empty() {
-                            "/orders".to_string()
-                        } else {
-                            format!("/orders/{order_id}")
-                        };
-                        let _ = win.location().replace(&path);
-                    }
-                }
-                Err(e) => {
-                    error.set(Some(e.to_string()));
-                    loading.set(false);
-                }
-            }
-        });
-    };
 
     view! {
         <div class="page sub-page">
@@ -165,7 +149,9 @@ pub fn SubscriptionPage() -> impl IntoView {
 
             // ── Hero ──────────────────────────────────────────────────────────────
             <div class="sub-hero">
-                <div class="sub-hero-crown" aria-hidden="true">"👑"</div>
+                <div class="sub-hero-crown" aria-hidden="true">
+                    "👑"
+                </div>
                 <h1 class="sub-hero-title">
                     "Unlock " <span class="sub-hero-accent">"pengalaman penuh"</span> " concert."
                 </h1>
@@ -327,9 +313,7 @@ pub fn SubscriptionPage() -> impl IntoView {
                                     <div class="sub-testi-stars" aria-label="5 bintang">
                                         "★★★★★"
                                     </div>
-                                    <p class="sub-testi-quote">
-                                        {format!("\"{}\"", quote)}
-                                    </p>
+                                    <p class="sub-testi-quote">{format!("\"{}\"", quote)}</p>
                                     <footer class="sub-testi-user">{*user}</footer>
                                 </blockquote>
                             }
@@ -340,75 +324,88 @@ pub fn SubscriptionPage() -> impl IntoView {
 
             // ── CTA sticky ────────────────────────────────────────────────────────
             <div class="sub-cta-sticky">
-                {move || {
-                    if premium.is_premium.get() {
-                        view! {
-                            <div class="sub-cta-already">
-                                <span>"Kamu sudah Premium"</span>
-                                <A href="/explore" attr:class="sub-cta-explore-link">
-                                    "Explore Event →"
-                                </A>
-                            </div>
+                <Show when=move || premium.is_premium.get()>
+                    <div class="sub-cta-already">
+                        <span>"Kamu sudah Premium"</span>
+                        <A href="/explore" attr:class="sub-cta-explore-link">
+                            "Explore Event →"
+                        </A>
+                    </div>
+                </Show>
+                <Show when=move || !premium.is_premium.get()>
+                    <Show when=move || error.get().is_some()>
+                        <div class="sub-cta-error">
+                            <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2.5"
+                                aria-hidden="true"
+                            >
+                                <circle cx="12" cy="12" r="10" />
+                                <line x1="12" y1="8" x2="12" y2="12" />
+                                <line x1="12" y1="16" x2="12.01" y2="16" />
+                            </svg>
+                            {move || error.get().unwrap_or_default()}
+                        </div>
+                    </Show>
+                    <button
+                        class="sub-cta-btn"
+                        on:click=move |_| {
+                            loading.set(true);
+                            error.set(None);
+                            let plan = selected.get().to_string();
+                            let nav = navigate.get_value();
+                            leptos::task::spawn_local(async move {
+                                match create_subscription_order(plan).await {
+                                    Ok(pending) => {
+                                        sub_ctx.order.set(Some(pending));
+                                        loading.set(false);
+                                        nav("/subscription/checkout", Default::default());
+                                    }
+                                    Err(e) => {
+                                        error.set(Some(e.to_string()));
+                                        loading.set(false);
+                                    }
+                                }
+                            });
                         }
-                            .into_any()
-                    } else {
-                        let plan_label = move || {
-                            PLANS
-                                .iter()
-                                .find(|p| p.id == selected.get())
-                                .map(|p| format!("Lanjut Bayar — {}", p.price_label))
-                                .unwrap_or_else(|| "Lanjut Bayar".to_string())
-                        };
-                        view! {
-                            <div>
-                                {move || {
-                                    error
-                                        .get()
-                                        .map(|e| {
-                                            view! {
-                                                <div class="alert alert--error" style="margin-bottom:.75rem">
-                                                    {e}
-                                                </div>
-                                            }
-                                        })
-                                }}
-                                <button
-                                    class="sub-cta-btn"
-                                    on:click=on_subscribe
-                                    disabled=move || loading.get()
-                                    aria-label="Berlangganan sekarang"
-                                >
-                                    <svg
-                                        width="18"
-                                        height="18"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="2.5"
-                                        aria-hidden="true"
-                                    >
-                                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                                    </svg>
-                                    " "
-                                    {move || {
-                                        if loading.get() {
-                                            "Memproses...".to_string()
-                                        } else {
-                                            plan_label()
-                                        }
-                                    }}
-                                </button>
-                            </div>
-                        }
-                            .into_any()
-                    }
-                }}
+                        disabled=move || loading.get()
+                        aria-label="Berlangganan sekarang"
+                    >
+                        <svg
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2.5"
+                            aria-hidden="true"
+                        >
+                            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                        </svg>
+                        " "
+                        {move || {
+                            if loading.get() {
+                                "Memproses...".to_string()
+                            } else {
+                                PLANS
+                                    .iter()
+                                    .find(|p| p.id == selected.get())
+                                    .map(|p| format!("Lanjut Bayar — {}", p.price_label))
+                                    .unwrap_or_else(|| "Lanjut Bayar".to_string())
+                            }
+                        }}
+                    </button>
+                </Show>
                 <p class="sub-cta-terms">
-                    "Dengan berlangganan, kamu menyetujui "
-                    <a href="/terms" class="sub-cta-link">"Syarat & Ketentuan"</a>
-                    " dan "
-                    <a href="/privacy" class="sub-cta-link">"Kebijakan Privasi"</a>
-                    " PULSE."
+                    "Dengan berlangganan, kamu menyetujui " <a href="/terms" class="sub-cta-link">
+                        "Syarat & Ketentuan"
+                    </a> " dan " <a href="/privacy" class="sub-cta-link">
+                        "Kebijakan Privasi"
+                    </a> " PULSE."
                 </p>
             </div>
 

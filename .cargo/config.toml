@@ -1,34 +1,20 @@
 [env]
 MACOSX_DEPLOYMENT_TARGET = "15.0"
 
-# ── Optimasi build global ─────────────────────────────────────────────────────
-# jobs = jumlah crate yang dikompilasi paralel (default = jumlah logical CPU).
-# Di mesin 10-core ini sudah otomatis 10; nilai ini hanya eksplisit.
+# ── Build global ──────────────────────────────────────────────────────────────
 [build]
 jobs = 10
 
-# ── sccache: cache build global (opsional, instal dulu) ──────────────────────
-# sccache menyimpan artefak kompilasi; dependensi tidak dikompilasi ulang
-# bahkan setelah `cargo clean` atau berpindah branch.
-# Install: `brew install sccache`  atau  `cargo install sccache --locked`
-# Setelah terinstal, uncomment baris berikut:
-# rustc-wrapper = "sccache"
-
-# ── Linker cepat untuk macOS arm64 (opsional, instal dulu) ───────────────────
-# lld dari LLVM bisa memangkas waktu linking 30-50%.
-# Install: `brew install llvm`
-# Setelah terinstal, uncomment [target.aarch64-apple-darwin] di bawah:
-# [target.aarch64-apple-darwin]
-# rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/opt/llvm/bin/ld64.lld"]
-
 # ── WASM build flags ──────────────────────────────────────────────────────────
-# Scoped wasm-only flags: ukuran WASM ditekan habis-habisan tanpa menyentuh
-# binary native (musl) yang dibangun untuk performa, bukan ukuran.
-# panic=abort di sini AMAN karena hanya berlaku untuk wasm32 — binary native
-# (server) tetap pakai unwind default, jadi satu panic di request handler
-# tidak akan mematikan seluruh proses server.
+# panic=abort + opt-level=z hanya berlaku untuk wasm32; binary SSR tidak tersentuh.
 [target.wasm32-unknown-unknown]
 rustflags = ["-C", "opt-level=z", "-C", "panic=abort", "-C", "codegen-units=1"]
+
+# ── Linker cepat untuk macOS arm64 (opsional) ────────────────────────────────
+# lld memangkas linking 30-50%. Install: brew install llvm
+# Setelah instal, uncomment:
+# [target.aarch64-apple-darwin]
+# rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/opt/llvm/bin/ld64.lld"]
 
 [target.x86_64-unknown-linux-musl]
 rustflags = ["-C", "opt-level=3"]

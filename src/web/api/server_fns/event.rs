@@ -12,6 +12,19 @@ pub async fn get_events(
 ) -> Result<PaginatedEvents, ServerFnError> {
     use crate::models::events::EventListQuery;
     let state = app_state().await?;
+
+    let cache_key = format!(
+        "{}|{}|{}|{}|{}",
+        page.unwrap_or(1),
+        city.as_deref().unwrap_or(""),
+        category.as_deref().unwrap_or(""),
+        search.as_deref().unwrap_or(""),
+        per_page.unwrap_or(20),
+    );
+    if let Some(cached) = state.pub_cache.events.get(&cache_key).await {
+        return Ok(cached);
+    }
+
     let q = EventListQuery {
         page,
         per_page,
@@ -20,23 +33,22 @@ pub async fn get_events(
         search,
         status: Some("active".into()),
     };
-    let result = state
-        .event_svc
-        .list(q, None)
-        .await
-        .map_err(map_app_error)?;
-    return Ok(srv_paginated_events_to_web(result));
+    let result = state.event_svc.list(q, None).await.map_err(map_app_error)?;
+    let web = srv_paginated_events_to_web(result);
+    state.pub_cache.events.insert(cache_key, web.clone()).await;
+    Ok(web)
 }
 
 #[server(GetEventDetail, "/api-fn")]
 pub async fn get_event_detail(slug: String) -> Result<EventWithVariants, ServerFnError> {
     let state = app_state().await?;
-    let result = state
-        .event_svc
-        .get(&slug)
-        .await
-        .map_err(map_app_error)?;
-    return Ok(srv_event_with_variants_to_web(result));
+    if let Some(cached) = state.pub_cache.event_detail.get(&slug).await {
+        return Ok(cached);
+    }
+    let result = state.event_svc.get(&slug).await.map_err(map_app_error)?;
+    let web = srv_event_with_variants_to_web(result);
+    state.pub_cache.event_detail.insert(slug, web.clone()).await;
+    Ok(web)
 }
 
 #[server(GetCategories, "/api-fn")]

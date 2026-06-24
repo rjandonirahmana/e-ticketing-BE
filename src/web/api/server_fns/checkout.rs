@@ -41,9 +41,10 @@ pub async fn create_order_cart(
         items,
     };
 
+    let is_premium = state.story_svc.is_premium(&claims.user_id).await.unwrap_or(false);
     let order = state
         .order_svc
-        .create(&claims.user_id, req)
+        .create(&claims.user_id, req, is_premium)
         .await
         .map_err(map_app_error)?;
 

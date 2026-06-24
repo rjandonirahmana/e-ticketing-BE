@@ -1012,6 +1012,22 @@ button:focus-visible {
     .shim::after { animation: none; }
     .shim { animation: shimmer-breathe 1.8s ease-in-out infinite; }
 }
+/* ── Cart skeleton (shown during SSR / pre-hydration) ───────────────────────── */
+.cart-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 0 0 20px;
+}
+
+.cart-item-shim {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px;
+    border-bottom: 1px solid var(--border-soft);
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    EVENT DETAIL — New UI matching design
    ═══════════════════════════════════════════════════════════════════════════ */

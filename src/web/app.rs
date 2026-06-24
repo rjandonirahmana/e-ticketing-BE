@@ -27,7 +27,7 @@ use leptos_router::{
 };
 
 use crate::web::api::get_session;
-use crate::web::models::{CartItem, OrderRef, UserResponse};
+use crate::web::models::{CartItem, OrderRef, PendingSubOrder, UserResponse};
 use crate::web::pages::*;
 
 // ── Context types ─────────────────────────────────────────────────────────────
@@ -49,7 +49,10 @@ pub struct CartContext {
 impl CartContext {
     pub fn get_qty(&self, tier_id: &str) -> i32 {
         self.items.with(|v| {
-            v.iter().find(|i| i.tier_id == tier_id).map(|i| i.quantity).unwrap_or(0)
+            v.iter()
+                .find(|i| i.tier_id == tier_id)
+                .map(|i| i.quantity)
+                .unwrap_or(0)
         })
     }
 
@@ -102,6 +105,12 @@ impl CartContext {
 pub struct PendingOrderCtx {
     pub pending_order: RwSignal<Option<OrderRef>>,
     pub success_order: RwSignal<Option<SuccessSnapshot>>,
+}
+
+/// Context untuk subscription checkout — diisi subscription page, dibaca checkout page.
+#[derive(Clone, Copy)]
+pub struct PendingSubCtx {
+    pub order: RwSignal<Option<PendingSubOrder>>,
 }
 
 // ── Shell ─────────────────────────────────────────────────────────────────────
@@ -174,29 +183,29 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                 // Leptos menggantikan/update DOM. Script inline ini jauh lebih
                 // cepat dari polling JS — tidak ada delay tambahan.
                 <style inner_html=r#"
-                    #hydration-loader{
-                        position:fixed;top:0;left:0;right:0;height:2px;
-                        background:linear-gradient(90deg,#c8ff5e,#4f6bff);
-                        z-index:9999;animation:hloader 1.4s ease-in-out infinite;
-                        transform-origin:left;
-                    }
-                    @keyframes hloader{
-                        0%{transform:scaleX(0) translateX(0)}
-                        50%{transform:scaleX(0.7) translateX(40%)}
-                        100%{transform:scaleX(0) translateX(100%)}
-                    }
+                #hydration-loader{
+                position:fixed;top:0;left:0;right:0;height:2px;
+                background:linear-gradient(90deg,#c8ff5e,#4f6bff);
+                z-index:9999;animation:hloader 1.4s ease-in-out infinite;
+                transform-origin:left;
+                }
+                @keyframes hloader{
+                0%{transform:scaleX(0) translateX(0)}
+                50%{transform:scaleX(0.7) translateX(40%)}
+                100%{transform:scaleX(0) translateX(100%)}
+                }
                 "# />
                 <script inner_html=r#"
-                    (function(){
-                        var bar = document.createElement('div');
-                        bar.id = 'hydration-loader';
-                        document.head.appendChild(bar);
-                        // Leptos fires 'leptos:hydrated' atau kita poll sampai klik jalan
-                        var rm = function(){ var b=document.getElementById('hydration-loader'); if(b) b.remove(); };
-                        document.addEventListener('leptos:hydrated', rm, {once:true});
-                        // Fallback: hapus setelah 8 detik walau event tidak fire
-                        setTimeout(rm, 8000);
-                    })();
+                (function(){
+                var bar = document.createElement('div');
+                bar.id = 'hydration-loader';
+                document.head.appendChild(bar);
+                // Leptos fires 'leptos:hydrated' atau kita poll sampai klik jalan
+                var rm = function(){ var b=document.getElementById('hydration-loader'); if(b) b.remove(); };
+                document.addEventListener('leptos:hydrated', rm, {once:true});
+                // Fallback: hapus setelah 8 detik walau event tidak fire
+                setTimeout(rm, 8000);
+                })();
                 "# />
             </head>
             <body>
@@ -212,22 +221,35 @@ fn guard_skeleton() -> impl IntoView {
     view! {
         <div class="page">
             <div style="display:flex;align-items:center;justify-content:space-between;
-                        padding:14px 16px;border-bottom:1px solid var(--border-soft);
-                        background:var(--bg-page);position:sticky;top:0;z-index:40">
+             padding:14px 16px;border-bottom:1px solid var(--border-soft);
+             background:var(--bg-page);position:sticky;top:0;z-index:40">
                 <div class="shim" style="width:36px;height:36px;border-radius:50%"></div>
                 <div class="shim" style="width:72px;height:18px;border-radius:4px"></div>
                 <div class="shim" style="width:36px;height:36px;border-radius:50%"></div>
             </div>
             <div style="padding:20px 16px;display:flex;flex-direction:column;gap:16px;flex:1">
-                {(0..6u32).map(|_| view! {
-                    <div style="display:flex;align-items:center;gap:12px">
-                        <div class="shim" style="width:56px;height:56px;border-radius:12px;flex-shrink:0"></div>
-                        <div style="flex:1;display:flex;flex-direction:column;gap:8px">
-                            <div class="shim" style="height:15px;border-radius:6px;width:75%"></div>
-                            <div class="shim" style="height:12px;border-radius:6px;width:50%"></div>
-                        </div>
-                    </div>
-                }).collect_view()}
+                {(0..6u32)
+                    .map(|_| {
+                        view! {
+                            <div style="display:flex;align-items:center;gap:12px">
+                                <div
+                                    class="shim"
+                                    style="width:56px;height:56px;border-radius:12px;flex-shrink:0"
+                                ></div>
+                                <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+                                    <div
+                                        class="shim"
+                                        style="height:15px;border-radius:6px;width:75%"
+                                    ></div>
+                                    <div
+                                        class="shim"
+                                        style="height:12px;border-radius:6px;width:50%"
+                                    ></div>
+                                </div>
+                            </div>
+                        }
+                    })
+                    .collect_view()}
             </div>
         </div>
     }
@@ -240,10 +262,17 @@ fn AuthGuard(children: ChildrenFn) -> impl IntoView {
     let children = StoredValue::new(children);
     view! {
         <Suspense fallback=guard_skeleton>
-            {move || auth.get().map(|result| match result {
-                Ok(Some(_)) => children.with_value(|c| c()).into_any(),
-                _ => view! { <leptos_router::components::Redirect path="/login" /> }.into_any(),
-            })}
+            {move || {
+                auth
+                    .get()
+                    .map(|result| match result {
+                        Ok(Some(_)) => children.with_value(|c| c()).into_any(),
+                        _ => {
+                            view! { <leptos_router::components::Redirect path="/login" /> }
+                                .into_any()
+                        }
+                    })
+            }}
         </Suspense>
     }
 }
@@ -255,11 +284,23 @@ fn AdminGuard(children: ChildrenFn) -> impl IntoView {
     let children = StoredValue::new(children);
     view! {
         <Suspense fallback=guard_skeleton>
-            {move || auth.get().map(|result| match result {
-                Ok(Some(user)) if user.role == "admin" => children.with_value(|c| c()).into_any(),
-                Ok(Some(_)) => view! { <leptos_router::components::Redirect path="/explore" /> }.into_any(),
-                _ => view! { <leptos_router::components::Redirect path="/login" /> }.into_any(),
-            })}
+            {move || {
+                auth
+                    .get()
+                    .map(|result| match result {
+                        Ok(Some(user)) if user.role == "admin" => {
+                            children.with_value(|c| c()).into_any()
+                        }
+                        Ok(Some(_)) => {
+                            view! { <leptos_router::components::Redirect path="/explore" /> }
+                                .into_any()
+                        }
+                        _ => {
+                            view! { <leptos_router::components::Redirect path="/login" /> }
+                                .into_any()
+                        }
+                    })
+            }}
         </Suspense>
     }
 }
@@ -271,13 +312,23 @@ fn MerchantGuard(children: ChildrenFn) -> impl IntoView {
     let children = StoredValue::new(children);
     view! {
         <Suspense fallback=guard_skeleton>
-            {move || auth.get().map(|result| match result {
-                Ok(Some(user)) if user.role == "merchant" || user.role == "admin" => {
-                    children.with_value(|c| c()).into_any()
-                }
-                Ok(Some(_)) => view! { <leptos_router::components::Redirect path="/explore" /> }.into_any(),
-                _ => view! { <leptos_router::components::Redirect path="/login" /> }.into_any(),
-            })}
+            {move || {
+                auth
+                    .get()
+                    .map(|result| match result {
+                        Ok(Some(user)) if user.role == "merchant" || user.role == "admin" => {
+                            children.with_value(|c| c()).into_any()
+                        }
+                        Ok(Some(_)) => {
+                            view! { <leptos_router::components::Redirect path="/explore" /> }
+                                .into_any()
+                        }
+                        _ => {
+                            view! { <leptos_router::components::Redirect path="/login" /> }
+                                .into_any()
+                        }
+                    })
+            }}
         </Suspense>
     }
 }
@@ -330,13 +381,17 @@ fn provide_all_app_contexts() {
         #[cfg(target_arch = "wasm32")]
         {
             web_sys::window()
-                .and_then(|w| w.local_storage().ok()).flatten()
-                .and_then(|s| s.get_item("pulse_cart").ok()).flatten()
+                .and_then(|w| w.local_storage().ok())
+                .flatten()
+                .and_then(|s| s.get_item("pulse_cart").ok())
+                .flatten()
                 .and_then(|json| serde_json::from_str(&json).ok())
                 .unwrap_or_default()
         }
         #[cfg(not(target_arch = "wasm32"))]
-        { vec![] }
+        {
+            vec![]
+        }
     };
     let cart_signal = RwSignal::new(initial_cart);
     provide_context(CartContext { items: cart_signal });
@@ -347,7 +402,8 @@ fn provide_all_app_contexts() {
         let cb = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::StorageEvent)>::new(
             move |e: web_sys::StorageEvent| {
                 if e.key().as_deref() == Some("pulse_cart") {
-                    let new_items = e.new_value()
+                    let new_items = e
+                        .new_value()
                         .and_then(|json| serde_json::from_str::<Vec<CartItem>>(&json).ok())
                         .unwrap_or_default();
                     cart_signal.set(new_items);
@@ -363,6 +419,11 @@ fn provide_all_app_contexts() {
     provide_context(PendingOrderCtx {
         pending_order: RwSignal::new(None),
         success_order: RwSignal::new(None),
+    });
+
+    // ── PendingSubCtx (subscription → subscription/checkout) ──────────────
+    provide_context(PendingSubCtx {
+        order: RwSignal::new(None),
     });
 
     // ── Data stores (web) ───────────────────────────────────────────────────
@@ -397,133 +458,282 @@ pub fn App() -> impl IntoView {
         <Router>
             <ScrollToTop />
             <main>
-                <ErrorBoundary fallback=|_| view! {
-                    <div class="page" style="display:flex;flex-direction:column;align-items:center;
-                                            justify-content:center;gap:16px;min-height:60vh;
-                                            padding:40px 20px;text-align:center">
-                        <p style="color:var(--text-primary);font-size:18px;font-weight:700">
-                            "Terjadi kesalahan"
-                        </p>
-                        <p style="color:var(--text-muted);font-size:13px">
-                            "Coba muat ulang halaman."
-                        </p>
-                        <button onclick="window.location.reload()"
-                            style="padding:12px 24px;background:var(--accent-lime);border:none;
-                                   border-radius:12px;color:#0a0a14;font-weight:700;cursor:pointer">
-                            "Muat Ulang"
-                        </button>
-                    </div>
+                <ErrorBoundary fallback=|_| {
+                    view! {
+                        <div
+                            class="page"
+                            style="display:flex;flex-direction:column;align-items:center;
+                            justify-content:center;gap:16px;min-height:60vh;
+                            padding:40px 20px;text-align:center"
+                        >
+                            <p style="color:var(--text-primary);font-size:18px;font-weight:700">
+                                "Terjadi kesalahan"
+                            </p>
+                            <p style="color:var(--text-muted);font-size:13px">
+                                "Coba muat ulang halaman."
+                            </p>
+                            <button
+                                onclick="window.location.reload()"
+                                style="padding:12px 24px;background:var(--accent-lime);border:none;
+                                 border-radius:12px;color:#0a0a14;font-weight:700;cursor:pointer"
+                            >
+                                "Muat Ulang"
+                            </button>
+                        </div>
+                    }
                 }>
-                <FlatRoutes fallback=|| view! { <NotFoundPage /> }>
+                    <FlatRoutes fallback=|| view! { <NotFoundPage /> }>
 
-                    // ── PUBLIC — SSR full content (SEO) ──────────────────────
-                    <Route path=path!("/") view=ExplorePage />
-                    <Route path=path!("/explore") view=ExplorePage />
-                    <Route path=path!("/events/:slug") view=EventDetailPage />
-                    <Route path=path!("/pulse-landing") view=PulseLandingPage />
-                    <Route path=path!("/pulse-apply") view=PulseApplyPage />
+                        // ── PUBLIC — SSR full content (SEO) ──────────────────────
+                        <Route path=path!("/") view=ExplorePage />
+                        <Route path=path!("/explore") view=ExplorePage />
+                        <Route path=path!("/events/:slug") view=EventDetailPage />
+                        <Route path=path!("/pulse-landing") view=PulseLandingPage />
+                        <Route path=path!("/pulse-apply") view=PulseApplyPage />
 
-                    // ── AUTH ─────────────────────────────────────────────────
-                    <Route path=path!("/login") view=LoginPage />
-                    <Route path=path!("/register") view=RegisterPage />
-                    <Route path=path!("/verify-otp") view=VerifyOtpPage />
-                    <Route path=path!("/forgot-password") view=ForgotPasswordPage />
+                        // ── AUTH ─────────────────────────────────────────────────
+                        <Route path=path!("/login") view=LoginPage />
+                        <Route path=path!("/register") view=RegisterPage />
+                        <Route path=path!("/verify-otp") view=VerifyOtpPage />
+                        <Route path=path!("/forgot-password") view=ForgotPasswordPage />
 
-                    // ── PRIVATE — hanya user yang sudah login ─────────────────
-                    <Route
-                        path=path!("/tickets")
-                        view=|| view! { <AuthGuard><TicketsPage /></AuthGuard> }
-                    />
-                    <Route
-                        path=path!("/tickets/:id")
-                        view=|| view! { <AuthGuard><TicketDetailPage /></AuthGuard> }
-                    />
-                    <Route
-                        path=path!("/profile")
-                        view=|| view! { <AuthGuard><ProfilePage /></AuthGuard> }
-                    />
-                    <Route
-                        path=path!("/subscription")
-                        view=|| view! { <AuthGuard><SubscriptionPage /></AuthGuard> }
-                    />
-                    <Route
-                        path=path!("/story")
-                        view=|| view! { <AuthGuard><StoryPage /></AuthGuard> }
-                    />
-                    <Route
-                        path=path!("/cart")
-                        view=|| view! { <AuthGuard><CartPage /></AuthGuard> }
-                    />
-                    <Route
-                        path=path!("/checkout")
-                        view=|| view! { <AuthGuard><CheckoutPage /></AuthGuard> }
-                    />
-                    <Route
-                        path=path!("/order-created")
-                        view=|| view! { <AuthGuard><OrderCreatedPage /></AuthGuard> }
-                    />
-                    <Route
-                        path=path!("/payment-success")
-                        view=|| view! { <AuthGuard><PaymentSuccessPage /></AuthGuard> }
-                    />
-                    <Route
-                        path=path!("/orders")
-                        view=|| view! { <AuthGuard><OrdersPage /></AuthGuard> }
-                    />
-                    <Route
-                        path=path!("/orders/:id")
-                        view=|| view! { <AuthGuard><OrderDetailPage /></AuthGuard> }
-                    />
-                    <Route
-                        path=path!("/orders/:id/tickets")
-                        view=|| view! { <AuthGuard><OrderTicketsPage /></AuthGuard> }
-                    />
-                    <Route
-                        path=path!("/notifications")
-                        view=|| view! { <AuthGuard><NotificationsPage /></AuthGuard> }
-                    />
-                    <Route
-                        path=path!("/notifications/:id")
-                        view=|| view! { <AuthGuard><NotificationDetailPage /></AuthGuard> }
-                    />
-                    <Route
-                        path=path!("/pulse")
-                        view=|| view! { <AuthGuard><MessagesPage /></AuthGuard> }
-                    />
-                    <Route
-                        path=path!("/pulse/:id")
-                        view=|| view! { <AuthGuard><ChatRoomPage /></AuthGuard> }
-                    />
-                    <Route
-                        path=path!("/events/:slug/location")
-                        view=|| view! { <AuthGuard><VenueLocationPage /></AuthGuard> }
-                    />
-                    <Route
-                        path=path!("/scan")
-                        view=|| view! { <AuthGuard><ScanPage /></AuthGuard> }
-                    />
+                        // ── PRIVATE — hanya user yang sudah login ─────────────────
+                        <Route
+                            path=path!("/tickets")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <TicketsPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/tickets/:id")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <TicketDetailPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/profile")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <ProfilePage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/subscription")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <SubscriptionPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/subscription/checkout")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <SubscriptionCheckoutPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/story")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <StoryPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/cart")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <CartPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/checkout")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <CheckoutPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/order-created")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <OrderCreatedPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/payment-success")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <PaymentSuccessPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/orders")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <OrdersPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/orders/:id")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <OrderDetailPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/orders/:id/tickets")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <OrderTicketsPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/notifications")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <NotificationsPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/notifications/:id")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <NotificationDetailPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/pulse")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <MessagesPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/pulse/:id")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <ChatRoomPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/events/:slug/location")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <VenueLocationPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/scan")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <ScanPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
 
-                    // ── MERCHANT — hanya merchant & admin ─────────────────────
-                    <Route
-                        path=path!("/merchant")
-                        view=|| view! { <MerchantGuard><MerchantPage /></MerchantGuard> }
-                    />
-                    <Route
-                        path=path!("/merchant/events/create")
-                        view=|| view! { <MerchantGuard><MerchantCreateEventPage /></MerchantGuard> }
-                    />
-                    <Route
-                        path=path!("/merchant/events/:slug/edit")
-                        view=|| view! { <MerchantGuard><MerchantEditEventPage /></MerchantGuard> }
-                    />
+                        // ── MERCHANT — hanya merchant & admin ─────────────────────
+                        <Route
+                            path=path!("/merchant")
+                            view=|| {
+                                view! {
+                                    <MerchantGuard>
+                                        <MerchantPage />
+                                    </MerchantGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/merchant/events/create")
+                            view=|| {
+                                view! {
+                                    <MerchantGuard>
+                                        <MerchantCreateEventPage />
+                                    </MerchantGuard>
+                                }
+                            }
+                        />
+                        <Route
+                            path=path!("/merchant/events/:slug/edit")
+                            view=|| {
+                                view! {
+                                    <MerchantGuard>
+                                        <MerchantEditEventPage />
+                                    </MerchantGuard>
+                                }
+                            }
+                        />
 
-                    // ── ADMIN — hanya admin ───────────────────────────────────
-                    <Route
-                        path=path!("/admin")
-                        view=|| view! { <AdminGuard><AdminPage /></AdminGuard> }
-                    />
+                        // ── ADMIN — hanya admin ───────────────────────────────────
+                        <Route
+                            path=path!("/admin")
+                            view=|| {
+                                view! {
+                                    <AdminGuard>
+                                        <AdminPage />
+                                    </AdminGuard>
+                                }
+                            }
+                        />
 
-                </FlatRoutes>
+                    </FlatRoutes>
                 </ErrorBoundary>
             </main>
         </Router>

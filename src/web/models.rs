@@ -289,6 +289,16 @@ pub struct ValidatePromoResponse {
     pub message: String,
 }
 
+// ── Subscription ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingSubOrder {
+    pub order_id: String,
+    pub order_code: String,
+    pub plan: String,
+    pub amount_idr: i64,
+}
+
 // ── Scan ──────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

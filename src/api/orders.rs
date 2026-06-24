@@ -94,7 +94,8 @@ async fn create_order(
     let _ = (body.payment_method, body.promo_code); // reserved for future use
 
     let req = CreateOrderRequest { idempotency_key: None, items };
-    let order = state.order_svc.create(&claims.user_id, req).await.map_err(app_err)?;
+    let is_premium = state.story_svc.is_premium(&claims.user_id).await.unwrap_or(false);
+    let order = state.order_svc.create(&claims.user_id, req, is_premium).await.map_err(app_err)?;
 
     Ok(Json(serde_json::json!({
         "order": {

@@ -23,7 +23,9 @@
 
 .menu-item--premium         { background: rgba(200,255,94,0.06) !important;
                                border-color: rgba(200,255,94,0.18) !important; }
-.menu-item-icon--premium    { background: rgba(200,255,94,0.12) !important; font-size:16px; }
+.menu-item--premium .menu-item-label { color: #c8ff5e; }
+.menu-item-icon--premium    { background: rgba(200,255,94,0.12) !important;
+                               color: #c8ff5e; font-size:16px; }
 .menu-badge-active          { font-size:9px; font-weight:800; padding:2px 7px;
                                border-radius:100px; background:#c8ff5e; color:#0a0a14; }
 .menu-badge-new             { font-size:9px; font-weight:800; padding:2px 7px;

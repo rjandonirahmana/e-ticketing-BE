@@ -50,9 +50,10 @@ pub async fn create_order(variant_id: String, quantity: i32) -> Result<String, S
             quantity,
         }],
     };
+    let is_premium = state.story_svc.is_premium(&claims.user_id).await.unwrap_or(false);
     let order = state
         .order_svc
-        .create(&claims.user_id, req)
+        .create(&claims.user_id, req, is_premium)
         .await
         .map_err(map_app_error)?;
     return Ok(order.id);
@@ -74,9 +75,10 @@ pub async fn create_order_multi(
             quantity,
         }],
     };
+    let is_premium = state.story_svc.is_premium(&claims.user_id).await.unwrap_or(false);
     let order = state
         .order_svc
-        .create(&claims.user_id, req)
+        .create(&claims.user_id, req, is_premium)
         .await
         .map_err(map_app_error)?;
     return Ok(order.id);

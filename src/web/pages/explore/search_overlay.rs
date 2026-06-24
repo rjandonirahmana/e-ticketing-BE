@@ -1,5 +1,4 @@
 use leptos::prelude::*;
-use leptos_router::components::A;
 
 use crate::web::components::{EmptyState, EventCardShimmer};
 

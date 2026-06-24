@@ -47,6 +47,7 @@ pub struct VerifyOtpReq {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ForgotPasswordReq {
+    #[allow(dead_code)]
     pub email: String,
 }
 

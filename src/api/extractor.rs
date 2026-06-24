@@ -44,6 +44,7 @@ impl FromRequestParts<Arc<AppState>> for AuthUser {
 
 /// Verifikasi internal JWT dari header `X-App-Token`.
 /// Dipakai untuk endpoint yang dipanggil dari WASM (sudah punya internal secret).
+#[allow(dead_code)]
 pub struct InternalAuth;
 
 impl FromRequestParts<Arc<AppState>> for InternalAuth {
@@ -51,7 +52,7 @@ impl FromRequestParts<Arc<AppState>> for InternalAuth {
 
     async fn from_request_parts(
         parts: &mut Parts,
-        state: &Arc<AppState>,
+        _state: &Arc<AppState>,
     ) -> Result<Self, Self::Rejection> {
         let _token = parts
             .headers

@@ -46,6 +46,10 @@
 //!     DELETE /api/stories/:id
 //!     POST   /api/stories       (multipart — via /upload/story alias)
 //!
+//!   Subscriptions (private):
+//!     POST /api/subscriptions/order   — buat subscription order (weekly/monthly/yearly/lifetime)
+//!     GET  /api/subscriptions/status  — cek status premium user
+//!
 //!   Chat & WebSocket (handled in ws/routes.rs):
 //!     GET  /api/chat/rooms
 //!     GET  /api/chat/events/:event_id/room
@@ -67,6 +71,7 @@ mod notifications;
 mod merchant;
 mod admin;
 mod stories;
+mod subscriptions;
 
 pub fn rest_router() -> Router<Arc<AppState>> {
     Router::new()
@@ -79,6 +84,7 @@ pub fn rest_router() -> Router<Arc<AppState>> {
                 .merge(notifications::router())
                 .merge(merchant::router())
                 .merge(admin::router())
-                .merge(stories::router()),
+                .merge(stories::router())
+                .merge(subscriptions::router()),
         )
 }
