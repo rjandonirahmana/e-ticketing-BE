@@ -58,18 +58,27 @@ static STYLES: &[(&str, &str)] = css_table![
     "message_stories.css",
 ];
 
+/// Bundled stylesheet — semua CSS di-embed ke binary dan disajikan sebagai
+/// satu file `/styles/app.css` dengan cache 24 jam. Browser hanya download
+/// sekali; kunjungan berikutnya menggunakan cache → HTML jauh lebih kecil.
+static APP_BUNDLE: &str = include_str!("../../styles/app.bundle.css");
+
+async fn serve_app_bundle() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE,  HeaderValue::from_static("text/css; charset=utf-8")),
+            (header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=86400, stale-while-revalidate=86400")),
+        ],
+        APP_BUNDLE,
+    ).into_response()
+}
+
 async fn serve_css(Path(file): Path<String>) -> Response {
     match STYLES.iter().find(|(name, _)| *name == file) {
         Some((_, body)) => (
             [
-                (
-                    header::CONTENT_TYPE,
-                    HeaderValue::from_static("text/css; charset=utf-8"),
-                ),
-                (
-                    header::CACHE_CONTROL,
-                    HeaderValue::from_static("public, max-age=3600"),
-                ),
+                (header::CONTENT_TYPE,  HeaderValue::from_static("text/css; charset=utf-8")),
+                (header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=86400, stale-while-revalidate=86400")),
             ],
             *body,
         )
@@ -78,10 +87,12 @@ async fn serve_css(Path(file): Path<String>) -> Response {
     }
 }
 
-/// Router untuk `/styles/{file}` — gabungkan ke router utama.
+/// Router untuk `/styles/*` — gabungkan ke router utama.
 pub fn router<S>() -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
 {
-    Router::new().route("/styles/{file}", get(serve_css))
+    Router::new()
+        .route("/styles/app.css", get(serve_app_bundle))
+        .route("/styles/{file}", get(serve_css))
 }

@@ -22,11 +22,47 @@ use crate::service::{
 use crate::utils::jwt::JwtService;
 use crate::ws::manager::WsManager;
 use deadpool_postgres::Pool;
+use moka::future::Cache;
 use redis::aio::ConnectionManager;
 use reqwest::Client as HttpClient;
 
 pub type DefaultBannerSvc = BannerService<PgBannerRepository>;
 pub type DefaultStorySvc = StoryService<PgStoryRepository>;
+
+/// In-process TTL cache untuk data publik yang jarang berubah.
+/// Mencegah DB hit berulang per SSR request pada data statis.
+pub struct PublicCache {
+    pub banners: Cache<(), Vec<crate::models::banners::Banner>>,
+    pub categories: Cache<(), Vec<String>>,
+    /// Key: canonical query string (page|city|category|search|per_page).
+    /// 30 s TTL — cukup untuk meredam burst traffic tanpa data stale terasa.
+    pub events: Cache<String, crate::web::models::PaginatedEvents>,
+    /// Key: event slug. 60 s TTL — event detail jarang berubah.
+    pub event_detail: Cache<String, crate::web::models::EventWithVariants>,
+}
+
+impl PublicCache {
+    pub fn new() -> Self {
+        Self {
+            banners: Cache::builder()
+                .max_capacity(1)
+                .time_to_live(Duration::from_secs(60))
+                .build(),
+            categories: Cache::builder()
+                .max_capacity(1)
+                .time_to_live(Duration::from_secs(300))
+                .build(),
+            events: Cache::builder()
+                .max_capacity(256)
+                .time_to_live(Duration::from_secs(30))
+                .build(),
+            event_detail: Cache::builder()
+                .max_capacity(512)
+                .time_to_live(Duration::from_secs(60))
+                .build(),
+        }
+    }
+}
 
 pub struct AppState {
     #[allow(dead_code)]
@@ -46,6 +82,8 @@ pub struct AppState {
     pub notification_store_svc: Arc<NotificationStoreService>,
     /// Service untuk story & premium subscription.
     pub story_svc: Arc<DefaultStorySvc>,
+    /// In-process cache untuk data publik (banners, categories).
+    pub pub_cache: Arc<PublicCache>,
 }
 
 impl AppState {
@@ -139,7 +177,8 @@ impl AppState {
             storage,
             banner_svc,
             notification_store_svc,
-            story_svc, // ← NEW
+            story_svc,
+            pub_cache: Arc::new(PublicCache::new()),
         }
     }
 }

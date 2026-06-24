@@ -59,7 +59,23 @@ pub struct WsAppState {
 
 #[derive(Deserialize)]
 pub struct WsQuery {
-    pub token: String,
+    pub token: Option<String>,
+}
+
+/// Extract `pulse_token` dari Cookie header (browser kirim otomatis pada WS upgrade
+/// same-origin — tidak perlu JS membaca/mengirim token secara eksplisit).
+fn token_from_cookie_header(headers: &axum::http::HeaderMap) -> Option<String> {
+    headers
+        .get(axum::http::header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| {
+            s.split(';').map(|p| p.trim()).find_map(|part| {
+                part.strip_prefix("pulse_token=")
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                    .map(String::from)
+            })
+        })
 }
 
 // ── HTTP upgrade handler ──────────────────────────────────────────────────────
@@ -67,12 +83,15 @@ pub struct WsQuery {
 pub async fn ws_chat(
     ws: WebSocketUpgrade,
     Query(q): Query<WsQuery>,
+    headers: axum::http::HeaderMap,
     State(state): State<Arc<WsAppState>>,
 ) -> Response {
-    let claims = match state.jwt.verify(&q.token) {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::warn!(error=%e, "WS rejected: invalid JWT");
+    // Accept token via query param (explicit) atau Cookie header (otomatis same-origin).
+    let raw_token = q.token.or_else(|| token_from_cookie_header(&headers));
+    let claims = match raw_token.as_deref().map(|t| state.jwt.verify(t)) {
+        Some(Ok(c)) => c,
+        _ => {
+            tracing::warn!("WS rejected: no valid token in query param or cookie");
             return (StatusCode::UNAUTHORIZED, "Invalid token").into_response();
         }
     };
@@ -166,9 +185,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<WsAppState>, claims: Claims
                 },
 
                 hb = hb_rx.recv() => match hb {
-                    Some(json) => {
-                        // Sama: Arc<str> → &str langsung
-                        if sink.send(Message::Text((*json).into())).await.is_err() {
+                    Some(_) => {
+                        // Native WS PING frame — browser auto-responds with PONG.
+                        // read loop catches Message::Pong(_) → pong_tx.try_send(())
+                        if sink.send(Message::Ping(bytes::Bytes::new())).await.is_err() {
                             break;
                         }
                     }

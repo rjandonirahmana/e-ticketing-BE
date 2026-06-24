@@ -4,17 +4,16 @@ mod read;
 mod variants;
 mod write;
 
-use helpers::{escape_like, is_unique_violation};
+use helpers::escape_like;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use deadpool_postgres::Pool;
 use tokio_postgres::Row;
 
-use super::db::{exec_drop, exec_first, exec_one, exec_rows, get_conn};
 use crate::models::event_variants::{cmp_by_effective_price, EventVariant, EventVariantJson};
 use crate::models::events::{CreateEventRequest, CreateVariantInline, Event, UpdateEventRequest};
-use crate::utils::ulid::{bin_to_ulid, id_to_vec, new_ulid, ulid_to_vec};
+use crate::utils::ulid::{bin_to_ulid, id_to_vec};
 
 // ── Filter ────────────────────────────────────────────────────────────────────
 

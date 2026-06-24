@@ -33,11 +33,7 @@ pub fn ProfilePage() -> impl IntoView {
         move || is_logged_in(),
         |logged_in| async move {
             if logged_in {
-                get_premium_status()
-                    .await
-                    .ok()
-                    .and_then(|v| v.get("is_premium").and_then(|b| b.as_bool()))
-                    .unwrap_or(false)
+                get_premium_status().await.unwrap_or(false)
             } else {
                 false
             }
@@ -106,21 +102,21 @@ pub fn ProfilePage() -> impl IntoView {
             <Suspense fallback=|| view! {
                 <div class="avatar-section">
                     <div class="avatar-ring">
-                        <div class="avatar-circle" style="background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
+                        <div class="avatar-circle shim" style="border-radius:50%"></div>
                     </div>
-                    <div style="width:140px;height:20px;border-radius:4px;margin:12px auto 6px;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
-                    <div style="width:180px;height:14px;border-radius:4px;margin:0 auto 8px;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
-                    <div style="width:90px;height:22px;border-radius:99px;margin:0 auto;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
+                    <div class="shim" style="width:140px;height:20px;margin:12px auto 6px"></div>
+                    <div class="shim" style="width:180px;height:14px;margin:0 auto 8px"></div>
+                    <div class="shim" style="width:90px;height:22px;border-radius:99px;margin:0 auto"></div>
                 </div>
                 <div class="stats-row stats-row--mobile-only">
-                    <div style="flex:1;height:64px;border-radius:12px;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
-                    <div style="flex:1;height:64px;border-radius:12px;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
+                    <div class="shim" style="flex:1;height:64px;border-radius:12px"></div>
+                    <div class="shim" style="flex:1;height:64px;border-radius:12px"></div>
                 </div>
                 <div class="menu-section">
-                    <div style="width:120px;height:12px;border-radius:4px;margin-bottom:10px;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
+                    <div class="shim" style="width:120px;height:12px;margin-bottom:10px"></div>
                     <div class="menu-list">
                         {(0..5).map(|_| view! {
-                            <div style="height:52px;border-radius:12px;margin-bottom:6px;background:var(--shimmer-base,#1e1e2e);animation:shimmer-wave 1.4s ease-in-out infinite"></div>
+                            <div class="shim" style="height:52px;border-radius:12px;margin-bottom:6px"></div>
                         }).collect_view()}
                     </div>
                 </div>
@@ -256,6 +252,33 @@ pub fn ProfilePage() -> impl IntoView {
                                                         </svg>
                                                     </div>
                                                     <span class="menu-item-label">"Edit Profile"</span>
+                                                    <svg
+                                                        width="16"
+                                                        height="16"
+                                                        viewBox="0 0 24 24"
+                                                        fill="none"
+                                                        stroke="currentColor"
+                                                        stroke-width="2"
+                                                        stroke-linecap="round"
+                                                    >
+                                                        <polyline points="9 18 15 12 9 6" />
+                                                    </svg>
+                                                </A>
+                                                <A href="/subscription" attr:class="menu-item menu-item--premium">
+                                                    <div class="menu-item-icon menu-item-icon--premium">
+                                                        <svg
+                                                            width="18"
+                                                            height="18"
+                                                            viewBox="0 0 24 24"
+                                                            fill="none"
+                                                            stroke="currentColor"
+                                                            stroke-width="1.8"
+                                                            stroke-linecap="round"
+                                                        >
+                                                            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                                                        </svg>
+                                                    </div>
+                                                    <span class="menu-item-label">"PULSE Premium"</span>
                                                     <svg
                                                         width="16"
                                                         height="16"

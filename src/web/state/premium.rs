@@ -1,18 +1,11 @@
 //! state/premium.rs — Global state Premium Subscription.
 //!
-//! Status di-fetch via server function `get_premium_status` (mengembalikan
-//! JSON; field `is_premium` di-parse di sini).
+//! Status di-fetch via server function `get_premium_status` (mengembalikan bool langsung).
 
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::web::api::get_premium_status;
-
-fn parse_is_premium(v: &serde_json::Value) -> bool {
-    // Toleran terhadap beberapa bentuk: { is_premium } | { isPremium } | { data: { ... } }
-    let candidates = [&v["is_premium"], &v["isPremium"], &v["data"]["is_premium"], &v["data"]["isPremium"]];
-    candidates.iter().any(|c| c.as_bool().unwrap_or(false))
-}
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
@@ -35,7 +28,7 @@ impl PremiumCtx {
         spawn_local(async move {
             ctx.loading.set(true);
             if let Ok(v) = get_premium_status().await {
-                ctx.is_premium.set(parse_is_premium(&v));
+                ctx.is_premium.set(v);
                 ctx.loaded.set(true);
             }
             ctx.loading.set(false);
@@ -50,7 +43,7 @@ impl PremiumCtx {
         spawn_local(async move {
             ctx.loading.set(true);
             if let Ok(v) = get_premium_status().await {
-                ctx.is_premium.set(parse_is_premium(&v));
+                ctx.is_premium.set(v);
             }
             ctx.loading.set(false);
         });

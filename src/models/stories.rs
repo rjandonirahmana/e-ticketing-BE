@@ -73,3 +73,11 @@ pub struct UserSubscription {
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
 }
+
+/// Returned by activate_premium — includes both subscription record and billing order code.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubscriptionActivation {
+    pub subscription: UserSubscription,
+    pub order_code: String,
+}
+

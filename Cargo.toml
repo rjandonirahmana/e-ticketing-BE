@@ -143,7 +143,7 @@ prost = "0.14.3"
 # Web framework
 axum = { version = "0.8.9", features = ["multipart", "ws", "macros"] }
 tower = "0.5.3"
-tower-http = { version = "0.6.10", features = ["cors", "trace", "fs"] }
+tower-http = { version = "0.6.10", features = ["cors", "trace", "fs", "compression-gzip", "compression-br"] }
 
 # Database
 tokio-postgres = { version = "0.7.9", features = [
@@ -181,6 +181,7 @@ async-trait = "0.1"
 bytes = "1"
 ahash = "0.8.12"
 dashmap = "6.1.0"
+moka = { version = "0.12", features = ["future"] }
 ulid = "1"
 chrono-tz = "0.10"
 rust_decimal = { version = "1.42.0", features = ["db-tokio-postgres"] }
@@ -204,6 +205,8 @@ anyhow = "1"
 # Kompilasi ulang dependencies-nya sekali saja; subsequent build tetap inkremental.
 [profile.dev]
 opt-level = 1
+debug = 1          # Kurangi debug symbol (default 2→1): linking 20-30% lebih cepat
+incremental = true # Kompilasi inkremental: hanya rekompilasi bagian yang berubah
 
 [profile.dev.package."*"]
 opt-level = 2

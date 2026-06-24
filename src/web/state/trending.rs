@@ -69,7 +69,8 @@ pub fn provide_trending_store() {
         items: RwSignal::new(Vec::new()),
         loading: RwSignal::new(false),
     };
-    ctx.load();
+    // Tidak auto-load: tidak ada komponen yang memanggil use_trending_store()
+    // — menghindari get_events() yang sia-sia di setiap halaman.
     provide_context(ctx);
 }
 

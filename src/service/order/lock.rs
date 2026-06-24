@@ -30,10 +30,14 @@ impl VariantLockGuard {
     pub async fn acquire(
         redis: redis::aio::ConnectionManager,
         variant_ids: &[&str],
+        is_premium: bool,
     ) -> Result<Self, AppError> {
         let mut sorted: Vec<&str> = variant_ids.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
+
+        let retries = if is_premium { 6u8 } else { LOCK_RETRIES };
+        let delay_ms = if is_premium { 0u64 } else { LOCK_DELAY_MS };
 
         let lock_val: Arc<str> = Arc::from(new_ulid().as_str());
         let keys: Vec<String> = sorted
@@ -46,7 +50,7 @@ impl VariantLockGuard {
 
         for key in &keys {
             let mut ok = false;
-            for attempt in 0..=LOCK_RETRIES {
+            for attempt in 0..=retries {
                 let res: redis::RedisResult<Option<String>> = redis::cmd("SET")
                     .arg(key)
                     .arg(lock_val.as_ref())
@@ -61,8 +65,10 @@ impl VariantLockGuard {
                         ok = true;
                         break;
                     }
-                    Ok(None) if attempt < LOCK_RETRIES => {
-                        sleep(Duration::from_millis(LOCK_DELAY_MS)).await;
+                    Ok(None) if attempt < retries => {
+                        if delay_ms > 0 {
+                            sleep(Duration::from_millis(delay_ms)).await;
+                        }
                     }
                     Ok(None) => {}
                     Err(e) => {

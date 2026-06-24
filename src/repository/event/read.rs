@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use crate::repository::db::{exec_first, exec_one, exec_rows};
 use super::helpers::{EVENT_COLS, FIND_EVENT_BY_ID, FIND_EVENT_WITH_VARIANTS_BY_ID,

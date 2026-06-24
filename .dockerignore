@@ -1,0 +1,25 @@
+# Build artifacts — 23GB+, never needed by Docker build context
+target/
+
+# Local env files — never bake secrets into the image
+.env
+.env.*
+*.env
+
+# Dev tooling
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# macOS clutter
+.DS_Store
+**/.DS_Store
+
+# Editor and temp files
+*.swp
+*.swo
+*~
+
+# Node / frontend leftovers (if any)
+node_modules/

@@ -21,8 +21,11 @@ fn store_from_page() {}
 
 #[component]
 pub fn StoryBar() -> impl IntoView {
-    // use_stories_store() → StoriesCtx
     let ctx = use_stories_store();
+
+    // Trigger load when this component first mounts (client-side only).
+    // Effect does not run during SSR; ctx.load() has is_server() + loading guards.
+    Effect::new(move |_| { ctx.load(); });
 
     view! {
         <div class="story-bar">

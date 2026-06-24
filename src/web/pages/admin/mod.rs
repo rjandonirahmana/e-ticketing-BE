@@ -14,7 +14,7 @@ use leptos_router::components::A;
 use crate::web::api::{get_admin_events, get_admin_stats, get_banners};
 use crate::web::app::AuthResource;
 use crate::web::components::{BottomNav, GridBackground, MerchantRowShimmer, ThemeToggle};
-use crate::web::models::{AdminStats, Banner, Event, PaginatedEvents};
+use crate::web::models::{Event, PaginatedEvents};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum AdminTab {

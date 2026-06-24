@@ -9,7 +9,8 @@ use serde_json::Value as JsonValue;
 use tokio_postgres::Row;
 
 use super::db::get_conn;
-use crate::models::stories::{Story, StoryGroupResponse, StoryItemResponse, UserSubscription};
+use crate::models::stories::{Story, StoryGroupResponse, StoryItemResponse, SubscriptionActivation, UserSubscription};
+use crate::web::models::PendingSubOrder;
 use crate::utils::ulid::{bin_to_ulid, bin_to_ulid_opt, id_to_vec, new_ulid, ulid_to_vec};
 
 // ── Row mappers ───────────────────────────────────────────────────────────────
@@ -90,12 +91,29 @@ pub trait StoryRepository: Send + Sync {
     /// Ambil satu story by id.
     async fn find_by_id(&self, story_id: &str) -> Result<Option<Story>>;
 
-    /// Aktifkan premium subscription untuk user.
+    /// Aktifkan premium subscription untuk user — buat subscription_order + user_subscription.
     async fn activate_premium(
         &self,
         user_id: &str,
+        plan: &str,
         days: i64,
-    ) -> Result<UserSubscription>;
+    ) -> Result<SubscriptionActivation>;
+
+    /// Buat subscription_order dengan status 'pending' — belum aktifkan premium.
+    async fn create_pending_subscription_order(
+        &self,
+        user_id: &str,
+        plan: &str,
+    ) -> Result<PendingSubOrder>;
+
+    /// Konfirmasi pembayaran: tandai order sebagai 'paid' lalu aktifkan premium.
+    async fn confirm_subscription_order(
+        &self,
+        order_id: &str,
+        user_id: &str,
+        plan: &str,
+        days: i64,
+    ) -> Result<SubscriptionActivation>;
 }
 
 // ── PostgreSQL implementation ─────────────────────────────────────────────────
@@ -356,16 +374,38 @@ impl StoryRepository for PgStoryRepository {
 
     // ── Activate premium ──────────────────────────────────────────────────────
 
-    async fn activate_premium(&self, user_id: &str, days: i64) -> Result<UserSubscription> {
-        let id_bytes = {
-            let ulid = new_ulid();
-            ulid_to_vec(&ulid)?
-        };
+    async fn activate_premium(&self, user_id: &str, plan: &str, days: i64) -> Result<SubscriptionActivation> {
         let uid = id_to_vec(user_id)?;
+
+        let order_ulid = new_ulid();
+        let order_code = format!("SUB-{}", &order_ulid.to_uppercase()[..8]);
+        let order_id_bytes = ulid_to_vec(&order_ulid)?;
+
+        let amount: rust_decimal::Decimal = match plan {
+            "weekly"   => rust_decimal_macros::dec!(9900.00),
+            "yearly"   => rust_decimal_macros::dec!(199000.00),
+            "lifetime" => rust_decimal_macros::dec!(499000.00),
+            _          => rust_decimal_macros::dec!(29000.00),
+        };
+
+        let sub_id_bytes = ulid_to_vec(&new_ulid())?;
 
         let conn = get_conn(&self.pool).await?;
 
-        // Nonaktifkan subscription lama dulu (opsional: bisa di-extend)
+        // 1. Buat subscription_order (billing record)
+        conn.execute(
+            r#"
+            INSERT INTO subscription_orders
+                (id, user_id, order_code, plan, amount, status, paid_at)
+            VALUES
+                ($1, $2, $3, $4, $5, 'paid', NOW())
+            "#,
+            &[&order_id_bytes, &uid, &order_code, &plan, &amount],
+        )
+        .await
+        .context("insert subscription_order")?;
+
+        // 2. Nonaktifkan subscription lama
         conn.execute(
             "UPDATE user_subscriptions SET is_active = FALSE WHERE user_id = $1 AND is_active = TRUE",
             &[&uid],
@@ -373,20 +413,129 @@ impl StoryRepository for PgStoryRepository {
         .await
         .context("deactivate old subscription")?;
 
-        let row = conn
-            .query_one(
+        // 3. Buat user_subscription baru, link ke subscription_order
+        let row = if plan == "lifetime" {
+            conn.query_one(
                 r#"
                 INSERT INTO user_subscriptions
-                    (id, user_id, plan, expires_at)
+                    (id, user_id, subscription_order_id, plan, expires_at)
                 VALUES
-                    ($1, $2, 'premium', NOW() + ($3::BIGINT * INTERVAL '1 day'))
+                    ($1, $2, $3, $4, '9999-12-31 23:59:59+00'::timestamptz)
                 RETURNING id, user_id, plan, started_at, expires_at, is_active, created_at
                 "#,
-                &[&id_bytes, &uid, &days],
+                &[&sub_id_bytes, &uid, &order_id_bytes, &plan],
             )
             .await
-            .context("activate premium")?;
+            .context("activate premium lifetime")?
+        } else {
+            conn.query_one(
+                r#"
+                INSERT INTO user_subscriptions
+                    (id, user_id, subscription_order_id, plan, expires_at)
+                VALUES
+                    ($1, $2, $3, $4, NOW() + ($5::BIGINT * INTERVAL '1 day'))
+                RETURNING id, user_id, plan, started_at, expires_at, is_active, created_at
+                "#,
+                &[&sub_id_bytes, &uid, &order_id_bytes, &plan, &days],
+            )
+            .await
+            .context("activate premium")?
+        };
 
-        row_to_subscription(&row)
+        let subscription = row_to_subscription(&row)?;
+        Ok(SubscriptionActivation { subscription, order_code })
+    }
+
+    async fn create_pending_subscription_order(&self, user_id: &str, plan: &str) -> Result<PendingSubOrder> {
+        let uid = id_to_vec(user_id)?;
+        let order_ulid = new_ulid();
+        let order_code = format!("SUB-{}", &order_ulid.to_uppercase()[..8]);
+        let order_id_bytes = ulid_to_vec(&order_ulid)?;
+
+        let amount: rust_decimal::Decimal = match plan {
+            "weekly"   => rust_decimal_macros::dec!(9900.00),
+            "yearly"   => rust_decimal_macros::dec!(199000.00),
+            "lifetime" => rust_decimal_macros::dec!(499000.00),
+            _          => rust_decimal_macros::dec!(29000.00),
+        };
+        let amount_idr: i64 = amount.try_into().unwrap_or(29000);
+
+        let conn = get_conn(&self.pool).await?;
+        conn.execute(
+            r#"INSERT INTO subscription_orders
+                   (id, user_id, order_code, plan, amount, status)
+               VALUES ($1, $2, $3, $4, $5, 'pending')"#,
+            &[&order_id_bytes, &uid, &order_code, &plan, &amount],
+        )
+        .await
+        .context("create pending subscription order")?;
+
+        Ok(PendingSubOrder { order_id: order_ulid, order_code, plan: plan.to_string(), amount_idr })
+    }
+
+    async fn confirm_subscription_order(
+        &self,
+        order_id: &str,
+        user_id: &str,
+        plan: &str,
+        days: i64,
+    ) -> Result<SubscriptionActivation> {
+        let uid = id_to_vec(user_id)?;
+        let order_id_bytes = ulid_to_vec(order_id)?;
+        let sub_id_bytes = ulid_to_vec(&new_ulid())?;
+
+        let conn = get_conn(&self.pool).await?;
+
+        // Fetch order_code from existing order
+        let order_row = conn
+            .query_one(
+                "SELECT order_code FROM subscription_orders WHERE id = $1 AND user_id = $2 AND status = 'pending'",
+                &[&order_id_bytes, &uid],
+            )
+            .await
+            .context("find pending subscription order")?;
+        let order_code: String = order_row.try_get(0)?;
+
+        // Mark as paid
+        conn.execute(
+            "UPDATE subscription_orders SET status = 'paid', paid_at = NOW() WHERE id = $1",
+            &[&order_id_bytes],
+        )
+        .await
+        .context("confirm subscription payment")?;
+
+        // Deactivate old subscriptions
+        conn.execute(
+            "UPDATE user_subscriptions SET is_active = FALSE WHERE user_id = $1 AND is_active = TRUE",
+            &[&uid],
+        )
+        .await
+        .context("deactivate old subscription")?;
+
+        // Create new subscription
+        let row = if plan == "lifetime" {
+            conn.query_one(
+                r#"INSERT INTO user_subscriptions
+                       (id, user_id, subscription_order_id, plan, expires_at)
+                   VALUES ($1, $2, $3, $4, '9999-12-31 23:59:59+00'::timestamptz)
+                   RETURNING id, user_id, plan, started_at, expires_at, is_active, created_at"#,
+                &[&sub_id_bytes, &uid, &order_id_bytes, &plan],
+            )
+            .await
+            .context("activate premium lifetime")?
+        } else {
+            conn.query_one(
+                r#"INSERT INTO user_subscriptions
+                       (id, user_id, subscription_order_id, plan, expires_at)
+                   VALUES ($1, $2, $3, $4, NOW() + ($5::BIGINT * INTERVAL '1 day'))
+                   RETURNING id, user_id, plan, started_at, expires_at, is_active, created_at"#,
+                &[&sub_id_bytes, &uid, &order_id_bytes, &plan, &days],
+            )
+            .await
+            .context("activate premium confirm")?
+        };
+
+        let subscription = row_to_subscription(&row)?;
+        Ok(SubscriptionActivation { subscription, order_code })
     }
 }

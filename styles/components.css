@@ -701,7 +701,7 @@
    SHIMMER / SKELETON LOADING
    ═══════════════════════════════════════════════════════════════════════ */
 
-/* shimmer — diganti shimmer-wave di bagian bawah */
+/* Skeleton placeholder — lihat .shim di bagian bawah untuk animasi */
 
 /* ── Event card skeleton ──────────────────────────────────────────────── */
 .shim-event-card {
@@ -971,26 +971,63 @@ button:focus-visible {
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
 }
 
-/* Shimmer wave (replaces old shimmer) */
-@keyframes shimmer-wave {
+/* Shimmer v2 — base fill + sheen band yang melintas via ::after translateX.
+   Lebih smooth & performant vs background-position sweep. */
+@keyframes shimmer-sheen {
     0% {
-        background-position: -200% 0;
+        transform: translateX(-120%);
     }
     100% {
-        background-position: 200% 0;
+        transform: translateX(120%);
     }
 }
-.shim {
-    background: linear-gradient(
-        90deg,
-        var(--bg-elevated) 25%,
-        var(--bg-elevated-2, rgba(255, 255, 255, 0.06)) 50%,
-        var(--bg-elevated) 75%
-    );
-    background-size: 200% 100%;
-    animation: shimmer-wave 1.4s ease-in-out infinite;
-    border-radius: 6px;
+@keyframes shimmer-breathe {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
 }
+.shim {
+    position: relative;
+    overflow: hidden;
+    background: var(--bg-elevated);
+    border-radius: 8px;
+    isolation: isolate;
+}
+.shim::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-120%);
+    background: linear-gradient(
+        100deg,
+        transparent 0%,
+        var(--bg-elevated-2, rgba(255, 255, 255, 0.07)) 45%,
+        rgba(255, 255, 255, 0.12) 50%,
+        var(--bg-elevated-2, rgba(255, 255, 255, 0.07)) 55%,
+        transparent 100%
+    );
+    animation: shimmer-sheen 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+    .shim::after { animation: none; }
+    .shim { animation: shimmer-breathe 1.8s ease-in-out infinite; }
+}
+/* ── Cart skeleton (shown during SSR / pre-hydration) ───────────────────────── */
+.cart-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 0 0 20px;
+}
+
+.cart-item-shim {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px;
+    border-bottom: 1px solid var(--border-soft);
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    EVENT DETAIL — New UI matching design
    ═══════════════════════════════════════════════════════════════════════════ */

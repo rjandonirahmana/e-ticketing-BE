@@ -218,7 +218,7 @@ pub struct ChatMessage {
     pub sender_name: String,
     pub content: String,
     pub sent_at: u64,
-    #[serde(default)]
+    #[serde(default, alias = "msg_type")]
     pub message_type: String,
 }
 
@@ -287,6 +287,16 @@ pub struct ValidatePromoResponse {
     pub discount_idr: i64,
     #[serde(default)]
     pub message: String,
+}
+
+// ── Subscription ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingSubOrder {
+    pub order_id: String,
+    pub order_code: String,
+    pub plan: String,
+    pub amount_idr: i64,
 }
 
 // ── Scan ──────────────────────────────────────────────────────────────────────

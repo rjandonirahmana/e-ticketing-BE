@@ -350,6 +350,13 @@ pub fn StoryViewer() -> impl IntoView {
             return;
         }
 
+        // Jangan resume jika media belum selesai load — mencegah RAF start
+        // dengan start_ms=0 sebelum onload/loadedmetadata tiba, yang menyebabkan
+        // progress snap ke akhir dan story langsung skip.
+        if waiting_for_image.get_value() || waiting_for_video.get_value() {
+            return;
+        }
+
         // Resume
         raf_state.update_value(|s| {
             if s.paused_at_ms > 0.0 {
@@ -363,10 +370,6 @@ pub fn StoryViewer() -> impl IntoView {
             return;
         }
         if raf_id.get_value() != 0 {
-            return;
-        }
-        // FIX P0-a: jangan resume jika masih tunggu metadata video
-        if waiting_for_video.get_value() {
             return;
         }
 
@@ -445,11 +448,14 @@ pub fn StoryViewer() -> impl IntoView {
         }
     });
 
-    // Sembunyikan tag "klik detail" setiap kali story aktif berganti
+    // Sembunyikan tag "klik detail" setiap kali story aktif berganti.
+    // Reset is_paused juga — kalau tag sedang tampil (yang pauses RAF),
+    // story baru harus mulai dalam kondisi tidak paused.
     Effect::new(move |_| {
         let _si = ctx.active_story_idx.get();
         let _gi = ctx.active_group.get();
         show_detail_tag.set(false);
+        is_paused.set(false);
     });
 
     // ══════════════════════════════════════════════════════════════════
@@ -636,13 +642,17 @@ pub fn StoryViewer() -> impl IntoView {
         } else {
             // Tap di tengah frame — tampilkan/sembunyikan tag "klik detail"
             // hanya jika story ini punya event_slug untuk dituju.
+            // Saat tag muncul, pause RAF agar story tidak auto-advance sebelum
+            // user sempat klik. Saat tag disembunyikan, RAF resume kembali.
             let has_slug = ctx
                 .with_current_story(|s| s.event_slug.clone())
                 .flatten()
                 .map(|s| !s.is_empty())
                 .unwrap_or(false);
             if has_slug {
-                show_detail_tag.update(|v| *v = !*v);
+                let new_visible = !show_detail_tag.get_untracked();
+                show_detail_tag.set(new_visible);
+                is_paused.set(new_visible);
             }
         }
     };
@@ -976,38 +986,61 @@ pub fn StoryViewer() -> impl IntoView {
                         })}
                     </div>
 
-                    // ── Tap-to-reveal "klik detail" tag ──────────────────────
+                    // ── Instagram-style Event Detail Sheet ────────────────────
                     // Muncul saat frame di-tap (di tengah) dan story punya event_slug.
-                    // Mirip product/location tag Instagram: tap frame → muncul tag → tap tag → navigasi.
+                    // Bottom sheet slide-up dari bawah: cover image, judul event, CTA button.
+                    // Tap backdrop (luar sheet) → tutup dan resume RAF.
                     {move || {
                         if !show_detail_tag.get() {
                             return None;
                         }
-                        ctx.with_current_story(|s| s.event_slug.clone())
-                            .flatten()
-                            .filter(|slug| !slug.is_empty())
-                            .map(|slug| {
-                                let slug_nav = slug.clone();
-                                view! {
-                                    <button class="sv-detail-tag"
-                                            on:click=move |ev| {
-                                                ev.stop_propagation();
-                                                if let Some(win) = web_sys::window() {
-                                                    let _ = win.location()
-                                                        .set_href(&format!("/events/{}", slug_nav));
-                                                }
-                                            }>
-                                        <svg width="16" height="16" viewBox="0 0 24 24"
-                                             fill="none" stroke="currentColor"
-                                             stroke-width="2" stroke-linecap="round">
-                                            <circle cx="12" cy="12" r="10"/>
-                                            <line x1="12" y1="16" x2="12" y2="11"/>
-                                            <circle cx="12" cy="8" r="0.5" fill="currentColor"/>
-                                        </svg>
-                                        <span>"Klik Detail"</span>
-                                    </button>
-                                }
+                        ctx.with_current_story(|s| {
+                            let slug = s.event_slug.clone().filter(|e| !e.is_empty())?;
+                            let title = s.event_title.clone()
+                                .unwrap_or_else(|| "Lihat Event".to_string());
+                            let cover = s.media_url.clone();
+                            let slug_nav = slug.clone();
+                            Some(view! {
+                                <div class="sv-detail-overlay"
+                                     on:click=move |ev| {
+                                         if let (Some(t), Some(c)) = (ev.target(), ev.current_target()) {
+                                             if t == c {
+                                                 show_detail_tag.set(false);
+                                                 is_paused.set(false);
+                                             }
+                                         }
+                                     }>
+                                    <div class="sv-detail-sheet"
+                                         on:click=move |ev| ev.stop_propagation()>
+                                        <div class="sv-detail-handle-bar"></div>
+                                        <div class="sv-detail-cover-wrap">
+                                            <img src=cover class="sv-detail-cover-img" alt="" />
+                                            <div class="sv-detail-cover-grad"></div>
+                                        </div>
+                                        <div class="sv-detail-body">
+                                            <span class="sv-detail-eyebrow">"EVENT"</span>
+                                            <h3 class="sv-detail-title">{title}</h3>
+                                            <button class="sv-detail-cta"
+                                                    on:click=move |ev| {
+                                                        ev.stop_propagation();
+                                                        if let Some(win) = web_sys::window() {
+                                                            let _ = win.location()
+                                                                .set_href(&format!("/events/{}", slug_nav));
+                                                        }
+                                                    }>
+                                                "Lihat Event"
+                                                <svg width="16" height="16" viewBox="0 0 24 24"
+                                                     fill="none" stroke="currentColor"
+                                                     stroke-width="2.5" stroke-linecap="round">
+                                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                                    <polyline points="12 5 19 12 12 19"/>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
                             })
+                        }).flatten()
                     }}
 
                     // ── Pulse badge ───────────────────────────────────
@@ -1018,50 +1051,6 @@ pub fn StoryViewer() -> impl IntoView {
                         <span>{move || pulse_label.get()}</span>
                         <span>" pulses"</span>
                     </div>
-
-                    // ── Event deep-link: swipe-up container ──────────────────
-                    // Hanya muncul jika story punya event_slug.
-                    // Animated chevron + pill — mirip Instagram "See More".
-                    {move || ctx.with_current_story(|s| {
-                        match (&s.event_slug, &s.event_title) {
-                            (Some(slug), Some(title)) if !slug.is_empty() => {
-                                let slug_nav  = slug.clone();
-                                let title_str = title.clone();
-                                Some(view! {
-                                    <div class="sv-swipe-up-container"
-                                         on:click=move |ev| {
-                                             ev.stop_propagation();
-                                             if let Some(win) = web_sys::window() {
-                                                 let _ = win.location()
-                                                     .set_href(&format!("/events/{}", slug_nav));
-                                             }
-                                         }>
-                                        // Bouncing chevron — menarik perhatian user
-                                        <div class="sv-swipe-up-chevron" aria-hidden="true">
-                                            <svg width="20" height="20" viewBox="0 0 24 24"
-                                                 fill="none" stroke="currentColor"
-                                                 stroke-width="2.5" stroke-linecap="round">
-                                                <polyline points="6 9 12 15 18 9"/>
-                                            </svg>
-                                        </div>
-
-                                        // Frosted glass pill
-                                        <div class="sv-swipe-up-pill">
-                                            <span class="sv-swipe-up-label">"Lihat Event"</span>
-                                            <span class="sv-swipe-up-title">{title_str}</span>
-                                            <svg width="14" height="14" viewBox="0 0 24 24"
-                                                 fill="none" stroke="currentColor"
-                                                 stroke-width="2.5" stroke-linecap="round">
-                                                <line x1="5" y1="12" x2="19" y2="12"/>
-                                                <polyline points="12 5 19 12 12 19"/>
-                                            </svg>
-                                        </div>
-                                    </div>
-                                })
-                            }
-                            _ => None,
-                        }
-                    })}
 
                     // ── Bottom bar ────────────────────────────────────
                     <div class="sv-actions sv-actions--readonly">

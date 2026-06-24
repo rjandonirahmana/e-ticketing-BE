@@ -2,6 +2,7 @@
 use leptos::prelude::*;
 use leptos_router::components::A;
 use leptos_router::hooks::use_navigate;
+use leptos_router::NavigateOptions;
 
 use crate::web::api::server_fns::{create_order_cart, validate_promo};
 use crate::web::app::{CartContext, PendingOrderCtx, SuccessSnapshot};
@@ -42,9 +43,19 @@ const METHODS: &[PayMethod] = &[
 #[component]
 pub fn CheckoutPage() -> impl IntoView {
     let navigate = use_navigate();
+    let nav_redirect = navigate.clone();
 
     let cart_ctx = use_context::<CartContext>().expect("CartContext not provided");
     let items_sig = cart_ctx.items;
+
+    // Redirect to /cart when opened directly (empty cart / reload).
+    // Use replace:true so the /checkout entry is removed from history,
+    // preventing a back-button loop (back from /cart → /checkout → /cart …).
+    Effect::new(move |_| {
+        if items_sig.with(|v| v.is_empty()) {
+            nav_redirect.clone()("/cart", NavigateOptions { replace: true, ..NavigateOptions::default() });
+        }
+    });
 
     let pending_ctx = use_context::<PendingOrderCtx>().expect("PendingOrderCtx not provided");
     let pending_order_sig = pending_ctx.pending_order;
@@ -162,19 +173,18 @@ pub fn CheckoutPage() -> impl IntoView {
     view! {
         <div class="page">
             <header class="page-header">
-                <A href="/cart" attr:class="back-btn">
-                    <svg
-                        width="22"
-                        height="22"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2.5"
-                        stroke-linecap="round"
-                    >
-                        <polyline points="15 18 9 12 15 6" />
+                <button class="back-btn" aria-label="Kembali"
+                    on:click=move |_| {
+                        #[cfg(target_arch = "wasm32")]
+                        if let Some(win) = web_sys::window() {
+                            let _ = win.history().ok().map(|h| h.back());
+                        }
+                    }>
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                        <polyline points="15 18 9 12 15 6"/>
                     </svg>
-                </A>
+                </button>
                 <span class="page-logo">"PULSE"</span>
                 <div class="header-actions">
                     <ThemeToggle />
