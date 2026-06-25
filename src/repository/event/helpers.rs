@@ -120,6 +120,8 @@ pub(super) static EVENT_COLS: &str = r#"
     COALESCE(vs.display_price, 0.0)  AS display_price,
     e.venue,
     e.city,
+    e.latitude,
+    e.longitude,
     e.event_date,
     e.start_time,
     e.end_time,
@@ -141,6 +143,8 @@ pub(super) static EVENT_COLS_NO_AGG: &str = r#"
     e.detail_images,
     e.venue,
     e.city,
+    e.latitude,
+    e.longitude,
     e.event_date,
     e.start_time,
     e.end_time,
@@ -217,11 +221,12 @@ pub(super) static FIND_EVENT_WITH_VARIANTS_BY_ID: LazyLock<String> = LazyLock::n
 pub(super) static INSERT_EVENT: &str = "\
     INSERT INTO events \
         (id, merchant_id, name, slug, description, cover_url, price, venue, city, \
-         event_date, start_time, end_time, category, status, detail_images) \
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) \
+         event_date, start_time, end_time, category, status, detail_images, latitude, longitude) \
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) \
     RETURNING \
         id, merchant_id, name, slug, description, cover_url, detail_images, \
-        venue, city, event_date, start_time, end_time, status, created_at, updated_at, category";
+        venue, city, latitude, longitude, event_date, start_time, end_time, status, \
+        created_at, updated_at, category";
 
 pub(super) static UPDATE_EVENT: &str = r#"
     UPDATE events
@@ -235,7 +240,9 @@ pub(super) static UPDATE_EVENT: &str = r#"
            end_time      = COALESCE($10, end_time),
            status        = COALESCE($11, status),
            category      = COALESCE($12, category),
-           detail_images = COALESCE($13, detail_images)
+           detail_images = COALESCE($13, detail_images),
+           latitude      = COALESCE($14, latitude),
+           longitude     = COALESCE($15, longitude)
      WHERE id = $1 AND merchant_id = $2
 "#;
 

@@ -46,6 +46,8 @@ impl PgEventRepository {
                     &category_json,
                     &"edited",
                     &detail_images_json,
+                    &req.latitude,
+                    &req.longitude,
                 ],
             )
             .await;
@@ -174,6 +176,8 @@ impl PgEventRepository {
                         &category_json,
                         &"edited",
                         &detail_images_json,
+                        &req.latitude,
+                        &req.longitude,
                     ],
                 )
                 .await;
@@ -305,6 +309,8 @@ impl PgEventRepository {
                 &"edited",
                 &category_json,
                 &detail_images_json,
+                &req.latitude,
+                &req.longitude,
             ],
         )
         .await?;

@@ -29,6 +29,7 @@ static TICKET_DETAIL_COLS: &str = r#"
 
     e.id            AS event_id,
     e.name          AS event_name,
+    e.slug          AS event_slug,
     e.event_date,
     e.venue         AS event_venue,
     e.city          AS event_city,
@@ -135,6 +136,7 @@ impl PgTicketRepository {
             order_code: row.try_get("order_code")?,
             event_id: bin_to_ulid(event_bytes)?,
             event_name: row.try_get("event_name")?,
+            event_slug: row.try_get("event_slug")?,
             event_date: row.try_get("event_date")?,
             event_venue: row.try_get("event_venue")?,
             event_city: row.try_get("event_city")?,
@@ -247,6 +249,7 @@ impl TicketRepository for PgTicketRepository {
 
                 e.id            AS event_id,
                 e.name          AS event_name,
+                e.slug          AS event_slug,
                 e.event_date,
                 e.venue         AS event_venue,
                 e.city          AS event_city,

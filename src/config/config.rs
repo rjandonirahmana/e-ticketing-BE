@@ -80,7 +80,7 @@ impl AppConfig {
                 .unwrap_or_else(|_| "10".into())
                 .parse()
                 .context("BCRYPT_COST must be a number")?,
-            redis_url: env::var("REDIS_URL").unwrap_or_else(|_| "".into()),
+            redis_url: env::var("REDIS_URL").context("REDIS_URL is required")?,
             waha: WahaConfig {
                 base_url: env::var("WAHA_BASE_URL")
                     .unwrap_or_else(|_| "http://localhost:3000".into()),

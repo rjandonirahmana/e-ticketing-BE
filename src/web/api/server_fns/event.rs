@@ -93,5 +93,7 @@ pub async fn get_event_location(slug: String) -> Result<serde_json::Value, Serve
         "venue": event.venue,
         "city": event.city,
         "slug": event.slug,
+        "latitude": event.latitude,
+        "longitude": event.longitude,
     }));
 }

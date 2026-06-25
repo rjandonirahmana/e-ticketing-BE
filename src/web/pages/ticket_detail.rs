@@ -239,6 +239,7 @@ pub fn TicketDetailPage() -> impl IntoView {
                                     let _share_title    = t.event_name.clone();
                                     let _share_cover    = cover.clone();
                                     let _share_event_id = t.event_id.clone();
+                                    let _share_slug     = t.event_slug.clone();
                                     let _share_date     = date_str.clone();
                                     let _share_venue    = venue.clone();
                                     let _share_tier     = t.variant_name.clone();
@@ -254,6 +255,9 @@ pub fn TicketDetailPage() -> impl IntoView {
                                             let params = web_sys::UrlSearchParams::new()
                                                 .expect("UrlSearchParams");
                                             params.append("event_id",    &_share_event_id);
+                                            // Kirim slug agar story yang dipublish dari tiket tetap
+                                            // tertaut ke halaman event (viewer bisa tap-through).
+                                            params.append("event_slug",  &_share_slug);
                                             params.append("event_title", &_share_title);
                                             params.append("event_cover", &_share_cover);
                                             params.append("event_date",  &_share_date);

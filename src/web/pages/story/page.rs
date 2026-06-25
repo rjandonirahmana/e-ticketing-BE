@@ -236,10 +236,33 @@ pub fn StoryPage() -> impl IntoView {
             }
         }
 
-        // event_slug kosong di mode ticket → tidak pernah ter-persist sebagai link event.
-        let event_slug = if is_ticket { String::new() } else { slug };
+        // Slug dikirim juga di mode ticket agar story yang dipublish dari tiket
+        // tetap tertaut ke halaman event (viewer bisa tap-through).
+        let event_slug = slug;
         event_meta_sig.set(Some(EventStoryMeta { event_id: id, event_slug, event_title: title }));
-        overlays.set(Vec::new());
+
+        // Mode ticket: sisipkan otomatis teks "Pembelian Berhasil" yang bisa
+        // digeser & diedit di layar story create/edit. Mode event biasa: kosong.
+        if is_ticket {
+            z_counter.set(1);
+            overlays.set(vec![StoryOverlay {
+                id: buat_id("teks"),
+                overlay_type: OverlayType::Text,
+                x: 50.0,
+                y: 16.0,
+                content: Some("Pembelian Berhasil! 🎉".to_string()),
+                color: Some("#ffffff".to_string()),
+                font_size: Some(30),
+                rotation: Some(0.0),
+                emoji: None,
+                scale: Some(1.0),
+                z_index: 1,
+                text_style: Some("classic".to_string()),
+                text_align: Some("center".to_string()),
+            }]);
+        } else {
+            overlays.set(Vec::new());
+        }
     });
 
     // ── Pinch-zoom touch listeners ─────────────────────────────────────────────

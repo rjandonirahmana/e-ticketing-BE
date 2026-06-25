@@ -61,6 +61,9 @@ pub struct Event {
     #[serde(default)]
     pub category: Vec<String>,
     pub city: Option<String>,
+    /// Koordinat lokasi venue (untuk peta). None bila merchant belum mengisi.
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
     pub event_date: DateTime<Utc>,
     pub start_time: Option<DateTime<Utc>>,
     pub end_time: Option<DateTime<Utc>>,
@@ -84,6 +87,8 @@ pub struct EventWithVariants {
     pub detail_images: Vec<DetailImageEntry>,
     pub venue: Option<String>,
     pub city: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
     #[serde(default)]
     pub category: Vec<String>,
     pub event_date: DateTime<Utc>,
@@ -133,6 +138,9 @@ pub struct CreateEventRequest {
     pub description: Option<String>,
     pub venue: Option<String>,
     pub city: Option<String>,
+    /// Koordinat lokasi venue (opsional).
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
     /// Flat Vec<String> — FE kirim sebagai ["Musik", "Festival"]
     #[serde(default)]
     pub category: Vec<String>,
@@ -172,6 +180,8 @@ pub struct UpdateEventRequest {
     pub cover_url: Option<String>,
     pub venue: Option<String>,
     pub city: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
     pub event_date: Option<DateTime<Utc>>,
     #[serde(default)]
     pub category: Vec<String>,

@@ -218,6 +218,8 @@ impl EventService {
             cover_url: event.cover_url,
             venue: event.venue,
             city: event.city,
+            latitude: event.latitude,
+            longitude: event.longitude,
             event_date: event.event_date,
             start_time: event.start_time,
             end_time: event.end_time,

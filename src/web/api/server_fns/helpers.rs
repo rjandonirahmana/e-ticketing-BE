@@ -21,6 +21,40 @@ pub(super) async fn auth_claims() -> Result<crate::models::auth::Claims, ServerF
         .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })
 }
 
+/// Verify the caller is authenticated AND holds exactly `required` role.
+///
+/// SECURITY: server functions are the real authorization boundary — the
+/// client-side route guards (AuthGuard/AdminGuard/MerchantGuard in app.rs)
+/// only hide UI and can be bypassed by calling the `/api-fn` endpoint
+/// directly. Every privileged server fn MUST gate on role here, not just
+/// `auth_claims()` (which only proves the caller is logged in).
+#[cfg(feature = "ssr")]
+pub(super) async fn require_role(
+    required: &str,
+) -> Result<crate::models::auth::Claims, ServerFnError> {
+    let claims = auth_claims().await?;
+    if claims.role != required {
+        return Err(ServerFnError::ServerError(format!(
+            "Akses ditolak: endpoint memerlukan peran '{required}'"
+        )));
+    }
+    Ok(claims)
+}
+
+/// Verify the caller is authenticated AND holds one of `roles`.
+#[cfg(feature = "ssr")]
+pub(super) async fn require_roles(
+    roles: &[&str],
+) -> Result<crate::models::auth::Claims, ServerFnError> {
+    let claims = auth_claims().await?;
+    if !roles.iter().any(|r| *r == claims.role) {
+        return Err(ServerFnError::ServerError(format!(
+            "Akses ditolak: endpoint memerlukan salah satu peran {roles:?}"
+        )));
+    }
+    Ok(claims)
+}
+
 #[cfg(feature = "ssr")]
 pub(super) fn map_app_error(e: crate::utils::error::AppError) -> ServerFnError {
     ServerFnError::ServerError(e.to_string())
@@ -51,6 +85,8 @@ pub(super) fn srv_event_to_web(e: crate::models::events::Event) -> crate::web::m
         display_price: e.display_price,
         venue: e.venue,
         city: e.city,
+        latitude: e.latitude,
+        longitude: e.longitude,
         category: e.category,
         event_date: e.event_date,
         start_time: e.start_time,
@@ -93,6 +129,8 @@ pub(super) fn srv_event_with_variants_to_web(
         cover_url: e.cover_url,
         venue: e.venue,
         city: e.city,
+        latitude: e.latitude,
+        longitude: e.longitude,
         category: e.category,
         event_date: e.event_date,
         start_time: e.start_time,
@@ -143,6 +181,7 @@ pub(super) fn srv_ticket_to_web(t: crate::models::tickets::TicketResponse) -> cr
         order_code: t.order_code,
         event_id: t.event_id,
         event_name: t.event_name,
+        event_slug: t.event_slug,
         event_date: t.event_date,
         event_venue: t.event_venue,
         event_city: t.event_city,

@@ -831,6 +831,39 @@
     border-radius: 100px;
 }
 
+/* ── Merchant/Admin event card skeleton (mirrors .mhub-event-card) ────── */
+.shim-mhub-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    overflow: hidden;
+    margin-bottom: 16px;
+}
+.shim-mhub-card .shim-mhub-img {
+    width: 100%;
+    aspect-ratio: 16 / 8;
+    display: block;
+    border-radius: 0;
+}
+.shim-mhub-card .shim-mhub-body {
+    padding: 14px 14px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+}
+.shim-mhub-card .shim-mhub-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+.shim-mhub-card .shim-mhub-title { height: 19px; width: 58%; }
+.shim-mhub-card .shim-mhub-price { height: 18px; width: 24%; }
+.shim-mhub-card .shim-mhub-meta  { height: 11px; width: 72%; }
+.shim-mhub-card .shim-mhub-key   { height: 10px; width: 28%; }
+.shim-mhub-card .shim-mhub-bar   { height: 6px;  width: 100%; border-radius: 3px; }
+.shim-mhub-card .shim-mhub-btn   { height: 38px; width: 100%; border-radius: 12px; margin-top: 2px; }
+
 /* ── Message room skeleton ────────────────────────────────────────────── */
 .shim-msg-row {
     display: flex;

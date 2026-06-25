@@ -28,6 +28,7 @@ pub struct TicketResponse {
 
     pub event_id: String,
     pub event_name: String,
+    pub event_slug: String,
     pub event_date: DateTime<Utc>,
     pub event_venue: Option<String>,
     pub event_city: Option<String>,

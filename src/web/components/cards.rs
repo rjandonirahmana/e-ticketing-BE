@@ -142,6 +142,32 @@ pub fn MerchantRowShimmer() -> impl IntoView {
     }
 }
 
+/// Skeleton that mirrors the `.mhub-event-card` layout used on the merchant &
+/// admin hubs (cover image, title/price row, meta, sales progress, action btn).
+/// The previous `MerchantRowShimmer` looked nothing like the real cards, which
+/// made the loading state jarring.
+#[component]
+pub fn MerchantEventCardShimmer() -> impl IntoView {
+    view! {
+        <div class="shim-mhub-card">
+            <div class="shim shim-mhub-img"></div>
+            <div class="shim-mhub-body">
+                <div class="shim-mhub-row">
+                    <div class="shim shim-mhub-title"></div>
+                    <div class="shim shim-mhub-price"></div>
+                </div>
+                <div class="shim shim-mhub-meta"></div>
+                <div class="shim-mhub-row">
+                    <div class="shim shim-mhub-key"></div>
+                    <div class="shim shim-mhub-key"></div>
+                </div>
+                <div class="shim shim-mhub-bar"></div>
+                <div class="shim shim-mhub-btn"></div>
+            </div>
+        </div>
+    }
+}
+
 #[component]
 pub fn MessageRowShimmer() -> impl IntoView {
     view! {

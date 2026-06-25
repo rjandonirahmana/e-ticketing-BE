@@ -10,8 +10,8 @@ pub mod story_bars;
 pub mod story_viewer;
 
 pub use cards::{
-    EventCard, EventCardShimmer, MerchantRowShimmer, MessageRowShimmer, OrderCardShimmer,
-    TicketCardShimmer,
+    EventCard, EventCardShimmer, MerchantEventCardShimmer, MerchantRowShimmer, MessageRowShimmer,
+    OrderCardShimmer, TicketCardShimmer,
 };
 pub use common::{EmptyState, ErrorBanner, GridBackground, KineticInput};
 pub use nav::{BottomNav, ThemeToggle, TopNav};
