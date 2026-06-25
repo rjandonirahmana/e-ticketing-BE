@@ -45,6 +45,13 @@
     --scrollbar-track: #080810;
     --scrollbar-thumb: #1e1e30;
 
+    /* Adaptive primary CTA — lime in dark, blue in light */
+    --color-primary: var(--accent-lime);
+    --color-primary-text: var(--text-on-accent);
+    --color-primary-glow: rgba(200, 255, 94, 0.4);
+    --color-primary-soft: rgba(200, 255, 94, 0.07);
+    --color-primary-border: rgba(200, 255, 94, 0.3);
+
     --bdot-inactive: rgba(255, 255, 255, 0.2);
     --chip-active-bg: #ffffff;
     --chip-active-text: #080810;
@@ -157,6 +164,12 @@
 
     --scrollbar-track: #e2e2f0;
     --scrollbar-thumb: #bebede;
+
+    --color-primary: var(--accent-blue);
+    --color-primary-text: #ffffff;
+    --color-primary-glow: rgba(45, 78, 224, 0.3);
+    --color-primary-soft: rgba(45, 78, 224, 0.07);
+    --color-primary-border: rgba(45, 78, 224, 0.3);
 
     --bdot-inactive: rgba(0, 0, 30, 0.18);
     --chip-active-bg: #0c0c1a;
@@ -322,12 +335,12 @@
     color: var(--accent-blue);
 }
 [data-theme="light"] .method-card--active {
-    border-color: rgba(45, 78, 224, 0.4);
-    background: rgba(45, 78, 224, 0.05);
+    border-color: var(--color-primary-border);
+    background: var(--color-primary-soft);
 }
 [data-theme="light"] .method-check {
-    background: var(--accent-blue);
-    color: #fff;
+    background: var(--color-primary);
+    color: var(--color-primary-text);
 }
 [data-theme="light"] .nd-pay-icon,
 [data-theme="light"] .vl-addr-icon,
@@ -461,6 +474,7 @@ body,
         border-color 0.2s ease,
         box-shadow 0.2s ease;
 }
+
 /* ==== base.css ==== */
 /* ═══════════════════════════════════════════════════════════════════════
    BASE RESET, ANIMATIONS & LAYOUT
@@ -685,6 +699,13 @@ main {
 /* Page bottom padding accounts for nav + safe area */
 .page {
     padding-bottom: calc(72px + env(safe-area-inset-bottom, 12px));
+}
+
+/* Generic content container — same 480px width as .page */
+.container {
+    width: 100%;
+    max-width: 480px;
+    margin: 0 auto;
 }
 /* ══════════════════════════════════════════════════════════════════════════════
    MOBILE TAP HIGHLIGHT FIX — Hapus kotak biru/highlight saat touch di mobile
@@ -1035,6 +1056,7 @@ button,
     background: white;
     color: black;
 }
+
 /* ==== components.css ==== */
 /* ═══════════════════════════════════════════════════════════════════════
    SHARED COMPONENTS
@@ -3236,6 +3258,7 @@ button:focus-visible {
 [data-theme="light"] .td-page-title {
     color: var(--text-primary);
 }
+
 /* ==== message_stories.css ==== */
 /* ═══════════════════════════════════════════════════════════════════════
    MESSAGES & CHAT PAGES
@@ -4666,6 +4689,7 @@ button:focus-visible {
 [data-theme="light"] .msg-story-label { color: #555; }
 [data-theme="light"] .msg-story-item--unseen .msg-story-label { color: #111; }
 [data-theme="light"] .msg-story-item--seen .msg-story-label { color: #999; }
+
 /* ==== notifications.css ==== */
 /* ═══════════════════════════════════════════════════════════════════════
    NOTIFICATIONS PAGE — List + Empty State
@@ -4681,7 +4705,7 @@ button:focus-visible {
     max-width: 480px;
     margin: 0 auto;
     position: relative;
-    overflow-x: hidden;
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 12px));
     color: var(--text-primary);
     font-family: var(--font-body);
 }
@@ -5124,6 +5148,7 @@ button:focus-visible {
 [data-theme="light"] .notif-empty-bell-circle { background: radial-gradient(circle at 50% 40%, rgba(var(--accent-lime-rgb, 61,102,0), 0.08), transparent 70%); border-color: var(--border); }
 [data-theme="light"] .notif-cta { background: var(--accent-lime); color: #fff; }
 [data-theme="light"] .notif-cta:hover { background: var(--accent-blue); opacity: 1; }
+
 /* ==== page-admin.css ==== */
 /* ═══════════════════════════════════════════════════════════════════════
    ADMIN PAGE
@@ -5916,6 +5941,11 @@ button:focus-visible {
    ═══════════════════════════════════════════════════════════════════════ */
 
 /* ── CART ───────────────────────────────────────────────────────────────────── */
+/* Higher specificity to win over .page rule cascade conflicts */
+.page.cart-page {
+    padding-bottom: 160px;
+}
+
 .cart-title-wrap {
     padding: 24px 20px 0;
 }
@@ -5941,16 +5971,22 @@ button:focus-visible {
     font-size: 14px;
 }
 .browse-btn {
-    padding: 12px 28px;
-    background: linear-gradient(135deg, var(--accent-blue), var(--accent-violet));
-    color: white;
+    padding: 13px 28px;
+    min-height: 44px;
+    background: var(--color-primary);
+    color: var(--color-primary-text);
     border-radius: 100px;
     text-decoration: none;
     font-family: var(--font-body);
     font-size: 13px;
     letter-spacing: 0.08em;
     font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    transition: opacity 0.15s, transform 0.1s;
 }
+.browse-btn:hover { opacity: 0.9; }
+.browse-btn:active { transform: scale(0.97); }
 .cart-items {
     padding: 24px 20px 0;
     display: flex;
@@ -5998,7 +6034,7 @@ button:focus-visible {
 .item-price {
     font-family: var(--font-body);
     font-size: 14px;
-    color: var(--accent-lime);
+    color: var(--color-primary);
     margin-top: 4px;
     font-weight: 700;
 }
@@ -6013,11 +6049,19 @@ button:focus-visible {
     background: rgba(255, 79, 107, 0.1);
     border: 1px solid rgba(255, 79, 107, 0.2);
     border-radius: 8px;
-    padding: 6px;
+    padding: 10px;
+    min-width: 40px;
+    min-height: 40px;
     color: var(--danger);
     cursor: pointer;
     display: flex;
     align-items: center;
+    justify-content: center;
+    transition: background 0.15s, border-color 0.15s;
+}
+.item-remove:hover {
+    background: rgba(255, 79, 107, 0.18);
+    border-color: rgba(255, 79, 107, 0.35);
 }
 .item-qty-ctrl {
     display: flex;
@@ -6025,8 +6069,8 @@ button:focus-visible {
     gap: 0;
 }
 .iq-btn {
-    width: 28px;
-    height: 28px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     border: none;
     cursor: pointer;
@@ -6036,10 +6080,13 @@ button:focus-visible {
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: background 0.15s, opacity 0.15s;
+    flex-shrink: 0;
 }
+.iq-btn:active { opacity: 0.7; }
 .iq-btn--add {
-    background: var(--accent-blue);
-    color: white;
+    background: var(--color-primary);
+    color: var(--color-primary-text);
 }
 .iq-val {
     width: 32px;
@@ -6097,7 +6144,7 @@ button:focus-visible {
 .summary-total-val {
     font-family: var(--font-display);
     font-size: 28px;
-    color: var(--text-primary);
+    color: var(--color-primary);
 }
 .cart-footer {
     position: fixed;
@@ -6151,15 +6198,16 @@ button:focus-visible {
 .footer-total {
     font-family: var(--font-display);
     font-size: 20px;
-    color: var(--text-primary);
+    color: var(--color-primary);
 }
 .proceed-btn {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 12px 20px;
-    background: linear-gradient(135deg, var(--accent-blue), var(--accent-violet));
-    color: white;
+    padding: 13px 22px;
+    min-height: 44px;
+    background: var(--color-primary);
+    color: var(--color-primary-text);
     border: none;
     border-radius: 100px;
     font-family: var(--font-body);
@@ -6168,10 +6216,14 @@ button:focus-visible {
     font-weight: 700;
     cursor: pointer;
     white-space: nowrap;
+    transition: opacity 0.15s, transform 0.1s;
 }
+.proceed-btn:hover { opacity: 0.9; }
+.proceed-btn:active { transform: scale(0.97); }
 .proceed-btn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+    transform: none;
 }
 
 /* ── CHECKOUT ───────────────────────────────────────────────────────────────── */
@@ -6211,7 +6263,7 @@ button:focus-visible {
 .section-badge {
     font-family: var(--font-body);
     font-size: 10px;
-    color: var(--accent-lime);
+    color: var(--color-primary);
     letter-spacing: 0.1em;
 }
 .order-items {
@@ -6292,8 +6344,8 @@ button:focus-visible {
     color: var(--text-primary);
 }
 .method-card--active {
-    border-color: rgba(200, 255, 94, 0.4);
-    background: rgba(200, 255, 94, 0.04);
+    border-color: var(--color-primary-border);
+    background: var(--color-primary-soft);
 }
 .method-icon {
     display: flex;
@@ -6319,7 +6371,7 @@ button:focus-visible {
 .method-check {
     width: 22px;
     height: 22px;
-    background: var(--accent-lime);
+    background: var(--color-primary);
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -6421,7 +6473,7 @@ button:focus-visible {
 .total-final-amt {
     font-family: var(--font-display);
     font-size: 36px;
-    color: var(--accent-lime);
+    color: var(--color-primary);
 }
 .confirm-section {
     padding: 24px 20px;
@@ -6438,8 +6490,8 @@ button:focus-visible {
 .confirm-btn {
     width: 100%;
     padding: 16px;
-    background: linear-gradient(135deg, var(--accent-blue), var(--accent-violet));
-    color: white;
+    background: var(--color-primary);
+    color: var(--color-primary-text);
     border: none;
     border-radius: 100px;
     font-family: var(--font-body);
@@ -6452,6 +6504,7 @@ button:focus-visible {
     justify-content: center;
     gap: 10px;
     transition: opacity 0.2s;
+    box-shadow: 0 4px 20px var(--color-primary-glow);
 }
 .confirm-btn:disabled {
     opacity: 0.5;
@@ -6487,8 +6540,8 @@ button:focus-visible {
 .pay-bar-btn {
     width: 100%;
     padding: 16px;
-    background: var(--accent-lime);
-    color: var(--text-on-accent);
+    background: var(--color-primary);
+    color: var(--color-primary-text);
     border: none;
     border-radius: 100px;
     font-family: var(--font-body);
@@ -6497,6 +6550,7 @@ button:focus-visible {
     font-weight: 700;
     cursor: pointer;
     transition: opacity 0.2s;
+    box-shadow: 0 4px 20px var(--color-primary-glow);
 }
 .pay-bar-btn:disabled {
     opacity: 0.4;
@@ -6536,6 +6590,16 @@ button:focus-visible {
     background: var(--bg-base);
     animation: pulse 1.5s infinite;
 }
+/* Badge LIVE yang bisa diklik → loncat ke pemutar siaran */
+.ed-live-badge--link {
+    text-decoration: none;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.15s;
+}
+.ed-live-badge--link:hover { opacity: 0.9; }
+.ed-live-badge--link:active { transform: scale(0.95); }
+/* Offset agar judul section tak tertutup header saat di-scroll ke anchor */
+.ed-live-section { scroll-margin-top: 72px; }
 .ed-cat-badge {
     font-family: var(--font-body);
     font-size: 9px;
@@ -6625,7 +6689,7 @@ button:focus-visible {
     letter-spacing: 0.08em;
 }
 
-/* ── Tier Add button (pill lime, saat qty = 0) ──────────────────────────────── */
+/* ── Tier Add button ─────────────────────────────────────────────────────────── */
 .tier-add-btn {
     font-family: var(--font-body);
     font-size: 12px;
@@ -6633,8 +6697,8 @@ button:focus-visible {
     letter-spacing: 0.08em;
     padding: 10px 22px;
     border-radius: 100px;
-    background: var(--accent-lime);
-    color: var(--text-on-accent);
+    background: var(--color-primary);
+    color: var(--color-primary-text);
     border: none;
     cursor: pointer;
     transition:
@@ -6659,8 +6723,8 @@ button:focus-visible {
 
 .ed-secure-btn {
     padding: 14px 26px;
-    background: var(--accent-lime);
-    color: var(--text-on-accent);
+    background: var(--color-primary);
+    color: var(--color-primary-text);
     border: none;
     border-radius: 100px;
     font-family: var(--font-body);
@@ -6673,6 +6737,7 @@ button:focus-visible {
         opacity 0.15s,
         transform 0.1s;
     white-space: nowrap;
+    box-shadow: 0 4px 16px var(--color-primary-glow);
 }
 .ed-secure-btn:hover {
     opacity: 0.9;
@@ -6686,7 +6751,15 @@ button:focus-visible {
     transform: none;
 }
 
-/* ── Light mode overrides untuk styles baru ─────────────────────────────────── */
+/* ── Footer cart qty badge (shown instead of starting-price when cart has items) */
+.footer-cart-qty {
+    font-family: var(--font-display);
+    font-size: 28px;
+    color: var(--color-primary);
+    line-height: 1;
+}
+
+/* ── Light mode overrides ────────────────────────────────────────────────────── */
 [data-theme="light"] .ed-cat-badge {
     background: rgba(0, 0, 20, 0.08);
     color: var(--text-primary);
@@ -6694,11 +6767,6 @@ button:focus-visible {
 }
 [data-theme="light"] .ed-chip {
     border-color: var(--border-strong);
-}
-[data-theme="light"] .tier-add-btn,
-[data-theme="light"] .ed-secure-btn {
-    background: var(--accent-lime);
-    color: var(--text-on-accent);
 }
 
 .detail-hero {
@@ -6753,7 +6821,7 @@ button:focus-visible {
 .starting-price {
     font-family: var(--font-display);
     font-size: 36px;
-    color: var(--accent-lime);
+    color: var(--color-primary);
     line-height: 1;
 }
 .info-section {
@@ -7007,8 +7075,8 @@ button:focus-visible {
     cursor: not-allowed;
 }
 .qty-btn--plus {
-    background: var(--accent-blue);
-    color: white;
+    background: var(--color-primary);
+    color: var(--color-primary-text);
 }
 .qty-val {
     width: 40px;
@@ -7559,7 +7627,7 @@ button:focus-visible {
 .ed-hero-starting .starting-price {
     font-family: var(--font-display);
     font-size: 32px;
-    color: var(--accent-lime);
+    color: var(--color-primary);
     line-height: 1;
 }
 
@@ -7933,8 +8001,8 @@ button:focus-visible {
     cursor: not-allowed;
 }
 .qty-btn--plus {
-    background: var(--accent-blue);
-    color: white;
+    background: var(--color-primary);
+    color: var(--color-primary-text);
 }
 .qty-val {
     width: 40px;
@@ -9341,6 +9409,7 @@ body.body-scroll-locked {
 [data-theme="light"] .exp-sovl-input-wrap:focus-within {
     border-color: var(--accent-lime);
 }
+
 /* ==== page-home.css ==== */
 /* ═══════════════════════════════════════════════════════════════════════
    HOME PAGE
@@ -10710,6 +10779,301 @@ body.body-scroll-locked {
 .exp-clear-btn:hover {
     background: rgba(255, 80, 80, 0.18);
 }
+
+/* ==== page-lives.css ==== */
+/* ═════════════════════════════════════════════════════════════════════════
+   LIVES — daftar siaran langsung + feed swipe vertikal
+   ═════════════════════════════════════════════════════════════════════════ */
+
+.lives-page {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 0 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.lives-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 0;
+    position: sticky;
+    top: 0;
+    z-index: var(--z-header);
+    background: var(--bg-page);
+}
+
+.lives-back,
+.lives-refresh {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-soft);
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.lives-back:hover,
+.lives-refresh:hover { background: var(--bg-elevated-2); }
+
+.lives-title {
+    flex: 1;
+    font-family: var(--font-display);
+    font-size: 20px;
+    letter-spacing: 0.04em;
+    color: var(--text-primary);
+}
+
+/* ── Status (loading / kosong / error) ─────────────────────────────────── */
+.lives-status {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 80px 16px;
+    color: var(--text-muted);
+}
+.lives-status svg { opacity: 0.5; }
+.lives-status-text {
+    font-family: var(--font-body);
+    font-size: 13px;
+    color: var(--text-muted);
+    text-align: center;
+}
+.lives-spinner {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.15);
+    border-top-color: var(--live-green);
+    animation: live-spin 0.8s linear infinite;
+}
+
+/* ── Grid kartu live ───────────────────────────────────────────────────── */
+.lives-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding-bottom: 90px;
+}
+
+.lives-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--bg-card);
+    overflow: hidden;
+    cursor: pointer;
+    text-align: left;
+    transition: transform 0.15s, border-color 0.15s;
+}
+.lives-card:hover { border-color: var(--live-green); }
+.lives-card:active { transform: scale(0.97); }
+
+.lives-card-thumb {
+    position: relative;
+    aspect-ratio: 3 / 4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle at 50% 35%, var(--bg-elevated-2), var(--bg-card));
+}
+
+.lives-card-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--live-green);
+    color: var(--text-on-accent);
+    font-family: var(--font-display);
+    font-size: 28px;
+    font-weight: 700;
+}
+
+.lives-card-badge {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 100px;
+    background: var(--danger);
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+}
+.lives-card-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #fff;
+    animation: live-pulse 1.2s ease-in-out infinite;
+}
+
+.lives-card-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 12px 12px;
+}
+.lives-card-name {
+    font-family: var(--font-display);
+    font-size: 14px;
+    letter-spacing: 0.02em;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.lives-card-viewers {
+    font-family: var(--font-body);
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+/* ── Feed fullscreen (swipe vertikal seperti app live lain) ────────────── */
+.lives-feed {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    background: #000;
+    overflow-y: scroll;
+    scroll-snap-type: y mandatory;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+}
+.lives-feed::-webkit-scrollbar { display: none; }
+
+.lives-feed-close {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 14px);
+    left: 14px;
+    z-index: 210;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(0, 0, 0, 0.4);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.lives-slide {
+    height: 100dvh;
+    width: 100%;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Viewer di dalam slide → immersive full-bleed, kontrol mengambang di atas video */
+.lives-slide .live-viewer {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: none;
+    border-radius: 0;
+    background: #000;
+    display: block;
+}
+.lives-slide .live-viewer-video-wrap {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+}
+.lives-slide .live-viewer-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.lives-slide .live-viewer-header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 5;
+    padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px 24px 64px;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.55), transparent);
+}
+.lives-slide .live-viewer-merchant { color: #fff; }
+.lives-slide .live-viewer-controls {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 5;
+    padding: 24px 16px calc(env(safe-area-inset-bottom, 0px) + 22px);
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.6), transparent);
+}
+.lives-slide .live-viewer-viewers { color: rgba(255, 255, 255, 0.9); }
+.lives-slide .live-viewer-error {
+    position: absolute;
+    bottom: 90px;
+    left: 16px;
+    right: 16px;
+    z-index: 6;
+}
+
+/* Placeholder slide non-aktif */
+.lives-slide-ph {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: rgba(255, 255, 255, 0.7);
+}
+.lives-ph-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--live-green);
+    color: var(--text-on-accent);
+    font-family: var(--font-display);
+    font-size: 34px;
+    font-weight: 700;
+}
+.lives-ph-name {
+    font-family: var(--font-display);
+    font-size: 18px;
+    color: #fff;
+}
+.lives-ph-hint {
+    font-family: var(--font-body);
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+}
+
 /* ==== page-merchant-event.css ==== */
 /* ═══════════════════════════════════════════════════════════════════════
    MERCHANT CREATE / EDIT EVENT  (medit-*)
@@ -11319,6 +11683,82 @@ body.body-scroll-locked {
     box-sizing: border-box;
 }
 
+/* ── Action bar (submit + cancel row) ──────────────────────────────────── */
+.medit-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 8px;
+    width: 100%;
+}
+
+/* Primary action — same visual weight as medit-update-btn */
+.medit-submit-btn {
+    width: 100%;
+    padding: 15px 24px;
+    background: var(--accent-lime);
+    border: none;
+    border-radius: 14px;
+    color: #0a0a14;
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.1s;
+    appearance: none;
+    -webkit-appearance: none;
+    margin: 0;
+    text-align: center;
+    white-space: nowrap;
+}
+.medit-submit-btn:hover { opacity: 0.9; }
+.medit-submit-btn:active { transform: scale(0.98); }
+.medit-submit-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+/* Secondary / cancel */
+.medit-cancel-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 13px 24px;
+    background: transparent;
+    border: 1.5px solid var(--border-strong);
+    border-radius: 14px;
+    color: var(--text-secondary);
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    text-decoration: none;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+    white-space: nowrap;
+    text-align: center;
+}
+.medit-cancel-btn:hover {
+    border-color: var(--border-soft);
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="light"] .medit-submit-btn { color: #fff; }
+[data-theme="light"] .medit-cancel-btn {
+    border-color: var(--border-strong);
+    color: var(--text-secondary);
+}
+[data-theme="light"] .medit-cancel-btn:hover {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+}
+
 /* Publish / Update button */
 .medit-update-btn {
     width: 100%;
@@ -11801,6 +12241,7 @@ body.body-scroll-locked {
 [data-theme="light"] .esp-toggle-btn {
   color: var(--accent-lime);
 }
+
 /* ==== page-merchant-landing.css ==== */
 /* ═══════════════════════════════════════════════════════════════════════
    PULSE LANDING PAGE  —  styles/page-pulse-landing.css
@@ -12206,7 +12647,7 @@ body.body-scroll-locked {
     width: 72px;
     padding: 6px 8px 6px 0;
     text-align: right;
-    -moz-appearance: textfield;
+    appearance: textfield;
 }
 .pl-num-input::-webkit-outer-spin-button,
 .pl-num-input::-webkit-inner-spin-button {
@@ -12393,6 +12834,614 @@ body.body-scroll-locked {
     color: var(--text-muted);
     letter-spacing: 0.04em;
     margin: 0;
+}
+
+/* ==== page-merchant-live.css ==== */
+/* ═════════════════════════════════════════════════════════════════════════
+   MERCHANT LIVE — Go Live page + Live Stream Viewer
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* ── Live button in merchant header ────────────────────────────────────── */
+.mhub-live-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 14px;
+    border-radius: 100px;
+    background: var(--live-green);
+    color: var(--text-on-accent);
+    font-family: var(--font-body);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-decoration: none;
+    transition: opacity 0.15s, transform 0.15s;
+    flex-shrink: 0;
+}
+.mhub-live-btn:hover { opacity: 0.88; }
+.mhub-live-btn:active { transform: scale(0.94); }
+
+/* ── Merchant Live Page ────────────────────────────────────────────────── */
+.merchant-live-page {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 0 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.mlive-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 0;
+    position: sticky;
+    top: 0;
+    z-index: var(--z-header);
+    background: var(--bg-page);
+}
+
+.mlive-header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.mlive-back-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-soft);
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    transition: background 0.15s;
+}
+.mlive-back-btn:hover { background: var(--bg-elevated-2); }
+
+.mlive-header-title {
+    font-family: var(--font-display);
+    font-size: 20px;
+    letter-spacing: 0.04em;
+    color: var(--text-primary);
+}
+
+.mlive-live-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 100px;
+    background: var(--danger);
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    animation: live-pulse-bg 2s ease-in-out infinite;
+}
+
+.mlive-live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #fff;
+    animation: live-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+@keyframes live-pulse-bg {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.85; }
+}
+
+/* ── Preview area ──────────────────────────────────────────────────────── */
+.mlive-preview-area {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: 18px;
+    overflow: hidden;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+}
+
+.mlive-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.mlive-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(0, 0, 0, 0.5);
+    color: var(--text-muted);
+}
+.mlive-overlay svg { opacity: 0.5; }
+
+.mlive-overlay-text {
+    font-family: var(--font-body);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+
+/* ── Stats row ─────────────────────────────────────────────────────────── */
+.mlive-stats-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.mlive-stat {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.mlive-stat-label {
+    font-family: var(--font-body);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: var(--text-muted);
+}
+
+.mlive-stat-value {
+    font-family: var(--font-display);
+    font-size: 22px;
+    color: var(--text-primary);
+    letter-spacing: 0.02em;
+}
+
+/* ── Error ─────────────────────────────────────────────────────────────── */
+.mlive-error {
+    background: rgba(255, 79, 107, 0.1);
+    border: 1px solid rgba(255, 79, 107, 0.25);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-family: var(--font-body);
+    font-size: 12px;
+    color: var(--danger);
+}
+
+/* ── Action buttons ────────────────────────────────────────────────────── */
+.mlive-actions {
+    display: flex;
+    justify-content: center;
+}
+
+.mlive-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 36px;
+    border-radius: 100px;
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    border: none;
+    transition: opacity 0.15s, transform 0.15s;
+}
+.mlive-btn:active { transform: scale(0.95); }
+
+.mlive-btn--start {
+    background: var(--live-green);
+    color: var(--text-on-accent);
+    box-shadow: 0 0 30px rgba(57, 255, 138, 0.3);
+}
+.mlive-btn--start:hover { opacity: 0.9; }
+
+.mlive-btn--stop {
+    background: var(--danger);
+    color: #fff;
+    box-shadow: 0 0 20px rgba(255, 79, 107, 0.3);
+}
+.mlive-btn--stop:hover { opacity: 0.9; }
+
+/* ── Tips ──────────────────────────────────────────────────────────────── */
+.mlive-tips {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+}
+
+.mlive-tips-title {
+    font-family: var(--font-display);
+    font-size: 16px;
+    letter-spacing: 0.04em;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+}
+
+.mlive-tips-list {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.mlive-tips-list li {
+    font-family: var(--font-body);
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    padding-left: 16px;
+    position: relative;
+}
+
+.mlive-tips-list li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 7px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-lime);
+}
+
+/* ── Mode streaming penuh layar (immersive, mirip app live lain) ────────── */
+.merchant-live-page.is-streaming {
+    max-width: none;
+    padding: 0;
+    gap: 0;
+}
+
+/* Header → overlay transparan di atas video */
+.merchant-live-page.is-streaming .mlive-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: 14px 16px;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.55), transparent);
+    z-index: 70;
+}
+.merchant-live-page.is-streaming .mlive-header-title { color: #fff; }
+.merchant-live-page.is-streaming .mlive-back-btn {
+    color: #fff;
+    background: rgba(0, 0, 0, 0.35);
+    border-color: rgba(255, 255, 255, 0.25);
+}
+/* Badge LIVE di header redundan saat fullscreen (sudah ada di overlay video) */
+.merchant-live-page.is-streaming .mlive-header .mlive-live-badge { display: none; }
+
+/* Video memenuhi seluruh layar */
+.merchant-live-page.is-streaming .mlive-preview-area {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+    aspect-ratio: auto;
+    border: none;
+    border-radius: 0;
+    background: #000;
+    z-index: 40;
+}
+
+/* Sembunyikan elemen non-esensial + bottom nav saat streaming */
+.merchant-live-page.is-streaming .mlive-stats-row,
+.merchant-live-page.is-streaming .mlive-tips { display: none; }
+.merchant-live-page.is-streaming ~ .bottom-nav { display: none; }
+
+/* Tombol STOP mengambang di bawah */
+.merchant-live-page.is-streaming .mlive-actions {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 28px);
+    z-index: 70;
+}
+.merchant-live-page.is-streaming .mlive-error {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 92px);
+    z-index: 70;
+}
+
+/* Overlay info (LIVE + viewer) di atas video */
+.mlive-stream-overlay {
+    position: absolute;
+    top: 64px;
+    left: 16px;
+    right: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    pointer-events: none;
+    z-index: 60;
+}
+.mlive-stream-live {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 100px;
+    background: var(--danger);
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    animation: live-pulse-bg 2s ease-in-out infinite;
+}
+.mlive-stream-viewers {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 12px;
+    border-radius: 100px;
+    background: rgba(0, 0, 0, 0.5);
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* Daftar penonton yang sedang join (overlay di atas video saat fullscreen) */
+.mlive-roster {
+    position: absolute;
+    top: 104px;
+    left: 16px;
+    right: 16px;
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    z-index: 60;
+    scrollbar-width: none;
+}
+.mlive-roster::-webkit-scrollbar { display: none; }
+
+.mlive-roster-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    width: 48px;
+}
+
+.mlive-roster-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid rgba(255, 255, 255, 0.7);
+    background: var(--bg-elevated);
+}
+.mlive-roster-avatar--initial {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--live-green);
+    color: var(--text-on-accent);
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.mlive-roster-name {
+    max-width: 48px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-body);
+    font-size: 9px;
+    color: #fff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+/* ═════════════════════════════════════════════════════════════════════════
+   LIVE STREAM VIEWER (embedded in event detail)
+   ═════════════════════════════════════════════════════════════════════════ */
+
+.live-viewer {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+}
+
+.live-viewer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--bg-elevated);
+}
+
+.live-viewer-merchant {
+    font-family: var(--font-display);
+    font-size: 14px;
+    letter-spacing: 0.04em;
+    color: var(--text-primary);
+}
+
+.live-viewer-badge {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 12px;
+    border-radius: 100px;
+    background: var(--danger);
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+}
+
+.live-viewer-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #fff;
+    animation: live-pulse 1.2s ease-in-out infinite;
+}
+
+.live-viewer-video-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #000;
+}
+
+.live-viewer-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.live-viewer-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(0, 0, 0, 0.55);
+    color: rgba(255, 255, 255, 0.78);
+    font-family: var(--font-body);
+    font-size: 12px;
+    letter-spacing: 0.02em;
+}
+
+/* Overlay yang sekaligus tombol (klik di mana saja untuk gabung) */
+.live-viewer-overlay--btn {
+    border: none;
+    width: 100%;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.live-viewer-overlay--btn:hover { background: rgba(0, 0, 0, 0.42); }
+.live-viewer-overlay--btn:active { background: rgba(0, 0, 0, 0.6); }
+
+.live-viewer-play {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--live-green);
+    color: var(--text-on-accent);
+    padding-left: 3px;
+    box-shadow: 0 0 26px rgba(57, 255, 138, 0.45);
+    transition: transform 0.15s;
+}
+.live-viewer-overlay--btn:hover .live-viewer-play { transform: scale(1.06); }
+
+.live-viewer-spinner {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: var(--live-green);
+    animation: live-spin 0.8s linear infinite;
+}
+
+@keyframes live-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Section live di halaman detail event */
+.ed-live-section .live-viewer {
+    margin-top: 6px;
+}
+
+.live-viewer-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+}
+
+.live-viewer-viewers {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font-body);
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.live-viewer-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 18px;
+    border-radius: 100px;
+    font-family: var(--font-body);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    border: none;
+    transition: opacity 0.15s, transform 0.15s;
+}
+.live-viewer-btn:active { transform: scale(0.94); }
+.live-viewer-btn:disabled { opacity: 0.55; cursor: progress; }
+
+.live-viewer-btn--join {
+    background: var(--live-green);
+    color: var(--text-on-accent);
+}
+
+.live-viewer-btn--leave {
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+}
+
+.live-viewer-error {
+    margin: 0 14px 10px;
+    background: rgba(255, 79, 107, 0.1);
+    border: 1px solid rgba(255, 79, 107, 0.2);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-family: var(--font-body);
+    font-size: 11px;
+    color: var(--danger);
+}
+
+/* ── Light theme adjustments ────────────────────────────────────────────── */
+[data-theme="light"] .mlive-btn--start {
+    box-shadow: 0 0 20px rgba(10, 112, 53, 0.2);
+}
+[data-theme="light"] .mlive-btn--stop {
+    box-shadow: 0 0 20px rgba(188, 24, 48, 0.2);
 }
 
 /* ==== page-merchant.css ==== */
@@ -14023,7 +15072,7 @@ body.body-scroll-locked {
 .merchant-page.mhub-mobile {
     padding-bottom: 80px;
     min-height: 100dvh;
-    background: var(--bg-base);
+    background: transparent;
 }
 
 /* ── Header ─────────────────────────────────────────────────────────────────── */
@@ -14633,6 +15682,7 @@ body.body-scroll-locked {
     margin-left: 0;
     margin-right: 0;
 }
+
 /* ==== page-messages.css ==== */
 /* ═══════════════════════════════════════════════════════════════════════
    MESSAGES & CHAT PAGES
@@ -16047,9 +17097,9 @@ body.body-scroll-locked {
     font-size: 10px;
     letter-spacing: 0.08em;
     font-weight: 700;
-    color: var(--accent-lime);
-    background: rgba(200, 255, 94, 0.1);
-    border: 1px solid rgba(200, 255, 94, 0.25);
+    color: var(--color-primary);
+    background: var(--color-primary-soft);
+    border: 1px solid var(--color-primary-border);
     border-radius: 100px;
     padding: 3px 10px;
 }
@@ -16116,7 +17166,7 @@ body.body-scroll-locked {
 .oc-price-total-amt {
     font-family: var(--font-display);
     font-size: 32px;
-    color: var(--accent-lime);
+    color: var(--color-primary);
     letter-spacing: 0.02em;
     line-height: 1;
 }
@@ -16344,14 +17394,14 @@ body.body-scroll-locked {
     width: 100px;
     height: 100px;
     border-radius: 50%;
-    background: var(--accent-lime);
+    background: var(--color-primary);
     display: flex;
     align-items: center;
     justify-content: center;
     margin-bottom: 24px;
     box-shadow:
-        0 0 60px rgba(200, 255, 94, 0.5),
-        0 0 120px rgba(200, 255, 94, 0.2);
+        0 0 60px var(--color-primary-glow),
+        0 0 120px var(--color-primary-soft);
     animation: ps-pop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
 }
 @keyframes ps-pop {
@@ -16365,7 +17415,7 @@ body.body-scroll-locked {
     }
 }
 .ps-check-inner {
-    color: var(--text-on-accent);
+    color: var(--color-primary-text);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -16454,7 +17504,7 @@ body.body-scroll-locked {
 .ps-card-price {
     font-family: var(--font-display);
     font-size: 30px;
-    color: var(--accent-lime);
+    color: var(--color-primary);
     letter-spacing: 0.02em;
     line-height: 1;
 }
@@ -16523,8 +17573,8 @@ body.body-scroll-locked {
     gap: 8px;
     width: 100%;
     padding: 17px;
-    background: linear-gradient(135deg, var(--accent-blue), var(--accent-violet));
-    color: #fff;
+    background: var(--color-primary);
+    color: var(--color-primary-text);
     border: none;
     border-radius: 100px;
     font-family: var(--font-body);
@@ -16534,7 +17584,7 @@ body.body-scroll-locked {
     cursor: pointer;
     text-decoration: none;
     transition: opacity 0.2s;
-    box-shadow: 0 4px 20px rgba(79, 107, 255, 0.35);
+    box-shadow: 0 4px 20px var(--color-primary-glow);
 }
 .ps-primary-btn:hover {
     opacity: 0.88;
@@ -16564,29 +17614,21 @@ body.body-scroll-locked {
 [data-theme="light"] .ps-card-event {
     color: var(--accent-blue);
 }
-[data-theme="light"] .ps-card-price {
-    color: var(--accent-blue);
-}
-[data-theme="light"] .ps-check-circle {
-    background: var(--accent-lime);
-    box-shadow: 0 0 40px rgba(61, 102, 0, 0.25);
-}
-[data-theme="light"] .ps-check-inner {
-    color: #fff;
-}
 [data-theme="light"] .ps-status {
     color: var(--live-green);
 }
 [data-theme="light"] .ps-status-dot {
     background: var(--live-green);
 }
+
 /* ==== page-notifications.css ==== */
 /* ═══════════════════════════════════════════════════════════════════════
    NOTIFICATIONS PAGE
    ═══════════════════════════════════════════════════════════════════════ */
 
 /* ── Keyframes ────────────────────────────────────────────────────────────── */
-@keyframes pulse {
+/* pulse-dot uses its own animation to avoid conflict with base.css @keyframes pulse */
+@keyframes pulse-dot {
     0%   { opacity: 1; transform: scale(1); }
     50%  { opacity: 0.5; transform: scale(1.3); }
     100% { opacity: 1; transform: scale(1); }
@@ -16724,7 +17766,7 @@ body.body-scroll-locked {
     height: 5px;
     border-radius: 50%;
     background: var(--text-on-accent);
-    animation: pulse 1.4s infinite;
+    animation: pulse-dot 1.4s infinite;
 }
 
 .pulse-dot--green {
@@ -16770,7 +17812,8 @@ body.body-scroll-locked {
 .notif-cta {
     align-self: flex-start;
     margin-top: 6px;
-    padding: 8px 16px;
+    padding: 10px 18px;
+    min-height: 40px;
     border-radius: 100px;
     background: transparent;
     border: 1.5px solid var(--accent-lime);
@@ -16780,8 +17823,11 @@ body.body-scroll-locked {
     letter-spacing: 0.08em;
     font-weight: 700;
     cursor: pointer;
-    transition: all 0.15s;
+    display: inline-flex;
+    align-items: center;
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
 }
+.notif-cta:active { transform: scale(0.97); }
 
 .notif-cta:hover {
     background: rgba(200, 255, 94, 0.12);
@@ -17569,6 +18615,7 @@ body.body-scroll-locked {
     max-height: 68vh;
     border-radius: 26px;
 }
+
 /* ==== page-order-detail.css ==== */
 /* ═══════════════════════════════════════════════════════════════════════
    ORDER DETAIL — Verification Page — page-order-detail.css
@@ -17949,6 +18996,7 @@ body.body-scroll-locked {
     padding-bottom: 8px;
 }
 .vp-secure-footer svg { opacity: 0.5; }
+
 /* ==== page-order-tickets.css ==== */
 /* ═══════════════════════════════════════════════════════════════════════
    YOUR TICKETS PAGE — page-order-tickets.css
@@ -18525,7 +19573,8 @@ body.body-scroll-locked {
     border: 1px solid rgba(180, 130, 255, 0.28);
 }
 .order-status-badge--cancelled {
-    background: transparent;
+    background: rgba(255, 138, 101, 0.1);
+    border: 1px solid rgba(255, 138, 101, 0.22);
     color: #ff8a65;
     font-size: 10px;
     letter-spacing: 0.06em;
@@ -18628,6 +19677,7 @@ body.body-scroll-locked {
 .shim-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .shim-ord-amount { height: 20px; width: 35%; border-radius: 8px; }
 .shim-ord-btn { height: 38px; width: 30%; border-radius: 100px; }
+
 /* ==== page-profile.css ==== */
 /* ═══════════════════════════════════════════════════════════════════════
    PROFILE PAGE
@@ -18681,19 +19731,21 @@ body.body-scroll-locked {
 }
 .avatar-edit {
     position: absolute;
-    bottom: 4px;
-    right: 4px;
-    width: 30px;
-    height: 30px;
+    bottom: 2px;
+    right: 2px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     background: var(--accent-lime);
-    border: none;
+    border: 2px solid var(--bg-page);
     cursor: pointer;
     color: var(--text-on-accent);
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: opacity 0.15s, transform 0.1s;
 }
+.avatar-edit:hover { opacity: 0.9; transform: scale(1.05); }
 .profile-name {
     font-family: var(--font-display);
     font-size: 36px;
@@ -19066,8 +20118,8 @@ body.body-scroll-locked {
     background: var(--bg-elevated-2);
 }
 .profile-exp-share-btn {
-    width: 28px;
-    height: 28px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
@@ -19076,9 +20128,10 @@ body.body-scroll-locked {
     justify-content: center;
     color: var(--text-secondary);
     cursor: pointer;
-    transition: background 0.2s;
+    transition: background 0.2s, color 0.2s;
     flex-shrink: 0;
 }
+.profile-exp-share-btn:active { opacity: 0.7; }
 .profile-exp-share-btn:hover {
     background: var(--bg-elevated-2);
 }
@@ -19521,10 +20574,17 @@ body.body-scroll-locked {
 }
 
 .scan-video {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
     border-radius: 18px;
+    opacity: 0;
+    pointer-events: none;
+}
+.scan-video--active {
+    opacity: 1;
 }
 
 /* Corner frame overlay */
@@ -20373,84 +21433,6 @@ body.body-scroll-locked {
 .sv-tap-zone:hover .sv-tap-hint {
     background: rgba(0,0,0,0.28);
     color: rgba(255,255,255,0.7);
-}
-
-/* ── Swipe-up deep link ── */
-.sv-swipe-up-container {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    z-index: 25;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-end;
-    padding-bottom: 18px;
-    gap: 6px;
-    cursor: pointer;
-    padding-top: 60px;
-    -webkit-tap-highlight-color: transparent;
-    animation: sv-swipe-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.3s both;
-}
-
-@keyframes sv-swipe-in {
-    from { opacity: 0; transform: translateY(20px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-
-.sv-swipe-up-chevron {
-    color: #fff;
-    opacity: 0.75;
-    animation: sv-chevron-bounce 1.6s ease-in-out infinite;
-    line-height: 1;
-}
-
-@keyframes sv-chevron-bounce {
-    0%, 100% { transform: translateY(0); }
-    50%      { transform: translateY(-6px); }
-}
-
-.sv-swipe-up-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    background: rgba(255,255,255,0.15);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255,255,255,0.22);
-    color: #fff;
-    padding: 10px 20px;
-    border-radius: 100px;
-    font-size: 13px;
-    font-weight: 600;
-    white-space: nowrap;
-    max-width: 300px;
-    transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
-}
-
-.sv-swipe-up-container:hover .sv-swipe-up-pill {
-    background: rgba(255,255,255,0.25);
-    border-color: rgba(200,255,94,0.4);
-    transform: scale(1.04);
-}
-
-.sv-swipe-up-container:active .sv-swipe-up-pill {
-    transform: scale(0.97);
-}
-
-.sv-swipe-up-label {
-    color: rgba(255,255,255,0.70);
-    font-size: 12px;
-    font-weight: 500;
-}
-
-.sv-swipe-up-title {
-    color: var(--accent-lime, #c8ff5e);
-    font-weight: 700;
-    max-width: 140px;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 
 /* ── Instagram-style Event Detail Bottom Sheet ── */
@@ -21985,6 +22967,15 @@ body.body-scroll-locked {
     white-space: nowrap;
 }
 
+.sc-event-card-ticket-label {
+    margin-top: clamp(6px, 1.8cqw, 10px);
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: clamp(11px, 3.2cqw, 16px);
+    font-weight: 500;
+    color: rgba(255,255,255,0.55);
+    letter-spacing: 0.01em;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────
    DRAGGABLE OVERLAYS (drg-*)
    ───────────────────────────────────────────────────────────────────────── */
@@ -22495,6 +23486,7 @@ body.body-scroll-locked {
     color: var(--text-secondary, #636e72);
     font-weight: 600;
 }
+
 /* ==== page-ticket-detail.css ==== */
 /* ═══════════════════════════════════════════════════════════════════════
    TICKET DETAIL PAGE  (td-*)
@@ -22860,6 +23852,7 @@ body.body-scroll-locked {
 [data-theme="light"] .td-info-card { background: var(--bg-elevated); border-color: var(--border); }
 [data-theme="light"] .td-btn--primary { background: var(--accent-lime); color: var(--text-on-accent); }
 [data-theme="light"] .td-btn--ghost { background: var(--bg-card); border-color: var(--border); color: var(--text-primary); }
+
 /* ==== page-tickets.css ==== */
 /* ═══════════════════════════════════════════════════════════════════════
    TICKETS LIST PAGE
@@ -23296,7 +24289,9 @@ body.body-scroll-locked {
 
 .menu-item--premium         { background: rgba(200,255,94,0.06) !important;
                                border-color: rgba(200,255,94,0.18) !important; }
-.menu-item-icon--premium    { background: rgba(200,255,94,0.12) !important; font-size:16px; }
+.menu-item--premium .menu-item-label { color: #c8ff5e; }
+.menu-item-icon--premium    { background: rgba(200,255,94,0.12) !important;
+                               color: #c8ff5e; font-size:16px; }
 .menu-badge-active          { font-size:9px; font-weight:800; padding:2px 7px;
                                border-radius:100px; background:#c8ff5e; color:#0a0a14; }
 .menu-badge-new             { font-size:9px; font-weight:800; padding:2px 7px;
@@ -23304,6 +24299,7 @@ body.body-scroll-locked {
                                color:#c8ff5e; }
 .story-avatar-ring--upgrade { background: linear-gradient(135deg,#f7b42c,#fc575e); }
 .story-username--upgrade    { color: #f7b42c; font-weight: 700; }
+
 /* ==== subscription.css ==== */
 /* ─────────────────────────────────────────────────────────────────────────────
    subscription.css  —  Kinetic Premium Subscription Page
@@ -24386,409 +25382,4 @@ body.body-scroll-locked {
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-}/* ═════════════════════════════════════════════════════════════════════════
-   MERCHANT LIVE — Go Live page + Live Stream Viewer
-   ═════════════════════════════════════════════════════════════════════════ */
-
-/* ── Live button in merchant header ────────────────────────────────────── */
-.mhub-live-btn {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    padding: 6px 14px;
-    border-radius: 100px;
-    background: var(--live-green);
-    color: var(--text-on-accent);
-    font-family: var(--font-body);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-decoration: none;
-    transition: opacity 0.15s, transform 0.15s;
-    flex-shrink: 0;
-}
-.mhub-live-btn:hover { opacity: 0.88; }
-.mhub-live-btn:active { transform: scale(0.94); }
-
-/* ── Merchant Live Page ────────────────────────────────────────────────── */
-.merchant-live-page {
-    max-width: 480px;
-    margin: 0 auto;
-    padding: 0 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
-.mlive-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 14px 0;
-    position: sticky;
-    top: 0;
-    z-index: var(--z-header);
-    background: var(--bg-page);
-}
-
-.mlive-header-left {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.mlive-back-btn {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-soft);
-    color: var(--text-primary);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    text-decoration: none;
-    transition: background 0.15s;
-}
-.mlive-back-btn:hover { background: var(--bg-elevated-2); }
-
-.mlive-header-title {
-    font-family: var(--font-display);
-    font-size: 20px;
-    letter-spacing: 0.04em;
-    color: var(--text-primary);
-}
-
-.mlive-live-badge {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 14px;
-    border-radius: 100px;
-    background: var(--danger);
-    color: #fff;
-    font-family: var(--font-body);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    animation: live-pulse-bg 2s ease-in-out infinite;
-}
-
-.mlive-live-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #fff;
-    animation: live-pulse 1.2s ease-in-out infinite;
-}
-
-@keyframes live-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
-}
-
-@keyframes live-pulse-bg {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.85; }
-}
-
-/* ── Preview area ──────────────────────────────────────────────────────── */
-.mlive-preview-area {
-    position: relative;
-    width: 100%;
-    aspect-ratio: 16 / 9;
-    border-radius: 18px;
-    overflow: hidden;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-}
-
-.mlive-video {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-}
-
-.mlive-overlay {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    background: rgba(0, 0, 0, 0.5);
-    color: var(--text-muted);
-}
-.mlive-overlay svg { opacity: 0.5; }
-
-.mlive-overlay-text {
-    font-family: var(--font-body);
-    font-size: 12px;
-    letter-spacing: 0.04em;
-    color: var(--text-muted);
-}
-
-/* ── Stats row ─────────────────────────────────────────────────────────── */
-.mlive-stats-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-}
-
-.mlive-stat {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 12px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.mlive-stat-label {
-    font-family: var(--font-body);
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    color: var(--text-muted);
-}
-
-.mlive-stat-value {
-    font-family: var(--font-display);
-    font-size: 22px;
-    color: var(--text-primary);
-    letter-spacing: 0.02em;
-}
-
-/* ── Error ─────────────────────────────────────────────────────────────── */
-.mlive-error {
-    background: rgba(255, 79, 107, 0.1);
-    border: 1px solid rgba(255, 79, 107, 0.25);
-    border-radius: 10px;
-    padding: 10px 14px;
-    font-family: var(--font-body);
-    font-size: 12px;
-    color: var(--danger);
-}
-
-/* ── Action buttons ────────────────────────────────────────────────────── */
-.mlive-actions {
-    display: flex;
-    justify-content: center;
-}
-
-.mlive-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 14px 36px;
-    border-radius: 100px;
-    font-family: var(--font-body);
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    cursor: pointer;
-    border: none;
-    transition: opacity 0.15s, transform 0.15s;
-}
-.mlive-btn:active { transform: scale(0.95); }
-
-.mlive-btn--start {
-    background: var(--live-green);
-    color: var(--text-on-accent);
-    box-shadow: 0 0 30px rgba(57, 255, 138, 0.3);
-}
-.mlive-btn--start:hover { opacity: 0.9; }
-
-.mlive-btn--stop {
-    background: var(--danger);
-    color: #fff;
-    box-shadow: 0 0 20px rgba(255, 79, 107, 0.3);
-}
-.mlive-btn--stop:hover { opacity: 0.9; }
-
-/* ── Tips ──────────────────────────────────────────────────────────────── */
-.mlive-tips {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 16px;
-}
-
-.mlive-tips-title {
-    font-family: var(--font-display);
-    font-size: 16px;
-    letter-spacing: 0.04em;
-    color: var(--text-primary);
-    margin-bottom: 10px;
-}
-
-.mlive-tips-list {
-    list-style: none;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.mlive-tips-list li {
-    font-family: var(--font-body);
-    font-size: 12px;
-    color: var(--text-secondary);
-    line-height: 1.5;
-    padding-left: 16px;
-    position: relative;
-}
-
-.mlive-tips-list li::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 7px;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--accent-lime);
-}
-
-/* ═════════════════════════════════════════════════════════════════════════
-   LIVE STREAM VIEWER (embedded in event detail)
-   ═════════════════════════════════════════════════════════════════════════ */
-
-.live-viewer {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    overflow: hidden;
-}
-
-.live-viewer-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 14px;
-    background: var(--bg-elevated);
-}
-
-.live-viewer-merchant {
-    font-family: var(--font-display);
-    font-size: 14px;
-    letter-spacing: 0.04em;
-    color: var(--text-primary);
-}
-
-.live-viewer-badge {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    padding: 4px 12px;
-    border-radius: 100px;
-    background: var(--danger);
-    color: #fff;
-    font-family: var(--font-body);
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-}
-
-.live-viewer-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: #fff;
-    animation: live-pulse 1.2s ease-in-out infinite;
-}
-
-.live-viewer-video-wrap {
-    position: relative;
-    width: 100%;
-    aspect-ratio: 16 / 9;
-    background: #000;
-}
-
-.live-viewer-video {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-}
-
-.live-viewer-overlay {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(0, 0, 0, 0.55);
-    color: rgba(255, 255, 255, 0.7);
-    font-family: var(--font-body);
-    font-size: 12px;
-}
-
-.live-viewer-controls {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 14px;
-}
-
-.live-viewer-viewers {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    font-family: var(--font-body);
-    font-size: 11px;
-    color: var(--text-muted);
-}
-
-.live-viewer-btn {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 18px;
-    border-radius: 100px;
-    font-family: var(--font-body);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    cursor: pointer;
-    border: none;
-    transition: opacity 0.15s, transform 0.15s;
-}
-.live-viewer-btn:active { transform: scale(0.94); }
-
-.live-viewer-btn--join {
-    background: var(--live-green);
-    color: var(--text-on-accent);
-}
-
-.live-viewer-btn--leave {
-    background: var(--bg-elevated);
-    color: var(--text-secondary);
-    border: 1px solid var(--border);
-}
-
-.live-viewer-error {
-    margin: 0 14px 10px;
-    background: rgba(255, 79, 107, 0.1);
-    border: 1px solid rgba(255, 79, 107, 0.2);
-    border-radius: 8px;
-    padding: 8px 12px;
-    font-family: var(--font-body);
-    font-size: 11px;
-    color: var(--danger);
-}
-
-/* ── Light theme adjustments ────────────────────────────────────────────── */
-[data-theme="light"] .mlive-btn--start {
-    box-shadow: 0 0 20px rgba(10, 112, 53, 0.2);
-}
-[data-theme="light"] .mlive-btn--stop {
-    box-shadow: 0 0 20px rgba(188, 24, 48, 0.2);
 }

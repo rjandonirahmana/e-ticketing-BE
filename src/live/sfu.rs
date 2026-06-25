@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use str0m::{
     change::SdpOffer,
+    media::{MediaData, MediaKind, Mid},
     net::{DatagramRecv, Protocol, Receive},
     Candidate, Event, IceConnectionState, Input, Output, Rtc,
 };
@@ -87,6 +88,10 @@ struct PeerState {
     rtc: Rtc,
     role: PeerRole,
     pending_sdp: Option<tokio::sync::oneshot::Sender<Result<String, String>>>,
+    // mid → kind hasil negosiasi (dari Event::MediaAdded). Dipakai untuk
+    // meneruskan media berdasarkan KIND (audio/video), bukan mid mentah —
+    // urutan m-line publisher & subscriber bisa berbeda.
+    mids: Vec<(Mid, MediaKind)>,
 }
 
 enum PeerRole {
@@ -332,6 +337,7 @@ impl SfuEngine {
                 rtc,
                 role: PeerRole::Publisher,
                 pending_sdp: None,
+                mids: Vec::new(),
             },
         );
 
@@ -376,6 +382,7 @@ impl SfuEngine {
                     id: subscriber_id.to_string(),
                 },
                 pending_sdp: None,
+                mids: Vec::new(),
             },
         );
 
@@ -410,7 +417,7 @@ impl SfuEngine {
 
     fn poll_all_peers(&mut self, event_tx: &mpsc::Sender<SfuEvent>) {
         let mut to_remove = Vec::new();
-        let mut media_buf: Vec<(String, str0m::media::MediaData)> = Vec::new();
+        let mut media_buf: Vec<(MediaKind, MediaData)> = Vec::new();
 
         for (peer_id, peer) in self.peers.iter_mut() {
             loop {
@@ -422,9 +429,19 @@ impl SfuEngine {
                         }
                     }
                     Ok(Output::Event(e)) => match e {
+                        Event::MediaAdded(m) => {
+                            // Catat pemetaan mid→kind untuk peer ini.
+                            if !peer.mids.iter().any(|(id, _)| *id == m.mid) {
+                                peer.mids.push((m.mid, m.kind));
+                            }
+                        }
                         Event::MediaData(data) => {
                             if matches!(peer.role, PeerRole::Publisher) {
-                                media_buf.push((peer_id.clone(), data));
+                                // Tentukan kind media publisher untuk diteruskan
+                                // ke writer subscriber dengan kind yang sama.
+                                if let Some(kind) = peer.rtc.media(data.mid).map(|md| md.kind()) {
+                                    media_buf.push((kind, data));
+                                }
                             }
                         }
                         Event::IceConnectionStateChange(state) => {
@@ -457,8 +474,8 @@ impl SfuEngine {
             self.handle_peer_gone(&peer_id, event_tx);
         }
 
-        for (pub_id, data) in media_buf {
-            self.forward_to_subscribers(&pub_id, &data);
+        for (kind, data) in media_buf {
+            self.forward_to_subscribers(kind, &data);
         }
     }
 
@@ -488,13 +505,23 @@ impl SfuEngine {
         }
     }
 
-    fn forward_to_subscribers(&mut self, _publisher_id: &str, data: &str0m::media::MediaData) {
+    fn forward_to_subscribers(&mut self, kind: MediaKind, data: &MediaData) {
         for (sub_id, peer) in self.peers.iter_mut() {
             if !matches!(peer.role, PeerRole::Subscriber { .. }) {
                 continue;
             }
 
-            if let Some(writer) = peer.rtc.writer(data.mid) {
+            // Cari mid subscriber dengan kind yang sama (audio→audio, video→video).
+            let Some(mid) = peer
+                .mids
+                .iter()
+                .find(|(_, k)| *k == kind)
+                .map(|(m, _)| *m)
+            else {
+                continue;
+            };
+
+            if let Some(writer) = peer.rtc.writer(mid) {
                 let pt = match writer.payload_params().next() {
                     Some(p) => p.pt(),
                     None => continue,

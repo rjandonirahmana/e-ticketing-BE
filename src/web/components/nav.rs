@@ -115,6 +115,24 @@ pub fn BottomNav(#[prop(default = "")] active: &'static str) -> impl IntoView {
                 <span class="bottom-label">"EXPLORE"</span>
             </A>
 
+            // 1b. LIVES — daftar merchant yang sedang siaran langsung
+            <A href="/lives" attr:class=cls("lives")>
+                <svg
+                    width="22"
+                    height="22"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <polygon points="23 7 16 12 23 17 23 7" />
+                    <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                </svg>
+                <span class="bottom-label">"LIVE"</span>
+            </A>
+
 
             // 0. PULSE CHAT
             <A href="/pulse" attr:class=cls("pulse")>

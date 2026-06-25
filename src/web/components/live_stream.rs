@@ -116,6 +116,19 @@ fn ice_servers() -> js_sys::Array {
     servers
 }
 
+/// Tunggu ICE gathering selesai (maks ~4 dtk) agar kandidat tertanam di SDP.
+/// Server mengabaikan trickle ICE, jadi offer harus dikirim non-trickle —
+/// tanpa ini koneksi penonton tak pernah terbentuk (video/suara tidak muncul).
+async fn wait_ice_gathering_complete(pc: &web_sys::RtcPeerConnection) {
+    use std::time::Duration;
+    for _ in 0..40 {
+        if pc.ice_gathering_state() == web_sys::RtcIceGatheringState::Complete {
+            return;
+        }
+        gloo_timers::future::sleep(Duration::from_millis(100)).await;
+    }
+}
+
 /// Helper: add a recvonly transceiver using raw JS
 /// web-sys 0.3.99 does NOT have `add_transceiver_with_str_and_init`,
 /// so we call the JS method directly via Reflect.
@@ -132,7 +145,12 @@ fn add_recvonly_transceiver(
 }
 
 #[component]
-pub fn LiveStreamViewer(room_id: String) -> impl IntoView {
+pub fn LiveStreamViewer(
+    room_id: String,
+    /// Bila true, langsung menyambung tanpa menunggu klik (dipakai di feed lives).
+    #[prop(optional)]
+    autoplay: bool,
+) -> impl IntoView {
     // StoredValue (Copy) supaya bisa dipakai di beberapa closure `move`
     // (polling effect, connect, disconnect, on_cleanup) tanpa konflik move.
     let room_id = StoredValue::new(room_id);
@@ -144,6 +162,8 @@ pub fn LiveStreamViewer(room_id: String) -> impl IntoView {
     let merchant_name = RwSignal::new(String::new());
     let error_msg = RwSignal::new(None::<String>);
     let pc: RwSignal<Option<SendWrapper<web_sys::RtcPeerConnection>>> = RwSignal::new(None);
+    // Stream remote yang dirakit dari track yang masuk (audio + video).
+    let remote_stream: RwSignal<Option<SendWrapper<web_sys::MediaStream>>> = RwSignal::new(None);
     let video_ref: NodeRef<leptos::html::Video> = NodeRef::new();
     let subscriber_id: RwSignal<Option<String>> = RwSignal::new(None);
 
@@ -221,12 +241,28 @@ pub fn LiveStreamViewer(room_id: String) -> impl IntoView {
                 return;
             }
 
-            // ── ontrack: attach remote stream to video element ──────────────
+            // ── ontrack: rakit track masuk → pasang ke elemen video ─────────
             let on_track = {
                 let video_ref = video_ref.clone();
                 Closure::<dyn FnMut(web_sys::RtcTrackEvent)>::new(move |event: web_sys::RtcTrackEvent| {
-                    if let Some(video) = video_ref.get() {
-                        let stream: web_sys::MediaStream = event.streams().get(0).unchecked_into();
+                    let streams = event.streams();
+                    let stream: web_sys::MediaStream = if streams.length() > 0 {
+                        streams.get(0).unchecked_into()
+                    } else {
+                        // Answer SDP dari str0m sering tanpa msid → streams kosong.
+                        // Rakit track audio & video ke satu MediaStream sendiri.
+                        let s = match remote_stream.get_untracked() {
+                            Some(s) => (*s).clone(),
+                            None => match web_sys::MediaStream::new() {
+                                Ok(s) => s,
+                                Err(_) => return,
+                            },
+                        };
+                        s.add_track(&event.track());
+                        s
+                    };
+                    remote_stream.set(Some(SendWrapper::new(stream.clone())));
+                    if let Some(video) = video_ref.get_untracked() {
                         video.set_src_object(Some(&stream));
                         let _ = video.play();
                     }
@@ -288,12 +324,20 @@ pub fn LiveStreamViewer(room_id: String) -> impl IntoView {
                 return;
             }
 
+            // Tunggu kandidat ICE masuk ke SDP sebelum dikirim (non-trickle).
+            wait_ice_gathering_complete(&peer_connection).await;
+            let offer_sdp = peer_connection
+                .local_description()
+                .map(|d| d.sdp())
+                .filter(|s| !s.is_empty())
+                .unwrap_or(sdp_str);
+
             // ── Send offer, receive answer + subscriber_id ──────────────────
             let (viewer_id, viewer_name) = match &profile {
                 Some(p) => (Some(p.id.clone()), Some(p.name.clone())),
                 None => (None, None),
             };
-            let answer = match api_subscribe_sdp(&room_id, &sdp_str, viewer_id, viewer_name).await {
+            let answer = match api_subscribe_sdp(&room_id, &offer_sdp, viewer_id, viewer_name).await {
                 Ok(a) => a,
                 Err(e) => {
                     error_msg.set(Some(format!("Subscribe failed: {e}")));
@@ -317,6 +361,15 @@ pub fn LiveStreamViewer(room_id: String) -> impl IntoView {
             is_playing.set(true);
         }
     });
+
+    // Auto-join sekali saat dipasang (feed lives): langsung connect tanpa tap.
+    if autoplay {
+        Effect::new(move |prev: Option<()>| {
+            if prev.is_none() {
+                connect.dispatch(());
+            }
+        });
+    }
 
     let disconnect = Action::new_local(move |_: &()| {
         let pc = pc;
