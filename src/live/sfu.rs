@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use str0m::{
     change::SdpOffer,
-    media::{MediaData, MediaKind, Mid},
+    media::{KeyframeRequestKind, MediaData, MediaKind, Mid},
     net::{DatagramRecv, Protocol, Receive},
     Candidate, Event, IceConnectionState, Input, Output, Rtc,
 };
@@ -133,6 +133,8 @@ pub struct SfuEngine {
     // IP:port konkret yang diiklankan ke klien (host candidate + tujuan paket).
     // Berbeda dari alamat bind socket yang bisa `0.0.0.0`.
     candidate_addr: SocketAddr,
+    // Hitung frame media dari publisher (untuk log diagnostik terbatas).
+    frames_seen: u64,
 }
 
 impl SfuEngine {
@@ -155,6 +157,7 @@ impl SfuEngine {
             socket,
             next_peer_id: 0,
             candidate_addr,
+            frames_seen: 0,
         };
 
         let mut cmd_rx = cmd_rx;
@@ -418,6 +421,8 @@ impl SfuEngine {
     fn poll_all_peers(&mut self, event_tx: &mpsc::Sender<SfuEvent>) {
         let mut to_remove = Vec::new();
         let mut media_buf: Vec<(MediaKind, MediaData)> = Vec::new();
+        // Subscriber yang minta keyframe → diteruskan ke publisher (lihat di bawah).
+        let mut keyframe_reqs: Vec<String> = Vec::new();
 
         for (peer_id, peer) in self.peers.iter_mut() {
             loop {
@@ -433,6 +438,13 @@ impl SfuEngine {
                             // Catat pemetaan mid→kind untuk peer ini.
                             if !peer.mids.iter().any(|(id, _)| *id == m.mid) {
                                 peer.mids.push((m.mid, m.kind));
+                            }
+                        }
+                        Event::KeyframeRequest(_) => {
+                            // Browser penonton minta keyframe (tak bisa decode video
+                            // tanpa I-frame). Teruskan permintaan ke publisher.
+                            if matches!(peer.role, PeerRole::Subscriber { .. }) {
+                                keyframe_reqs.push(peer_id.clone());
                             }
                         }
                         Event::MediaData(data) => {
@@ -474,8 +486,54 @@ impl SfuEngine {
             self.handle_peer_gone(&peer_id, event_tx);
         }
 
+        for sub_id in keyframe_reqs {
+            tracing::info!(subscriber_id = %sub_id, "Keyframe request → publisher (PLI)");
+            self.request_publisher_keyframe(&sub_id);
+        }
+
+        if !media_buf.is_empty() {
+            let before = self.frames_seen;
+            self.frames_seen += media_buf.len() as u64;
+            // Log sekali tiap ~250 frame agar bisa pastikan media benar-benar mengalir.
+            if before / 250 != self.frames_seen / 250 {
+                let subs = self
+                    .peers
+                    .values()
+                    .filter(|p| matches!(p.role, PeerRole::Subscriber { .. }))
+                    .count();
+                tracing::info!(frames = self.frames_seen, subscribers = subs, "SFU media flowing");
+            }
+        }
+
         for (kind, data) in media_buf {
             self.forward_to_subscribers(kind, &data);
+        }
+    }
+
+    /// Minta keyframe (PLI) dari publisher milik room si subscriber, supaya
+    /// penonton yang baru bergabung segera mendapat I-frame (video tidak hitam).
+    fn request_publisher_keyframe(&mut self, subscriber_id: &str) {
+        let pub_id = self
+            .rooms
+            .values()
+            .find(|r| r.subscribers.contains_key(subscriber_id))
+            .and_then(|r| r.publisher.clone());
+        let Some(pub_id) = pub_id else {
+            return;
+        };
+        let vmid = self.peers.get(&pub_id).and_then(|p| {
+            p.mids
+                .iter()
+                .find(|(_, k)| *k == MediaKind::Video)
+                .map(|(m, _)| *m)
+        });
+        let Some(vmid) = vmid else {
+            return;
+        };
+        if let Some(pubp) = self.peers.get_mut(&pub_id) {
+            if let Some(mut w) = pubp.rtc.writer(vmid) {
+                let _ = w.request_keyframe(None, KeyframeRequestKind::Pli);
+            }
         }
     }
 
@@ -506,6 +564,11 @@ impl SfuEngine {
     }
 
     fn forward_to_subscribers(&mut self, kind: MediaKind, data: &MediaData) {
+        // Codec frame publisher — writer subscriber harus memakai PT untuk codec
+        // yang SAMA, kalau tidak browser menandai byte H264 sebagai VP8 (mis.) dan
+        // gambar tetap hitam.
+        let codec = data.params.spec().codec;
+
         for (sub_id, peer) in self.peers.iter_mut() {
             if !matches!(peer.role, PeerRole::Subscriber { .. }) {
                 continue;
@@ -522,9 +585,14 @@ impl SfuEngine {
             };
 
             if let Some(writer) = peer.rtc.writer(mid) {
-                let pt = match writer.payload_params().next() {
-                    Some(p) => p.pt(),
-                    None => continue,
+                // PT subscriber dengan codec yang cocok; fallback ke PT pertama.
+                let pt = writer
+                    .payload_params()
+                    .find(|p| p.spec().codec == codec)
+                    .or_else(|| writer.payload_params().next())
+                    .map(|p| p.pt());
+                let Some(pt) = pt else {
+                    continue;
                 };
                 if let Err(e) = writer.write(pt, data.network_time, data.time, data.data.clone()) {
                     tracing::debug!(sub_id, error = %e, "Media write to subscriber failed");
