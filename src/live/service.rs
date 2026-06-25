@@ -1,11 +1,11 @@
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::sync::Arc;
 
 use dashmap::DashMap;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::task::JoinHandle;
 
-use super::room::{LiveRoom, RoomInfo};
+use super::room::{LiveRoom, RoomInfo, ViewerInfo};
 use super::sfu::{SfuCommand, SfuEngine, SfuEvent};
 
 pub struct LiveStreamService {
@@ -16,13 +16,44 @@ pub struct LiveStreamService {
     _event_handle: JoinHandle<()>,
 }
 
+/// IP yang diiklankan sebagai host ICE candidate. Socket boleh bind ke
+/// `0.0.0.0` (semua interface), tapi str0m menolak `0.0.0.0` sebagai kandidat
+/// ("invalid ip 0.0.0.0") — kandidat harus IP konkret yang bisa dihubungi klien.
+///
+/// Urutan: `SFU_PUBLIC_IP` (untuk produksi / di belakang NAT) → IP LAN hasil
+/// deteksi (agar perangkat lain di WiFi sama bisa konek) → `127.0.0.1` (dev).
+fn resolve_candidate_ip(bind_ip: IpAddr) -> IpAddr {
+    if !bind_ip.is_unspecified() {
+        return bind_ip;
+    }
+    if let Ok(s) = std::env::var("SFU_PUBLIC_IP") {
+        if let Ok(ip) = s.trim().parse::<IpAddr>() {
+            return ip;
+        }
+    }
+    detect_local_ip().unwrap_or(IpAddr::from([127, 0, 0, 1]))
+}
+
+/// Deteksi IP outbound utama tanpa mengirim paket: `connect` UDP hanya menetapkan
+/// route, lalu `local_addr` memberi IP interface yang dipakai.
+fn detect_local_ip() -> Option<IpAddr> {
+    let sock = UdpSocket::bind("0.0.0.0:0").ok()?;
+    sock.connect("8.8.8.8:80").ok()?;
+    let ip = sock.local_addr().ok()?.ip();
+    if ip.is_unspecified() { None } else { Some(ip) }
+}
+
 impl LiveStreamService {
     pub fn new(sfu_bind_addr: SocketAddr) -> Arc<Self> {
         let (cmd_tx, cmd_rx) = mpsc::channel::<SfuCommand>(256);
         let (event_tx, event_rx) = mpsc::channel::<SfuEvent>(256);
 
+        let candidate_ip = resolve_candidate_ip(sfu_bind_addr.ip());
+        let candidate_addr = SocketAddr::new(candidate_ip, sfu_bind_addr.port());
+        tracing::info!(%candidate_addr, "SFU advertising ICE host candidate");
+
         let sfu_handle = std::thread::spawn(move || {
-            SfuEngine::run(sfu_bind_addr, cmd_rx, event_tx);
+            SfuEngine::run(sfu_bind_addr, candidate_addr, cmd_rx, event_tx);
         });
 
         let rooms: Arc<DashMap<String, Arc<LiveRoom>>> = Arc::new(DashMap::new());
@@ -128,6 +159,7 @@ impl LiveStreamService {
         room_id: &str,
         subscriber_id: &str,
         sdp_offer: &str,
+        viewer: ViewerInfo,
     ) -> Result<String, String> {
         let (tx, rx) = oneshot::channel();
         self.cmd_tx
@@ -142,7 +174,7 @@ impl LiveStreamService {
         let result = rx.await.map_err(|e| e.to_string())??;
 
         if let Some(room) = self.rooms.get(room_id) {
-            room.add_subscriber(subscriber_id);
+            room.add_subscriber(subscriber_id, viewer);
         }
 
         Ok(result)

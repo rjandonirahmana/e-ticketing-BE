@@ -32,7 +32,27 @@ pub struct SdpReq {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct SubscribeReq {
+    pub sdp: String,
+    // Identitas penonton (opsional — penonton bisa anonim / belum login).
+    #[serde(default)]
+    pub viewer_id: Option<String>,
+    #[serde(default)]
+    pub viewer_name: Option<String>,
+    #[serde(default)]
+    pub viewer_photo: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct IceReq {
+    pub candidate: String,
+    pub sdp_mid: String,
+    pub sdp_mline_index: u32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SubscribeIceReq {
+    pub subscriber_id: String,
     pub candidate: String,
     pub sdp_mid: String,
     pub sdp_mline_index: u32,
@@ -41,6 +61,12 @@ pub struct IceReq {
 #[derive(Debug, Serialize)]
 pub struct SdpRes {
     pub sdp: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SubscribeSdpRes {
+    pub sdp: String,
+    pub subscriber_id: String,
 }
 
 async fn create_room(
@@ -107,15 +133,28 @@ async fn publish_ice(
 async fn subscribe_sdp(
     Path(room_id): Path<String>,
     State(state): State<Arc<AppState>>,
-    Json(body): Json<SdpReq>,
+    Json(body): Json<SubscribeReq>,
 ) -> impl IntoResponse {
     let sub_id = uuid::Uuid::new_v4().to_string();
+    let viewer = crate::live::room::ViewerInfo {
+        id: body.viewer_id.unwrap_or_else(|| sub_id.clone()),
+        name: body
+            .viewer_name
+            .filter(|n| !n.trim().is_empty())
+            .unwrap_or_else(|| "Anonim".to_string()),
+        photo_url: body.viewer_photo.filter(|p| !p.trim().is_empty()),
+    };
     match state
         .live_svc
-        .subscribe_sdp(&room_id, &sub_id, &body.sdp)
+        .subscribe_sdp(&room_id, &sub_id, &body.sdp, viewer)
         .await
     {
-        Ok(answer) => ok(SdpRes { sdp: answer }),
+        // Kembalikan subscriber_id agar klien bisa mengirim trickle ICE
+        // dan memanggil endpoint leave saat keluar (viewer count akurat).
+        Ok(answer) => ok(SubscribeSdpRes {
+            sdp: answer,
+            subscriber_id: sub_id,
+        }),
         Err(e) => err(StatusCode::BAD_REQUEST, &e),
     }
 }
@@ -123,12 +162,31 @@ async fn subscribe_sdp(
 async fn subscribe_ice(
     Path(room_id): Path<String>,
     State(state): State<Arc<AppState>>,
-    Json(body): Json<IceReq>,
+    Json(body): Json<SubscribeIceReq>,
 ) -> impl IntoResponse {
-    let sub_id = "unknown".to_string();
     match state
         .live_svc
-        .subscribe_ice(&room_id, &sub_id, &body.candidate, &body.sdp_mid, body.sdp_mline_index)
+        .subscribe_ice(
+            &room_id,
+            &body.subscriber_id,
+            &body.candidate,
+            &body.sdp_mid,
+            body.sdp_mline_index,
+        )
+        .await
+    {
+        Ok(()) => ok(serde_json::json!({ "ok": true })),
+        Err(e) => err(StatusCode::BAD_REQUEST, &e),
+    }
+}
+
+async fn leave_room(
+    Path((room_id, subscriber_id)): Path<(String, String)>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    match state
+        .live_svc
+        .remove_subscriber(&room_id, &subscriber_id)
         .await
     {
         Ok(()) => ok(serde_json::json!({ "ok": true })),
@@ -159,7 +217,11 @@ pub fn live_router(state: Arc<AppState>) -> Router {
         .route("/api/live/rooms", get(list_rooms))
         .route("/api/live/rooms/{room_id}", get(get_room))
         .route("/api/live/rooms/{room_id}/subscribe/sdp", post(subscribe_sdp))
-        .route("/api/live/rooms/{room_id}/subscribe/ice", post(subscribe_ice));
+        .route("/api/live/rooms/{room_id}/subscribe/ice", post(subscribe_ice))
+        .route(
+            "/api/live/rooms/{room_id}/subscribe/{subscriber_id}",
+            delete(leave_room),
+        );
 
     Router::new().merge(protected).merge(public).with_state(state)
 }

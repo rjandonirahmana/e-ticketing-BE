@@ -114,6 +114,8 @@ impl RoomState {
             event_slug: self.event_slug.clone(),
             viewer_count: self.subscribers.len(),
             started_at: self.started_at.timestamp_millis(),
+            // Identitas penonton dilacak di sisi service (LiveRoom), bukan SFU.
+            viewers: Vec::new(),
         }
     }
 }
@@ -123,12 +125,15 @@ pub struct SfuEngine {
     rooms: HashMap<String, RoomState>,
     socket: UdpSocket,
     next_peer_id: u64,
-    local_addr: SocketAddr,
+    // IP:port konkret yang diiklankan ke klien (host candidate + tujuan paket).
+    // Berbeda dari alamat bind socket yang bisa `0.0.0.0`.
+    candidate_addr: SocketAddr,
 }
 
 impl SfuEngine {
     pub fn run(
         bind_addr: SocketAddr,
+        candidate_addr: SocketAddr,
         cmd_rx: mpsc::Receiver<SfuCommand>,
         event_tx: mpsc::Sender<SfuEvent>,
     ) {
@@ -136,15 +141,15 @@ impl SfuEngine {
         socket
             .set_nonblocking(true)
             .expect("Failed to set nonblocking");
-        let local_addr = socket.local_addr().expect("Failed to get local addr");
-        tracing::info!(addr = %local_addr, "SFU UDP socket bound");
+        let bound = socket.local_addr().expect("Failed to get local addr");
+        tracing::info!(bind = %bound, candidate = %candidate_addr, "SFU UDP socket bound");
 
         let mut engine = Self {
             peers: HashMap::new(),
             rooms: HashMap::new(),
             socket,
             next_peer_id: 0,
-            local_addr,
+            candidate_addr,
         };
 
         let mut cmd_rx = cmd_rx;
@@ -172,9 +177,19 @@ impl SfuEngine {
                     event_slug,
                     respond_to,
                 } => {
-                    if self.rooms.contains_key(&room_id) {
-                        let _ = respond_to.send(Err("Room already exists".into()));
-                        continue;
+                    // Room id deterministik per merchant (`live_{merchant_id}`).
+                    // Jika merchant menutup tab tanpa stop, atau publisher-nya
+                    // terputus (peer dibuang tapi room tetap ada), room lama
+                    // bisa tertinggal. Buat ulang idempoten: bersihkan sisa room
+                    // lama beserta peer-nya supaya "GO LIVE" lagi selalu berhasil.
+                    if let Some(stale) = self.rooms.remove(&room_id) {
+                        if let Some(pub_id) = stale.publisher {
+                            self.peers.remove(&pub_id);
+                        }
+                        for sub_id in stale.subscribers.keys() {
+                            self.peers.remove(sub_id);
+                        }
+                        tracing::info!(room_id, "Replacing stale live room");
                     }
                     let room = RoomState {
                         room_id: room_id.clone(),
@@ -294,7 +309,7 @@ impl SfuEngine {
         let peer_id = format!("pub_{}", self.next_peer_id());
         let mut rtc = Rtc::new(Instant::now());
 
-        let local_candidate = Candidate::host(self.local_addr, "udp")
+        let local_candidate = Candidate::host(self.candidate_addr, "udp")
             .map_err(|e| format!("Failed to create host candidate: {e}"))?;
         rtc.add_local_candidate(local_candidate);
 
@@ -337,7 +352,7 @@ impl SfuEngine {
 
         let mut rtc = Rtc::new(Instant::now());
 
-        let local_candidate = Candidate::host(self.local_addr, "udp")
+        let local_candidate = Candidate::host(self.candidate_addr, "udp")
             .map_err(|e| format!("Failed to create host candidate: {e}"))?;
         rtc.add_local_candidate(local_candidate);
 
@@ -393,7 +408,7 @@ impl SfuEngine {
         }
     }
 
-    fn poll_all_peers(&mut self, _event_tx: &mpsc::Sender<SfuEvent>) {
+    fn poll_all_peers(&mut self, event_tx: &mpsc::Sender<SfuEvent>) {
         let mut to_remove = Vec::new();
         let mut media_buf: Vec<(String, str0m::media::MediaData)> = Vec::new();
 
@@ -413,17 +428,23 @@ impl SfuEngine {
                             }
                         }
                         Event::IceConnectionStateChange(state) => {
-                            if state == IceConnectionState::Disconnected
-                                && matches!(peer.role, PeerRole::Publisher)
-                            {
-                                tracing::warn!(peer_id, "Publisher disconnected");
+                            if state == IceConnectionState::Disconnected {
+                                tracing::info!(peer_id, "Peer ICE disconnected");
                                 to_remove.push(peer_id.clone());
                             }
                         }
                         _ => {}
                     },
                     Err(e) => {
-                        tracing::error!(peer_id, error = %e, "Rtc poll error");
+                        // Penutupan normal dari browser (DTLS CloseNotify) bukan error
+                        // fatal — terjadi tiap kali publisher/penonton stop atau menutup
+                        // tab. Catat biasa lalu bersihkan peer-nya.
+                        let msg = e.to_string();
+                        if msg.contains("CloseNotify") {
+                            tracing::info!(peer_id, "Peer connection closed");
+                        } else {
+                            tracing::warn!(peer_id, error = %msg, "Rtc poll error");
+                        }
                         to_remove.push(peer_id.clone());
                         break;
                     }
@@ -433,10 +454,37 @@ impl SfuEngine {
 
         for peer_id in to_remove {
             self.peers.remove(&peer_id);
+            self.handle_peer_gone(&peer_id, event_tx);
         }
 
         for (pub_id, data) in media_buf {
             self.forward_to_subscribers(&pub_id, &data);
+        }
+    }
+
+    /// Bersihkan state setelah sebuah peer hilang. Jika peer adalah publisher,
+    /// siaran berakhir: hapus room + peer penonton dan kabari service lewat
+    /// `StreamStopped` (service akan melepas LiveRoom). Jika penonton, cukup
+    /// lepas slot-nya dari room agar hitungan viewer akurat.
+    fn handle_peer_gone(&mut self, peer_id: &str, event_tx: &mpsc::Sender<SfuEvent>) {
+        let publisher_room = self
+            .rooms
+            .iter()
+            .find(|(_, r)| r.publisher.as_deref() == Some(peer_id))
+            .map(|(id, _)| id.clone());
+
+        if let Some(room_id) = publisher_room {
+            if let Some(room) = self.rooms.remove(&room_id) {
+                for sub_id in room.subscribers.keys() {
+                    self.peers.remove(sub_id);
+                }
+            }
+            tracing::info!(room_id, "Publisher gone — stopping stream");
+            let _ = event_tx.try_send(SfuEvent::StreamStopped { room_id });
+        } else {
+            for room in self.rooms.values_mut() {
+                room.subscribers.remove(peer_id);
+            }
         }
     }
 
@@ -469,7 +517,7 @@ impl SfuEngine {
             match self.socket.recv_from(buf) {
                 Ok((n, source)) => {
                     buf.truncate(n);
-                    let dest = self.local_addr;
+                    let dest = self.candidate_addr;
                     // `buf` dipersempit ke `n` byte; salin payload supaya bisa di-feed
                     // ulang ke setiap peer (Input str0m meminjam slice, bukan Clone).
                     let packet = buf[..n].to_vec();

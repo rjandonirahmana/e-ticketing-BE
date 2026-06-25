@@ -10,6 +10,7 @@ use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::web::api::get_event_detail;
 use crate::web::app::{AuthResource, CartContext};
+use crate::web::components::LiveStreamViewer;
 use crate::web::hooks::ThemeToggle;
 use crate::web::models::{CartItem, format_date, format_price};
 
@@ -102,6 +103,10 @@ pub fn EventDetailPage() -> impl IntoView {
                         let ev_name    = ev.name.clone();
                         let ev_cover   = ev.cover_url.clone().unwrap_or_default();
                         let variants   = ev.event_variants.clone();
+                        // Live streaming: badge + embedded viewer hanya tampil saat
+                        // event berstatus "live". room_id mengikuti format SFU.
+                        let is_live      = ev.status.eq_ignore_ascii_case("live");
+                        let live_room_id = format!("live_{}", ev.merchant_id);
 
                         // ── Cart total helpers: inline in each closure ─────────
                         // cart_ctx is Copy. Each closure gets a distinct clone of ev_id.
@@ -314,10 +319,17 @@ pub fn EventDetailPage() -> impl IntoView {
                                     <div class="ed-hero-gradient"></div>
                                     <div class="ed-hero-overlay-content">
                                         <div class="ed-hero-badges">
-                                            <span class="ed-live-badge">
-                                                <span class="ed-live-dot"></span>
-                                                "LIVE NOW"
-                                            </span>
+                                            {is_live.then(|| view! {
+                                                // Klik untuk loncat ke pemutar siaran langsung di bawah.
+                                                <a href="#ed-live-section" class="ed-live-badge ed-live-badge--link">
+                                                    <span class="ed-live-dot"></span>
+                                                    "LIVE — TONTON"
+                                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+                                                         stroke="currentColor" stroke-width="3" stroke-linecap="round">
+                                                        <polyline points="6 9 12 15 18 9"/>
+                                                    </svg>
+                                                </a>
+                                            })}
                                             {cats.first().map(|c| view! {
                                                 <span class="ed-cat-badge">{c.clone()}</span>
                                             })}
@@ -356,6 +368,17 @@ pub fn EventDetailPage() -> impl IntoView {
                                 // ── Body ─────────────────────────────────────────────
                                 <div class="ed-body">
                                     <div class="ed-main">
+
+                                        // Live stream (tampil saat event sedang live)
+                                        {is_live.then({
+                                            let rid = live_room_id.clone();
+                                            move || view! {
+                                                <section class="section ed-live-section" id="ed-live-section">
+                                                    <p class="ed-section-eyebrow">"SIARAN LANGSUNG"</p>
+                                                    <LiveStreamViewer room_id=rid.clone() />
+                                                </section>
+                                            }
+                                        })}
 
                                         // About
                                         {(!desc.is_empty()).then({

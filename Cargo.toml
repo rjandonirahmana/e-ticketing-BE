@@ -82,6 +82,7 @@ gloo-timers = { version = "0.3", features = ["futures"] }
 getrandom = "0.3"
 qrcodegen = "1.8"
 web-sys = { version = "0.3", features = [
+     "RtcPeerConnectionIceEvent",
     "Window",
     "Document",
     "Element",
