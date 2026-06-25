@@ -80,6 +80,7 @@ pub fn App() -> impl IntoView {
                         // ── PUBLIC — SSR full content (SEO) ──────────────────────
                         <Route path=path!("/") view=ExplorePage />
                         <Route path=path!("/explore") view=ExplorePage />
+                        <Route path=path!("/lives") view=LivesPage />
                         <Route path=path!("/events/:slug") view=EventDetailPage />
                         <Route path=path!("/pulse-landing") view=PulseLandingPage />
                         <Route path=path!("/pulse-apply") view=PulseApplyPage />
