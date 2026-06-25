@@ -294,6 +294,16 @@ pub fn App() -> impl IntoView {
                             }
                         />
                         <Route
+                            path=path!("/merchant/live")
+                            view=|| {
+                                view! {
+                                    <MerchantGuard>
+                                        <MerchantLivePage />
+                                    </MerchantGuard>
+                                }
+                            }
+                        />
+                        <Route
                             path=path!("/merchant/events/create")
                             view=|| {
                                 view! {

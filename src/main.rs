@@ -27,6 +27,7 @@ use e_ticketing::web::api::upload::story_upload;
 use e_ticketing::web::app::{shell, App};
 use e_ticketing::ws::handler::WsAppState;
 use e_ticketing::ws::routes::chat_router;
+use e_ticketing::live::api::live_router;
 
 use leptos::config::get_configuration;
 use leptos_axum::{generate_route_list, LeptosRoutes};
@@ -96,6 +97,7 @@ async fn main() -> Result<()> {
             redis_conn,
             ws_redis_client,
             cfg.rustfs.clone(),
+            cfg.sfu_bind_addr.clone(),
         )
         .await,
     );
@@ -114,10 +116,13 @@ async fn main() -> Result<()> {
         get_configuration(Some("Cargo.toml"))
             .map_err(|e| anyhow::anyhow!("failed to load leptos config: {e}"))?;
     let leptos_options = leptos_conf.leptos_options;
-    let bind_addr = leptos_options.site_addr.to_string();
+    let bind_addr = format!("{}:{}", cfg.host, cfg.port);
+    let socket_addr: std::net::SocketAddr = bind_addr
+        .parse()
+        .map_err(|e| anyhow::anyhow!("invalid bind address {bind_addr}: {e}"))?;
     let site_root = leptos_options.site_root.to_string();
 
-    tracing::info!(site_root = %site_root, bind_addr = %bind_addr, "Leptos static assets dir");
+    tracing::info!(site_root = %site_root, bind_addr = %socket_addr, "Leptos static assets dir");
 
     let ssr_routes = generate_route_list(App);
 
@@ -140,20 +145,25 @@ async fn main() -> Result<()> {
     // ── REST API router (Next.js frontend) ───────────────────────────────────
     let rest_api = rest_router().with_state(state.clone());
 
+    // ── Live streaming router (WebRTC SFU) ──────────────────────────────────
+    let live_api = live_router(state.clone());
+
     // ── WebSocket + REST API + CSS assets + SSR ───────────────────────────────
     let app = chat_router(ws_state, state.clone())
         .layer(cors)
         .merge(e_ticketing::web::assets::router())
         .merge(upload_router)
         .merge(rest_api)
+        .merge(live_api)
         .merge(leptos_router)
         .layer(tower_http::compression::CompressionLayer::new());
 
-    let listener = TcpListener::bind(&bind_addr).await?;
+    let listener = TcpListener::bind(socket_addr).await?;
     tracing::info!("Pulse (SSR + WebSocket) listening on http://{}", bind_addr);
     tracing::info!("   Server fns   : http://{}/api-fn/*", bind_addr);
     tracing::info!("   SSR pages    : http://{}/*", bind_addr);
     tracing::info!("   WebSocket    : http://{}/ws/*", bind_addr);
+    tracing::info!("   SFU (WebRTC) : udp://{}", cfg.sfu_bind_addr);
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())

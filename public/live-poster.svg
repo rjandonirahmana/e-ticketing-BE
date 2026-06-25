@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <rect width="640" height="360" fill="#0d0d1a"/>
+  <circle cx="320" cy="150" r="40" fill="none" stroke="#39ff8a" stroke-width="3"/>
+  <polygon points="310,130 310,170 345,150" fill="#39ff8a"/>
+  <text x="320" y="220" text-anchor="middle" fill="#8888aa" font-family="monospace" font-size="14" letter-spacing="0.1em">LIVE PREVIEW</text>
+</svg>

@@ -102,6 +102,13 @@ pub fn MerchantPage() -> impl IntoView {
                     <span class="mhub-header-title">"Merchant Hub"</span>
                 </div>
                 <div class="mhub-header-right">
+                    <A href="/merchant/live" attr:class="mhub-live-btn" attr:aria-label="Go Live">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                            <polygon points="5 3 19 12 5 21 5 3"/>
+                        </svg>
+                        "LIVE"
+                    </A>
                     <A href="/scan" attr:class="mhub-scan-btn" attr:aria-label="Scan Tiket">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
                              stroke="currentColor" stroke-width="2" stroke-linecap="round">

@@ -40,6 +40,8 @@ pub mod utils;
 pub mod ws;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod api;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod live;
 
 #[cfg(feature = "hydrate")]
 #[wasm_bindgen::prelude::wasm_bindgen]
