@@ -402,7 +402,7 @@
     width: 72px;
     padding: 6px 8px 6px 0;
     text-align: right;
-    -moz-appearance: textfield;
+    appearance: textfield;
 }
 .pl-num-input::-webkit-outer-spin-button,
 .pl-num-input::-webkit-inner-spin-button {

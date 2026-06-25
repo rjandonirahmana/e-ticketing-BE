@@ -8,6 +8,7 @@ use crate::web::api::create_merchant_event;
 use crate::web::app::AuthResource;
 use crate::web::components::event_story_preview::EventStoryPreviewInline;
 use crate::web::hooks::ThemeToggle;
+use crate::web::utils::{map_destroy, map_picker, map_set, DEFAULT_LAT, DEFAULT_LNG};
 
 const CATEGORIES: &[&str] = &[
     "Musik", "Festival", "Konser", "Olahraga", "Teknologi",
@@ -27,6 +28,15 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
     let f_end_time = RwSignal::new(String::new());
     let f_venue    = RwSignal::new(String::new());
     let f_city     = RwSignal::new(String::new());
+    let f_lat      = RwSignal::new(DEFAULT_LAT);
+    let f_lng      = RwSignal::new(DEFAULT_LNG);
+    let loc_touched = RwSignal::new(false);
+
+    // Inisialisasi peta picker setelah komponen ter-mount (client-only).
+    Effect::new(move |_| {
+        map_picker("create-loc-map", "create-lat", "create-lng");
+    });
+    on_cleanup(|| map_destroy("create-loc-map"));
 
     let cover_preview: RwSignal<Option<String>> = RwSignal::new(None);
 
@@ -77,10 +87,15 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
 
         let cats_str = cats.join(",");
         let start_iso = format!("{}T{}:00Z", date, time);
+        let (lat, lng) = if loc_touched.get_untracked() {
+            (Some(f_lat.get_untracked()), Some(f_lng.get_untracked()))
+        } else {
+            (None, None)
+        };
         submitting.set(true);
 
         leptos::task::spawn_local(async move {
-            match create_merchant_event(name, desc, venue, city, start_iso.clone(), start_iso, cats_str).await {
+            match create_merchant_event(name, desc, venue, city, start_iso.clone(), start_iso, cats_str, lat, lng).await {
                 Ok(_slug) => {
                     success_msg.set("Event berhasil dibuat!".into());
                     submitting.set(false);
@@ -333,6 +348,55 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
                         prop:value=move || f_city.get()
                         on:input=move |e| f_city.set(event_target_value(&e))
                     />
+                </div>
+                // ── LOKASI DI PETA ────────────────────────────────────────────
+                <div class="medit-section-header">
+                    <span class="medit-section-label">"LOKASI DI PETA"</span>
+                </div>
+                <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">
+                    "Klik peta atau geser pin untuk menandai lokasi venue. Koordinat terisi otomatis."
+                </p>
+                <div
+                    id="create-loc-map"
+                    style="width:100%;height:300px;border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-bottom:12px;background:var(--bg-elevated)"
+                ></div>
+                <div class="medit-grid-2">
+                    <div class="medit-field-group">
+                        <label class="medit-field-label">"LATITUDE"</label>
+                        <input
+                            id="create-lat"
+                            type="number"
+                            step="any"
+                            class="medit-input"
+                            placeholder="-6.2088"
+                            prop:value=move || f_lat.get().to_string()
+                            on:input=move |e| {
+                                loc_touched.set(true);
+                                if let Ok(v) = event_target_value(&e).parse::<f64>() {
+                                    f_lat.set(v);
+                                    map_set("create-loc-map", v, f_lng.get_untracked());
+                                }
+                            }
+                        />
+                    </div>
+                    <div class="medit-field-group">
+                        <label class="medit-field-label">"LONGITUDE"</label>
+                        <input
+                            id="create-lng"
+                            type="number"
+                            step="any"
+                            class="medit-input"
+                            placeholder="106.8456"
+                            prop:value=move || f_lng.get().to_string()
+                            on:input=move |e| {
+                                loc_touched.set(true);
+                                if let Ok(v) = event_target_value(&e).parse::<f64>() {
+                                    f_lng.set(v);
+                                    map_set("create-loc-map", f_lat.get_untracked(), v);
+                                }
+                            }
+                        />
+                    </div>
                 </div>
                 // ── SUBMIT ────────────────────────────────────────────────────
                 <div class="medit-actions">

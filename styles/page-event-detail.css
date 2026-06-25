@@ -30,6 +30,16 @@
     background: var(--bg-base);
     animation: pulse 1.5s infinite;
 }
+/* Badge LIVE yang bisa diklik → loncat ke pemutar siaran */
+.ed-live-badge--link {
+    text-decoration: none;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.15s;
+}
+.ed-live-badge--link:hover { opacity: 0.9; }
+.ed-live-badge--link:active { transform: scale(0.95); }
+/* Offset agar judul section tak tertutup header saat di-scroll ke anchor */
+.ed-live-section { scroll-margin-top: 72px; }
 .ed-cat-badge {
     font-family: var(--font-body);
     font-size: 9px;

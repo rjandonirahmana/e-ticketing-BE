@@ -45,6 +45,7 @@ static STYLES: &[(&str, &str)] = css_table![
     "page-merchant.css",
     "page-merchant-event.css",
     "page-merchant-landing.css",
+    "page-merchant-live.css",
     "page-admin.css",
     "page-messages.css",
     "page-notifications.css",

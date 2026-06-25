@@ -5,7 +5,7 @@ use leptos_router::components::A;
 
 use crate::web::api::get_merchant_events;
 use crate::web::app::AuthResource;
-use crate::web::components::{BottomNav, GridBackground, MerchantRowShimmer, ThemeToggle};
+use crate::web::components::{BottomNav, GridBackground, MerchantEventCardShimmer, ThemeToggle};
 use crate::web::models::{format_date, format_price, Event, PaginatedEvents};
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
@@ -102,7 +102,14 @@ pub fn MerchantPage() -> impl IntoView {
                     <span class="mhub-header-title">"Merchant Hub"</span>
                 </div>
                 <div class="mhub-header-right">
-                    <A href="/merchant/scan" attr:class="mhub-scan-btn" attr:aria-label="Scan Tiket">
+                    <A href="/merchant/live" attr:class="mhub-live-btn" attr:aria-label="Go Live">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                            <polygon points="5 3 19 12 5 21 5 3"/>
+                        </svg>
+                        "LIVE"
+                    </A>
+                    <A href="/scan" attr:class="mhub-scan-btn" attr:aria-label="Scan Tiket">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
                              stroke="currentColor" stroke-width="2" stroke-linecap="round">
                             <polyline points="4 7 4 4 7 4"/>
@@ -191,7 +198,7 @@ pub fn MerchantPage() -> impl IntoView {
 
             // ── Content ───────────────────────────────────────────────────────
             <Suspense fallback=move || {
-                (0..3).map(|_| view! { <MerchantRowShimmer /> }).collect_view()
+                (0..3).map(|_| view! { <MerchantEventCardShimmer /> }).collect_view()
             }>
                 {move || {
                     let evs = evs_list();

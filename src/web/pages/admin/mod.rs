@@ -13,7 +13,7 @@ use leptos_router::components::A;
 
 use crate::web::api::{get_admin_events, get_admin_stats, get_banners};
 use crate::web::app::AuthResource;
-use crate::web::components::{BottomNav, GridBackground, MerchantRowShimmer, ThemeToggle};
+use crate::web::components::{BottomNav, GridBackground, MerchantEventCardShimmer, ThemeToggle};
 use crate::web::models::{Event, PaginatedEvents};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -149,6 +149,17 @@ pub fn AdminPage() -> impl IntoView {
                     <span class="mhub-header-title">"Pusat Admin"</span>
                 </div>
                 <div class="mhub-header-right">
+                    <A href="/scan" attr:class="mhub-scan-btn" attr:aria-label="Scan Tiket">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                            <polyline points="4 7 4 4 7 4"/>
+                            <polyline points="20 7 20 4 17 4"/>
+                            <polyline points="4 17 4 20 7 20"/>
+                            <polyline points="20 17 20 20 17 20"/>
+                            <rect x="8" y="8" width="8" height="8" rx="1"/>
+                        </svg>
+                        "SCAN"
+                    </A>
                     <ThemeToggle />
                     <A href="/notifications" attr:class="mhub-bell-btn" attr:aria-label="Notifikasi">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
@@ -241,7 +252,7 @@ pub fn AdminPage() -> impl IntoView {
             })}
 
             <Suspense fallback=move || {
-                (0..3).map(|_| view! { <MerchantRowShimmer /> }).collect_view()
+                (0..3).map(|_| view! { <MerchantEventCardShimmer /> }).collect_view()
             }>
                 {move || {
                     let evs_all = if all_loaded.get() {

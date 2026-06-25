@@ -17,6 +17,10 @@ pub struct Event {
     pub venue: Option<String>,
     pub city: Option<String>,
     #[serde(default)]
+    pub latitude: Option<f64>,
+    #[serde(default)]
+    pub longitude: Option<f64>,
+    #[serde(default)]
     pub category: Vec<String>,
     pub event_date: DateTime<Utc>,
     pub start_time: Option<DateTime<Utc>>,
@@ -53,6 +57,10 @@ pub struct EventWithVariants {
     pub cover_url: Option<String>,
     pub venue: Option<String>,
     pub city: Option<String>,
+    #[serde(default)]
+    pub latitude: Option<f64>,
+    #[serde(default)]
+    pub longitude: Option<f64>,
     #[serde(default)]
     pub category: Vec<String>,
     pub event_date: DateTime<Utc>,
@@ -122,6 +130,7 @@ pub struct TicketResponse {
     pub order_code: String,
     pub event_id: String,
     pub event_name: String,
+    pub event_slug: String,
     pub event_date: DateTime<Utc>,
     pub event_venue: Option<String>,
     pub event_city: Option<String>,

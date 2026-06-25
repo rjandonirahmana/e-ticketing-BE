@@ -5,7 +5,7 @@ use super::helpers::*;
 #[server(ScanTicket, "/api-fn")]
 pub async fn scan_ticket(ticket_code: String) -> Result<ScanValidateResult, ServerFnError> {
     use crate::models::tickets::ValidateTicketRequest;
-    let claims = auth_claims().await?;
+    let claims = require_roles(&["merchant", "admin"]).await?;
     let state = app_state().await?;
     let req = ValidateTicketRequest { ticket_code: ticket_code.clone() };
     let resp = state

@@ -49,6 +49,8 @@ hydrate = ["leptos/hydrate"]
 # Serialization (dipakai CSR dan SSR)
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Konversi serde <-> JsValue di sisi WASM (mis. konfigurasi ICE servers WebRTC)
+serde-wasm-bindgen = "0.6"
 
 # Error handling (shared)
 thiserror = "2.0.18"
@@ -80,6 +82,7 @@ gloo-timers = { version = "0.3", features = ["futures"] }
 getrandom = "0.3"
 qrcodegen = "1.8"
 web-sys = { version = "0.3", features = [
+     "RtcPeerConnectionIceEvent",
     "Window",
     "Document",
     "Element",
@@ -126,6 +129,22 @@ web-sys = { version = "0.3", features = [
     "MediaStreamConstraints",
     "MediaStreamTrack",
     "MediaTrackConstraints",
+    "RtcPeerConnection",
+    "RtcConfiguration",
+    "RtcSessionDescription",
+    "RtcSessionDescriptionInit",
+    "RtcSdpType",
+    "RtcIceCandidate",
+    "RtcIceCandidateInit",
+    "RtcIceConnectionState",
+    "RtcIceGatheringState",
+    "RtcSignalingState",
+    "RtcTrackEvent",
+    "RtcRtpTransceiver",
+    "RtcRtpSender",
+    "RtcRtpReceiver",
+    "RtcRtpEncodingParameters",
+    "RtcOfferOptions",
 ] }
 
 # ── Server-only deps (TIDAK dikompilasi untuk wasm32) ─────────────────────────
@@ -173,6 +192,9 @@ config = "0.15.22"
 validator = { version = "0.20", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# WebRTC SFU (Sans I/O — pure Rust, no C deps)
+str0m = "0.20"
 
 # Misc server utils
 rand = "0.10.1"

@@ -38,9 +38,26 @@ impl AuthUser {
     }
 }
 
-/// Axum middleware that validates Bearer tokens and attaches the Claims to
-/// the request extensions. Routes that need auth nest under a layer that
-/// applies this middleware; handlers then use the `AuthUser` extractor.
+/// Extracts the JWT from the `pulse_token` cookie. Same-origin browser
+/// requests (Leptos WASM) can't read the HttpOnly cookie to build an
+/// `Authorization` header, but the cookie *is* sent automatically — so we
+/// read it server-side as a fallback to the Bearer header.
+fn cookie_token(headers: &header::HeaderMap, name: &str) -> Option<String> {
+    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
+    raw.split(';').map(str::trim).find_map(|p| {
+        p.strip_prefix(&format!("{name}="))
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(String::from)
+    })
+}
+
+/// Axum middleware that validates the JWT and attaches the Claims to the
+/// request extensions. Accepts either an `Authorization: Bearer <token>`
+/// header (the separate Next.js frontend / REST API) or the `pulse_token`
+/// HttpOnly cookie (same-origin Leptos WASM, which cannot set the header
+/// itself). Routes that need auth nest under a layer that applies this
+/// middleware; handlers then use the `AuthUser` extractor.
 pub async fn require_auth(
     State(state): State<Arc<AppState>>,
     mut req: axum::http::Request<axum::body::Body>,
@@ -51,11 +68,13 @@ pub async fn require_auth(
         .get(header::AUTHORIZATION)
         .and_then(|h| h.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
-        .ok_or_else(|| AppError::Unauthorized("Missing Bearer token".into()))?;
+        .map(String::from)
+        .or_else(|| cookie_token(req.headers(), "pulse_token"))
+        .ok_or_else(|| AppError::Unauthorized("Missing auth token".into()))?;
 
     let claims = state
         .jwt
-        .verify(token)
+        .verify(&token)
         .map_err(|_| AppError::Unauthorized("Invalid or expired token".into()))?;
 
     req.extensions_mut().insert(AuthUser(claims));

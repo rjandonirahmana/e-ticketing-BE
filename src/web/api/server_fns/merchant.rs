@@ -5,7 +5,7 @@ use super::helpers::*;
 #[server(GetMerchantEvents, "/api-fn")]
 pub async fn get_merchant_events(page: Option<i64>) -> Result<PaginatedEvents, ServerFnError> {
     use crate::models::events::EventListQuery;
-    let claims = auth_claims().await?;
+    let claims = require_roles(&["merchant", "admin"]).await?;
     let state = app_state().await?;
     let q = EventListQuery {
         page,
@@ -25,7 +25,7 @@ pub async fn get_merchant_events(page: Option<i64>) -> Result<PaginatedEvents, S
 
 #[server(GetMerchantEventDetail, "/api-fn")]
 pub async fn get_merchant_event_detail(slug: String) -> Result<EventWithVariants, ServerFnError> {
-    let _claims = auth_claims().await?;
+    let _claims = require_roles(&["merchant", "admin"]).await?;
     let state = app_state().await?;
     let result = state
         .event_svc
@@ -44,9 +44,11 @@ pub async fn create_merchant_event(
     event_date: String,
     start_time: String,
     categories: String,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
 ) -> Result<String, ServerFnError> {
     use crate::models::events::{CreateEventRequest, CreateVariantInline};
-    let claims = auth_claims().await?;
+    let claims = require_roles(&["merchant", "admin"]).await?;
     let state = app_state().await?;
 
     let cats: Vec<String> = categories
@@ -86,6 +88,8 @@ pub async fn create_merchant_event(
         },
         venue: if venue.is_empty() { None } else { Some(venue) },
         city: if city.is_empty() { None } else { Some(city) },
+        latitude,
+        longitude,
         category: cats,
         event_date: event_date_dt,
         start_time: start_time_dt,
@@ -122,9 +126,11 @@ pub async fn update_merchant_event(
     event_date: String,
     start_time: String,
     categories: String,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
 ) -> Result<(), ServerFnError> {
     use crate::models::events::UpdateEventRequest;
-    let claims = auth_claims().await?;
+    let claims = require_roles(&["merchant", "admin"]).await?;
     let state = app_state().await?;
 
     let cats: Vec<String> = categories
@@ -172,6 +178,8 @@ pub async fn update_merchant_event(
         cover_url: None,
         venue: if venue.is_empty() { None } else { Some(venue) },
         city: if city.is_empty() { None } else { Some(city) },
+        latitude,
+        longitude,
         event_date: event_date_dt,
         category: cats,
         start_time: start_time_dt,

@@ -486,15 +486,29 @@ impl StoryRepository for PgStoryRepository {
 
         let conn = get_conn(&self.pool).await?;
 
-        // Fetch order_code from existing order
+        // Fetch order_code AND plan from the existing order.
+        // SECURITY: the granted plan/duration MUST come from the stored order
+        // (set at create_pending_subscription_order time alongside the charged
+        // amount), NOT from the caller. Otherwise a user could create a cheap
+        // `weekly` order then confirm with plan="lifetime" to escalate the
+        // entitlement they actually paid for. The `plan`/`days` arguments are
+        // therefore ignored here and re-derived from the persisted row.
         let order_row = conn
             .query_one(
-                "SELECT order_code FROM subscription_orders WHERE id = $1 AND user_id = $2 AND status = 'pending'",
+                "SELECT order_code, plan FROM subscription_orders WHERE id = $1 AND user_id = $2 AND status = 'pending'",
                 &[&order_id_bytes, &uid],
             )
             .await
             .context("find pending subscription order")?;
+        let _ = (plan, days); // caller-supplied values ignored; superseded below
         let order_code: String = order_row.try_get(0)?;
+        let plan: String = order_row.try_get(1)?;
+        let days: i64 = match plan.as_str() {
+            "weekly" => 7,
+            "yearly" => 365,
+            "lifetime" => 0,
+            _ => 30, // monthly / default
+        };
 
         // Mark as paid
         conn.execute(

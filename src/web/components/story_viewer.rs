@@ -928,7 +928,9 @@ pub fn StoryViewer() -> impl IntoView {
                                                      let rc = raf_closure.clone();
                                                      let ri = raf_id.clone();
                                                      let rs = raf_state.clone();
-                                                     let setup: Closure<dyn Fn()> = Closure::new(move || {
+                                                     // Closure::once → FnOnce: captures freed after first RAF tick,
+                                                     // not leaked permanently like Closure::new(Fn) would be.
+                                                     let setup = Closure::once(move || {
                                                          let st = rs.get_value();
                                                          if !st.cancelled && st.paused_at_ms == 0.0 && ri.get_value() == 0 {
                                                              start_raf(&rc, &ri);
