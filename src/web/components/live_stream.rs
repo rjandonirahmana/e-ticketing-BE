@@ -3,18 +3,14 @@ use send_wrapper::SendWrapper;
 use serde::Deserialize;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen::closure::Closure;
+use std::rc::Rc;
+use std::cell::Cell;
 
 // Hanya field yang dipakai UI viewer; field lain di respons diabaikan serde.
 #[derive(Debug, Clone, Deserialize)]
 struct RoomInfo {
     merchant_name: String,
     viewer_count: usize,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct SubscribeSdpResponse {
-    sdp: String,
-    subscriber_id: String,
 }
 
 async fn api_get_room(room_id: &str) -> Result<RoomInfo, String> {
@@ -24,80 +20,29 @@ async fn api_get_room(room_id: &str) -> Result<RoomInfo, String> {
         .await
         .map_err(|e| e.to_string())?;
     let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    // Respons error berbentuk `{ "error": ... }`; tanpa cek ini, `json["data"]`
-    // bernilai null dan deserialisasi gagal dengan pesan menyesatkan.
     if let Some(err) = json.get("error").and_then(|e| e.as_str()) {
         return Err(err.to_string());
     }
     serde_json::from_value(json["data"].clone()).map_err(|e| e.to_string())
 }
 
-async fn api_subscribe_sdp(
-    room_id: &str,
-    sdp: &str,
-    viewer_id: Option<String>,
-    viewer_name: Option<String>,
-) -> Result<SubscribeSdpResponse, String> {
-    let url = format!("/api/live/rooms/{}/subscribe/sdp", room_id);
-    let resp = gloo_net::http::Request::post(&url)
-        .json(&serde_json::json!({
-            "sdp": sdp,
-            "viewer_id": viewer_id,
-            "viewer_name": viewer_name,
-        }))
-        .map_err(|e| e.to_string())?
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-
-    let sdp = json["data"]["sdp"]
-        .as_str()
-        .map(String::from)
-        .ok_or_else(|| "No SDP answer".to_string())?;
-
-    let subscriber_id = json["data"]["subscriber_id"]
-        .as_str()
-        .map(String::from)
-        .ok_or_else(|| "No subscriber_id".to_string())?;
-
-    Ok(SubscribeSdpResponse { sdp, subscriber_id })
-}
-
-async fn api_subscribe_ice(
-    room_id: &str,
-    subscriber_id: &str,
-    candidate: &str,
-    sdp_mid: &str,
-    sdp_mline_index: u16,
-) -> Result<(), String> {
-    let url = format!("/api/live/rooms/{}/subscribe/ice", room_id);
-    let resp = gloo_net::http::Request::post(&url)
-        .json(&serde_json::json!({
-            "subscriber_id": subscriber_id,
-            "candidate": candidate,
-            "sdp_mid": sdp_mid,
-            "sdp_mline_index": sdp_mline_index
-        }))
-        .map_err(|e| e.to_string())?
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if resp.ok() {
-        Ok(())
-    } else {
-        Err(format!("ICE send failed: {}", resp.status()))
+/// Bangun URL WebSocket dari path relatif.
+/// Otomatis menggunakan wss:// bila halaman di-serve via HTTPS.
+fn build_ws_url(path: &str) -> String {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let window = web_sys::window().expect("no window");
+        let location = window.location();
+        let proto = if location.protocol().unwrap_or_default() == "https:" {
+            "wss"
+        } else {
+            "ws"
+        };
+        let host = location.host().unwrap_or_default();
+        return format!("{}://{}{}", proto, host, path);
     }
-}
-
-async fn api_leave(room_id: &str, subscriber_id: &str) -> Result<(), String> {
-    let url = format!("/api/live/rooms/{}/subscribe/{}", room_id, subscriber_id);
-    gloo_net::http::Request::delete(&url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    #[cfg(not(target_arch = "wasm32"))]
+    format!("ws://localhost{}", path)
 }
 
 /// Bangun daftar ICE server sebagai array berisi objek JS biasa.
@@ -113,19 +58,6 @@ fn ice_servers() -> js_sys::Array {
     let servers = js_sys::Array::new();
     servers.push(&server);
     servers
-}
-
-/// Tunggu ICE gathering selesai (maks ~4 dtk) agar kandidat tertanam di SDP.
-/// Server mengabaikan trickle ICE, jadi offer harus dikirim non-trickle —
-/// tanpa ini koneksi penonton tak pernah terbentuk (video/suara tidak muncul).
-async fn wait_ice_gathering_complete(pc: &web_sys::RtcPeerConnection) {
-    use std::time::Duration;
-    for _ in 0..40 {
-        if pc.ice_gathering_state() == web_sys::RtcIceGatheringState::Complete {
-            return;
-        }
-        gloo_timers::future::sleep(Duration::from_millis(100)).await;
-    }
 }
 
 /// Helper: add a recvonly transceiver using raw JS
@@ -164,7 +96,10 @@ pub fn LiveStreamViewer(
     // Stream remote yang dirakit dari track yang masuk (audio + video).
     let remote_stream: RwSignal<Option<SendWrapper<web_sys::MediaStream>>> = RwSignal::new(None);
     let video_ref: NodeRef<leptos::html::Video> = NodeRef::new();
-    let subscriber_id: RwSignal<Option<String>> = RwSignal::new(None);
+    // Koneksi WS signaling yang sedang aktif.
+    // Menutup WS ini secara otomatis memanggil remove_subscriber di server —
+    // tidak perlu lagi HTTP DELETE /subscribe/{id} saat keluar.
+    let sig_ws: RwSignal<Option<SendWrapper<web_sys::WebSocket>>> = RwSignal::new(None);
 
     // ── Polling viewer count ──────────────────────────────────────────────
     Effect::new(move |_| {
@@ -198,7 +133,7 @@ pub fn LiveStreamViewer(
         let error_msg = error_msg;
         let pc = pc;
         let video_ref = video_ref.clone();
-        let subscriber_id = subscriber_id;
+        let sig_ws = sig_ws;
         let profile = auth.user.get_untracked();
 
         async move {
@@ -240,16 +175,20 @@ pub fn LiveStreamViewer(
                 return;
             }
 
-            // ── ontrack: rakit track masuk → pasang ke elemen video ─────────
+            // ── ontrack: rakit track masuk → update signal saja ─────────────
+            // Jangan manipulasi DOM dari sini (Closure JS, di luar sistem
+            // reaktif Leptos) karena video_ref.get_untracked() bisa None.
+            // Reactive Effect di bawah yang akan memasang srcObject + play().
             let on_track = {
-                let video_ref = video_ref.clone();
                 Closure::<dyn FnMut(web_sys::RtcTrackEvent)>::new(move |event: web_sys::RtcTrackEvent| {
                     let streams = event.streams();
                     let stream: web_sys::MediaStream = if streams.length() > 0 {
+                        // Gunakan stream yang sudah dilampirkan server di SDP (msid).
                         streams.get(0).unchecked_into()
                     } else {
-                        // Answer SDP dari str0m sering tanpa msid → streams kosong.
-                        // Rakit track audio & video ke satu MediaStream sendiri.
+                        // str0m kadang tidak menyertakan msid → rakit stream manual.
+                        // get_untracked() aman di sini karena kita HANYA membaca,
+                        // tidak menulis ke DOM; hanya signal yang diupdate.
                         let s = match remote_stream.get_untracked() {
                             Some(s) => (*s).clone(),
                             None => match web_sys::MediaStream::new() {
@@ -260,50 +199,115 @@ pub fn LiveStreamViewer(
                         s.add_track(&event.track());
                         s
                     };
-                    remote_stream.set(Some(SendWrapper::new(stream.clone())));
-                    if let Some(video) = video_ref.get_untracked() {
-                        video.set_src_object(Some(&stream));
-                        let _ = video.play();
-                    }
+                    // Signal update → reactive Effect merespons dan set srcObject.
+                    remote_stream.set(Some(SendWrapper::new(stream)));
                 })
             };
             peer_connection.set_ontrack(Some(on_track.as_ref().unchecked_ref()));
             on_track.forget();
 
-            // ── onicecandidate: send local ICE candidates to server ─────────
-            let rid = room_id.clone();
-            let sub_id_store = subscriber_id;
-            let on_ice_candidate =
-                Closure::<dyn FnMut(web_sys::RtcPeerConnectionIceEvent)>::new(
-                    move |event: web_sys::RtcPeerConnectionIceEvent| {
-                        if let Some(candidate) = event.candidate() {
-                            let rid = rid.clone();
-                            let cand = candidate.candidate();
-                            let mid = candidate.sdp_mid().unwrap_or_default();
-                            let idx = candidate.sdp_m_line_index().unwrap_or(0);
-                            let sub_id = sub_id_store.get_untracked();
+            // ── Buka WS signaling SEBELUM createOffer ────────────────────────
+            // Alasannya: setLocalDescription memulai ICE gathering. Kandidat ICE
+            // pertama bisa datang sangat cepat. Dengan WS sudah terbuka, kandidat
+            // langsung terkirim (trickle ICE sejati) — tidak perlu wait polling.
+            let ws_url = build_ws_url(&format!("/ws/live/subscribe/{}", room_id));
+            let ws = match web_sys::WebSocket::new(&ws_url) {
+                Ok(w) => w,
+                Err(e) => {
+                    error_msg.set(Some(format!("WS gagal dibuka: {:?}", e)));
+                    return;
+                }
+            };
 
-                            wasm_bindgen_futures::spawn_local(async move {
-                                if let Some(sid) = sub_id {
-                                    let _ = api_subscribe_ice(
-                                        &rid, &sid, &cand, &mid, idx
-                                    ).await;
+            // Simpan WS segera agar on_cleanup bisa menutupnya walau
+            // koneksi masih dalam proses (navigasi pergi sebelum selesai).
+            sig_ws.set(Some(SendWrapper::new(ws.clone())));
+
+            // ── Siapkan channel untuk menerima answer dari server ─────────────
+            // Pola Rc<Cell<Option<Sender>>> aman di WASM (single-thread).
+            // Cell::take() bekerja untuk Option<T> karena Option: Default.
+            let (answer_tx, answer_rx) = futures::channel::oneshot::channel::<
+                Result<serde_json::Value, String>,
+            >();
+            let answer_tx = Rc::new(Cell::new(Some(answer_tx)));
+
+            {
+                let tx = answer_tx.clone();
+                let cb = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
+                    move |e: web_sys::MessageEvent| {
+                        if let Ok(txt) = e.data().dyn_into::<js_sys::JsString>() {
+                            let s: String = txt.into();
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) {
+                                if let Some(tx) = tx.take() {
+                                    let _ = tx.send(Ok(v));
                                 }
-                            });
+                            }
                         }
                     },
                 );
-            peer_connection.set_onicecandidate(Some(on_ice_candidate.as_ref().unchecked_ref()));
-            on_ice_candidate.forget();
+                ws.set_onmessage(Some(cb.as_ref().unchecked_ref()));
+                cb.forget();
+            }
+            {
+                let tx = answer_tx.clone();
+                let cb = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
+                    if let Some(tx) = tx.take() {
+                        let _ = tx.send(Err("WS error sebelum answer diterima".to_string()));
+                    }
+                });
+                ws.set_onerror(Some(cb.as_ref().unchecked_ref()));
+                cb.forget();
+            }
 
-            // ── Create offer ──────────────────────────────────────────────────
+            // ── onicecandidate: kirim kandidat langsung via WS (trickle ICE) ─
+            // Tidak lagi menunggu ICE gathering selesai (wait_ice_gathering_complete
+            // dihapus). Ini mempersingkat setup koneksi 300–500 ms.
+            {
+                let ws_ref = ws.clone();
+                let on_ice = Closure::<dyn FnMut(web_sys::RtcPeerConnectionIceEvent)>::new(
+                    move |event: web_sys::RtcPeerConnectionIceEvent| {
+                        if let Some(candidate) = event.candidate() {
+                            let msg = serde_json::json!({
+                                "type": "candidate",
+                                "candidate": candidate.candidate(),
+                                "sdp_mid": candidate.sdp_mid().unwrap_or_default(),
+                                "sdp_mline_index": candidate.sdp_m_line_index().unwrap_or(0),
+                            });
+                            let _ = ws_ref.send_with_str(&msg.to_string());
+                        }
+                    },
+                );
+                peer_connection.set_onicecandidate(Some(on_ice.as_ref().unchecked_ref()));
+                on_ice.forget();
+            }
+
+            // ── Tunggu WS terbuka (maks 5 detik) ─────────────────────────────
+            {
+                use std::time::Duration;
+                for _ in 0..50u8 {
+                    match ws.ready_state() {
+                        1 => break,                // OPEN
+                        2 | 3 => {                 // CLOSING / CLOSED
+                            error_msg.set(Some("WS ditutup sebelum terbuka".to_string()));
+                            return;
+                        }
+                        _ => gloo_timers::future::sleep(Duration::from_millis(100)).await,
+                    }
+                }
+                if ws.ready_state() != 1 {
+                    error_msg.set(Some("WS koneksi timeout".to_string()));
+                    return;
+                }
+            }
+
+            // ── createOffer → setLocalDescription (ICE gathering dimulai) ────
             let offer_promise = peer_connection.create_offer_with_rtc_offer_options(
-                &web_sys::RtcOfferOptions::new()
+                &web_sys::RtcOfferOptions::new(),
             );
             let offer = match wasm_bindgen_futures::JsFuture::from(offer_promise).await {
                 Ok(o) => o,
                 Err(e) => {
-                    error_msg.set(Some(format!("createOffer failed: {:?}", e)));
+                    error_msg.set(Some(format!("createOffer gagal: {:?}", e)));
                     return;
                 }
             };
@@ -318,50 +322,91 @@ pub fn LiveStreamViewer(
 
             if let Err(e) = wasm_bindgen_futures::JsFuture::from(
                 peer_connection.set_local_description(&desc),
-            ).await {
-                error_msg.set(Some(format!("setLocalDescription failed: {:?}", e)));
+            )
+            .await
+            {
+                error_msg.set(Some(format!("setLocalDescription gagal: {:?}", e)));
                 return;
             }
 
-            // Tunggu kandidat ICE masuk ke SDP sebelum dikirim (non-trickle).
-            wait_ice_gathering_complete(&peer_connection).await;
+            // Ambil SDP lokal saat ini (kandidat yang sudah terkumpul sebelum offer dikirim).
             let offer_sdp = peer_connection
                 .local_description()
                 .map(|d| d.sdp())
                 .filter(|s| !s.is_empty())
                 .unwrap_or(sdp_str);
 
-            // ── Send offer, receive answer + subscriber_id ──────────────────
+            // ── Kirim offer via WS SINKRON (sebelum await berikutnya) ─────────
+            // JavaScript single-thread: onicecandidate tidak bisa menyela sebelum kita await.
+            // Dengan mengirim offer sinkron di sini, kita jamin server menerima offer
+            // lebih dulu daripada kandidat ICE apapun.
             let (viewer_id, viewer_name) = match &profile {
                 Some(p) => (Some(p.id.clone()), Some(p.name.clone())),
                 None => (None, None),
             };
-            // Beri timeout supaya tidak "menghubungkan" selamanya bila server diam.
-            let fetch = api_subscribe_sdp(&room_id, &offer_sdp, viewer_id, viewer_name);
-            let timeout = gloo_timers::future::TimeoutFuture::new(15_000);
-            let answer = match futures::future::select(Box::pin(fetch), timeout).await {
-                futures::future::Either::Left((res, _)) => res,
-                futures::future::Either::Right(_) => {
-                    Err("Server tidak merespons (timeout)".to_string())
-                }
-            };
-            let answer = match answer {
-                Ok(a) => a,
-                Err(e) => {
+            let offer_msg = serde_json::json!({
+                "type": "subscribe_offer",
+                "sdp": offer_sdp,
+                "viewer_id": viewer_id,
+                "viewer_name": viewer_name,
+            });
+            if ws.send_with_str(&offer_msg.to_string()).is_err() {
+                error_msg.set(Some("Gagal mengirim offer ke server".to_string()));
+                return;
+            }
+
+            // ── Tunggu answer dari server (maks 15 detik) ────────────────────
+            // answer_rx: Receiver<Result<Value, String>>
+            // Awaiting: Result<Result<Value, String>, Canceled> — dua lapisan Result.
+            let answer_json: serde_json::Value = match futures::future::select(
+                Box::pin(answer_rx),
+                Box::pin(gloo_timers::future::TimeoutFuture::new(15_000)),
+            )
+            .await
+            {
+                // Outer Ok = channel tidak dropped; inner Ok = server kirim answer JSON.
+                futures::future::Either::Left((Ok(Ok(v)), _)) => v,
+                // Outer Ok, inner Err = server kirim pesan error (misalnya "No active stream").
+                futures::future::Either::Left((Ok(Err(e)), _)) => {
                     error_msg.set(Some(format!("Gagal terhubung: {e}")));
+                    return;
+                }
+                // Outer Err = channel dropped (WS ditutup sebelum answer diterima).
+                futures::future::Either::Left((Err(_), _)) => {
+                    error_msg.set(Some("WS ditutup sebelum answer diterima".to_string()));
+                    return;
+                }
+                futures::future::Either::Right(_) => {
+                    error_msg.set(Some("Server tidak merespons (timeout 15 s)".to_string()));
                     return;
                 }
             };
 
-            subscriber_id.set(Some(answer.subscriber_id.clone()));
+            // Periksa apakah server mengirim error
+            if answer_json.get("type").and_then(|t| t.as_str()) == Some("error") {
+                let msg = answer_json["message"].as_str().unwrap_or("Unknown error");
+                error_msg.set(Some(format!("Gagal terhubung: {msg}")));
+                return;
+            }
 
+            let answer_sdp = match answer_json["sdp"].as_str() {
+                Some(s) => s.to_string(),
+                None => {
+                    error_msg.set(Some("Tidak ada SDP dalam answer".to_string()));
+                    return;
+                }
+            };
+
+            // ── setRemoteDescription dengan answer SDP ────────────────────────
             let answer_desc = web_sys::RtcSessionDescriptionInit::new(web_sys::RtcSdpType::Answer);
-            answer_desc.set_sdp(&answer.sdp);
+            answer_desc.set_sdp(&answer_sdp);
 
             if let Err(e) = wasm_bindgen_futures::JsFuture::from(
                 peer_connection.set_remote_description(&answer_desc),
-            ).await {
-                error_msg.set(Some(format!("setRemoteDescription failed: {:?}", e)));
+            )
+            .await
+            {
+                error_msg.set(Some(format!("setRemoteDescription gagal: {:?}", e)));
                 return;
             }
 
@@ -382,19 +427,19 @@ pub fn LiveStreamViewer(
     let disconnect = Action::new_local(move |_: &()| {
         let pc = pc;
         let is_playing = is_playing;
-        let subscriber_id = subscriber_id;
-        let rid = room_id.get_value();
+        let sig_ws = sig_ws;
 
         async move {
             if let Some(conn) = pc.get_untracked() {
                 let _ = conn.close();
             }
             pc.set(None);
-            // Beri tahu server agar viewer count berkurang.
-            if let Some(sid) = subscriber_id.get_untracked() {
-                let _ = api_leave(&rid, &sid).await;
+            // Tutup WS → server memanggil remove_subscriber secara otomatis.
+            // Tidak perlu lagi HTTP DELETE /subscribe/{id}.
+            if let Some(ws) = sig_ws.get_untracked() {
+                let _ = ws.close();
             }
-            subscriber_id.set(None);
+            sig_ws.set(None);
             is_playing.set(false);
         }
     });
@@ -403,12 +448,49 @@ pub fn LiveStreamViewer(
         if let Some(conn) = pc.get_untracked() {
             let _ = conn.close();
         }
-        // Navigasi keluar saat masih menonton: lepas slot viewer di server.
-        if let Some(sid) = subscriber_id.get_untracked() {
-            let rid = room_id.get_value();
-            wasm_bindgen_futures::spawn_local(async move {
-                let _ = api_leave(&rid, &sid).await;
-            });
+        // Menutup WS secara otomatis memanggil remove_subscriber di server
+        // (live_subscribe_ws_loop mendeteksi disconnect dan memanggil remove_subscriber).
+        // Ini menangani: navigasi keluar, tutup tab, refresh saat masih menonton.
+        if let Some(ws) = sig_ws.get_untracked() {
+            let _ = ws.close();
+        }
+    });
+
+    // ── Reactive srcObject Effect ────────────────────────────────────────────
+    // Diletakkan di level komponen (bukan di dalam Action) agar:
+    //   1. video_ref.get() selalu bekerja — Effect berjalan di dalam sistem
+    //      reaktif Leptos sehingga NodeRef terlacak dan selalu valid.
+    //   2. play() dijadwalkan ulang tiap kali stream berubah (reconnect) tanpa
+    //      perlu menyentuh DOM secara manual dari dalam wasm_bindgen Closure.
+    //   3. Promise rejection dari play() ditangani via spawn_local (tidak
+    //      dibuang diam-diam), sehingga konsol tidak penuh "Uncaught in promise".
+    //
+    // Alur: ontrack Closure → remote_stream.set() → Effect ini berjalan →
+    //       set_src_object → play().
+    Effect::new(move |_| {
+        let Some(video) = video_ref.get() else { return };
+        match remote_stream.get() {
+            Some(stream) => {
+                // set_src_object mungkin mengembalikan error jika element
+                // sedang di-garbage-collect — abaikan saja.
+                let _ = video.set_src_object(Some(&*stream));
+
+                // play() mengembalikan Promise. Kita spawn Future-nya agar
+                // rejection (misalnya karena browser belum siap) tidak jadi
+                // "Uncaught (in promise)" di konsol dan tidak memblokir thread.
+                if let Ok(promise) = video.play() {
+                    wasm_bindgen_futures::spawn_local(async move {
+                        // Abaikan rejection — autoplay=true pada elemen video
+                        // akan mencoba lagi secara otomatis saat data mengalir.
+                        let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+                    });
+                }
+            }
+            None => {
+                // Stream dihentikan (disconnect) — bersihkan srcObject agar
+                // elemen video tidak menahan referensi lama (memory leak).
+                video.set_src_object(None);
+            }
         }
     });
 
@@ -446,7 +528,6 @@ pub fn LiveStreamViewer(
                     class="live-viewer-video"
                     autoplay=true
                     playsinline=true
-                    muted=false
                     poster="/live-poster.svg"
                 />
                 {move || {

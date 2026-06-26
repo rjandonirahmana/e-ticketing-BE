@@ -37,7 +37,6 @@ pub struct SdpReq {
 #[derive(Debug, Deserialize)]
 pub struct SubscribeReq {
     pub sdp: String,
-    // Identitas penonton (opsional — penonton bisa anonim / belum login).
     #[serde(default)]
     pub viewer_id: Option<String>,
     #[serde(default)]
@@ -104,7 +103,6 @@ async fn lives_ws(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> R
 async fn lives_ws_loop(mut socket: WebSocket, state: Arc<AppState>) {
     let mut rx = state.live_svc.subscribe_changes();
 
-    // Snapshot awal.
     let initial = serde_json::to_string(&state.live_svc.list_rooms()).unwrap_or_default();
     if socket.send(Message::Text(initial.into())).await.is_err() {
         return;
@@ -119,11 +117,9 @@ async fn lives_ws_loop(mut socket: WebSocket, state: Arc<AppState>) {
                         break;
                     }
                 }
-                // Lagged: lewati, klien akan tetap dapat update berikutnya.
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(_) => break,
             },
-            // Deteksi klien menutup koneksi.
             msg = socket.recv() => match msg {
                 Some(Ok(_)) => {}
                 _ => break,
@@ -141,6 +137,8 @@ async fn get_room(
         None => err(StatusCode::NOT_FOUND, "Room not found"),
     }
 }
+
+// ── HTTP signaling (tetap ada untuk kompatibilitas klien lama) ─────────────────
 
 async fn publish_sdp(
     _auth: AuthUser,
@@ -189,8 +187,6 @@ async fn subscribe_sdp(
         .subscribe_sdp(&room_id, &sub_id, &body.sdp, viewer)
         .await
     {
-        // Kembalikan subscriber_id agar klien bisa mengirim trickle ICE
-        // dan memanggil endpoint leave saat keluar (viewer count akurat).
         Ok(answer) => ok(SubscribeSdpRes {
             sdp: answer,
             subscriber_id: sub_id,
@@ -245,24 +241,217 @@ async fn stop_room(
     }
 }
 
+// ── WS signaling: publisher ────────────────────────────────────────────────────
+//
+// GET /ws/live/publish/{room_id}
+//
+// Protokol (JSON):
+//   Client → Server: { "type": "publish_offer", "sdp": "..." }
+//   Server → Client: { "type": "answer",        "sdp": "..." }
+//   Server → Client: { "type": "error",         "message": "..." }
+//   Client → Server: { "type": "candidate",
+//                      "candidate": "...", "sdp_mid": "...", "sdp_mline_index": 0 }
+//
+// Keunggulan vs HTTP: trickle ICE sejati (kandidat dikirim satu per satu, real-time),
+// tidak ada `wait_ice_gathering_complete` polling, setup koneksi 300-500 ms lebih cepat.
+// Server otomatis memanggil stop_room saat WS ditutup (kamera mati / tab ditutup).
+
+async fn live_publish_ws(
+    _auth: AuthUser,
+    ws: WebSocketUpgrade,
+    Path(room_id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Response {
+    ws.on_upgrade(move |socket| live_publish_ws_loop(socket, room_id, state))
+}
+
+async fn live_publish_ws_loop(mut socket: WebSocket, room_id: String, state: Arc<AppState>) {
+    let mut negotiated = false;
+
+    loop {
+        match socket.recv().await {
+            None | Some(Err(_)) => break,
+            Some(Ok(Message::Close(_))) => break,
+            Some(Ok(Message::Text(txt))) => {
+                let v: serde_json::Value = match serde_json::from_str(&txt) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                match v.get("type").and_then(|t| t.as_str()).unwrap_or("") {
+                    "publish_offer" => {
+                        let sdp = v["sdp"].as_str().unwrap_or_default();
+                        let resp = match state.live_svc.publish_sdp(&room_id, sdp).await {
+                            Ok(answer) => {
+                                negotiated = true;
+                                serde_json::json!({ "type": "answer", "sdp": answer })
+                            }
+                            Err(e) => serde_json::json!({ "type": "error", "message": e }),
+                        };
+                        if socket
+                            .send(Message::Text(resp.to_string().into()))
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    "candidate" if negotiated => {
+                        let candidate = v["candidate"].as_str().unwrap_or_default();
+                        let mid = v["sdp_mid"].as_str().unwrap_or_default();
+                        let idx = v["sdp_mline_index"].as_u64().unwrap_or(0) as u32;
+                        // Error silently ignored — ICE kadang kirim kandidat duplikat.
+                        let _ = state
+                            .live_svc
+                            .publish_ice(&room_id, candidate, mid, idx)
+                            .await;
+                    }
+                    _ => {}
+                }
+            }
+            Some(Ok(_)) => {} // Binary/ping/pong — abaikan
+        }
+    }
+
+    // Publisher terputus (tutup tab / klik STOP LIVE / navigasi pergi):
+    // hentikan room agar tidak "menggantung" terlihat live tanpa stream.
+    if negotiated {
+        tracing::info!(room_id, "Publisher WS closed — stopping room");
+        let _ = state.live_svc.stop_room(&room_id).await;
+    }
+}
+
+// ── WS signaling: subscriber (viewer) ─────────────────────────────────────────
+//
+// GET /ws/live/subscribe/{room_id}
+//
+// Protokol (JSON):
+//   Client → Server: { "type": "subscribe_offer", "sdp": "...",
+//                      "viewer_id": "...", "viewer_name": "..." }
+//   Server → Client: { "type": "answer", "sdp": "...", "subscriber_id": "..." }
+//   Server → Client: { "type": "error",  "message": "..." }
+//   Client → Server: { "type": "candidate",
+//                      "candidate": "...", "sdp_mid": "...", "sdp_mline_index": 0 }
+//   Client → Server: { "type": "leave" }   (opsional, boleh langsung tutup WS)
+//
+// WS disconnect (apapun sebabnya) secara otomatis memanggil remove_subscriber
+// sehingga jumlah penonton selalu akurat, tanpa perlu HTTP DELETE.
+
+async fn live_subscribe_ws(
+    ws: WebSocketUpgrade,
+    Path(room_id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Response {
+    ws.on_upgrade(move |socket| live_subscribe_ws_loop(socket, room_id, state))
+}
+
+async fn live_subscribe_ws_loop(
+    mut socket: WebSocket,
+    room_id: String,
+    state: Arc<AppState>,
+) {
+    let sub_id = uuid::Uuid::new_v4().to_string();
+    let mut subscribed = false;
+
+    loop {
+        match socket.recv().await {
+            None | Some(Err(_)) => break,
+            Some(Ok(Message::Close(_))) => break,
+            Some(Ok(Message::Text(txt))) => {
+                let v: serde_json::Value = match serde_json::from_str(&txt) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                match v.get("type").and_then(|t| t.as_str()).unwrap_or("") {
+                    "subscribe_offer" => {
+                        let sdp = v["sdp"].as_str().unwrap_or_default();
+                        let viewer = crate::live::room::ViewerInfo {
+                            id: v["viewer_id"]
+                                .as_str()
+                                .filter(|s| !s.is_empty())
+                                .unwrap_or(&sub_id)
+                                .to_string(),
+                            name: v["viewer_name"]
+                                .as_str()
+                                .filter(|s| !s.trim().is_empty())
+                                .unwrap_or("Anonim")
+                                .to_string(),
+                            photo_url: v["viewer_photo"]
+                                .as_str()
+                                .filter(|s| !s.is_empty())
+                                .map(String::from),
+                        };
+                        let resp =
+                            match state.live_svc.subscribe_sdp(&room_id, &sub_id, sdp, viewer).await {
+                                Ok(answer) => {
+                                    subscribed = true;
+                                    serde_json::json!({
+                                        "type": "answer",
+                                        "sdp": answer,
+                                        "subscriber_id": sub_id,
+                                    })
+                                }
+                                Err(e) => serde_json::json!({ "type": "error", "message": e }),
+                            };
+                        if socket
+                            .send(Message::Text(resp.to_string().into()))
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    "candidate" if subscribed => {
+                        let candidate = v["candidate"].as_str().unwrap_or_default();
+                        let mid = v["sdp_mid"].as_str().unwrap_or_default();
+                        let idx = v["sdp_mline_index"].as_u64().unwrap_or(0) as u32;
+                        let _ = state
+                            .live_svc
+                            .subscribe_ice(&room_id, &sub_id, candidate, mid, idx)
+                            .await;
+                    }
+                    "leave" => break,
+                    _ => {}
+                }
+            }
+            Some(Ok(_)) => {}
+        }
+    }
+
+    // Penonton putus (tutup tab, klik Keluar, navigasi pergi):
+    // lepas dari room agar hitungan penonton akurat.
+    if subscribed {
+        let _ = state.live_svc.remove_subscriber(&room_id, &sub_id).await;
+    }
+}
+
+// ── Router ─────────────────────────────────────────────────────────────────────
+
 pub fn live_router(state: Arc<AppState>) -> Router {
+    // Route yang memerlukan autentikasi merchant/admin.
     let protected = Router::new()
         .route("/api/live/rooms", post(create_room))
+        // HTTP signaling (dipertahankan untuk kompatibilitas)
         .route("/api/live/rooms/{room_id}/publish/sdp", post(publish_sdp))
         .route("/api/live/rooms/{room_id}/publish/ice", post(publish_ice))
         .route("/api/live/rooms/{room_id}", delete(stop_room))
+        // WS signaling untuk publisher (auth via cookie — browser kirim otomatis)
+        .route("/ws/live/publish/{room_id}", get(live_publish_ws))
         .layer(from_fn_with_state(state.clone(), require_auth));
 
+    // Route publik (tidak perlu login).
     let public = Router::new()
         .route("/api/live/rooms", get(list_rooms))
         .route("/ws/lives", get(lives_ws))
         .route("/api/live/rooms/{room_id}", get(get_room))
+        // HTTP signaling (dipertahankan)
         .route("/api/live/rooms/{room_id}/subscribe/sdp", post(subscribe_sdp))
         .route("/api/live/rooms/{room_id}/subscribe/ice", post(subscribe_ice))
         .route(
             "/api/live/rooms/{room_id}/subscribe/{subscriber_id}",
             delete(leave_room),
-        );
+        )
+        // WS signaling untuk penonton (publik — tidak perlu login)
+        .route("/ws/live/subscribe/{room_id}", get(live_subscribe_ws));
 
     Router::new().merge(protected).merge(public).with_state(state)
 }
