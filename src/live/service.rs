@@ -2,7 +2,7 @@ use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use super::room::{LiveRoom, RoomInfo, ViewerInfo};
@@ -11,9 +11,16 @@ use super::sfu::{SfuCommand, SfuEngine, SfuEvent};
 pub struct LiveStreamService {
     rooms: Arc<DashMap<String, Arc<LiveRoom>>>,
     cmd_tx: mpsc::Sender<SfuCommand>,
+    // Broadcast daftar room terbaru ke klien WS `/ws/lives` setiap ada perubahan
+    // (room dibuat/berhenti, penonton masuk/keluar) — pengganti polling HTTP.
+    changes_tx: broadcast::Sender<Vec<RoomInfo>>,
     // SFU berjalan di OS thread sendiri (loop blocking UDP), event loop di tokio task.
     _sfu_handle: std::thread::JoinHandle<()>,
     _event_handle: JoinHandle<()>,
+}
+
+fn snapshot(rooms: &DashMap<String, Arc<LiveRoom>>) -> Vec<RoomInfo> {
+    rooms.iter().map(|r| r.info()).collect()
 }
 
 /// IP yang diiklankan sebagai host ICE candidate. Socket boleh bind ke
@@ -56,28 +63,34 @@ impl LiveStreamService {
             SfuEngine::run(sfu_bind_addr, candidate_addr, cmd_rx, event_tx);
         });
 
+        let (changes_tx, _) = broadcast::channel::<Vec<RoomInfo>>(16);
+
         let rooms: Arc<DashMap<String, Arc<LiveRoom>>> = Arc::new(DashMap::new());
         let rooms_clone = rooms.clone();
+        let changes_evt = changes_tx.clone();
         let event_handle = tokio::spawn(async move {
-            let rx = Arc::new(Mutex::new(event_rx));
-            loop {
-                let mut guard = rx.lock().await;
-                if let Some(event) = guard.recv().await {
-                    drop(guard);
-                    match event {
-                        SfuEvent::StreamStopped { room_id } => {
-                            tracing::info!(room_id, "Live stream stopped");
-                            rooms_clone.remove(&room_id);
-                        }
-                        SfuEvent::ViewerCount { room_id, count } => {
-                            tracing::debug!(room_id, count, "Viewer count update");
-                        }
-                        SfuEvent::IceCandidate { room_id, peer_id, .. } => {
-                            tracing::debug!(room_id, peer_id, "ICE candidate generated");
-                        }
+            // Konsumen tunggal — terima langsung dari receiver, tanpa Arc<Mutex>.
+            let mut event_rx = event_rx;
+            while let Some(event) = event_rx.recv().await {
+                match event {
+                    SfuEvent::StreamStopped { room_id } => {
+                        tracing::info!(room_id, "Live stream stopped");
+                        rooms_clone.remove(&room_id);
+                        let _ = changes_evt.send(snapshot(&rooms_clone));
                     }
-                } else {
-                    break;
+                    SfuEvent::SubscriberLeft { room_id, subscriber_id } => {
+                        // Koneksi penonton putus tanpa leave eksplisit.
+                        if let Some(room) = rooms_clone.get(&room_id) {
+                            room.remove_subscriber(&subscriber_id);
+                        }
+                        let _ = changes_evt.send(snapshot(&rooms_clone));
+                    }
+                    SfuEvent::ViewerCount { room_id, count } => {
+                        tracing::debug!(room_id, count, "Viewer count update");
+                    }
+                    SfuEvent::IceCandidate { room_id, peer_id, .. } => {
+                        tracing::debug!(room_id, peer_id, "ICE candidate generated");
+                    }
                 }
             }
         });
@@ -85,9 +98,20 @@ impl LiveStreamService {
         Arc::new(Self {
             rooms,
             cmd_tx,
+            changes_tx,
             _sfu_handle: sfu_handle,
             _event_handle: event_handle,
         })
+    }
+
+    /// Klien WS `/ws/lives` berlangganan perubahan daftar room di sini.
+    pub fn subscribe_changes(&self) -> broadcast::Receiver<Vec<RoomInfo>> {
+        self.changes_tx.subscribe()
+    }
+
+    /// Kirim snapshot daftar room terbaru ke semua klien WS.
+    fn notify_change(&self) {
+        let _ = self.changes_tx.send(snapshot(&self.rooms));
     }
 
     pub async fn create_room(
@@ -119,6 +143,7 @@ impl LiveStreamService {
             self.cmd_tx.clone(),
         ));
         self.rooms.insert(room_id, room);
+        self.notify_change();
 
         Ok(info)
     }
@@ -176,6 +201,7 @@ impl LiveStreamService {
         if let Some(room) = self.rooms.get(room_id) {
             room.add_subscriber(subscriber_id, viewer);
         }
+        self.notify_change();
 
         Ok(result)
     }
@@ -204,6 +230,7 @@ impl LiveStreamService {
         if let Some(room) = self.rooms.get(room_id) {
             room.remove_subscriber(subscriber_id);
         }
+        self.notify_change();
         self.cmd_tx
             .send(SfuCommand::RemoveSubscriber {
                 room_id: room_id.to_string(),
@@ -224,6 +251,7 @@ impl LiveStreamService {
             .map_err(|e| e.to_string())?;
         rx.await.map_err(|e| e.to_string())??;
         self.rooms.remove(room_id);
+        self.notify_change();
         Ok(())
     }
 

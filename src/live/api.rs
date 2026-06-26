@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{
+        Path, State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+    },
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
@@ -90,6 +93,43 @@ async fn create_room(
 
 async fn list_rooms(State(state): State<Arc<AppState>>) -> Response {
     ok(state.live_svc.list_rooms())
+}
+
+/// WS /ws/lives — push daftar room live realtime (pengganti polling).
+/// Kirim snapshot saat connect, lalu tiap ada perubahan.
+async fn lives_ws(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> Response {
+    ws.on_upgrade(move |socket| lives_ws_loop(socket, state))
+}
+
+async fn lives_ws_loop(mut socket: WebSocket, state: Arc<AppState>) {
+    let mut rx = state.live_svc.subscribe_changes();
+
+    // Snapshot awal.
+    let initial = serde_json::to_string(&state.live_svc.list_rooms()).unwrap_or_default();
+    if socket.send(Message::Text(initial.into())).await.is_err() {
+        return;
+    }
+
+    loop {
+        tokio::select! {
+            update = rx.recv() => match update {
+                Ok(list) => {
+                    let txt = serde_json::to_string(&list).unwrap_or_default();
+                    if socket.send(Message::Text(txt.into())).await.is_err() {
+                        break;
+                    }
+                }
+                // Lagged: lewati, klien akan tetap dapat update berikutnya.
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(_) => break,
+            },
+            // Deteksi klien menutup koneksi.
+            msg = socket.recv() => match msg {
+                Some(Ok(_)) => {}
+                _ => break,
+            },
+        }
+    }
 }
 
 async fn get_room(
@@ -215,6 +255,7 @@ pub fn live_router(state: Arc<AppState>) -> Router {
 
     let public = Router::new()
         .route("/api/live/rooms", get(list_rooms))
+        .route("/ws/lives", get(lives_ws))
         .route("/api/live/rooms/{room_id}", get(get_room))
         .route("/api/live/rooms/{room_id}/subscribe/sdp", post(subscribe_sdp))
         .route("/api/live/rooms/{room_id}/subscribe/ice", post(subscribe_ice))
