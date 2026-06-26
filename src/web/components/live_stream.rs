@@ -4,12 +4,11 @@ use serde::Deserialize;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen::closure::Closure;
 
+// Hanya field yang dipakai UI viewer; field lain di respons diabaikan serde.
 #[derive(Debug, Clone, Deserialize)]
 struct RoomInfo {
-    room_id: String,
     merchant_name: String,
     viewer_count: usize,
-    started_at: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -337,10 +336,19 @@ pub fn LiveStreamViewer(
                 Some(p) => (Some(p.id.clone()), Some(p.name.clone())),
                 None => (None, None),
             };
-            let answer = match api_subscribe_sdp(&room_id, &offer_sdp, viewer_id, viewer_name).await {
+            // Beri timeout supaya tidak "menghubungkan" selamanya bila server diam.
+            let fetch = api_subscribe_sdp(&room_id, &offer_sdp, viewer_id, viewer_name);
+            let timeout = gloo_timers::future::TimeoutFuture::new(15_000);
+            let answer = match futures::future::select(Box::pin(fetch), timeout).await {
+                futures::future::Either::Left((res, _)) => res,
+                futures::future::Either::Right(_) => {
+                    Err("Server tidak merespons (timeout)".to_string())
+                }
+            };
+            let answer = match answer {
                 Ok(a) => a,
                 Err(e) => {
-                    error_msg.set(Some(format!("Subscribe failed: {e}")));
+                    error_msg.set(Some(format!("Gagal terhubung: {e}")));
                     return;
                 }
             };
@@ -378,7 +386,7 @@ pub fn LiveStreamViewer(
         let rid = room_id.get_value();
 
         async move {
-            if let Some(mut conn) = pc.get_untracked() {
+            if let Some(conn) = pc.get_untracked() {
                 let _ = conn.close();
             }
             pc.set(None);
@@ -392,7 +400,7 @@ pub fn LiveStreamViewer(
     });
 
     on_cleanup(move || {
-        if let Some(mut conn) = pc.get_untracked() {
+        if let Some(conn) = pc.get_untracked() {
             let _ = conn.close();
         }
         // Navigasi keluar saat masih menonton: lepas slot viewer di server.

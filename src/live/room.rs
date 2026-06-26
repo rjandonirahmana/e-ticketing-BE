@@ -57,11 +57,21 @@ impl LiveRoom {
         }
     }
 
+    /// Jumlah penonton unik (dedupe by user id). Satu user dengan beberapa
+    /// koneksi/tab dihitung sekali.
     pub fn viewer_count(&self) -> usize {
-        self.subscribers.len()
+        let mut ids = std::collections::HashSet::new();
+        for e in self.subscribers.iter() {
+            ids.insert(e.value().id.clone());
+        }
+        ids.len()
     }
 
     pub fn add_subscriber(&self, id: &str, info: ViewerInfo) {
+        // Pembuat live (merchant) tidak dihitung sebagai penonton.
+        if info.id == self.merchant_id {
+            return;
+        }
         self.subscribers.insert(id.to_string(), info);
     }
 
@@ -69,8 +79,16 @@ impl LiveRoom {
         self.subscribers.remove(id);
     }
 
+    /// Daftar penonton unik (dedupe by user id).
     pub fn viewers(&self) -> Vec<ViewerInfo> {
-        self.subscribers.iter().map(|e| e.value().clone()).collect()
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for e in self.subscribers.iter() {
+            if seen.insert(e.value().id.clone()) {
+                out.push(e.value().clone());
+            }
+        }
+        out
     }
 
     pub fn info(&self) -> RoomInfo {

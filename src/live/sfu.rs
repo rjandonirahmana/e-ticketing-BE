@@ -13,7 +13,15 @@ use tokio::sync::mpsc;
 use super::room::RoomInfo;
 
 const BUF_SIZE: usize = 65535;
-const SFU_TICK: Duration = Duration::from_millis(2);
+/// Lama maksimum thread SFU memblokir di `recv_from` saat tak ada paket masuk.
+/// Saat idle thread benar-benar tidur di syscall ini (bukan spin yang membakar
+/// satu core CPU), tapi tetap bangun cukup sering untuk memproses command,
+/// menjalankan timer str0m, dan burst keyframe untuk penonton baru.
+const MAX_POLL_WAIT: Duration = Duration::from_millis(10);
+/// Tenggang sebelum peer yang berstatus ICE `Disconnected` benar-benar dibuang.
+/// `Disconnected` itu transien (bisa pulih ke `Connected`); membuang seketika
+/// memutus koneksi yang sebenarnya masih hidup.
+const DISCONNECT_GRACE: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
 pub enum SfuCommand {
@@ -82,21 +90,35 @@ pub enum SfuEvent {
     StreamStopped {
         room_id: String,
     },
+    /// Koneksi penonton putus (tutup tab / ICE drop) tanpa panggil leave —
+    /// service menghapusnya dari LiveRoom agar hitungan penonton akurat.
+    SubscriberLeft {
+        room_id: String,
+        subscriber_id: String,
+    },
 }
 
 struct PeerState {
     rtc: Rtc,
     role: PeerRole,
-    pending_sdp: Option<tokio::sync::oneshot::Sender<Result<String, String>>>,
     // mid → kind hasil negosiasi (dari Event::MediaAdded). Dipakai untuk
     // meneruskan media berdasarkan KIND (audio/video), bukan mid mentah —
     // urutan m-line publisher & subscriber bisa berbeda.
     mids: Vec<(Mid, MediaKind)>,
+    // Sejak kapan peer berstatus ICE `Disconnected` (status TRANSIEN yang bisa
+    // pulih). `None` = sedang tersambung. Peer baru dibuang jika tetap
+    // Disconnected melewati `DISCONNECT_GRACE`, bukan saat event pertama —
+    // mencegah penonton "keluar-masuk" karena blip jaringan sesaat.
+    disconnected_since: Option<Instant>,
+    // Alamat UDP remote yang terakhir kali dipetakan ke peer ini (lihat
+    // `addr_to_peer`). Dipakai saat membuang peer untuk mengevakuasi entri cache
+    // demux-nya, supaya cache tidak menumpuk entri mati = memory leak.
+    remote_addr: Option<SocketAddr>,
 }
 
 enum PeerRole {
     Publisher,
-    Subscriber { id: String },
+    Subscriber,
 }
 
 struct RoomState {
@@ -107,7 +129,6 @@ struct RoomState {
     started_at: chrono::DateTime<chrono::Utc>,
     publisher: Option<String>,
     subscribers: HashMap<String, String>,
-    pending_media: Vec<str0m::media::MediaData>,
 }
 
 impl RoomState {
@@ -128,6 +149,11 @@ impl RoomState {
 pub struct SfuEngine {
     peers: HashMap<String, PeerState>,
     rooms: HashMap<String, RoomState>,
+    // Rute demux O(1): alamat UDP remote → id peer pemiliknya. Diisi saat sebuah
+    // paket pertama kali dikenali peer (slow path) dan dipakai ulang untuk paket
+    // berikutnya, agar tidak menyapu seluruh daftar peer tiap datagram. Entri
+    // dibuang saat peer hilang (lihat `remove_peer`) + self-healing bila basi.
+    addr_to_peer: HashMap<SocketAddr, String>,
     socket: UdpSocket,
     next_peer_id: u64,
     // IP:port konkret yang diiklankan ke klien (host candidate + tujuan paket).
@@ -135,6 +161,10 @@ pub struct SfuEngine {
     candidate_addr: SocketAddr,
     // Hitung frame media dari publisher (untuk log diagnostik terbatas).
     frames_seen: u64,
+    // Saat penonton baru bergabung, minta keyframe ke publisher berkali-kali
+    // sampai deadline ini (browser tidak selalu kirim PLI sendiri).
+    keyframe_deadline: Option<Instant>,
+    last_keyframe: Instant,
 }
 
 impl SfuEngine {
@@ -145,19 +175,25 @@ impl SfuEngine {
         event_tx: mpsc::Sender<SfuEvent>,
     ) {
         let socket = UdpSocket::bind(bind_addr).expect("Failed to bind SFU UDP socket");
+        // Socket BLOCKING dengan read-timeout: `recv_from` tidur hingga ada paket
+        // atau `MAX_POLL_WAIT` lewat, alih-alih spin non-blocking yang membakar
+        // satu core CPU terus-menerus walau tak ada siaran.
         socket
-            .set_nonblocking(true)
-            .expect("Failed to set nonblocking");
+            .set_read_timeout(Some(MAX_POLL_WAIT))
+            .expect("Failed to set SFU socket read timeout");
         let bound = socket.local_addr().expect("Failed to get local addr");
         tracing::info!(bind = %bound, candidate = %candidate_addr, "SFU UDP socket bound");
 
         let mut engine = Self {
             peers: HashMap::new(),
             rooms: HashMap::new(),
+            addr_to_peer: HashMap::new(),
             socket,
             next_peer_id: 0,
             candidate_addr,
             frames_seen: 0,
+            keyframe_deadline: None,
+            last_keyframe: Instant::now(),
         };
 
         let mut cmd_rx = cmd_rx;
@@ -168,10 +204,7 @@ impl SfuEngine {
 
             engine.poll_all_peers(&event_tx);
 
-            engine.forward_media();
-
-            let deadline = Instant::now() + SFU_TICK;
-            engine.read_socket_until(&mut buf, deadline);
+            engine.read_socket(&mut buf);
         }
     }
 
@@ -192,10 +225,10 @@ impl SfuEngine {
                     // lama beserta peer-nya supaya "GO LIVE" lagi selalu berhasil.
                     if let Some(stale) = self.rooms.remove(&room_id) {
                         if let Some(pub_id) = stale.publisher {
-                            self.peers.remove(&pub_id);
+                            self.remove_peer(&pub_id);
                         }
                         for sub_id in stale.subscribers.keys() {
-                            self.peers.remove(sub_id);
+                            self.remove_peer(sub_id);
                         }
                         tracing::info!(room_id, "Replacing stale live room");
                     }
@@ -207,7 +240,6 @@ impl SfuEngine {
                         started_at: chrono::Utc::now(),
                         publisher: None,
                         subscribers: HashMap::new(),
-                        pending_media: Vec::new(),
                     };
                     let info = room.info();
                     self.rooms.insert(room_id, room);
@@ -265,7 +297,7 @@ impl SfuEngine {
                     if let Some(room) = self.rooms.get_mut(&room_id) {
                         room.subscribers.remove(&subscriber_id);
                     }
-                    self.peers.remove(&subscriber_id);
+                    self.remove_peer(&subscriber_id);
                 }
 
                 SfuCommand::StopRoom {
@@ -274,10 +306,10 @@ impl SfuEngine {
                 } => {
                     if let Some(room) = self.rooms.remove(&room_id) {
                         if let Some(pub_id) = room.publisher {
-                            self.peers.remove(&pub_id);
+                            self.remove_peer(&pub_id);
                         }
                         for sub_id in room.subscribers.keys() {
-                            self.peers.remove(sub_id);
+                            self.remove_peer(sub_id);
                         }
                     }
                     let _ = respond_to.send(Ok(()));
@@ -339,8 +371,9 @@ impl SfuEngine {
             PeerState {
                 rtc,
                 role: PeerRole::Publisher,
-                pending_sdp: None,
                 mids: Vec::new(),
+                disconnected_since: None,
+                remote_addr: None,
             },
         );
 
@@ -381,11 +414,10 @@ impl SfuEngine {
             subscriber_id.to_string(),
             PeerState {
                 rtc,
-                role: PeerRole::Subscriber {
-                    id: subscriber_id.to_string(),
-                },
-                pending_sdp: None,
+                role: PeerRole::Subscriber,
                 mids: Vec::new(),
+                disconnected_since: None,
+                remote_addr: None,
             },
         );
 
@@ -410,11 +442,30 @@ impl SfuEngine {
                 .unwrap_or_default(),
         };
 
-        // str0m 0.20 tidak mengekspos parser kandidat ICE dari string secara publik.
-        // SFU ini sudah menukar host candidate lewat SDP dan melakukan UDP demux,
-        // jadi trickle candidate dari klien cukup dicatat lalu diabaikan.
-        if self.peers.contains_key(&peer_key) {
-            tracing::debug!(peer_id = %peer_key, candidate, "Trickle ICE candidate diterima (diabaikan)");
+        let Some(peer) = self.peers.get_mut(&peer_key) else {
+            return;
+        };
+
+        // Browser mengirim string `candidate:...` (RFC 5245 §15.1) lewat
+        // onicecandidate. Kadang ada prefix `a=`, atau string kosong sebagai
+        // penanda end-of-candidates yang harus dilewati.
+        let cand = candidate.trim();
+        let cand = cand.strip_prefix("a=").unwrap_or(cand);
+        if cand.is_empty() {
+            return;
+        }
+
+        match Candidate::from_sdp_string(cand) {
+            Ok(c) => {
+                peer.rtc.add_remote_candidate(c);
+                tracing::debug!(peer_id = %peer_key, "Remote ICE candidate ditambahkan");
+            }
+            // Kandidat mDNS (`*.local`) atau format tak dikenal gagal di-parse —
+            // bukan fatal: konektivitas tetap jalan via host candidate yang
+            // ditukar di SDP + UDP demux + peer-reflexive dari STUN binding.
+            Err(e) => {
+                tracing::debug!(peer_id = %peer_key, candidate = cand, error = %e, "Kandidat ICE diabaikan");
+            }
         }
     }
 
@@ -423,8 +474,15 @@ impl SfuEngine {
         let mut media_buf: Vec<(MediaKind, MediaData)> = Vec::new();
         // Subscriber yang minta keyframe → diteruskan ke publisher (lihat di bawah).
         let mut keyframe_reqs: Vec<String> = Vec::new();
+        // Penonton baru dengan track video → mulai burst keyframe.
+        let mut new_sub_video = false;
 
         for (peer_id, peer) in self.peers.iter_mut() {
+            // Layani timer internal str0m (consent freshness RFC 7675, RTCP,
+            // retransmit, ICE keepalive) SETIAP iterasi — termasuk saat media
+            // mengalir deras. Tanpa ini consent kedaluwarsa (~20 dtk) lalu semua
+            // penonton drop serempak dan reconnect tanpa henti.
+            let _ = peer.rtc.handle_input(Input::Timeout(Instant::now()));
             loop {
                 match peer.rtc.poll_output() {
                     Ok(Output::Timeout(_)) => break,
@@ -439,11 +497,16 @@ impl SfuEngine {
                             if !peer.mids.iter().any(|(id, _)| *id == m.mid) {
                                 peer.mids.push((m.mid, m.kind));
                             }
+                            if matches!(peer.role, PeerRole::Subscriber)
+                                && m.kind == MediaKind::Video
+                            {
+                                new_sub_video = true;
+                            }
                         }
                         Event::KeyframeRequest(_) => {
                             // Browser penonton minta keyframe (tak bisa decode video
                             // tanpa I-frame). Teruskan permintaan ke publisher.
-                            if matches!(peer.role, PeerRole::Subscriber { .. }) {
+                            if matches!(peer.role, PeerRole::Subscriber) {
                                 keyframe_reqs.push(peer_id.clone());
                             }
                         }
@@ -457,9 +520,20 @@ impl SfuEngine {
                             }
                         }
                         Event::IceConnectionStateChange(state) => {
-                            if state == IceConnectionState::Disconnected {
-                                tracing::info!(peer_id, "Peer ICE disconnected");
-                                to_remove.push(peer_id.clone());
+                            tracing::info!(peer_id, ?state, "ICE state");
+                            match state {
+                                // Pulih / mantap → reset tenggang.
+                                IceConnectionState::Connected
+                                | IceConnectionState::Completed => {
+                                    peer.disconnected_since = None;
+                                }
+                                // Transien: catat waktunya, jangan langsung buang.
+                                IceConnectionState::Disconnected => {
+                                    if peer.disconnected_since.is_none() {
+                                        peer.disconnected_since = Some(Instant::now());
+                                    }
+                                }
+                                _ => {}
                             }
                         }
                         _ => {}
@@ -479,16 +553,39 @@ impl SfuEngine {
                     }
                 }
             }
+
+            // Buang peer yang tetap Disconnected melewati tenggang pemulihan
+            // (mis. jaringan benar-benar putus tanpa DTLS CloseNotify).
+            if let Some(since) = peer.disconnected_since {
+                if since.elapsed() >= DISCONNECT_GRACE {
+                    to_remove.push(peer_id.clone());
+                }
+            }
         }
 
         for peer_id in to_remove {
-            self.peers.remove(&peer_id);
+            self.remove_peer(&peer_id);
             self.handle_peer_gone(&peer_id, event_tx);
         }
 
         for sub_id in keyframe_reqs {
             tracing::info!(subscriber_id = %sub_id, "Keyframe request → publisher (PLI)");
             self.request_publisher_keyframe(&sub_id);
+        }
+
+        // Burst keyframe selama ~6 dtk setelah penonton baru join, supaya video
+        // tidak hitam meski browser tak mengirim PLI.
+        if new_sub_video {
+            self.keyframe_deadline = Some(Instant::now() + Duration::from_secs(6));
+        }
+        if let Some(deadline) = self.keyframe_deadline {
+            let now = Instant::now();
+            if now >= deadline {
+                self.keyframe_deadline = None;
+            } else if now.duration_since(self.last_keyframe) >= Duration::from_millis(500) {
+                self.last_keyframe = now;
+                self.request_all_publisher_keyframes();
+            }
         }
 
         if !media_buf.is_empty() {
@@ -499,7 +596,7 @@ impl SfuEngine {
                 let subs = self
                     .peers
                     .values()
-                    .filter(|p| matches!(p.role, PeerRole::Subscriber { .. }))
+                    .filter(|p| matches!(p.role, PeerRole::Subscriber))
                     .count();
                 tracing::info!(frames = self.frames_seen, subscribers = subs, "SFU media flowing");
             }
@@ -537,6 +634,31 @@ impl SfuEngine {
         }
     }
 
+    /// Minta keyframe ke SEMUA publisher (dipakai untuk burst saat penonton baru).
+    fn request_all_publisher_keyframes(&mut self) {
+        let targets: Vec<(String, Mid)> = self
+            .rooms
+            .values()
+            .filter_map(|r| r.publisher.clone())
+            .filter_map(|pid| {
+                let vmid = self.peers.get(&pid).and_then(|p| {
+                    p.mids
+                        .iter()
+                        .find(|(_, k)| *k == MediaKind::Video)
+                        .map(|(m, _)| *m)
+                })?;
+                Some((pid, vmid))
+            })
+            .collect();
+        for (pid, vmid) in targets {
+            if let Some(p) = self.peers.get_mut(&pid) {
+                if let Some(mut w) = p.rtc.writer(vmid) {
+                    let _ = w.request_keyframe(None, KeyframeRequestKind::Pli);
+                }
+            }
+        }
+    }
+
     /// Bersihkan state setelah sebuah peer hilang. Jika peer adalah publisher,
     /// siaran berakhir: hapus room + peer penonton dan kabari service lewat
     /// `StreamStopped` (service akan melepas LiveRoom). Jika penonton, cukup
@@ -551,14 +673,27 @@ impl SfuEngine {
         if let Some(room_id) = publisher_room {
             if let Some(room) = self.rooms.remove(&room_id) {
                 for sub_id in room.subscribers.keys() {
-                    self.peers.remove(sub_id);
+                    self.remove_peer(sub_id);
                 }
             }
             tracing::info!(room_id, "Publisher gone — stopping stream");
             let _ = event_tx.try_send(SfuEvent::StreamStopped { room_id });
         } else {
+            // Penonton putus: lepas dari room SFU + kabari service agar hitungan
+            // penonton di LiveRoom ikut berkurang.
+            let room_id = self
+                .rooms
+                .iter()
+                .find(|(_, r)| r.subscribers.contains_key(peer_id))
+                .map(|(id, _)| id.clone());
             for room in self.rooms.values_mut() {
                 room.subscribers.remove(peer_id);
+            }
+            if let Some(room_id) = room_id {
+                let _ = event_tx.try_send(SfuEvent::SubscriberLeft {
+                    room_id,
+                    subscriber_id: peer_id.to_string(),
+                });
             }
         }
     }
@@ -570,7 +705,7 @@ impl SfuEngine {
         let codec = data.params.spec().codec;
 
         for (sub_id, peer) in self.peers.iter_mut() {
-            if !matches!(peer.role, PeerRole::Subscriber { .. }) {
+            if !matches!(peer.role, PeerRole::Subscriber) {
                 continue;
             }
 
@@ -601,54 +736,109 @@ impl SfuEngine {
         }
     }
 
-    fn forward_media(&mut self) {
-        // Media is forwarded inline during poll_all_peers.
-        // This method is kept as a placeholder for future batching optimizations.
-    }
-
-    fn read_socket_until(&mut self, buf: &mut Vec<u8>, deadline: Instant) {
-        while Instant::now() < deadline {
-            buf.resize(BUF_SIZE, 0);
-            match self.socket.recv_from(buf) {
-                Ok((n, source)) => {
-                    buf.truncate(n);
-                    let dest = self.candidate_addr;
-                    // `buf` dipersempit ke `n` byte; salin payload supaya bisa di-feed
-                    // ulang ke setiap peer (Input str0m meminjam slice, bukan Clone).
-                    let packet = buf[..n].to_vec();
-                    self.dispatch_input(source, dest, &packet);
-                }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(1));
-                    return;
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, "UDP recv error");
-                    return;
-                }
+    /// Blokir hingga satu datagram tiba atau `MAX_POLL_WAIT` lewat. Saat idle,
+    /// thread tidur di syscall ini alih-alih spin membakar CPU. Begitu satu
+    /// paket masuk, sisa paket yang sudah antre dikuras tanpa menunggu lagi.
+    fn read_socket(&mut self, buf: &mut Vec<u8>) {
+        buf.resize(BUF_SIZE, 0);
+        match self.socket.recv_from(buf) {
+            Ok((n, source)) => {
+                let dest = self.candidate_addr;
+                // `dispatch_input` memproses paket seketika (str0m hanya meminjam
+                // slice selama `handle_input`), jadi tak perlu menyalin ke Vec
+                // baru — pinjam langsung dari buffer, hemat satu alokasi/paket.
+                self.dispatch_input(source, dest, &buf[..n]);
+                self.drain_ready(buf);
+            }
+            // Timeout (tak ada paket dalam jendela ini): tak masalah — iterasi
+            // loop berikutnya memanggil `poll_all_peers` yang sudah melayani
+            // timer str0m tiap peer.
+            Err(ref e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut => {}
+            Err(e) => {
+                tracing::error!(error = %e, "UDP recv error");
             }
         }
     }
 
-    fn dispatch_input(&mut self, source: SocketAddr, dest: SocketAddr, data: &[u8]) {
-        // In a multiplexed setup, we'd demux by source to the correct Rtc.
-        // For now, feed to all peers — str0m ignores packets not matching DTLS.
-        for peer in self.peers.values_mut() {
-            let contents: DatagramRecv = match data.try_into() {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-            let input = Input::Receive(
-                Instant::now(),
-                Receive {
-                    proto: Protocol::Udp,
-                    source,
-                    destination: dest,
-                    contents,
-                },
-            );
-            let _ = peer.rtc.handle_input(input);
+    /// Kuras semua datagram yang sudah siap (non-blocking) supaya throughput
+    /// tetap tinggi saat ramai — tanpa ini hanya satu paket diproses per tick.
+    fn drain_ready(&mut self, buf: &mut Vec<u8>) {
+        if self.socket.set_nonblocking(true).is_err() {
+            return;
         }
+        loop {
+            buf.resize(BUF_SIZE, 0);
+            match self.socket.recv_from(buf) {
+                Ok((n, source)) => {
+                    let dest = self.candidate_addr;
+                    self.dispatch_input(source, dest, &buf[..n]);
+                }
+                Err(_) => break,
+            }
+        }
+        // Kembali ke mode blocking; read-timeout (SO_RCVTIMEO) tetap berlaku.
+        let _ = self.socket.set_nonblocking(false);
+    }
+
+    fn dispatch_input(&mut self, source: SocketAddr, dest: SocketAddr, data: &[u8]) {
+        let contents: DatagramRecv = match data.try_into() {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        let input = Input::Receive(
+            Instant::now(),
+            Receive {
+                proto: Protocol::Udp,
+                source,
+                destination: dest,
+                contents,
+            },
+        );
+        // Fast path O(1): paket dari source yang sudah dipetakan langsung
+        // dirutekan ke peer-nya, tanpa menyapu seluruh daftar peer. Penting saat
+        // penonton banyak — tiap datagram (RTP/RTCP/STUN) tak lagi memicu N
+        // panggilan `accepts`.
+        if let Some(cached_id) = self.addr_to_peer.get(&source).cloned() {
+            if let Some(peer) = self.peers.get_mut(&cached_id) {
+                if peer.rtc.accepts(&input) {
+                    let _ = peer.rtc.handle_input(input);
+                    return;
+                }
+            }
+            // Rute basi: peer sudah dibuang, atau source pindah port (NAT
+            // rebinding). Buang entri lalu jatuh ke pencarian penuh — cache ini
+            // self-healing, entri usang otomatis terkoreksi di sini.
+            self.addr_to_peer.remove(&source);
+        }
+
+        // Slow path: demux HANYA ke satu Rtc yang mengakui paket (berdasarkan
+        // ufrag ICE / DTLS / alamat), lalu simpan rutenya untuk paket berikutnya.
+        // Memberi paket ke semua peer (cara lama) merusak state ICE/DTLS peer lain
+        // → koneksi gagal / putus (CloseNotify).
+        for (peer_id, peer) in self.peers.iter_mut() {
+            if peer.rtc.accepts(&input) {
+                self.addr_to_peer.insert(source, peer_id.clone());
+                peer.remote_addr = Some(source);
+                let _ = peer.rtc.handle_input(input);
+                return;
+            }
+        }
+    }
+
+    /// Buang satu peer dari engine sekaligus mengevakuasi entri cache demux-nya
+    /// (`addr_to_peer`). Tanpa ini cache akan menumpuk entri yang menunjuk peer
+    /// mati selamanya = memory leak pada server berumur panjang. Entri hanya
+    /// dibuang bila masih menunjuk peer ini (source bisa sudah dipakai peer baru).
+    fn remove_peer(&mut self, peer_id: &str) -> Option<PeerState> {
+        let peer = self.peers.remove(peer_id);
+        if let Some(addr) = peer.as_ref().and_then(|p| p.remote_addr) {
+            if self.addr_to_peer.get(&addr).map(String::as_str) == Some(peer_id) {
+                self.addr_to_peer.remove(&addr);
+            }
+        }
+        peer
     }
 
     fn next_peer_id(&mut self) -> u64 {

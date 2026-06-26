@@ -76,7 +76,7 @@ A command-channel actor design around the `str0m` (Sans-I/O WebRTC) SFU:
 - `api.rs` is the REST control plane (`/api/live/*`): create/stop rooms, exchange publish/subscribe SDP and ICE. Handlers return `axum::response::Response` and the router ends in `.with_state(state)`.
 - Browser side: `web/pages/merchant_live.rs` is the publisher (camera → SFU), `web/components/live_stream.rs` is the viewer. These are WASM-only WebRTC and use `Action::new_local` (futures hold non-`Send` `web_sys` handles).
 
-Note: trickle-ICE candidates from clients are currently logged and ignored — str0m 0.20 exposes no public candidate-string parser, so connectivity relies on the host candidate exchanged in the SDP plus UDP demux. Implementing real trickle ICE is a known follow-up.
+Note: trickle-ICE candidates from clients are parsed with `Candidate::from_sdp_string` (str0m re-exports it from the `is` crate) and fed to the peer via `rtc.add_remote_candidate`. Unparseable candidates (e.g. mDNS `*.local`) are logged and skipped — connectivity still works via the host candidate exchanged in the SDP, UDP demux, and peer-reflexive candidates discovered from incoming STUN.
 
 ## External integrations
 

@@ -64,10 +64,65 @@ pub fn LivesPage() -> impl IntoView {
         });
     };
 
-    // Muat daftar saat halaman dipasang (client only — Effect tak jalan di SSR).
+    // Muat daftar saat halaman dipasang (fallback awal; WS akan ambil alih).
     Effect::new(move |_| {
         load();
     });
+
+    // ── Realtime via WebSocket /ws/lives (WASM only) ──────────────────────────
+    // Server push snapshot daftar room tiap ada perubahan (room baru/berhenti,
+    // penonton masuk/keluar) → tidak perlu polling.
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::JsCast;
+        use wasm_bindgen::prelude::*;
+
+        let ws_store: StoredValue<Option<web_sys::WebSocket>> = StoredValue::new(None);
+        let cb_msg: StoredValue<Option<JsValue>> = StoredValue::new(None);
+
+        Effect::new(move |_| {
+            let proto = if web_sys::window()
+                .map(|w| w.location().protocol().unwrap_or_default() == "https:")
+                .unwrap_or(false)
+            {
+                "wss"
+            } else {
+                "ws"
+            };
+            let host = web_sys::window()
+                .and_then(|w| w.location().host().ok())
+                .unwrap_or_default();
+            let url = format!("{}://{}/ws/lives", proto, host);
+
+            let Ok(ws) = web_sys::WebSocket::new(&url) else {
+                return;
+            };
+
+            let onmessage = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
+                move |e: web_sys::MessageEvent| {
+                    let Ok(txt) = e.data().dyn_into::<js_sys::JsString>() else {
+                        return;
+                    };
+                    let s: String = txt.into();
+                    if let Ok(list) = serde_json::from_str::<Vec<RoomInfo>>(&s) {
+                        rooms.set(list);
+                        loading.set(false);
+                        error.set(None);
+                    }
+                },
+            );
+            ws.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
+            cb_msg.set_value(Some(onmessage.into_js_value()));
+            ws_store.set_value(Some(ws.clone()));
+
+            on_cleanup(move || {
+                ws.set_onmessage(None);
+                let _ = ws.close();
+                ws_store.set_value(None);
+                cb_msg.set_value(None);
+            });
+        });
+    }
 
     // Saat feed dibuka, lompat ke slide awal lalu samakan feed_idx.
     Effect::new(move |_| {

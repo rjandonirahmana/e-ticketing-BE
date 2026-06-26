@@ -13204,58 +13204,27 @@ body.body-scroll-locked {
     font-weight: 600;
 }
 
-/* Daftar penonton yang sedang join (overlay di atas video saat fullscreen) */
-.mlive-roster {
+/* Toast sementara "{nama} telah join" (muncul sekali lalu hilang) */
+.mlive-join-toast {
     position: absolute;
-    top: 104px;
-    left: 16px;
-    right: 16px;
-    display: flex;
-    gap: 12px;
-    overflow-x: auto;
-    padding-bottom: 4px;
+    top: 64px;
+    left: 50%;
+    transform: translateX(-50%);
     z-index: 60;
-    scrollbar-width: none;
-}
-.mlive-roster::-webkit-scrollbar { display: none; }
-
-.mlive-roster-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    flex-shrink: 0;
-    width: 48px;
-}
-
-.mlive-roster-avatar {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    object-fit: cover;
-    border: 2px solid rgba(255, 255, 255, 0.7);
-    background: var(--bg-elevated);
-}
-.mlive-roster-avatar--initial {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--live-green);
-    color: var(--text-on-accent);
-    font-family: var(--font-display);
-    font-size: 16px;
-    font-weight: 700;
-}
-
-.mlive-roster-name {
-    max-width: 48px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-family: var(--font-body);
-    font-size: 9px;
+    padding: 8px 16px;
+    border-radius: 100px;
+    background: rgba(0, 0, 0, 0.6);
     color: #fff;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    pointer-events: none;
+    animation: mlive-toast-in 0.25s ease;
+}
+@keyframes mlive-toast-in {
+    from { opacity: 0; transform: translate(-50%, -6px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
 }
 
 /* ═════════════════════════════════════════════════════════════════════════

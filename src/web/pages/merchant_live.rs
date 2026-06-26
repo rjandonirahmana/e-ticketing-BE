@@ -103,7 +103,11 @@ pub fn MerchantLivePage() -> impl IntoView {
     let is_live = RwSignal::new(false);
     let room_id = RwSignal::new(String::new());
     let viewer_count = RwSignal::new(0u32);
-    let viewers = RwSignal::new(Vec::<ViewerInfo>::new());
+    // Toast sementara "{nama} telah join" (tampil sekali, hilang setelah 5 dtk).
+    let join_toast = RwSignal::new(None::<String>);
+    let toast_gen = StoredValue::new(0u32);
+    let seen_ids: StoredValue<std::collections::HashSet<String>> =
+        StoredValue::new(std::collections::HashSet::new());
     let status_text = RwSignal::new("Ready to go live".to_string());
     let error_msg = RwSignal::new(None::<String>);
     let pc: RwSignal<Option<SendWrapper<web_sys::RtcPeerConnection>>> = RwSignal::new(None);
@@ -171,13 +175,14 @@ pub fn MerchantLivePage() -> impl IntoView {
         let local_stream = local_stream;
         let status_text = status_text;
         let viewer_count = viewer_count;
-        let viewers = viewers;
+        let join_toast = join_toast;
+        let seen_ids = seen_ids;
 
         async move {
             // Hentikan track yang menempel di peer connection (track aktif kamera),
             // lalu tutup koneksi. Tanpa menghentikan track sender, lampu kamera
             // tetap menyala meski PC ditutup (penyebab "kamera tidak berhenti").
-            if let Some(mut conn) = pc.get_untracked() {
+            if let Some(conn) = pc.get_untracked() {
                 stop_pc_senders(&conn);
                 let _ = conn.close();
             }
@@ -196,7 +201,8 @@ pub fn MerchantLivePage() -> impl IntoView {
             is_live.set(false);
             room_id.set(String::new());
             viewer_count.set(0);
-            viewers.set(Vec::new());
+            join_toast.set(None);
+            seen_ids.update_value(|s| s.clear());
             status_text.set("Ready to go live".to_string());
         }
     });
@@ -215,7 +221,28 @@ pub fn MerchantLivePage() -> impl IntoView {
             wasm_bindgen_futures::spawn_local(async move {
                 if let Ok(room) = api_get_room(&rid).await {
                     viewer_count.set(room.viewer_count as u32);
-                    viewers.set(room.viewers);
+
+                    // Deteksi penonton baru → toast "{nama} telah join" 5 detik.
+                    let mut newest: Option<String> = None;
+                    seen_ids.update_value(|seen| {
+                        for v in &room.viewers {
+                            if seen.insert(v.id.clone()) {
+                                newest = Some(v.name.clone());
+                            }
+                        }
+                    });
+                    if let Some(name) = newest {
+                        let gen = toast_gen.get_value().wrapping_add(1);
+                        toast_gen.set_value(gen);
+                        join_toast.set(Some(format!("{name} telah join")));
+                        wasm_bindgen_futures::spawn_local(async move {
+                            gloo_timers::future::sleep(std::time::Duration::from_secs(5)).await;
+                            // Bersihkan hanya jika belum ada toast yang lebih baru.
+                            if toast_gen.get_value() == gen {
+                                join_toast.set(None);
+                            }
+                        });
+                    }
                 }
             });
         };
@@ -308,40 +335,10 @@ pub fn MerchantLivePage() -> impl IntoView {
                     }.into_any()
                 }}
 
-                // Daftar penonton yang sedang join (foto/inisial + nama).
-                {move || {
-                    let vs = viewers.get();
-                    if is_live.get() && !vs.is_empty() {
-                        view! {
-                            <div class="mlive-roster">
-                                {vs.into_iter().map(|v| {
-                                    let name = v.name.clone();
-                                    let initial = name.chars().next()
-                                        .map(|c| c.to_uppercase().to_string())
-                                        .unwrap_or_else(|| "?".to_string());
-                                    let avatar = match v.photo_url.clone() {
-                                        Some(url) => view! {
-                                            <img class="mlive-roster-avatar" src=url alt=name.clone() />
-                                        }.into_any(),
-                                        None => view! {
-                                            <span class="mlive-roster-avatar mlive-roster-avatar--initial">
-                                                {initial}
-                                            </span>
-                                        }.into_any(),
-                                    };
-                                    view! {
-                                        <div class="mlive-roster-item" title=name.clone()>
-                                            {avatar}
-                                            <span class="mlive-roster-name">{name.clone()}</span>
-                                        </div>
-                                    }
-                                }).collect_view()}
-                            </div>
-                        }.into_any()
-                    } else {
-                        view! { <div></div> }.into_any()
-                    }
-                }}
+                // Toast sementara: "{nama} telah join" (muncul sekali, 5 detik).
+                {move || join_toast.get().map(|msg| view! {
+                    <div class="mlive-join-toast">{msg}</div>
+                })}
             </div>
 
             <div class="mlive-stats-row">
