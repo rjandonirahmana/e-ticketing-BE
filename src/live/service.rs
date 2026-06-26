@@ -38,7 +38,33 @@ fn resolve_candidate_ip(bind_ip: IpAddr) -> IpAddr {
             return ip;
         }
     }
-    detect_local_ip().unwrap_or(IpAddr::from([127, 0, 0, 1]))
+    let ip = detect_local_ip().unwrap_or(IpAddr::from([127, 0, 0, 1]));
+    // Kandidat ICE yang diiklankan adalah satu-satunya alamat yang dipakai browser
+    // penonton untuk menjangkau SFU. IP privat/loopback HANYA bisa dihubungi dari
+    // mesin/LAN yang sama — penonton di seluler atau jaringan lain akan "gabisa
+    // masuk" (ICE tak pernah connect). Di produksi WAJIB set `SFU_PUBLIC_IP` ke IP
+    // publik server + buka UDP port-nya. Teriakkan keras supaya misconfig kelihatan.
+    if ip.is_loopback() || is_private(ip) {
+        tracing::warn!(
+            advertised_ip = %ip,
+            "SFU_PUBLIC_IP tak diset → mengiklankan IP privat/loopback sebagai ICE \
+             candidate. Penonton di luar LAN/mesin ini TIDAK akan bisa join. Set \
+             SFU_PUBLIC_IP=<ip_publik_server> dan buka UDP port SFU untuk produksi."
+        );
+    }
+    ip
+}
+
+/// IP privat (RFC1918 / link-local) yang tak bisa dijangkau dari internet.
+fn is_private(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_private() || v4.is_link_local(),
+        // ULA fc00::/7 atau link-local fe80::/10.
+        IpAddr::V6(v6) => {
+            let seg = v6.segments();
+            (seg[0] & 0xfe00) == 0xfc00 || (seg[0] & 0xffc0) == 0xfe80
+        }
+    }
 }
 
 /// Deteksi IP outbound utama tanpa mengirim paket: `connect` UDP hanya menetapkan

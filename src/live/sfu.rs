@@ -18,6 +18,10 @@ const BUF_SIZE: usize = 65535;
 /// satu core CPU), tapi tetap bangun cukup sering untuk memproses command,
 /// menjalankan timer str0m, dan burst keyframe untuk penonton baru.
 const MAX_POLL_WAIT: Duration = Duration::from_millis(10);
+/// Tenggang sebelum peer yang berstatus ICE `Disconnected` benar-benar dibuang.
+/// `Disconnected` itu transien (bisa pulih ke `Connected`); membuang seketika
+/// memutus koneksi yang sebenarnya masih hidup.
+const DISCONNECT_GRACE: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
 pub enum SfuCommand {
@@ -101,6 +105,15 @@ struct PeerState {
     // meneruskan media berdasarkan KIND (audio/video), bukan mid mentah —
     // urutan m-line publisher & subscriber bisa berbeda.
     mids: Vec<(Mid, MediaKind)>,
+    // Sejak kapan peer berstatus ICE `Disconnected` (status TRANSIEN yang bisa
+    // pulih). `None` = sedang tersambung. Peer baru dibuang jika tetap
+    // Disconnected melewati `DISCONNECT_GRACE`, bukan saat event pertama —
+    // mencegah penonton "keluar-masuk" karena blip jaringan sesaat.
+    disconnected_since: Option<Instant>,
+    // Alamat UDP remote yang terakhir kali dipetakan ke peer ini (lihat
+    // `addr_to_peer`). Dipakai saat membuang peer untuk mengevakuasi entri cache
+    // demux-nya, supaya cache tidak menumpuk entri mati = memory leak.
+    remote_addr: Option<SocketAddr>,
 }
 
 enum PeerRole {
@@ -136,6 +149,11 @@ impl RoomState {
 pub struct SfuEngine {
     peers: HashMap<String, PeerState>,
     rooms: HashMap<String, RoomState>,
+    // Rute demux O(1): alamat UDP remote → id peer pemiliknya. Diisi saat sebuah
+    // paket pertama kali dikenali peer (slow path) dan dipakai ulang untuk paket
+    // berikutnya, agar tidak menyapu seluruh daftar peer tiap datagram. Entri
+    // dibuang saat peer hilang (lihat `remove_peer`) + self-healing bila basi.
+    addr_to_peer: HashMap<SocketAddr, String>,
     socket: UdpSocket,
     next_peer_id: u64,
     // IP:port konkret yang diiklankan ke klien (host candidate + tujuan paket).
@@ -169,6 +187,7 @@ impl SfuEngine {
         let mut engine = Self {
             peers: HashMap::new(),
             rooms: HashMap::new(),
+            addr_to_peer: HashMap::new(),
             socket,
             next_peer_id: 0,
             candidate_addr,
@@ -206,10 +225,10 @@ impl SfuEngine {
                     // lama beserta peer-nya supaya "GO LIVE" lagi selalu berhasil.
                     if let Some(stale) = self.rooms.remove(&room_id) {
                         if let Some(pub_id) = stale.publisher {
-                            self.peers.remove(&pub_id);
+                            self.remove_peer(&pub_id);
                         }
                         for sub_id in stale.subscribers.keys() {
-                            self.peers.remove(sub_id);
+                            self.remove_peer(sub_id);
                         }
                         tracing::info!(room_id, "Replacing stale live room");
                     }
@@ -278,7 +297,7 @@ impl SfuEngine {
                     if let Some(room) = self.rooms.get_mut(&room_id) {
                         room.subscribers.remove(&subscriber_id);
                     }
-                    self.peers.remove(&subscriber_id);
+                    self.remove_peer(&subscriber_id);
                 }
 
                 SfuCommand::StopRoom {
@@ -287,10 +306,10 @@ impl SfuEngine {
                 } => {
                     if let Some(room) = self.rooms.remove(&room_id) {
                         if let Some(pub_id) = room.publisher {
-                            self.peers.remove(&pub_id);
+                            self.remove_peer(&pub_id);
                         }
                         for sub_id in room.subscribers.keys() {
-                            self.peers.remove(sub_id);
+                            self.remove_peer(sub_id);
                         }
                     }
                     let _ = respond_to.send(Ok(()));
@@ -353,6 +372,8 @@ impl SfuEngine {
                 rtc,
                 role: PeerRole::Publisher,
                 mids: Vec::new(),
+                disconnected_since: None,
+                remote_addr: None,
             },
         );
 
@@ -395,6 +416,8 @@ impl SfuEngine {
                 rtc,
                 role: PeerRole::Subscriber,
                 mids: Vec::new(),
+                disconnected_since: None,
+                remote_addr: None,
             },
         );
 
@@ -455,6 +478,11 @@ impl SfuEngine {
         let mut new_sub_video = false;
 
         for (peer_id, peer) in self.peers.iter_mut() {
+            // Layani timer internal str0m (consent freshness RFC 7675, RTCP,
+            // retransmit, ICE keepalive) SETIAP iterasi — termasuk saat media
+            // mengalir deras. Tanpa ini consent kedaluwarsa (~20 dtk) lalu semua
+            // penonton drop serempak dan reconnect tanpa henti.
+            let _ = peer.rtc.handle_input(Input::Timeout(Instant::now()));
             loop {
                 match peer.rtc.poll_output() {
                     Ok(Output::Timeout(_)) => break,
@@ -493,8 +521,19 @@ impl SfuEngine {
                         }
                         Event::IceConnectionStateChange(state) => {
                             tracing::info!(peer_id, ?state, "ICE state");
-                            if state == IceConnectionState::Disconnected {
-                                to_remove.push(peer_id.clone());
+                            match state {
+                                // Pulih / mantap → reset tenggang.
+                                IceConnectionState::Connected
+                                | IceConnectionState::Completed => {
+                                    peer.disconnected_since = None;
+                                }
+                                // Transien: catat waktunya, jangan langsung buang.
+                                IceConnectionState::Disconnected => {
+                                    if peer.disconnected_since.is_none() {
+                                        peer.disconnected_since = Some(Instant::now());
+                                    }
+                                }
+                                _ => {}
                             }
                         }
                         _ => {}
@@ -514,10 +553,18 @@ impl SfuEngine {
                     }
                 }
             }
+
+            // Buang peer yang tetap Disconnected melewati tenggang pemulihan
+            // (mis. jaringan benar-benar putus tanpa DTLS CloseNotify).
+            if let Some(since) = peer.disconnected_since {
+                if since.elapsed() >= DISCONNECT_GRACE {
+                    to_remove.push(peer_id.clone());
+                }
+            }
         }
 
         for peer_id in to_remove {
-            self.peers.remove(&peer_id);
+            self.remove_peer(&peer_id);
             self.handle_peer_gone(&peer_id, event_tx);
         }
 
@@ -626,7 +673,7 @@ impl SfuEngine {
         if let Some(room_id) = publisher_room {
             if let Some(room) = self.rooms.remove(&room_id) {
                 for sub_id in room.subscribers.keys() {
-                    self.peers.remove(sub_id);
+                    self.remove_peer(sub_id);
                 }
             }
             tracing::info!(room_id, "Publisher gone — stopping stream");
@@ -697,20 +744,18 @@ impl SfuEngine {
         match self.socket.recv_from(buf) {
             Ok((n, source)) => {
                 let dest = self.candidate_addr;
-                // Salin payload: Input str0m meminjam slice, bukan Clone.
-                let packet = buf[..n].to_vec();
-                self.dispatch_input(source, dest, &packet);
+                // `dispatch_input` memproses paket seketika (str0m hanya meminjam
+                // slice selama `handle_input`), jadi tak perlu menyalin ke Vec
+                // baru — pinjam langsung dari buffer, hemat satu alokasi/paket.
+                self.dispatch_input(source, dest, &buf[..n]);
                 self.drain_ready(buf);
             }
-            // Timeout (tak ada paket dalam jendela ini): majukan jam tiap peer
-            // agar str0m bisa kirim keepalive/RTCP/retransmit & deteksi ICE
-            // timeout meski lalu lintas sepi.
+            // Timeout (tak ada paket dalam jendela ini): tak masalah — iterasi
+            // loop berikutnya memanggil `poll_all_peers` yang sudah melayani
+            // timer str0m tiap peer.
             Err(ref e)
                 if e.kind() == std::io::ErrorKind::WouldBlock
-                    || e.kind() == std::io::ErrorKind::TimedOut =>
-            {
-                self.drive_timeouts();
-            }
+                    || e.kind() == std::io::ErrorKind::TimedOut => {}
             Err(e) => {
                 tracing::error!(error = %e, "UDP recv error");
             }
@@ -728,23 +773,13 @@ impl SfuEngine {
             match self.socket.recv_from(buf) {
                 Ok((n, source)) => {
                     let dest = self.candidate_addr;
-                    let packet = buf[..n].to_vec();
-                    self.dispatch_input(source, dest, &packet);
+                    self.dispatch_input(source, dest, &buf[..n]);
                 }
                 Err(_) => break,
             }
         }
         // Kembali ke mode blocking; read-timeout (SO_RCVTIMEO) tetap berlaku.
         let _ = self.socket.set_nonblocking(false);
-    }
-
-    /// Umpankan `Input::Timeout(now)` ke setiap peer agar jam internal str0m
-    /// (SRTP, ICE, retransmit) tetap maju saat tak ada paket masuk.
-    fn drive_timeouts(&mut self) {
-        let now = Instant::now();
-        for peer in self.peers.values_mut() {
-            let _ = peer.rtc.handle_input(Input::Timeout(now));
-        }
     }
 
     fn dispatch_input(&mut self, source: SocketAddr, dest: SocketAddr, data: &[u8]) {
@@ -761,15 +796,49 @@ impl SfuEngine {
                 contents,
             },
         );
-        // Demux: arahkan paket HANYA ke satu Rtc yang mengakuinya (berdasarkan
-        // ufrag ICE / DTLS / alamat). Memberi paket ke semua peer (cara lama)
-        // merusak state ICE/DTLS peer lain → koneksi gagal / putus (CloseNotify).
-        for peer in self.peers.values_mut() {
+        // Fast path O(1): paket dari source yang sudah dipetakan langsung
+        // dirutekan ke peer-nya, tanpa menyapu seluruh daftar peer. Penting saat
+        // penonton banyak — tiap datagram (RTP/RTCP/STUN) tak lagi memicu N
+        // panggilan `accepts`.
+        if let Some(cached_id) = self.addr_to_peer.get(&source).cloned() {
+            if let Some(peer) = self.peers.get_mut(&cached_id) {
+                if peer.rtc.accepts(&input) {
+                    let _ = peer.rtc.handle_input(input);
+                    return;
+                }
+            }
+            // Rute basi: peer sudah dibuang, atau source pindah port (NAT
+            // rebinding). Buang entri lalu jatuh ke pencarian penuh — cache ini
+            // self-healing, entri usang otomatis terkoreksi di sini.
+            self.addr_to_peer.remove(&source);
+        }
+
+        // Slow path: demux HANYA ke satu Rtc yang mengakui paket (berdasarkan
+        // ufrag ICE / DTLS / alamat), lalu simpan rutenya untuk paket berikutnya.
+        // Memberi paket ke semua peer (cara lama) merusak state ICE/DTLS peer lain
+        // → koneksi gagal / putus (CloseNotify).
+        for (peer_id, peer) in self.peers.iter_mut() {
             if peer.rtc.accepts(&input) {
+                self.addr_to_peer.insert(source, peer_id.clone());
+                peer.remote_addr = Some(source);
                 let _ = peer.rtc.handle_input(input);
                 return;
             }
         }
+    }
+
+    /// Buang satu peer dari engine sekaligus mengevakuasi entri cache demux-nya
+    /// (`addr_to_peer`). Tanpa ini cache akan menumpuk entri yang menunjuk peer
+    /// mati selamanya = memory leak pada server berumur panjang. Entri hanya
+    /// dibuang bila masih menunjuk peer ini (source bisa sudah dipakai peer baru).
+    fn remove_peer(&mut self, peer_id: &str) -> Option<PeerState> {
+        let peer = self.peers.remove(peer_id);
+        if let Some(addr) = peer.as_ref().and_then(|p| p.remote_addr) {
+            if self.addr_to_peer.get(&addr).map(String::as_str) == Some(peer_id) {
+                self.addr_to_peer.remove(&addr);
+            }
+        }
+        peer
     }
 
     fn next_peer_id(&mut self) -> u64 {

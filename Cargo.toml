@@ -162,10 +162,10 @@ prost = "0.14.3"
 # Web framework
 axum = { version = "0.8.9", features = ["multipart", "ws", "macros"] }
 tower = "0.5.3"
-tower-http = { version = "0.6.10", features = ["cors", "trace", "fs", "compression-gzip", "compression-br"] }
+tower-http = { version = "0.7", features = ["cors", "trace", "fs", "compression-gzip", "compression-br"] }
 
 # Database
-tokio-postgres = { version = "0.7.9", features = [
+tokio-postgres = { version = "0.7", features = [
     "with-uuid-1",
     "with-chrono-0_4",
     "with-serde_json-1",
