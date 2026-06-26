@@ -105,9 +105,15 @@ pub fn LivesPage() -> impl IntoView {
                     };
                     let s: String = txt.into();
                     if let Ok(list) = serde_json::from_str::<Vec<RoomInfo>>(&s) {
-                        rooms.set(list);
-                        loading.set(false);
-                        error.set(None);
+                        // BUG FIX #2: Jangan update `rooms` saat feed fullscreen aktif.
+                        // Jika diupdate, Leptos akan me-render ulang seluruh slide list
+                        // dan unmount+remount setiap LiveStreamViewer — yang mematikan
+                        // koneksi WebRTC yang sedang aktif tiap kali ada penonton masuk/keluar.
+                        if active.get_untracked().is_none() {
+                            rooms.set(list);
+                            loading.set(false);
+                            error.set(None);
+                        }
                     }
                 },
             );
@@ -124,12 +130,30 @@ pub fn LivesPage() -> impl IntoView {
         });
     }
 
+    // Lacak nilai `active` sebelumnya agar bisa mendeteksi transisi Some→None.
+    // Tidak bisa pakai parameter `prev` Effect::new karena closure harus
+    // mengembalikan tipe yang sama dengan `prev: Option<T>`, sedangkan kita
+    // butuh menyimpan Option<usize> — bukan return value closure.
+    let prev_active_store: StoredValue<Option<usize>> = StoredValue::new(None);
+
     // Saat feed dibuka, lompat ke slide awal lalu samakan feed_idx.
+    // Saat feed ditutup (active → None), muat ulang daftar room dari server
+    // karena update WS ditahan selama mode feed (Bug Fix #2).
     Effect::new(move |_| {
-        if let (Some(el), Some(start)) = (feed_ref.get(), active.get()) {
-            let h = el.client_height().max(1) as f64;
-            el.set_scroll_top((start as f64 * h).round() as i32);
-            feed_idx.set(start);
+        let now = active.get();
+        let was = prev_active_store.get_value();
+        prev_active_store.set_value(now);
+
+        if let Some(el) = feed_ref.get() {
+            if let Some(start) = now {
+                let h = el.client_height().max(1) as f64;
+                el.set_scroll_top((start as f64 * h).round() as i32);
+                feed_idx.set(start);
+            }
+        }
+        // Kembali dari feed ke daftar: muat ulang daftar terkini.
+        if was.is_some() && now.is_none() {
+            load();
         }
     });
 

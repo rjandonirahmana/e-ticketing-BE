@@ -677,7 +677,11 @@ impl SfuEngine {
                 }
             }
             tracing::info!(room_id, "Publisher gone — stopping stream");
-            let _ = event_tx.try_send(SfuEvent::StreamStopped { room_id });
+            // BUG FIX #4: Log kegagalan try_send agar room tidak diam-diam
+            // tetap terlihat di API jika channel event penuh.
+            if let Err(e) = event_tx.try_send(SfuEvent::StreamStopped { room_id: room_id.clone() }) {
+                tracing::error!(room_id, error = %e, "CRITICAL: StreamStopped event dropped — room will remain visible in API. Consider increasing event channel capacity.");
+            }
         } else {
             // Penonton putus: lepas dari room SFU + kabari service agar hitungan
             // penonton di LiveRoom ikut berkurang.
@@ -690,10 +694,13 @@ impl SfuEngine {
                 room.subscribers.remove(peer_id);
             }
             if let Some(room_id) = room_id {
-                let _ = event_tx.try_send(SfuEvent::SubscriberLeft {
-                    room_id,
+                // BUG FIX #4 (lanjutan): Log kegagalan try_send SubscriberLeft.
+                if let Err(e) = event_tx.try_send(SfuEvent::SubscriberLeft {
+                    room_id: room_id.clone(),
                     subscriber_id: peer_id.to_string(),
-                });
+                }) {
+                    tracing::warn!(room_id, peer_id, error = %e, "SubscriberLeft event dropped — viewer count may be inaccurate.");
+                }
             }
         }
     }
