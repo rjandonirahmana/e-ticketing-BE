@@ -2,10 +2,11 @@
 
 use leptos::prelude::*;
 use leptos_router::components::A;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::web::api::{get_merchant_event_detail, update_merchant_event};
 use crate::web::app::AuthResource;
+use crate::web::components::event_story_preview::EventStoryPreviewInline;
 use crate::web::hooks::ThemeToggle;
 use crate::web::utils::{map_destroy, map_picker, map_set, DEFAULT_LAT, DEFAULT_LNG};
 
@@ -69,6 +70,7 @@ pub fn MerchantEditEventPage() -> impl IntoView {
     on_cleanup(|| map_destroy("edit-loc-map"));
 
     let cover_preview: RwSignal<Option<String>> = RwSignal::new(None);
+    let navigate = use_navigate();
     let saving   = RwSignal::new(false);
     let error_msg = RwSignal::new(String::new());
     let saved    = RwSignal::new(false);
@@ -277,6 +279,37 @@ pub fn MerchantEditEventPage() -> impl IntoView {
                                         <span class="medit-file-input-label">"GANTI FOTO"</span>
                                     </div>
                                 </div>
+
+                                // ── STORY PREVIEW (sama seperti create event) ──
+                                <EventStoryPreviewInline
+                                    title=Signal::derive(move || f_name.get())
+                                    cover_url=Signal::derive(move || cover_preview.get())
+                                    description=Signal::derive(move || f_desc.get())
+                                    on_share_click=Callback::new({
+                                        let navigate = navigate.clone();
+                                        move |_| {
+                                            #[cfg(target_arch = "wasm32")]
+                                            {
+                                                let params = web_sys::UrlSearchParams::new()
+                                                    .expect("UrlSearchParams");
+                                                params.append("event_title", &f_name.get_untracked());
+                                                params.append(
+                                                    "event_cover",
+                                                    &cover_preview.get_untracked().unwrap_or_default(),
+                                                );
+                                                params.append("event_desc", &f_desc.get_untracked());
+                                                params.append("event_slug", &slug());
+                                                let qs = params.to_string();
+                                                navigate(
+                                                    &format!("/story?{}", qs),
+                                                    Default::default(),
+                                                );
+                                            }
+                                            #[cfg(not(target_arch = "wasm32"))]
+                                            let _ = &navigate;
+                                        }
+                                    })
+                                />
 
                                 // ── TANGGAL & WAKTU ───────────────────────────
                                 <div class="medit-section-header">

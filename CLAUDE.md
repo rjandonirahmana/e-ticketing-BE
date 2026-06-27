@@ -78,6 +78,15 @@ A command-channel actor design around the `str0m` (Sans-I/O WebRTC) SFU:
 
 Note: trickle-ICE candidates from clients are parsed with `Candidate::from_sdp_string` (str0m re-exports it from the `is` crate) and fed to the peer via `rtc.add_remote_candidate`. Unparseable candidates (e.g. mDNS `*.local`) are logged and skipped — connectivity still works via the host candidate exchanged in the SDP, UDP demux, and peer-reflexive candidates discovered from incoming STUN.
 
+## Meet — video conference (`src/meet/`)
+
+A "zoom meet" between a merchant (host) and invited users. **Unlike `live` (SFU, one-to-many), `meet` is a P2P mesh**: the server is *signaling + admission only* (no media). Browsers connect to each other directly — best for small groups (~2–6).
+
+- `MeetService` (`service.rs`) is pure in-memory state (no SFU thread): a `DashMap` of `MeetRoom`s, each holding `Peer`s with an `mpsc::UnboundedSender` to that peer's WS task.
+- `api.rs`: `POST /api/meet/rooms` (auth merchant/admin → create), `GET /api/meet/rooms/{id}` (public info), and `GET /ws/meet/{room_id}` (public WS). The WS is public so invited guests can connect without login; **host identity is verified inside the handler** via the `pulse_token` cookie JWT (role + `user_id == host_id`).
+- Admission (waiting room): guests land in a pending list; only the host connection may send `admit`/`deny` (enforced server-side). Signaling relay (`signal`) is restricted to admitted peers. Anti-glare: the **newly admitted peer initiates** offers to existing peers.
+- Browser side: `web/pages/meet.rs` (`/meet/:id`). Route `/meet/host` = create+host (merchant "MEET" button on `/merchant`); `/meet/{room_id}` = guest invite link. WASM mesh manages one `RtcPeerConnection` per peer; remote `<video>` tiles are created imperatively in the DOM (reliable for binding dynamic `MediaStream`s), reactive Leptos drives the waiting-room UI. STUN-only like `live` (TURN needed for cross-NAT production).
+
 ## External integrations
 
 Telegram (error-alert notifier, `utils::error::init_telegram_notifier`), WAHA (WhatsApp), RustFS (S3-compatible object storage for uploads/stories), and an `auth.proto` gRPC service. All are configured via env vars in `AppConfig::from_env()`.

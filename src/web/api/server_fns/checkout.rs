@@ -1,3 +1,4 @@
+#[cfg_attr(not(feature = "ssr"), allow(unused_imports))]
 use crate::web::models::{CreateOrderResponse, OrderItemRef, OrderRef};
 use leptos::prelude::*;
 #[cfg(feature = "ssr")]

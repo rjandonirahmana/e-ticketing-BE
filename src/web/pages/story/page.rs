@@ -290,7 +290,7 @@ pub fn StoryPage() -> impl IntoView {
                 }
             });
             let ts_fn: web_sys::js_sys::Function = on_ts.as_ref().unchecked_ref::<web_sys::js_sys::Function>().clone();
-            let mut opts = AddEventListenerOptions::new(); opts.set_passive(true);
+            let opts = AddEventListenerOptions::new(); opts.set_passive(true);
             let _ = target.add_event_listener_with_callback_and_add_event_listener_options("touchstart", &ts_fn, &opts);
             bg_ts_fn.set_value(Some(ts_fn));
             bg_ts_cl.set_value(Some(on_ts.into_js_value()));
@@ -311,7 +311,7 @@ pub fn StoryPage() -> impl IntoView {
                 }
             });
             let tm_fn: web_sys::js_sys::Function = on_tm.as_ref().unchecked_ref::<web_sys::js_sys::Function>().clone();
-            let mut opts2 = AddEventListenerOptions::new(); opts2.set_passive(false);
+            let opts2 = AddEventListenerOptions::new(); opts2.set_passive(false);
             let _ = target.add_event_listener_with_callback_and_add_event_listener_options("touchmove", &tm_fn, &opts2);
             bg_tm_fn.set_value(Some(tm_fn));
             bg_tm_cl.set_value(Some(on_tm.into_js_value()));

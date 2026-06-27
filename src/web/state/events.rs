@@ -96,10 +96,10 @@ impl EventsCtx {
 
             leptos::logging::log!("[EventsStore] get_events fetch starting...");
 
-            // Race the server function against a 12-second safety timeout.
+            // Race the server function against an 8-second safety timeout.
             // Prevents infinite shimmer if the DB query hangs or network drops.
             let fetch = get_events(Some(1), None, cat_opt, None, Some(40));
-            let timeout = gloo_timers::future::TimeoutFuture::new(12_000);
+            let timeout = gloo_timers::future::TimeoutFuture::new(8_000);
 
             let result = futures::future::select(Box::pin(fetch), Box::pin(timeout)).await;
 
@@ -148,10 +148,22 @@ pub fn provide_events_store() {
                 cats_signal.set(full);
             }
         });
-        // NOTE: Do NOT call ctx.load() here. On direct navigation to /explore,
-        // calling it sets loading=true before hydration, but SSR already rendered
-        // with loading=true (shimmer). The mismatch previously caused hydration
-        // failure. Now ExplorePage's own Effect owns the initial fetch.
+
+        // Fallback fetch awal (hydration-safe). Normalnya ExplorePage memicu
+        // fetch lewat Effect-nya sendiri. Tapi bila Effect itu tidak jalan
+        // (mis. hydration tersendat di komponen lain), `loading` akan menggantung
+        // true selamanya → shimmer tak pernah hilang. Penjaga ini menunggu satu
+        // tick (agar tidak menabrak render hydration), lalu — jika belum ada
+        // fetch yang dimulai (fetch_gen masih 0) dan masih loading — memicu fetch
+        // sendiri. fetch_gen mencegah double-fetch bila Effect ExplorePage sempat
+        // jalan lebih dulu. Bonus: prefetch event untuk landing page.
+        let ctx_fb = ctx;
+        spawn_local(async move {
+            gloo_timers::future::TimeoutFuture::new(80).await;
+            if ctx_fb.fetch_gen.get_untracked() == 0 && ctx_fb.loading.get_untracked() {
+                ctx_fb.load();
+            }
+        });
     }
 
     provide_context(ctx);

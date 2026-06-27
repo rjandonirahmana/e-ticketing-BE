@@ -94,6 +94,33 @@ async fn list_rooms(State(state): State<Arc<AppState>>) -> Response {
     ok(state.live_svc.list_rooms())
 }
 
+/// Daftar ICE server untuk semua klien WebRTC (live + meet). STUN publik selalu
+/// disertakan; TURN ditambahkan bila `TURN_URL` di-set di env (lihat
+/// `.env.example`). Browser tak bisa baca env server → diambil dari sini.
+async fn ice_servers() -> Response {
+    let mut servers = vec![serde_json::json!({
+        "urls": ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]
+    })];
+    if let Ok(url) = std::env::var("TURN_URL") {
+        let url = url.trim();
+        if !url.is_empty() {
+            let mut turn = serde_json::json!({ "urls": [url] });
+            if let Ok(u) = std::env::var("TURN_USER") {
+                if !u.trim().is_empty() {
+                    turn["username"] = serde_json::json!(u);
+                }
+            }
+            if let Ok(p) = std::env::var("TURN_PASS") {
+                if !p.trim().is_empty() {
+                    turn["credential"] = serde_json::json!(p);
+                }
+            }
+            servers.push(turn);
+        }
+    }
+    ok(servers)
+}
+
 /// WS /ws/lives — push daftar room live realtime (pengganti polling).
 /// Kirim snapshot saat connect, lalu tiap ada perubahan.
 async fn lives_ws(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> Response {
@@ -469,6 +496,7 @@ pub fn live_router(state: Arc<AppState>) -> Router {
     // Route publik (tidak perlu login).
     let public = Router::new()
         .route("/api/live/rooms", get(list_rooms))
+        .route("/api/rtc/ice", get(ice_servers))
         .route("/ws/lives", get(lives_ws))
         .route("/api/live/rooms/{room_id}", get(get_room))
         // HTTP signaling (dipertahankan)

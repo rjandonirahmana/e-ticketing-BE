@@ -15,6 +15,7 @@ pub mod components;
 pub mod hooks;
 pub mod models;
 pub mod pages;
+pub mod rtc;
 pub mod services;
 pub mod state;
 pub mod utils;
