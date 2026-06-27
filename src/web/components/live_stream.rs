@@ -91,9 +91,6 @@ pub fn LiveStreamViewer(
     let is_playing = RwSignal::new(false);
     // Viewer mulai muted (syarat autoplay browser). Tombol kustom mengubahnya.
     let is_muted = RwSignal::new(true);
-    // DEBUG sementara: status elemen <video> ditampilkan di layar untuk diagnosa
-    // "layar hitam" tanpa perlu buka devtools.
-    let debug_info = RwSignal::new(String::new());
     let viewer_count = RwSignal::new(0u32);
     let merchant_name = RwSignal::new(String::new());
     let error_msg = RwSignal::new(None::<String>);
@@ -240,6 +237,20 @@ pub fn LiveStreamViewer(
                         if let Ok(txt) = e.data().dyn_into::<js_sys::JsString>() {
                             let s: String = txt.into();
                             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) {
+                                // Publisher mematikan siaran → server kirim
+                                // "stream_ended". Keluarkan penonton: hentikan
+                                // koneksi, bersihkan video, tampilkan info.
+                                if v.get("type").and_then(|t| t.as_str()) == Some("stream_ended") {
+                                    if let Some(conn) = pc.get_untracked() {
+                                        let _ = conn.close();
+                                    }
+                                    pc.set(None);
+                                    remote_stream.set(None);
+                                    is_playing.set(false);
+                                    is_muted.set(true);
+                                    error_msg.set(Some("Siaran telah berakhir".to_string()));
+                                    return;
+                                }
                                 if let Some(tx) = tx.take() {
                                     let _ = tx.send(Ok(v));
                                 }
@@ -514,46 +525,6 @@ pub fn LiveStreamViewer(
         }
     });
 
-    // ── DEBUG sementara: polling status elemen video tiap 1 dtk ──────────────
-    // Menampilkan paused / readyState / ukuran video / state tiap track agar
-    // penyebab "layar hitam" terlihat tanpa devtools:
-    //   - size=0x0 & track video muted=true → tidak ada frame ter-decode
-    //     (keyframe/codec) → bukan masalah autoplay.
-    //   - size>0 & paused=true → autoplay diblokir.
-    Effect::new(move |_| {
-        if !is_playing.get() {
-            return;
-        }
-        let interval = SendWrapper::new(gloo_timers::callback::Interval::new(1_000, move || {
-            let Some(v) = video_ref.get_untracked() else { return };
-            let mut s = format!(
-                "paused={} ready={} {}x{} muted={}",
-                v.paused(),
-                v.ready_state(),
-                v.video_width(),
-                v.video_height(),
-                v.muted(),
-            );
-            match v.src_object() {
-                Some(obj) => {
-                    let tracks = obj.get_tracks();
-                    for i in 0..tracks.length() {
-                        let t: web_sys::MediaStreamTrack = tracks.get(i).unchecked_into();
-                        s.push_str(&format!(
-                            " | {} muted={} en={}",
-                            t.kind(),
-                            t.muted(),
-                            t.enabled(),
-                        ));
-                    }
-                }
-                None => s.push_str(" | srcObject=None"),
-            }
-            debug_info.set(s);
-        }));
-        on_cleanup(move || drop(interval));
-    });
-
     view! {
         <div class="live-viewer">
             <div class="live-viewer-header">
@@ -594,24 +565,6 @@ pub fn LiveStreamViewer(
                     playsinline=true
                     poster="/live-poster.svg"
                 />
-                // DEBUG sementara: status elemen video (hapus setelah selesai).
-                {move || {
-                    let s = debug_info.get();
-                    if s.is_empty() {
-                        view! { <span></span> }.into_any()
-                    } else {
-                        view! {
-                            <div style="position:absolute;top:8px;left:8px;z-index:5;\
-                                        background:rgba(0,0,0,0.72);color:#0f0;\
-                                        font:11px/1.4 monospace;padding:6px 8px;\
-                                        border-radius:6px;max-width:90%;\
-                                        white-space:pre-wrap;pointer-events:none;">
-                                {s}
-                            </div>
-                        }
-                            .into_any()
-                    }
-                }}
                 {move || {
                     if is_playing.get() {
                         // Saat masih muted, tampilkan tombol kustom "ketuk untuk
@@ -619,8 +572,11 @@ pub fn LiveStreamViewer(
                         // dijamin diizinkan browser (termasuk Safari yang ketat).
                         if is_muted.get() {
                             view! {
+                                // Seluruh area video bisa diketuk untuk menyalakan
+                                // suara. Klik = gesture user → set_muted(false) +
+                                // play() (dijamin diizinkan browser, termasuk Safari).
                                 <button
-                                    class="live-viewer-unmute"
+                                    class="live-viewer-unmute-overlay"
                                     on:click=move |_| {
                                         if let Some(v) = video_ref.get_untracked() {
                                             v.set_muted(false);
@@ -633,14 +589,16 @@ pub fn LiveStreamViewer(
                                         is_muted.set(false);
                                     }
                                 >
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                         stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                         stroke-linejoin="round">
-                                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-                                        <line x1="23" y1="9" x2="17" y2="15"/>
-                                        <line x1="17" y1="9" x2="23" y2="15"/>
-                                    </svg>
-                                    "Ketuk untuk suara"
+                                    <span class="live-viewer-unmute-pill">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                             stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                             stroke-linejoin="round">
+                                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                                            <line x1="23" y1="9" x2="17" y2="15"/>
+                                            <line x1="17" y1="9" x2="23" y2="15"/>
+                                        </svg>
+                                        "Ketuk untuk suara"
+                                    </span>
                                 </button>
                             }
                                 .into_any()
