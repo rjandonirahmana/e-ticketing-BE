@@ -1,19 +1,19 @@
 use std::sync::Arc;
 
 use axum::{
-    Json, Router,
     extract::{
-        Path, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
+        Path, State,
     },
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 
+use crate::middleware::auth::{require_auth, AuthUser};
 use crate::state::AppState;
-use crate::middleware::auth::{AuthUser, require_auth};
 use axum::middleware::from_fn_with_state;
 
 fn ok<T: Serialize>(data: T) -> Response {
@@ -128,10 +128,7 @@ async fn lives_ws_loop(mut socket: WebSocket, state: Arc<AppState>) {
     }
 }
 
-async fn get_room(
-    Path(room_id): Path<String>,
-    State(state): State<Arc<AppState>>,
-) -> Response {
+async fn get_room(Path(room_id): Path<String>, State(state): State<Arc<AppState>>) -> Response {
     match state.live_svc.get_room(&room_id) {
         Some(info) => ok(info),
         None => err(StatusCode::NOT_FOUND, "Room not found"),
@@ -160,7 +157,12 @@ async fn publish_ice(
 ) -> impl IntoResponse {
     match state
         .live_svc
-        .publish_ice(&room_id, &body.candidate, &body.sdp_mid, body.sdp_mline_index)
+        .publish_ice(
+            &room_id,
+            &body.candidate,
+            &body.sdp_mid,
+            body.sdp_mline_index,
+        )
         .await
     {
         Ok(()) => ok(serde_json::json!({ "ok": true })),
@@ -344,16 +346,40 @@ async fn live_subscribe_ws(
     ws.on_upgrade(move |socket| live_subscribe_ws_loop(socket, room_id, state))
 }
 
-async fn live_subscribe_ws_loop(
-    mut socket: WebSocket,
-    room_id: String,
-    state: Arc<AppState>,
-) {
+async fn live_subscribe_ws_loop(mut socket: WebSocket, room_id: String, state: Arc<AppState>) {
     let sub_id = uuid::Uuid::new_v4().to_string();
     let mut subscribed = false;
 
+    // Dengarkan perubahan daftar room. Saat publisher mematikan siaran, room
+    // dihapus dari snapshot → kita beri tahu penonton ("stream_ended") lalu tutup
+    // koneksi, sehingga seluruh penonton otomatis keluar dari live.
+    let mut changes = state.live_svc.subscribe_changes();
+
     loop {
-        match socket.recv().await {
+        tokio::select! {
+            // ── Perubahan room: deteksi siaran berakhir ───────────────────────
+            changed = changes.recv() => {
+                match changed {
+                    Ok(list) => {
+                        if subscribed && !list.iter().any(|r| r.room_id == room_id) {
+                            tracing::info!(room_id, sub_id, "Siaran berakhir → keluarkan penonton");
+                            let _ = socket
+                                .send(Message::Text(
+                                    serde_json::json!({ "type": "stream_ended" }).to_string().into(),
+                                ))
+                                .await;
+                            break;
+                        }
+                    }
+                    // Ketinggalan beberapa update tak masalah: cek room di update berikutnya.
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(_) => break,
+                }
+            }
+
+            // ── Pesan dari klien (offer / candidate / leave) ──────────────────
+            msg = socket.recv() => {
+        match msg {
             None | Some(Err(_)) => break,
             Some(Ok(Message::Close(_))) => break,
             Some(Ok(Message::Text(txt))) => {
@@ -415,6 +441,8 @@ async fn live_subscribe_ws_loop(
             }
             Some(Ok(_)) => {}
         }
+            }
+        }
     }
 
     // Penonton putus (tutup tab, klik Keluar, navigasi pergi):
@@ -444,8 +472,14 @@ pub fn live_router(state: Arc<AppState>) -> Router {
         .route("/ws/lives", get(lives_ws))
         .route("/api/live/rooms/{room_id}", get(get_room))
         // HTTP signaling (dipertahankan)
-        .route("/api/live/rooms/{room_id}/subscribe/sdp", post(subscribe_sdp))
-        .route("/api/live/rooms/{room_id}/subscribe/ice", post(subscribe_ice))
+        .route(
+            "/api/live/rooms/{room_id}/subscribe/sdp",
+            post(subscribe_sdp),
+        )
+        .route(
+            "/api/live/rooms/{room_id}/subscribe/ice",
+            post(subscribe_ice),
+        )
         .route(
             "/api/live/rooms/{room_id}/subscribe/{subscriber_id}",
             delete(leave_room),
@@ -453,5 +487,8 @@ pub fn live_router(state: Arc<AppState>) -> Router {
         // WS signaling untuk penonton (publik — tidak perlu login)
         .route("/ws/live/subscribe/{room_id}", get(live_subscribe_ws));
 
-    Router::new().merge(protected).merge(public).with_state(state)
+    Router::new()
+        .merge(protected)
+        .merge(public)
+        .with_state(state)
 }

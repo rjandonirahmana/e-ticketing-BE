@@ -89,6 +89,8 @@ pub fn LiveStreamViewer(
     // merchant bisa melihat siapa saja yang join.
     let auth = crate::web::hooks::use_auth();
     let is_playing = RwSignal::new(false);
+    // Viewer mulai muted (syarat autoplay browser). Tombol kustom mengubahnya.
+    let is_muted = RwSignal::new(true);
     let viewer_count = RwSignal::new(0u32);
     let merchant_name = RwSignal::new(String::new());
     let error_msg = RwSignal::new(None::<String>);
@@ -132,7 +134,8 @@ pub fn LiveStreamViewer(
         let merchant_name = merchant_name;
         let error_msg = error_msg;
         let pc = pc;
-        let video_ref = video_ref.clone();
+        // video_ref tidak dipakai di sini: srcObject + play() dipasang oleh
+        // Effect reaktif level-komponen saat `remote_stream` berubah.
         let sig_ws = sig_ws;
         let profile = auth.user.get_untracked();
 
@@ -181,24 +184,20 @@ pub fn LiveStreamViewer(
             // Reactive Effect di bawah yang akan memasang srcObject + play().
             let on_track = {
                 Closure::<dyn FnMut(web_sys::RtcTrackEvent)>::new(move |event: web_sys::RtcTrackEvent| {
-                    let streams = event.streams();
-                    let stream: web_sys::MediaStream = if streams.length() > 0 {
-                        // Gunakan stream yang sudah dilampirkan server di SDP (msid).
-                        streams.get(0).unchecked_into()
-                    } else {
-                        // str0m kadang tidak menyertakan msid → rakit stream manual.
-                        // get_untracked() aman di sini karena kita HANYA membaca,
-                        // tidak menulis ke DOM; hanya signal yang diupdate.
-                        let s = match remote_stream.get_untracked() {
-                            Some(s) => (*s).clone(),
-                            None => match web_sys::MediaStream::new() {
-                                Ok(s) => s,
-                                Err(_) => return,
-                            },
-                        };
-                        s.add_track(&event.track());
-                        s
+                    // Selalu rakit SEMUA track masuk (audio + video) ke SATU
+                    // MediaStream. JANGAN pakai event.streams()[0]: str0m memberi
+                    // msid berbeda per track, jadi memakai streams[0] akan MENIMPA
+                    // stream tiap kali ontrack terpicu → hanya track terakhir
+                    // (audio) yang tersisa, track video hilang → video 0x0/hitam.
+                    let stream = match remote_stream.get_untracked() {
+                        Some(s) => (*s).clone(),
+                        None => match web_sys::MediaStream::new() {
+                            Ok(s) => s,
+                            Err(_) => return,
+                        },
                     };
+                    // add_track idempoten (spec): aman walau ontrack terpicu ulang.
+                    stream.add_track(&event.track());
                     // Signal update → reactive Effect merespons dan set srcObject.
                     remote_stream.set(Some(SendWrapper::new(stream)));
                 })
@@ -238,6 +237,20 @@ pub fn LiveStreamViewer(
                         if let Ok(txt) = e.data().dyn_into::<js_sys::JsString>() {
                             let s: String = txt.into();
                             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) {
+                                // Publisher mematikan siaran → server kirim
+                                // "stream_ended". Keluarkan penonton: hentikan
+                                // koneksi, bersihkan video, tampilkan info.
+                                if v.get("type").and_then(|t| t.as_str()) == Some("stream_ended") {
+                                    if let Some(conn) = pc.get_untracked() {
+                                        let _ = conn.close();
+                                    }
+                                    pc.set(None);
+                                    remote_stream.set(None);
+                                    is_playing.set(false);
+                                    is_muted.set(true);
+                                    error_msg.set(Some("Siaran telah berakhir".to_string()));
+                                    return;
+                                }
                                 if let Some(tx) = tx.take() {
                                     let _ = tx.send(Ok(v));
                                 }
@@ -441,6 +454,7 @@ pub fn LiveStreamViewer(
             }
             sig_ws.set(None);
             is_playing.set(false);
+            is_muted.set(true);
         }
     });
 
@@ -475,16 +489,33 @@ pub fn LiveStreamViewer(
                 // sedang di-garbage-collect — abaikan saja.
                 let _ = video.set_src_object(Some(&*stream));
 
-                // play() mengembalikan Promise. Kita spawn Future-nya agar
-                // rejection (misalnya karena browser belum siap) tidak jadi
-                // "Uncaught (in promise)" di konsol dan tidak memblokir thread.
-                if let Ok(promise) = video.play() {
-                    wasm_bindgen_futures::spawn_local(async move {
-                        // Abaikan rejection — autoplay=true pada elemen video
-                        // akan mencoba lagi secara otomatis saat data mengalir.
-                        let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
-                    });
-                }
+                // Set property `muted` secara eksplisit (atribut `muted` tidak
+                // selalu ter-refleksi ke property). Tanpa ini, autoplay media
+                // ber-audio ditolak browser → video tetap hitam/pause.
+                video.set_muted(true);
+
+                // play() robust dengan retry. Safari sering MENOLAK play() saat
+                // dipanggil tepat setelah set_src_object (metadata belum siap)
+                // → video tetap pause/hitam walau frame sudah mengalir. Coba
+                // berulang dengan jeda pendek sampai benar-benar berjalan; berhenti
+                // begitu elemen tidak lagi `paused` (mis. user menekan kontrol).
+                let video = video.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    use std::time::Duration;
+                    for _ in 0..25u8 {
+                        if !video.paused() {
+                            break;
+                        }
+                        // Pastikan tetap muted tiap percobaan (syarat autoplay).
+                        video.set_muted(true);
+                        if let Ok(promise) = video.play() {
+                            if wasm_bindgen_futures::JsFuture::from(promise).await.is_ok() {
+                                break;
+                            }
+                        }
+                        gloo_timers::future::sleep(Duration::from_millis(200)).await;
+                    }
+                });
             }
             None => {
                 // Stream dihentikan (disconnect) — bersihkan srcObject agar
@@ -527,12 +558,53 @@ pub fn LiveStreamViewer(
                     node_ref=video_ref
                     class="live-viewer-video"
                     autoplay=true
+                    // muted WAJIB: browser memblokir autoplay media ber-audio tanpa
+                    // gesture. Mulai muted agar video langsung jalan; user unmute
+                    // lewat tombol kustom di bawah (gesture → suara dijamin nyala).
+                    muted=true
                     playsinline=true
                     poster="/live-poster.svg"
                 />
                 {move || {
                     if is_playing.get() {
-                        view! { <div></div> }.into_any()
+                        // Saat masih muted, tampilkan tombol kustom "ketuk untuk
+                        // suara". Klik = gesture user → set_muted(false) + play()
+                        // dijamin diizinkan browser (termasuk Safari yang ketat).
+                        if is_muted.get() {
+                            view! {
+                                // Seluruh area video bisa diketuk untuk menyalakan
+                                // suara. Klik = gesture user → set_muted(false) +
+                                // play() (dijamin diizinkan browser, termasuk Safari).
+                                <button
+                                    class="live-viewer-unmute-overlay"
+                                    on:click=move |_| {
+                                        if let Some(v) = video_ref.get_untracked() {
+                                            v.set_muted(false);
+                                            if let Ok(p) = v.play() {
+                                                wasm_bindgen_futures::spawn_local(async move {
+                                                    let _ = wasm_bindgen_futures::JsFuture::from(p).await;
+                                                });
+                                            }
+                                        }
+                                        is_muted.set(false);
+                                    }
+                                >
+                                    <span class="live-viewer-unmute-pill">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                             stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                             stroke-linejoin="round">
+                                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                                            <line x1="23" y1="9" x2="17" y2="15"/>
+                                            <line x1="17" y1="9" x2="23" y2="15"/>
+                                        </svg>
+                                        "Ketuk untuk suara"
+                                    </span>
+                                </button>
+                            }
+                                .into_any()
+                        } else {
+                            view! { <span></span> }.into_any()
+                        }
                     } else if connect.pending().get() {
                         view! {
                             <div class="live-viewer-overlay">

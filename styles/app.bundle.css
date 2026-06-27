@@ -25352,3 +25352,35 @@ body.body-scroll-locked {
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
+
+/* ==== live-viewer-unmute (appended) ==== */
+.live-viewer-unmute-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding-bottom: 14px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    z-index: 3;
+}
+.live-viewer-unmute-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.62);
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    box-shadow: 0 2px 14px rgba(0, 0, 0, 0.4);
+    transition: transform 0.15s;
+}
+.live-viewer-unmute-overlay:active .live-viewer-unmute-pill { transform: scale(0.96); }

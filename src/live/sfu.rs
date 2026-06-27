@@ -161,6 +161,11 @@ pub struct SfuEngine {
     candidate_addr: SocketAddr,
     // Hitung frame media dari publisher (untuk log diagnostik terbatas).
     frames_seen: u64,
+    // Hitung tulisan media yang BERHASIL ke subscriber. Dibandingkan dengan
+    // `frames_seen` ini membedakan "publisher mengalir ke SFU" vs "SFU benar-benar
+    // melayani subscriber" — kalau forwarded tetap 0 saat frames naik, masalah
+    // ada di forwarding (mid/codec/writer), bukan di ingest publisher.
+    frames_forwarded: u64,
     // Saat penonton baru bergabung, minta keyframe ke publisher berkali-kali
     // sampai deadline ini (browser tidak selalu kirim PLI sendiri).
     keyframe_deadline: Option<Instant>,
@@ -192,6 +197,7 @@ impl SfuEngine {
             next_peer_id: 0,
             candidate_addr,
             frames_seen: 0,
+            frames_forwarded: 0,
             keyframe_deadline: None,
             last_keyframe: Instant::now(),
         };
@@ -591,19 +597,30 @@ impl SfuEngine {
         if !media_buf.is_empty() {
             let before = self.frames_seen;
             self.frames_seen += media_buf.len() as u64;
-            // Log sekali tiap ~250 frame agar bisa pastikan media benar-benar mengalir.
+
+            // Teruskan dulu, hitung tulisan yang berhasil ke subscriber.
+            let mut written = 0u64;
+            for (kind, data) in &media_buf {
+                written += self.forward_to_subscribers(*kind, data);
+            }
+            self.frames_forwarded += written;
+
+            // Log sekali tiap ~250 frame. `forwarded` = total tulisan sukses ke
+            // subscriber: kalau ini tetap 0 sementara `frames` naik, forwarding
+            // yang bermasalah (mid/codec/writer), bukan ingest publisher.
             if before / 250 != self.frames_seen / 250 {
                 let subs = self
                     .peers
                     .values()
                     .filter(|p| matches!(p.role, PeerRole::Subscriber))
                     .count();
-                tracing::info!(frames = self.frames_seen, subscribers = subs, "SFU media flowing");
+                tracing::info!(
+                    frames = self.frames_seen,
+                    forwarded = self.frames_forwarded,
+                    subscribers = subs,
+                    "SFU media flowing"
+                );
             }
-        }
-
-        for (kind, data) in media_buf {
-            self.forward_to_subscribers(kind, &data);
         }
     }
 
@@ -625,11 +642,20 @@ impl SfuEngine {
                 .map(|(m, _)| *m)
         });
         let Some(vmid) = vmid else {
+            tracing::warn!(pub_id = %pub_id, "PLI gagal: publisher belum punya video mid");
             return;
         };
         if let Some(pubp) = self.peers.get_mut(&pub_id) {
-            if let Some(mut w) = pubp.rtc.writer(vmid) {
-                let _ = w.request_keyframe(None, KeyframeRequestKind::Pli);
+            match pubp.rtc.writer(vmid) {
+                Some(mut w) => match w.request_keyframe(None, KeyframeRequestKind::Pli) {
+                    Ok(()) => tracing::debug!(pub_id = %pub_id, "PLI terkirim ke publisher"),
+                    Err(e) => tracing::warn!(
+                        pub_id = %pub_id,
+                        error = %e,
+                        "PLI ditolak (rtcp-fb pli mungkin tak ternegosiasi) → penonton tak dapat keyframe → hitam"
+                    ),
+                },
+                None => tracing::warn!(pub_id = %pub_id, "PLI gagal: writer(vmid) None"),
             }
         }
     }
@@ -652,8 +678,16 @@ impl SfuEngine {
             .collect();
         for (pid, vmid) in targets {
             if let Some(p) = self.peers.get_mut(&pid) {
-                if let Some(mut w) = p.rtc.writer(vmid) {
-                    let _ = w.request_keyframe(None, KeyframeRequestKind::Pli);
+                match p.rtc.writer(vmid) {
+                    Some(mut w) => match w.request_keyframe(None, KeyframeRequestKind::Pli) {
+                        Ok(()) => tracing::debug!(pub_id = %pid, "burst PLI terkirim"),
+                        Err(e) => tracing::warn!(
+                            pub_id = %pid,
+                            error = %e,
+                            "burst PLI ditolak → penonton tak dapat keyframe → hitam"
+                        ),
+                    },
+                    None => tracing::warn!(pub_id = %pid, "burst PLI gagal: writer(vmid) None"),
                 }
             }
         }
@@ -705,11 +739,11 @@ impl SfuEngine {
         }
     }
 
-    fn forward_to_subscribers(&mut self, kind: MediaKind, data: &MediaData) {
-        // Codec frame publisher — writer subscriber harus memakai PT untuk codec
-        // yang SAMA, kalau tidak browser menandai byte H264 sebagai VP8 (mis.) dan
-        // gambar tetap hitam.
-        let codec = data.params.spec().codec;
+    /// Teruskan satu frame publisher ke semua subscriber. Mengembalikan jumlah
+    /// subscriber yang benar-benar menerima tulisan (untuk log diagnostik:
+    /// membedakan "publisher mengalir" vs "subscriber benar-benar dilayani").
+    fn forward_to_subscribers(&mut self, kind: MediaKind, data: &MediaData) -> u64 {
+        let mut written = 0u64;
 
         for (sub_id, peer) in self.peers.iter_mut() {
             if !matches!(peer.role, PeerRole::Subscriber) {
@@ -723,24 +757,36 @@ impl SfuEngine {
                 .find(|(_, k)| *k == kind)
                 .map(|(m, _)| *m)
             else {
+                tracing::debug!(sub_id, ?kind, "Subscriber belum punya mid untuk kind ini");
                 continue;
             };
 
-            if let Some(writer) = peer.rtc.writer(mid) {
-                // PT subscriber dengan codec yang cocok; fallback ke PT pertama.
-                let pt = writer
-                    .payload_params()
-                    .find(|p| p.spec().codec == codec)
-                    .or_else(|| writer.payload_params().next())
-                    .map(|p| p.pt());
-                let Some(pt) = pt else {
-                    continue;
-                };
-                if let Err(e) = writer.write(pt, data.network_time, data.time, data.data.clone()) {
-                    tracing::debug!(sub_id, error = %e, "Media write to subscriber failed");
-                }
+            let Some(writer) = peer.rtc.writer(mid) else {
+                continue;
+            };
+
+            // Pemetaan SFU resmi str0m: cocokkan PayloadParams frame masuk ke PT
+            // LOKAL subscriber. PT bisa berbeda antar-peer untuk codec yang sama;
+            // `match_params` juga memvalidasi parameter (mis. profile H264), bukan
+            // sekadar enum codec — menghindari kirim payload di bawah PT yang salah
+            // (penyebab klasik layar hitam). None = subscriber tak menegosiasi
+            // codec ini → lewati, jangan kirim rusak.
+            let Some(pt) = writer.match_params(data.params) else {
+                tracing::debug!(
+                    sub_id,
+                    ?kind,
+                    "Subscriber tak menegosiasi codec/params publisher — frame dilewati"
+                );
+                continue;
+            };
+
+            match writer.write(pt, data.network_time, data.time, data.data.clone()) {
+                Ok(()) => written += 1,
+                Err(e) => tracing::debug!(sub_id, error = %e, "Media write to subscriber failed"),
             }
         }
+
+        written
     }
 
     /// Blokir hingga satu datagram tiba atau `MAX_POLL_WAIT` lewat. Saat idle,
