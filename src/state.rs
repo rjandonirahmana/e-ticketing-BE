@@ -20,6 +20,7 @@ use crate::service::{
     ticket::TicketService,
 };
 use crate::live::LiveStreamService;
+use crate::meet::MeetService;
 use crate::utils::jwt::JwtService;
 use crate::ws::manager::WsManager;
 use deadpool_postgres::Pool;
@@ -87,6 +88,8 @@ pub struct AppState {
     pub pub_cache: Arc<PublicCache>,
     /// Live streaming service (WebRTC SFU).
     pub live_svc: Arc<LiveStreamService>,
+    /// Meet service (konferensi P2P mesh, signaling + waiting room).
+    pub meet_svc: Arc<MeetService>,
 }
 
 impl AppState {
@@ -169,8 +172,7 @@ impl AppState {
             .parse()
             .unwrap_or_else(|_| "0.0.0.0:4000".parse().expect("default SFU addr"));
         let live_svc = LiveStreamService::new(sfu_addr);
-
-
+        let meet_svc = MeetService::new();
 
         Self {
             pool,
@@ -189,6 +191,7 @@ impl AppState {
             story_svc,
             pub_cache: Arc::new(PublicCache::new()),
             live_svc,
+            meet_svc,
         }
     }
 }

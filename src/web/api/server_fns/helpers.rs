@@ -1,3 +1,4 @@
+#[cfg_attr(not(feature = "ssr"), allow(unused_imports))]
 use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]

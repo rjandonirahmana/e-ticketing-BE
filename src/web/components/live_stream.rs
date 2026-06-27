@@ -49,17 +49,6 @@ fn build_ws_url(path: &str) -> String {
 /// `serde_wasm_bindgen` (default) menserialisasi map jadi `Map` JS — bukan
 /// object — sehingga `RTCIceServer.urls` tak terbaca dan konstruktor
 /// RTCPeerConnection menolak ("urls is required"). Maka dibangun manual.
-fn ice_servers() -> js_sys::Array {
-    let urls = js_sys::Array::new();
-    urls.push(&JsValue::from_str("stun:stun.l.google.com:19302"));
-    urls.push(&JsValue::from_str("stun:stun1.l.google.com:19302"));
-    let server = js_sys::Object::new();
-    let _ = js_sys::Reflect::set(&server, &JsValue::from_str("urls"), &urls);
-    let servers = js_sys::Array::new();
-    servers.push(&server);
-    servers
-}
-
 /// Helper: add a recvonly transceiver using raw JS
 /// web-sys 0.3.99 does NOT have `add_transceiver_with_str_and_init`,
 /// so we call the JS method directly via Reflect.
@@ -154,7 +143,7 @@ pub fn LiveStreamViewer(
             merchant_name.set(room.merchant_name);
 
             let config = web_sys::RtcConfiguration::new();
-            config.set_ice_servers(ice_servers().as_ref());
+            config.set_ice_servers(crate::web::rtc::fetch_ice_servers().await.as_ref());
 
             let peer_connection = web_sys::RtcPeerConnection::new_with_configuration(&config)
                 .map_err(|e| format!("RTCPeerConnection failed: {:?}", e))

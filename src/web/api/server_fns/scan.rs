@@ -1,5 +1,6 @@
 use crate::web::models::*;
 use leptos::prelude::*;
+#[cfg_attr(not(feature = "ssr"), allow(unused_imports))]
 use super::helpers::*;
 
 #[server(ScanTicket, "/api-fn")]

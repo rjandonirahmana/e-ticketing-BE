@@ -28,6 +28,7 @@ use e_ticketing::web::app::{shell, App};
 use e_ticketing::ws::handler::WsAppState;
 use e_ticketing::ws::routes::chat_router;
 use e_ticketing::live::api::live_router;
+use e_ticketing::meet::api::meet_router;
 
 use leptos::config::get_configuration;
 use leptos_axum::{generate_route_list, LeptosRoutes};
@@ -148,6 +149,9 @@ async fn main() -> Result<()> {
     // ── Live streaming router (WebRTC SFU) ──────────────────────────────────
     let live_api = live_router(state.clone());
 
+    // ── Meet router (WebRTC P2P mesh + waiting room) ─────────────────────────
+    let meet_api = meet_router(state.clone());
+
     // ── WebSocket + REST API + CSS assets + SSR ───────────────────────────────
     let app = chat_router(ws_state, state.clone())
         .layer(cors)
@@ -155,6 +159,7 @@ async fn main() -> Result<()> {
         .merge(upload_router)
         .merge(rest_api)
         .merge(live_api)
+        .merge(meet_api)
         .merge(leptos_router)
         .layer(tower_http::compression::CompressionLayer::new());
 

@@ -52,36 +52,82 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                 // ── Leaflet (OpenStreetMap) untuk peta lokasi event ──────────
                 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
                 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-                <script inner_html=r#"
+                // Style kustom: pin SVG (tanpa gambar eksternal) + tombol locate.
+                <style inner_html=r#"
+                .leaflet-div-icon.pulse-pin{background:transparent;border:none;}
+                .pulse-pin svg{display:block;filter:drop-shadow(0 3px 4px rgba(0,0,0,.35));}
+                .pulse-locate{font-size:17px;font-weight:700;line-height:30px;text-align:center;}
+                .leaflet-container{font-family:var(--font-body,sans-serif);}
+                "# />
+                <script inner_html=r##"
                 (function(){
                   window.__pulseMaps = window.__pulseMaps || {};
+                  // Tiles CartoDB Voyager (data OpenStreetMap, tampilan lebih bersih).
                   function tile(m){
-                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      {maxZoom:19, attribution:'&copy; OpenStreetMap'}).addTo(m);
+                    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+                      {maxZoom:20, subdomains:'abcd', attribution:'&copy; OpenStreetMap, &copy; CARTO'}).addTo(m);
+                  }
+                  // Pin SVG kustom — tidak memuat gambar marker default Leaflet
+                  // (yang sering 404 di setup SPA → marker tak terlihat).
+                  function pin(){
+                    return L.divIcon({
+                      className:'pulse-pin',
+                      html:'<svg width="36" height="46" viewBox="0 0 36 46" xmlns="http://www.w3.org/2000/svg"><path d="M18 0C8 0 0 8 0 18c0 13 18 28 18 28s18-15 18-28C36 8 28 0 18 0z" fill="#4f6bff"/><circle cx="18" cy="18" r="7" fill="#ffffff"/></svg>',
+                      iconSize:[36,46], iconAnchor:[18,44], popupAnchor:[0,-40]
+                    });
+                  }
+                  // Tunggu Leaflet (L) + elemen peta siap (maks ~6 dtk) lalu jalankan cb.
+                  function waitFor(mapId, cb, tries){
+                    if(window.L && document.getElementById(mapId)) return cb();
+                    if(tries <= 0) return;
+                    setTimeout(function(){ waitFor(mapId, cb, tries-1); }, 100);
+                  }
+                  function refresh(m){
+                    var f = function(){ m.invalidateSize(); };
+                    setTimeout(f, 80); setTimeout(f, 350); window.addEventListener('resize', f);
                   }
                   window.pulseMapDestroy = function(id){
                     var m = window.__pulseMaps[id];
                     if(m){ try{ m.remove(); }catch(e){} delete window.__pulseMaps[id]; }
                   };
                   window.pulseMapPicker = function(mapId, latId, lngId){
-                    if(!window.L || !document.getElementById(mapId)){
-                      return setTimeout(function(){ window.pulseMapPicker(mapId, latId, lngId); }, 200);
-                    }
-                    var latEl = document.getElementById(latId), lngEl = document.getElementById(lngId);
-                    var lat = parseFloat(latEl && latEl.value), lng = parseFloat(lngEl && lngEl.value);
-                    if(isNaN(lat)) lat = -6.2088;
-                    if(isNaN(lng)) lng = 106.8456;
-                    window.pulseMapDestroy(mapId);
-                    var m = L.map(mapId).setView([lat,lng], 13); tile(m);
-                    var mk = L.marker([lat,lng], {draggable:true}).addTo(m);
-                    function emit(p){
-                      if(latEl){ latEl.value = p.lat.toFixed(6); latEl.dispatchEvent(new Event('input',{bubbles:true})); }
-                      if(lngEl){ lngEl.value = p.lng.toFixed(6); lngEl.dispatchEvent(new Event('input',{bubbles:true})); }
-                    }
-                    m.on('click', function(e){ mk.setLatLng(e.latlng); emit(e.latlng); });
-                    mk.on('dragend', function(){ emit(mk.getLatLng()); });
-                    m.__mk = mk; window.__pulseMaps[mapId] = m;
-                    setTimeout(function(){ m.invalidateSize(); }, 150);
+                    waitFor(mapId, function(){
+                      var latEl = document.getElementById(latId), lngEl = document.getElementById(lngId);
+                      var lat = parseFloat(latEl && latEl.value), lng = parseFloat(lngEl && lngEl.value);
+                      if(isNaN(lat)) lat = -6.2088;
+                      if(isNaN(lng)) lng = 106.8456;
+                      window.pulseMapDestroy(mapId);
+                      var m = L.map(mapId).setView([lat,lng], 15); tile(m);
+                      var mk = L.marker([lat,lng], {draggable:true, icon:pin()}).addTo(m);
+                      function emit(p){
+                        if(latEl){ latEl.value = p.lat.toFixed(6); latEl.dispatchEvent(new Event('input',{bubbles:true})); }
+                        if(lngEl){ lngEl.value = p.lng.toFixed(6); lngEl.dispatchEvent(new Event('input',{bubbles:true})); }
+                      }
+                      m.on('click', function(e){ mk.setLatLng(e.latlng); emit(e.latlng); });
+                      mk.on('dragend', function(){ emit(mk.getLatLng()); });
+                      // Kontrol "Lokasi saya" (geolokasi browser).
+                      var Locate = L.Control.extend({
+                        options:{position:'topleft'},
+                        onAdd:function(){
+                          var c = L.DomUtil.create('div','leaflet-bar');
+                          var b = L.DomUtil.create('a','pulse-locate', c);
+                          b.href='#'; b.title='Lokasi saya'; b.setAttribute('role','button');
+                          b.innerHTML='&#9678;';
+                          L.DomEvent.on(b,'click',function(ev){
+                            L.DomEvent.preventDefault(ev); L.DomEvent.stopPropagation(ev);
+                            if(!navigator.geolocation) return;
+                            navigator.geolocation.getCurrentPosition(function(pos){
+                              var ll={lat:pos.coords.latitude,lng:pos.coords.longitude};
+                              m.setView([ll.lat,ll.lng],16); mk.setLatLng([ll.lat,ll.lng]); emit(ll);
+                            });
+                          });
+                          return c;
+                        }
+                      });
+                      m.addControl(new Locate());
+                      m.__mk = mk; window.__pulseMaps[mapId] = m;
+                      refresh(m);
+                    }, 60);
                   };
                   window.pulseMapSet = function(mapId, lat, lng){
                     var m = window.__pulseMaps[mapId];
@@ -89,18 +135,17 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                     m.setView([lat,lng]); if(m.__mk) m.__mk.setLatLng([lat,lng]);
                   };
                   window.pulseMapViewer = function(mapId, lat, lng, label){
-                    if(!window.L || !document.getElementById(mapId)){
-                      return setTimeout(function(){ window.pulseMapViewer(mapId, lat, lng, label); }, 200);
-                    }
-                    if(isNaN(lat) || isNaN(lng)) return;
-                    window.pulseMapDestroy(mapId);
-                    var m = L.map(mapId, {scrollWheelZoom:false}).setView([lat,lng], 15); tile(m);
-                    L.marker([lat,lng]).addTo(m).bindPopup(label || 'Lokasi').openPopup();
-                    window.__pulseMaps[mapId] = m;
-                    setTimeout(function(){ m.invalidateSize(); }, 150);
+                    waitFor(mapId, function(){
+                      if(isNaN(lat) || isNaN(lng)) return;
+                      window.pulseMapDestroy(mapId);
+                      var m = L.map(mapId, {scrollWheelZoom:false}).setView([lat,lng], 16); tile(m);
+                      L.marker([lat,lng], {icon:pin()}).addTo(m).bindPopup(label || 'Lokasi').openPopup();
+                      window.__pulseMaps[mapId] = m;
+                      refresh(m);
+                    }, 60);
                   };
                 })();
-                "# />
+                "## />
 
                 // ── WASM + JS preloads ───────────────────────────────────────
                 // Start downloading the WASM binary and its JS loader during

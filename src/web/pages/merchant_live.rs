@@ -461,21 +461,6 @@ async fn get_user_media() -> Result<web_sys::MediaStream, String> {
     Ok(web_sys::MediaStream::from(js_val))
 }
 
-/// Bangun daftar ICE server sebagai array berisi objek JS biasa.
-/// `serde_wasm_bindgen` (default) menserialisasi map jadi `Map` JS — bukan
-/// object — sehingga `RTCIceServer.urls` tak terbaca dan konstruktor
-/// RTCPeerConnection menolak ("urls is required"). Maka dibangun manual.
-fn ice_servers() -> js_sys::Array {
-    let urls = js_sys::Array::new();
-    urls.push(&JsValue::from_str("stun:stun.l.google.com:19302"));
-    urls.push(&JsValue::from_str("stun:stun1.l.google.com:19302"));
-    let server = js_sys::Object::new();
-    let _ = js_sys::Reflect::set(&server, &JsValue::from_str("urls"), &urls);
-    let servers = js_sys::Array::new();
-    servers.push(&server);
-    servers
-}
-
 /// Buat RTCPeerConnection sebagai publisher via WS signaling.
 ///
 /// Perubahan dari HTTP signaling:
@@ -491,7 +476,7 @@ async fn create_publisher(
     stream: Option<web_sys::MediaStream>,
 ) -> Result<(web_sys::RtcPeerConnection, web_sys::WebSocket), String> {
     let config = web_sys::RtcConfiguration::new();
-    config.set_ice_servers(ice_servers().as_ref());
+    config.set_ice_servers(crate::web::rtc::fetch_ice_servers().await.as_ref());
 
     let pc = web_sys::RtcPeerConnection::new_with_configuration(&config)
         .map_err(|e| format!("Failed to create RTCPeerConnection: {:?}", e))?;
