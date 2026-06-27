@@ -493,6 +493,35 @@
 }
 .live-viewer-overlay--btn:hover .live-viewer-play { transform: scale(1.06); }
 
+/* Tombol kustom "ketuk untuk suara" — muncul saat video playing tapi masih
+   muted. Klik = gesture user → unmute + play (dijamin diizinkan browser). */
+.live-viewer-unmute {
+    position: absolute;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.62);
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    box-shadow: 0 2px 14px rgba(0, 0, 0, 0.4);
+    transition: background 0.15s, transform 0.15s;
+    z-index: 3;
+}
+.live-viewer-unmute:hover { background: rgba(0, 0, 0, 0.78); }
+.live-viewer-unmute:active { transform: translateX(-50%) scale(0.96); }
+
 .live-viewer-spinner {
     width: 34px;
     height: 34px;
