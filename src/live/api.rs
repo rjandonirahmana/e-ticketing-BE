@@ -342,11 +342,12 @@ async fn live_publish_ws_loop(mut socket: WebSocket, room_id: String, state: Arc
     }
 
     // Publisher terputus (tutup tab / klik STOP LIVE / navigasi pergi):
-    // hentikan room agar tidak "menggantung" terlihat live tanpa stream.
-    if negotiated {
-        tracing::info!(room_id, "Publisher WS closed — stopping room");
-        let _ = state.live_svc.stop_room(&room_id).await;
-    }
+    // hentikan room agar tidak "menggantung". Dilakukan TANPA syarat `negotiated`
+    // — bila WS publisher ditutup sebelum sempat mengirim offer (mis. room dibuat
+    // via HTTP POST lalu WS gagal/ditutup), room tetap harus dibuang agar tidak
+    // menjadi room yatim yang menumpuk di memori.
+    tracing::info!(room_id, negotiated, "Publisher WS closed — stopping room");
+    let _ = state.live_svc.stop_room(&room_id).await;
 }
 
 // ── WS signaling: subscriber (viewer) ─────────────────────────────────────────

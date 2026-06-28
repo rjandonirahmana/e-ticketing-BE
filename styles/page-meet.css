@@ -1,68 +1,95 @@
-/* page-meet.css — Halaman "Zoom Meet" (konferensi P2P mesh + waiting room). */
+/* page-meet.css — Halaman "Meet" (konferensi P2P mesh, gaya Google Meet). */
 
 .meet-page {
-    min-height: 100vh;
-    padding: 0 0 40px;
-    color: var(--text-primary);
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    background: #0a0a0f;
+    color: #fff;
     font-family: var(--font-body);
+    overflow: hidden;
 }
 
-.meet-header {
-    position: sticky;
-    top: 0;
-    z-index: var(--z-header);
+/* ── Top bar (in-meet) ─────────────────────────────────────────────────────── */
+.meet-topbar {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 14px 16px;
-    background: var(--bg-page);
-    border-bottom: 1px solid var(--border-soft);
+    justify-content: space-between;
+    padding: 12px 18px;
+    flex: 0 0 auto;
+    z-index: 5;
 }
 
-.meet-back {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 34px;
-    height: 34px;
-    border-radius: 10px;
-    color: var(--text-primary);
-    background: var(--bg-card);
-    border: 1px solid var(--border-soft);
-}
-
-.meet-title {
+.meet-topbar-title {
     font-family: var(--font-display);
     font-weight: 700;
-    font-size: 16px;
+    font-size: 15px;
+    letter-spacing: 0.01em;
 }
 
-/* ── Panggung video ──────────────────────────────────────────────────────── */
+.meet-topbar-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 5px 11px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 20px;
+}
+
+/* ── Panggung & grid tile ─────────────────────────────────────────────────── */
 .meet-stage {
-    padding: 12px;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px 96px;
 }
 
 .meet-hidden {
-    display: none;
+    display: none !important;
 }
 
 .meet-tiles {
+    width: 100%;
+    height: 100%;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    grid-auto-rows: 1fr;
     gap: 10px;
+    align-content: center;
+    justify-items: center;
+}
+
+/* Green room: hanya tile self, besar & terpusat. */
+.meet-tiles--solo {
+    grid-template-columns: minmax(0, 720px);
+    grid-auto-rows: auto;
 }
 
 .meet-tile {
     position: relative;
-    aspect-ratio: 3 / 4;
-    background: #0a0a14;
-    border-radius: 14px;
+    width: 100%;
+    height: 100%;
+    aspect-ratio: 16 / 9;
+    background: #16161f;
+    border-radius: 16px;
     overflow: hidden;
-    border: 1px solid var(--border-soft);
+    box-shadow: 0 2px 14px rgba(0, 0, 0, 0.35);
 }
 
+.meet-tiles--solo .meet-tile {
+    aspect-ratio: 16 / 9;
+    max-height: 60vh;
+}
+
+/* Tandai tile sendiri (cincin biru, seperti highlight di Google Meet). */
 .meet-tile--self {
-    border-color: var(--accent-lime);
+    outline: 2px solid var(--accent-blue);
+    outline-offset: -2px;
 }
 
 .meet-tile-video {
@@ -70,88 +97,231 @@
     height: 100%;
     object-fit: cover;
     display: block;
+    background: #16161f;
 }
 
-.meet-tile-name {
+/* Mirror hanya kamera sendiri (seperti Google Meet); remote tidak di-mirror. */
+.meet-tile--self .meet-tile-video {
+    transform: scaleX(-1);
+}
+
+/* Avatar fallback saat kamera off. */
+.meet-tile-avatar {
     position: absolute;
-    left: 8px;
-    bottom: 8px;
-    padding: 3px 8px;
-    font-size: 12px;
-    font-weight: 600;
-    color: #fff;
-    background: rgba(0, 0, 0, 0.55);
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: #1f1f2b;
+}
+
+.meet-tile-avatar span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 78px;
+    height: 78px;
+    border-radius: 50%;
+    background: var(--accent-lime, #c3f53c);
+    color: #0a0a14;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 32px;
+    text-transform: uppercase;
+}
+
+.meet-tile.cam-off .meet-tile-video {
+    display: none;
+}
+
+.meet-tile.cam-off .meet-tile-avatar {
+    display: flex;
+}
+
+/* Bar nama + ikon mic di pojok tile. */
+.meet-tile-bar {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: calc(100% - 20px);
+    padding: 4px 10px;
+    background: rgba(0, 0, 0, 0.5);
     border-radius: 8px;
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
-    max-width: 80%;
+}
+
+.meet-tile-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-/* ── Panel terpusat (lobby / waiting / hasil) ────────────────────────────── */
-.meet-center {
+/* Ikon mic-off hanya tampil saat peserta mute. */
+.meet-tile-mic {
+    display: none;
+    align-items: center;
+    color: #ff5c5c;
+}
+
+.meet-tile.mic-off .meet-tile-mic {
+    display: inline-flex;
+}
+
+.meet-tile.mic-off .meet-tile-bar {
+    background: rgba(180, 30, 30, 0.55);
+}
+
+/* ── Control bar ──────────────────────────────────────────────────────────── */
+.meet-controls {
+    position: absolute;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 16px;
+    background: rgba(20, 20, 28, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 40px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    z-index: 10;
+}
+
+.meet-ctrl {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    cursor: pointer;
+    transition: transform 0.12s, background 0.15s;
+}
+
+.meet-ctrl:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.meet-ctrl:active {
+    transform: scale(0.94);
+}
+
+/* Mic/kamera dalam keadaan OFF → merah (gaya Google Meet). */
+.meet-ctrl--off {
+    background: #ea4335;
+}
+
+.meet-ctrl--off:hover {
+    background: #f0584a;
+}
+
+.meet-ctrl--leave {
+    background: #ea4335;
+    width: 58px;
+}
+
+.meet-ctrl--leave:hover {
+    background: #f0584a;
+}
+
+.meet-ctrl-badge {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: #0a0a14;
+    background: var(--accent-lime, #c3f53c);
+    border-radius: 9px;
+}
+
+/* ── Green room (prejoin) ─────────────────────────────────────────────────── */
+.meet-prejoin-mode .meet-stage {
+    padding-bottom: 8px;
+}
+
+.meet-prejoin {
+    flex: 0 0 auto;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    gap: 14px;
-    min-height: 55vh;
-    padding: 40px 24px;
+    gap: 12px;
+    padding: 8px 20px 28px;
     text-align: center;
 }
 
-.meet-result-icon {
-    font-size: 44px;
-}
-
-.meet-spinner {
-    width: 34px;
-    height: 34px;
-    border: 3px solid var(--border);
-    border-top-color: var(--accent-lime);
-    border-radius: 50%;
-    animation: meet-spin 0.8s linear infinite;
-}
-
-@keyframes meet-spin {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-.meet-lobby-title {
+.meet-prejoin-title {
     font-family: var(--font-display);
     font-size: 22px;
-    font-weight: 700;
+    font-weight: 800;
 }
 
-.meet-lobby-sub {
-    color: var(--text-muted);
+.meet-prejoin-sub {
+    color: rgba(255, 255, 255, 0.6);
     font-size: 13px;
-    max-width: 320px;
+    max-width: 340px;
+    margin-top: -4px;
 }
 
-.meet-waiting-text {
-    color: var(--text-secondary);
+.meet-prejoin-toggles {
+    display: flex;
+    gap: 14px;
+    margin: 4px 0;
 }
 
-/* ── Input & tombol ──────────────────────────────────────────────────────── */
+.meet-prejoin-join {
+    min-width: 200px;
+}
+
+.meet-prejoin-back {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 13px;
+    text-decoration: none;
+    padding: 6px;
+}
+
+.meet-prejoin-back:hover {
+    color: #fff;
+}
+
+/* ── Input & tombol ───────────────────────────────────────────────────────── */
 .meet-input {
     width: 100%;
     max-width: 340px;
     padding: 12px 14px;
     font-size: 14px;
-    color: var(--text-primary);
-    background: var(--bg-card);
-    border: 1px solid var(--border-soft);
+    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 12px;
     outline: none;
 }
 
+.meet-input::placeholder {
+    color: rgba(255, 255, 255, 0.4);
+}
+
 .meet-input:focus {
-    border-color: var(--accent-lime);
+    border-color: var(--accent-lime, #c3f53c);
 }
 
 .meet-btn {
@@ -162,10 +332,10 @@
     padding: 12px 22px;
     font-size: 14px;
     font-weight: 700;
-    border: 1px solid var(--border-soft);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 12px;
-    background: var(--bg-card);
-    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
     cursor: pointer;
     text-decoration: none;
     transition: transform 0.12s, opacity 0.12s;
@@ -181,15 +351,15 @@
 }
 
 .meet-btn--primary {
-    background: var(--accent-lime);
-    border-color: var(--accent-lime);
-    color: var(--text-on-accent);
+    background: var(--accent-lime, #c3f53c);
+    border-color: var(--accent-lime, #c3f53c);
+    color: #0a0a14;
 }
 
 .meet-btn--ghost {
     background: transparent;
-    color: var(--danger);
-    border-color: var(--danger);
+    color: #ff7a7a;
+    border-color: #ff7a7a;
 }
 
 .meet-btn--small {
@@ -197,20 +367,44 @@
     font-size: 12px;
 }
 
-/* ── Panel host: link undangan + waiting room ────────────────────────────── */
-.meet-host-panel {
-    margin: 6px 12px 0;
+/* ── Panel orang (host): undangan + ruang tunggu ──────────────────────────── */
+.meet-people {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    bottom: 92px;
+    width: min(340px, calc(100vw - 24px));
     display: flex;
     flex-direction: column;
     gap: 14px;
+    padding: 16px;
+    background: #15151d;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+    overflow-y: auto;
+    z-index: 20;
 }
 
-.meet-invite,
-.meet-waitroom {
-    background: var(--bg-card);
-    border: 1px solid var(--border-soft);
-    border-radius: 14px;
-    padding: 14px;
+.meet-people-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 16px;
+}
+
+.meet-people-close {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 16px;
+    cursor: pointer;
+}
+
+.meet-people-close:hover {
+    color: #fff;
 }
 
 .meet-invite-label,
@@ -220,7 +414,7 @@
     font-weight: 700;
     letter-spacing: 0.05em;
     text-transform: uppercase;
-    color: var(--text-muted);
+    color: rgba(255, 255, 255, 0.5);
     margin-bottom: 10px;
 }
 
@@ -236,7 +430,7 @@
 }
 
 .meet-waitroom-empty {
-    color: var(--text-muted);
+    color: rgba(255, 255, 255, 0.45);
     font-size: 13px;
 }
 
@@ -246,7 +440,7 @@
     justify-content: space-between;
     gap: 10px;
     padding: 10px 0;
-    border-top: 1px solid var(--border-soft);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .meet-wait-item:first-of-type {
@@ -263,17 +457,63 @@
     gap: 8px;
 }
 
-/* ── Tombol MEET di Merchant Hub ─────────────────────────────────────────── */
+/* ── Layar status terpusat ────────────────────────────────────────────────── */
+.meet-center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 40px 24px;
+    text-align: center;
+    color: #fff;
+}
+
+.meet-result-icon {
+    font-size: 44px;
+}
+
+.meet-waiting-text {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.meet-spinner {
+    width: 34px;
+    height: 34px;
+    border: 3px solid rgba(255, 255, 255, 0.18);
+    border-top-color: var(--accent-lime, #c3f53c);
+    border-radius: 50%;
+    animation: meet-spin 0.8s linear infinite;
+}
+
+@keyframes meet-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Tombol MEET di Merchant Hub (pil terisi, konsisten dgn LIVE & SCAN) ───── */
 .mhub-meet-btn {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 6px;
-    padding: 8px 12px;
-    font-size: 12px;
+    padding: 7px 14px;
+    border-radius: 100px;
+    background: var(--accent-blue);
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 10px;
     font-weight: 700;
-    color: var(--text-primary);
-    background: var(--bg-card);
-    border: 1px solid var(--border-soft);
-    border-radius: 10px;
+    letter-spacing: 0.1em;
     text-decoration: none;
+    transition: opacity 0.2s, transform 0.15s;
+    flex-shrink: 0;
+}
+.mhub-meet-btn:hover {
+    opacity: 0.88;
+}
+.mhub-meet-btn:active {
+    transform: scale(0.94);
 }

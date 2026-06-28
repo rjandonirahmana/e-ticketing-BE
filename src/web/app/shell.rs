@@ -50,8 +50,10 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                 />
 
                 // ── Leaflet (OpenStreetMap) untuk peta lokasi event ──────────
-                <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-                <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+                // Leaflet di-self-host dari binary (bukan CDN unpkg) agar peta
+                // selalu ter-load — lihat web/assets.rs (serve_leaflet_js/css).
+                <link rel="stylesheet" href="/vendor/leaflet.css" />
+                <script src="/vendor/leaflet.js"></script>
                 // Style kustom: pin SVG (tanpa gambar eksternal) + tombol locate.
                 <style inner_html=r#"
                 .leaflet-div-icon.pulse-pin{background:transparent;border:none;}
@@ -82,13 +84,32 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                     if(tries <= 0) return;
                     setTimeout(function(){ waitFor(mapId, cb, tries-1); }, 100);
                   }
+                  // Penyebab umum "peta abu-abu": peta di-init sebelum container
+                  // punya ukuran final (umum di SPA: layout/font/animasi belum
+                  // settle). invalidateSize() memaksa Leaflet menghitung ulang
+                  // ukuran & memuat ulang tile. Dipanggil bertubi: rAF, beberapa
+                  // timer, whenReady, plus ResizeObserver agar setiap perubahan
+                  // ukuran container otomatis memicu recalculation.
                   function refresh(m){
-                    var f = function(){ m.invalidateSize(); };
-                    setTimeout(f, 80); setTimeout(f, 350); window.addEventListener('resize', f);
+                    var inv = function(){ try{ m.invalidateSize(false); }catch(e){} };
+                    [0,80,250,500,1000,2000].forEach(function(t){ setTimeout(inv,t); });
+                    if(window.requestAnimationFrame) requestAnimationFrame(inv);
+                    try{ m.whenReady(inv); }catch(e){}
+                    var el = (function(){ try{ return m.getContainer(); }catch(e){ return null; } })();
+                    if(window.ResizeObserver && el){
+                      try{ var ro = new ResizeObserver(function(){ inv(); }); ro.observe(el); m.__ro = ro; }catch(e){}
+                    }
+                    window.addEventListener('resize', inv);
+                    m.__inv = inv;
                   }
                   window.pulseMapDestroy = function(id){
                     var m = window.__pulseMaps[id];
-                    if(m){ try{ m.remove(); }catch(e){} delete window.__pulseMaps[id]; }
+                    if(m){
+                      try{ if(m.__ro) m.__ro.disconnect(); }catch(e){}
+                      try{ if(m.__inv) window.removeEventListener('resize', m.__inv); }catch(e){}
+                      try{ m.remove(); }catch(e){}
+                      delete window.__pulseMaps[id];
+                    }
                   };
                   window.pulseMapPicker = function(mapId, latId, lngId){
                     waitFor(mapId, function(){

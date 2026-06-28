@@ -290,3 +290,39 @@
     font-size: 12px;
     color: rgba(255, 255, 255, 0.5);
 }
+
+/* ── Swipe antar live: pastikan pan vertikal tak terblok video + hint ──────── */
+.lives-slide,
+.lives-slide .live-viewer,
+.lives-slide .live-viewer-video,
+.lives-slide .live-viewer-video-wrap {
+    touch-action: pan-y;
+}
+
+/* Petunjuk "geser untuk live lainnya" — muncul saat masih ada live di bawah. */
+.lives-swipe-hint {
+    position: fixed;
+    left: 50%;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 22px);
+    transform: translateX(-50%);
+    z-index: 210;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 7px 14px;
+    border-radius: 100px;
+    background: rgba(0, 0, 0, 0.42);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    pointer-events: none;
+    animation: lives-hint-bounce 1.6s ease-in-out infinite;
+}
+@keyframes lives-hint-bounce {
+    0%, 100% { transform: translateX(-50%) translateY(0); opacity: 0.85; }
+    50%      { transform: translateX(-50%) translateY(-6px); opacity: 1; }
+}

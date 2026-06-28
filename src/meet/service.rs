@@ -5,11 +5,19 @@
 //! (DashMap mengurus konkurensi).
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use dashmap::DashMap;
 use tokio::sync::mpsc;
 
 use super::room::{MeetRoom, MeetRoomInfo, Peer, PeerInfo};
+
+/// Seberapa sering menyapu room yatim (dibuat lewat `POST /api/meet/rooms` tapi
+/// host tak pernah membuka WS, atau edge disconnect yang lolos cleanup).
+const SWEEP_INTERVAL: Duration = Duration::from_secs(60);
+/// Room dengan 0 peserta yang lebih tua dari ini dianggap yatim dan dibuang.
+/// Harus > jendela create→connect agar room yang baru dibuat tidak ikut tersapu.
+const ORPHAN_MAX_AGE_SECS: i64 = 120;
 
 pub struct MeetService {
     rooms: Arc<DashMap<String, Arc<MeetRoom>>>,
@@ -17,9 +25,34 @@ pub struct MeetService {
 
 impl MeetService {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self {
-            rooms: Arc::new(DashMap::new()),
-        })
+        let rooms: Arc<DashMap<String, Arc<MeetRoom>>> = Arc::new(DashMap::new());
+        Self::spawn_orphan_sweeper(rooms.clone());
+        Arc::new(Self { rooms })
+    }
+
+    /// Task periodik pembuang room yatim. Room yang masih aktif selalu punya ≥1
+    /// peserta (host) sehingga tak akan tersapu; `end_room` tetap menangani
+    /// pembubaran normal saat host keluar. Ini hanya jaring pengaman agar room
+    /// yang dibuat tapi tak pernah tersambung tidak menumpuk selamanya.
+    fn spawn_orphan_sweeper(rooms: Arc<DashMap<String, Arc<MeetRoom>>>) {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(SWEEP_INTERVAL);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                let now = chrono::Utc::now();
+                let before = rooms.len();
+                rooms.retain(|_, room| {
+                    let empty = room.peers.is_empty();
+                    let age = (now - room.created_at).num_seconds();
+                    !(empty && age > ORPHAN_MAX_AGE_SECS)
+                });
+                let removed = before.saturating_sub(rooms.len());
+                if removed > 0 {
+                    tracing::info!(removed, "meet: menyapu room yatim (0 peserta, basi)");
+                }
+            }
+        });
     }
 
     /// Buat (atau buat-ulang idempoten) ruang meet milik satu host. Id

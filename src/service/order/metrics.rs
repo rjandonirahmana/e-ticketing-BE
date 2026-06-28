@@ -58,3 +58,32 @@ pub(super) fn backoff_with_jitter(attempt: u8) -> Duration {
         % (base_ms + 1);
     Duration::from_millis(base_ms + jitter_ms)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Backoff selalu dalam rentang [base, 2*base] di mana base = 20*(attempt+1).
+    /// Jitter = nilai 0..=base, jadi tidak pernah 0 mutlak (minimal `base`) dan
+    /// tidak pernah melebihi 2*base — penting agar retry tidak meledak.
+    #[test]
+    fn backoff_within_bounds() {
+        for attempt in 0..=MAX_TX_RETRY {
+            let base = 20 * (attempt as u64 + 1);
+            // Ambil beberapa sample karena jitter berasal dari jam.
+            for _ in 0..50 {
+                let d = backoff_with_jitter(attempt).as_millis() as u64;
+                assert!(d >= base, "attempt {attempt}: {d} < base {base}");
+                assert!(d <= 2 * base, "attempt {attempt}: {d} > 2*base {}", 2 * base);
+            }
+        }
+    }
+
+    /// Error non-Postgres (mis. anyhow biasa) tidak boleh dianggap retryable —
+    /// kalau iya, order service bisa retry selamanya pada error fatal.
+    #[test]
+    fn non_pg_error_is_not_retryable() {
+        let e = anyhow::anyhow!("kesalahan acak bukan dari Postgres");
+        assert!(!is_retryable_pg_error(&e));
+    }
+}

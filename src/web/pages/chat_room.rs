@@ -77,9 +77,24 @@ pub fn ChatRoomPage() -> impl IntoView {
         let cb_onclose:   StoredValue<Option<JsValue>> = StoredValue::new(None);
         let cb_onerror:   StoredValue<Option<JsValue>> = StoredValue::new(None);
 
-        Effect::new(move |_| {
-            // Guard: hanya konek jika sudah login
-            if !is_logged_in() { return; }
+        // Ditandai true di on_cleanup → watchdog berhenti reconnect setelah
+        // halaman ditinggalkan (cegah reconnect zombie).
+        let closing: StoredValue<bool> = StoredValue::new(false);
+
+        // `connect` dibuat reusable agar bisa dipanggil ulang oleh watchdog
+        // reconnect (penyebab "tidak live": koneksi putus & tak pernah pulih).
+        // Tidak membaca signal reaktif (login dicek untracked) supaya Effect
+        // pemanggil hanya jalan SEKALI — tidak ada churn connect/disconnect.
+        let connect = move || {
+            // Guard: hanya konek jika sudah login (untracked → tak bikin Effect re-run).
+            let logged_in = auth
+                .get_untracked()
+                .and_then(|r| r.ok())
+                .flatten()
+                .is_some();
+            if !logged_in {
+                return;
+            }
 
             let proto = if web_sys::window()
                 .map(|w| w.location().protocol().unwrap_or_default() == "https:")
@@ -171,13 +186,42 @@ pub fn ChatRoomPage() -> impl IntoView {
             cb_onclose.set_value(Some(onclose.into_js_value()));
             cb_onerror.set_value(Some(onerror.into_js_value()));
             ws_store.set_value(Some(ws.clone()));
+        };
+
+        // Buka koneksi + watchdog reconnect. Effect ini hanya jalan SEKALI
+        // (connect tidak membaca signal reaktif), jadi tidak ada churn.
+        Effect::new(move |_| {
+            connect();
+
+            // Watchdog: tiap 3 dtk, bila WS sudah CLOSED (putus) & halaman belum
+            // ditinggalkan, sambung ulang → "● LIVE" pulih otomatis tanpa refresh.
+            let interval = send_wrapper::SendWrapper::new(
+                gloo_timers::callback::Interval::new(3_000, move || {
+                    if closing.get_value() {
+                        return;
+                    }
+                    let need = ws_store.with_value(|opt| match opt {
+                        None => true,
+                        Some(ws) => ws.ready_state() == web_sys::WebSocket::CLOSED,
+                    });
+                    if need {
+                        connect();
+                    }
+                }),
+            );
 
             on_cleanup(move || {
-                ws.set_onmessage(None);
-                ws.set_onopen(None);
-                ws.set_onclose(None);
-                ws.set_onerror(None);
-                let _ = ws.close();
+                closing.set_value(true);
+                drop(interval); // hentikan watchdog
+                ws_store.with_value(|opt| {
+                    if let Some(ws) = opt {
+                        ws.set_onmessage(None);
+                        ws.set_onopen(None);
+                        ws.set_onclose(None);
+                        ws.set_onerror(None);
+                        let _ = ws.close();
+                    }
+                });
                 ws_store.set_value(None);
                 cb_onmessage.set_value(None);
                 cb_onopen.set_value(None);
