@@ -185,6 +185,20 @@ pub fn LivesPage() -> impl IntoView {
                                 <polyline points="15 18 9 12 15 6"/>
                             </svg>
                         </button>
+
+                        // Hint swipe: tampil saat masih ada live di bawah (lebih dari satu).
+                        {move || {
+                            let total = rooms.get().len();
+                            (total > 1 && feed_idx.get() + 1 < total).then(|| view! {
+                                <div class="lives-swipe-hint">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                                         stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                                        <polyline points="18 15 12 9 6 15"/>
+                                    </svg>
+                                    <span>"Geser untuk live lainnya"</span>
+                                </div>
+                            })
+                        }}
                         {slides.into_iter().enumerate().map(|(i, room)| {
                             let rid = room.room_id.clone();
                             let name = room.merchant_name.clone();

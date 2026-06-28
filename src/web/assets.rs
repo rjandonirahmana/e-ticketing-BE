@@ -66,6 +66,35 @@ static STYLES: &[(&str, &str)] = css_table![
 /// sekali; kunjungan berikutnya menggunakan cache → HTML jauh lebih kecil.
 static APP_BUNDLE: &str = include_str!("../../styles/app.bundle.css");
 
+// Leaflet di-self-host (di-embed ke binary) alih-alih dari CDN unpkg. unpkg
+// tidak untuk produksi & sering lambat/diblokir di sebagian jaringan/ekstensi
+// browser → peta gagal load (kotak abu-abu kosong). Disajikan dari binary
+// menjamin peta selalu tersedia tanpa bergantung pihak ketiga.
+static LEAFLET_JS: &str = include_str!("../../styles/leaflet.js");
+static LEAFLET_CSS: &str = include_str!("../../styles/leaflet.css");
+
+async fn serve_leaflet_js() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, HeaderValue::from_static("application/javascript; charset=utf-8")),
+            (header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=604800, immutable")),
+        ],
+        LEAFLET_JS,
+    )
+        .into_response()
+}
+
+async fn serve_leaflet_css() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, HeaderValue::from_static("text/css; charset=utf-8")),
+            (header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=604800, immutable")),
+        ],
+        LEAFLET_CSS,
+    )
+        .into_response()
+}
+
 async fn serve_app_bundle() -> Response {
     (
         [
@@ -98,4 +127,6 @@ where
     Router::new()
         .route("/styles/app.css", get(serve_app_bundle))
         .route("/styles/{file}", get(serve_css))
+        .route("/vendor/leaflet.js", get(serve_leaflet_js))
+        .route("/vendor/leaflet.css", get(serve_leaflet_css))
 }

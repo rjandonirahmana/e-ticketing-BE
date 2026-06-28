@@ -56,8 +56,14 @@ impl AppConfig {
             host: "0.0.0.0".into(),
             port: 3000,
             database_url: env::var("DATABASE_URL").context("DATABASE_URL is required")?,
+            // Throughput DB-bound ≈ pool_size / latensi_query. Default dinaikkan
+            // 16 → 24 untuk box ~2 vCPU. JANGAN set membabi buta: total koneksi =
+            // db_pool_max_size × jumlah instance app, harus < Postgres
+            // `max_connections` (default 100) dengan sisa untuk admin/migrasi.
+            // Lebih banyak koneksi hanya membantu bila Postgres punya headroom
+            // CPU/IO; kalau tidak, malah memperburuk (context-switch).
             db_pool_max_size: env::var("DB_POOL_MAX_SIZE")
-                .unwrap_or_else(|_| "16".into())
+                .unwrap_or_else(|_| "24".into())
                 .parse()
                 .context("DB_POOL_MAX_SIZE must be a number")?,
             jwt_secret: env::var("JWT_SECRET").context("JWT_SECRET is required")?,

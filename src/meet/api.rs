@@ -299,6 +299,30 @@ async fn meet_ws_loop(
                                     }
                                 }
                             }
+                            // ── Status media (mic/kamera on-off) → broadcast ──
+                            "state" => {
+                                if let Some(room) = state.meet_svc.get_room(&room_id) {
+                                    let admitted = room
+                                        .peers
+                                        .get(&peer_id)
+                                        .map(|p| p.admitted)
+                                        .unwrap_or(false);
+                                    if admitted {
+                                        let mic = v.get("mic").and_then(|b| b.as_bool()).unwrap_or(true);
+                                        let cam = v.get("cam").and_then(|b| b.as_bool()).unwrap_or(true);
+                                        room.broadcast_admitted(
+                                            &json!({
+                                                "type": "peer_state",
+                                                "peer_id": peer_id,
+                                                "mic": mic,
+                                                "cam": cam,
+                                            })
+                                            .to_string(),
+                                            Some(&peer_id),
+                                        );
+                                    }
+                                }
+                            }
                             "leave" => break,
                             _ => {}
                         }

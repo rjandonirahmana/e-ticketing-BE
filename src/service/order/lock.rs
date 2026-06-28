@@ -128,3 +128,72 @@ pub(super) async fn release_keys(
             .await;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Integration test untuk Redis distributed lock per-variant.
+    //!
+    //! Butuh Redis hidup — di-`#[ignore]` agar `cargo test` biasa tetap hijau
+    //! tanpa Redis. Jalankan dengan:
+    //!   TEST_REDIS_URL=redis://127.0.0.1/ cargo test --features ssr -- --ignored lock
+    use super::*;
+
+    async fn conn() -> redis::aio::ConnectionManager {
+        let url =
+            std::env::var("TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1/".to_string());
+        let client = redis::Client::open(url).expect("redis client");
+        redis::aio::ConnectionManager::new(client)
+            .await
+            .expect("redis connection (apakah Redis hidup?)")
+    }
+
+    /// Dua pembeli pada varian yang sama tidak boleh memegang lock bersamaan;
+    /// setelah lock pertama dilepas, akuisisi berikutnya berhasil.
+    #[tokio::test]
+    #[ignore = "butuh Redis; set TEST_REDIS_URL lalu jalankan dengan --ignored"]
+    async fn same_variant_is_mutually_exclusive() {
+        let redis = conn().await;
+        let vid = format!("test-variant-{}", new_ulid());
+
+        // Pembeli #1 memperoleh lock.
+        let mut g1 = VariantLockGuard::acquire(redis.clone(), &[vid.as_str()], false)
+            .await
+            .expect("akuisisi pertama harus berhasil");
+
+        // Pembeli #2 untuk varian yang sama → Conflict (lock masih dipegang #1).
+        let g2 = VariantLockGuard::acquire(redis.clone(), &[vid.as_str()], false).await;
+        let is_conflict = matches!(g2, Err(AppError::Conflict(_)));
+        // Kalau ternyata berhasil (bug), lepas agar tidak memicu Drop warning.
+        if let Ok(mut g) = g2 {
+            g.release().await;
+        }
+        assert!(is_conflict, "akuisisi kedua harus Conflict saat lock masih dipegang");
+
+        // Lepas lock #1 → varian bebas lagi.
+        g1.release().await;
+
+        let mut g3 = VariantLockGuard::acquire(redis.clone(), &[vid.as_str()], false)
+            .await
+            .expect("setelah release, akuisisi harus berhasil");
+        g3.release().await;
+    }
+
+    /// Varian berbeda tidak saling memblok (lock granular per-varian).
+    #[tokio::test]
+    #[ignore = "butuh Redis; set TEST_REDIS_URL lalu jalankan dengan --ignored"]
+    async fn different_variants_do_not_block() {
+        let redis = conn().await;
+        let a = format!("test-variant-a-{}", new_ulid());
+        let b = format!("test-variant-b-{}", new_ulid());
+
+        let mut g1 = VariantLockGuard::acquire(redis.clone(), &[a.as_str()], false)
+            .await
+            .expect("lock varian A");
+        let mut g2 = VariantLockGuard::acquire(redis.clone(), &[b.as_str()], false)
+            .await
+            .expect("lock varian B (varian berbeda, tak boleh terblok)");
+
+        g1.release().await;
+        g2.release().await;
+    }
+}

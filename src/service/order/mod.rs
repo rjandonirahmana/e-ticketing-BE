@@ -1,5 +1,7 @@
 pub mod lock;
 mod metrics;
+#[cfg(test)]
+mod oversell_test;
 
 use lock::VariantLockGuard;
 
