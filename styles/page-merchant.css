@@ -1633,6 +1633,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap; /* aksi turun ke baris bawah saat sempit, bukan judul wrap */
+    gap: 10px;
     padding: 14px 16px;
     background: var(--bg-base);
     position: sticky;
@@ -1644,10 +1646,13 @@
     display: flex;
     align-items: center;
     gap: 10px;
+    flex-shrink: 0; /* avatar + judul tidak ikut menyusut */
 }
 .mhub-header-right {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 8px;
 }
 
@@ -1667,6 +1672,7 @@
     font-size: 22px;
     letter-spacing: 1px;
     color: var(--text-primary);
+    white-space: nowrap; /* "MERCHANT HUB" selalu satu baris */
 }
 .mhub-bell-btn {
     position: relative;

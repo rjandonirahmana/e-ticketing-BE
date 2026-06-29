@@ -46,7 +46,7 @@ pub fn PaymentSuccessPage() -> impl IntoView {
                 return ord.event_name;
             }
         }
-        query.read().get("event").unwrap_or_else(|| "Your Event".to_string())
+        query.read().get("event").unwrap_or_else(|| "Acara Anda".to_string())
     };
 
     let total_amount = move || {
@@ -88,15 +88,15 @@ pub fn PaymentSuccessPage() -> impl IntoView {
                         </svg>
                     </div>
                 </div>
-                <h1 class="ps-title">"Payment Successful"</h1>
-                <p class="ps-sub">"Your setlist is ready. See you at the stage."</p>
+                <h1 class="ps-title">"Pembayaran Berhasil"</h1>
+                <p class="ps-sub">"Tiketmu sudah siap. Sampai jumpa di acara!"</p>
             </div>
 
             // ── Event summary card ───────────────────────────────────────
             <div class="ps-card">
                 <div class="ps-card-top">
                     <div>
-                        <div class="ps-card-label">"EVENT"</div>
+                        <div class="ps-card-label">"ACARA"</div>
                         <div class="ps-card-event">{event_name}</div>
                     </div>
                     <div class="ps-ticket-icon">
@@ -106,7 +106,7 @@ pub fn PaymentSuccessPage() -> impl IntoView {
                     </div>
                 </div>
                 <div class="ps-card-price-row">
-                    <span class="ps-card-label">"PRICE PAID"</span>
+                    <span class="ps-card-label">"TOTAL DIBAYAR"</span>
                     <span class="ps-card-price">{total_amount}</span>
                 </div>
             </div>
@@ -114,7 +114,7 @@ pub fn PaymentSuccessPage() -> impl IntoView {
             // ── Order meta ───────────────────────────────────────────────
             <div class="ps-meta-card">
                 <div class="ps-meta-row">
-                    <span class="ps-meta-label">"Order Code"</span>
+                    <span class="ps-meta-label">"Kode Pesanan"</span>
                     <span class="ps-meta-val">{order_code}</span>
                 </div>
                 <div class="ps-meta-divider"></div>
@@ -122,7 +122,7 @@ pub fn PaymentSuccessPage() -> impl IntoView {
                     <span class="ps-meta-label">"Status"</span>
                     <span class="ps-status">
                         <span class="ps-status-dot"></span>
-                        "CONFIRMED"
+                        "TERKONFIRMASI"
                     </span>
                 </div>
             </div>
@@ -130,13 +130,13 @@ pub fn PaymentSuccessPage() -> impl IntoView {
             // ── CTA buttons ──────────────────────────────────────────────
             <div class="ps-actions">
                 <A href="/tickets" attr:class="ps-primary-btn">
-                    "View My Tickets"
+                    "Lihat Tiket Saya"
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
                         <line x1="5" y1="12" x2="19" y2="12"/>
                         <polyline points="12 5 19 12 12 19"/>
                     </svg>
                 </A>
-                <A href="/explore" attr:class="ps-secondary-btn">"Back to Home"</A>
+                <A href="/explore" attr:class="ps-secondary-btn">"Kembali ke Beranda"</A>
             </div>
 
         </div>

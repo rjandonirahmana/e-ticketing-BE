@@ -103,7 +103,18 @@ pub(super) async fn handle_msg(ctx: &Ctx, raw: &str) {
                 }
                 ctx.names.borrow_mut().remove(id);
                 ctx.states.borrow_mut().remove(id);
+                ctx.remote_ready.borrow_mut().remove(id);
+                ctx.pending_ice.borrow_mut().remove(id);
                 ctx.sync_count();
+            }
+        }
+        "chat" => {
+            if let (Some(name), Some(text)) = (
+                v.get("name").and_then(|x| x.as_str()),
+                v.get("text").and_then(|x| x.as_str()),
+            ) {
+                ctx.chat
+                    .update(|list| list.push((name.to_string(), text.to_string())));
             }
         }
         "peer_state" => {
@@ -201,20 +212,35 @@ pub(super) async fn connect(ctx: Ctx, room_id: String, as_host: bool, name: Stri
         }
     };
 
-    // onmessage → dispatch async.
+    // onmessage → antri ke channel, diproses SATU consumer secara BERURUTAN.
+    // KRUSIAL: kalau tiap pesan di-spawn paralel, ICE candidate bisa diproses
+    // sebelum offer/answer selesai setRemoteDescription → addIceCandidate gagal
+    // → peer tak pernah terhubung. Pemrosesan berurutan menjamin offer→answer→
+    // candidate sesuai urutan tiba.
     {
-        let ctx2 = ctx.clone();
+        let (tx, mut rx) = futures::channel::mpsc::unbounded::<String>();
         let cb = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |e: web_sys::MessageEvent| {
             if let Ok(txt) = e.data().dyn_into::<js_sys::JsString>() {
-                let s: String = txt.into();
-                let ctx3 = ctx2.clone();
-                wasm_bindgen_futures::spawn_local(async move {
-                    handle_msg(&ctx3, &s).await;
-                });
+                let _ = tx.unbounded_send(txt.into());
             }
         });
         ws.set_onmessage(Some(cb.as_ref().unchecked_ref()));
         cb.forget();
+
+        let ctx2 = ctx.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            use futures::StreamExt;
+            while let Some(s) = rx.next().await {
+                handle_msg(&ctx2, &s).await;
+                // Hentikan consumer saat meet usai agar tidak menggantung.
+                if matches!(
+                    ctx2.phase.get_untracked(),
+                    Phase::Ended | Phase::Denied | Phase::Error
+                ) {
+                    break;
+                }
+            }
+        });
     }
     // onopen → kirim join.
     {

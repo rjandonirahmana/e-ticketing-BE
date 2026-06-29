@@ -323,6 +323,40 @@ async fn meet_ws_loop(
                                     }
                                 }
                             }
+                            // ── Chat teks di dalam meet → broadcast ──────────
+                            "chat" => {
+                                if let Some(room) = state.meet_svc.get_room(&room_id) {
+                                    let admitted = room
+                                        .peers
+                                        .get(&peer_id)
+                                        .map(|p| p.admitted)
+                                        .unwrap_or(false);
+                                    let text = v
+                                        .get("text")
+                                        .and_then(|t| t.as_str())
+                                        .unwrap_or("")
+                                        .trim();
+                                    if admitted && !text.is_empty() {
+                                        // Batasi panjang agar tidak bisa disalahgunakan.
+                                        let text: String = text.chars().take(1000).collect();
+                                        let name = room
+                                            .peers
+                                            .get(&peer_id)
+                                            .map(|p| p.name.clone())
+                                            .unwrap_or_default();
+                                        room.broadcast_admitted(
+                                            &json!({
+                                                "type": "chat",
+                                                "peer_id": peer_id,
+                                                "name": name,
+                                                "text": text,
+                                            })
+                                            .to_string(),
+                                            None, // termasuk pengirim → dia lihat pesannya sendiri
+                                        );
+                                    }
+                                }
+                            }
                             "leave" => break,
                             _ => {}
                         }

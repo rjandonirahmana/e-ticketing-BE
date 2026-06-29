@@ -451,11 +451,11 @@
 }
 .ps-title {
     font-family: var(--font-display);
-    font-size: 52px;
+    font-size: clamp(32px, 11vw, 46px);
     color: var(--text-soft-accent);
     letter-spacing: 0.01em;
     margin: 0 0 10px;
-    line-height: 1;
+    line-height: 1.05;
     animation: ps-slide-up 0.4s 0.15s ease both;
 }
 .ps-sub {
