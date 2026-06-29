@@ -12,6 +12,12 @@
 
 #![recursion_limit = "512"]
 
+// Global allocator server: mimalloc. Mengurangi fragmentasi & overhead alokasi
+// pada workload SSR + WebSocket berumur panjang — penting di box 2 vCPU / 4 GB.
+// `main.rs` hanya dikompilasi untuk native (server), jadi tak menyentuh wasm.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use std::sync::Arc;
 
 use anyhow::Result;
