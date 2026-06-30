@@ -92,6 +92,17 @@ async fn main() -> Result<()> {
     let ws_redis_client =
         redis::Client::open(format!("{}/2", cfg.redis_url.trim_end_matches('/')).as_str())?;
 
+    // ── Deteksi kapasitas VPS (cgroup-aware) → plafon auto-skala ──────────────
+    let capacity = e_ticketing::utils::capacity::detect();
+    tracing::info!(
+        cpu_cores = capacity.cpu_cores,
+        ram_mb = capacity.ram_bytes / (1024 * 1024),
+        source = capacity.source,
+        max_ws = capacity.recommended_max_ws,
+        rec_db_pool = capacity.recommended_db_pool,
+        "Kapasitas terdeteksi (batas WS auto-skala dari RAM)"
+    );
+
     // ── App state ────────────────────────────────────────────────────────────
     let state = Arc::new(
         AppState::new(
@@ -105,6 +116,7 @@ async fn main() -> Result<()> {
             ws_redis_client,
             cfg.rustfs.clone(),
             cfg.sfu_bind_addr.clone(),
+            capacity,
         )
         .await,
     );

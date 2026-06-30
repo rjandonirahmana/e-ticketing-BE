@@ -97,12 +97,18 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                     };
                     document.head.appendChild(s);
                   }
-                  // Tunggu Leaflet (L) + elemen peta siap (maks ~6 dtk) lalu jalankan cb.
-                  function waitFor(mapId, cb, tries){
+                  // Tunggu Leaflet (L) + elemen peta siap (maks ~8 dtk) lalu jalankan cb.
+                  // onfail dipanggil bila Leaflet tak kunjung termuat (mis. /vendor &
+                  // CDN dua-duanya gagal) supaya bisa menampilkan pesan ke user.
+                  function waitFor(mapId, cb, tries, onfail){
                     if(window.L && document.getElementById(mapId)) return cb();
                     if(!window.L) loadLeaflet();
-                    if(tries <= 0) return;
-                    setTimeout(function(){ waitFor(mapId, cb, tries-1); }, 100);
+                    if(tries <= 0){ if(onfail) onfail(); return; }
+                    setTimeout(function(){ waitFor(mapId, cb, tries-1, onfail); }, 100);
+                  }
+                  function mapBoxMsg(mapId, html){
+                    var el = document.getElementById(mapId);
+                    if(el && !el._leaflet_id) el.innerHTML = html;
                   }
                   // Penyebab umum "peta abu-abu": peta di-init sebelum container
                   // punya ukuran final (umum di SPA: layout/font/animasi belum
@@ -132,7 +138,11 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                     }
                   };
                   window.pulseMapPicker = function(mapId, latId, lngId, lat0, lng0){
+                    var box0 = document.getElementById(mapId);
+                    if(box0 && box0._leaflet_id) return; // sudah ada peta di elemen ini
                     waitFor(mapId, function(){
+                      var box = document.getElementById(mapId);
+                      if(box) box.innerHTML = ''; // hapus placeholder "Memuat peta…"
                       var latEl = document.getElementById(latId), lngEl = document.getElementById(lngId);
                       // Prioritas: koordinat eksplisit dari Rust → value input → default Jakarta.
                       var lat = parseFloat(lat0), lng = parseFloat(lng0);
@@ -174,7 +184,9 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                       m.addControl(new Locate());
                       m.__mk = mk; window.__pulseMaps[mapId] = m;
                       refresh(m);
-                    }, 60);
+                    }, 80, function(){
+                      mapBoxMsg(mapId, '<div style="display:flex;align-items:center;justify-content:center;height:100%;padding:14px;text-align:center;color:#c0392b;font-size:13px;line-height:1.5">Peta gagal dimuat.<br>Cek Console / Network: apakah <b>/vendor/leaflet.js</b> ter-load (200)?</div>');
+                    });
                   };
                   window.pulseMapSet = function(mapId, lat, lng){
                     var m = window.__pulseMaps[mapId];
@@ -201,6 +213,7 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                     var ps = document.querySelectorAll('[data-map-picker]:not([data-map-init])');
                     for(var i=0;i<ps.length;i++){ (function(el){
                       el.setAttribute('data-map-init','1');
+                      if(!el._leaflet_id){ el.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-size:13px">Memuat peta…</div>'; }
                       window.pulseMapPicker(el.id, el.getAttribute('data-lat-input'), el.getAttribute('data-lng-input'));
                     })(ps[i]); }
                     var vs = document.querySelectorAll('[data-map-viewer]:not([data-map-init])');

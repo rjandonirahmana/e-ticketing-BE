@@ -25996,3 +25996,171 @@ body.body-scroll-locked {
 
 /* ===== payment-success: judul responsif (override) ===== */
 .ps-title { font-size: clamp(32px, 11vw, 46px); line-height: 1.05; }
+
+/* ===== page-event-detail: live PiP ===== */
+}
+
+/* ── Live PiP melayang (merchant sedang siaran) ───────────────────────────── */
+.mlpip {
+    position: fixed;
+    right: 14px;
+    bottom: 84px; /* di atas bottom-nav */
+    z-index: 120;
+    width: 200px;
+    max-width: 46vw;
+    border-radius: 14px;
+    overflow: hidden;
+    background: #000;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+    border: 1.5px solid rgba(255, 255, 255, 0.15);
+}
+.mlpip-video {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #000;
+    overflow: hidden;
+    cursor: pointer;
+}
+.mlpip-video .live-viewer,
+.mlpip-video .live-viewer-video-wrap,
+.mlpip-video .live-viewer-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+/* Mode mini: sembunyikan kontrol/teks viewer penuh. */
+.mlpip-video .live-viewer-header,
+.mlpip-video .live-viewer-controls,
+.mlpip-video .live-viewer-viewers {
+    display: none !important;
+}
+.mlpip-close {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 3;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.mlpip-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: #c0152b;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+}
+.mlpip-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #fff;
+    flex-shrink: 0;
+    animation: mlpip-blink 1.2s infinite;
+}
+@keyframes mlpip-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+.mlpip-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ===== PiP draggable override ===== */
+/* ── PiP override: lebih kecil + draggable ────────────────────────────────── */
+.mlpip {
+    width: 150px;
+    max-width: 42vw;
+    cursor: move;
+    touch-action: none; /* drag di mobile tidak memicu scroll */
+    user-select: none;
+    -webkit-user-select: none;
+}
+.mlpip-video { cursor: move; }
+.mlpip-bar { cursor: move; }
+.mlpip-grip {
+    margin-left: auto;
+    opacity: 0.75;
+    font-size: 12px;
+    letter-spacing: -1px;
+}
+
+/* ===== ed-live immersive override ===== */
+/* ── Live section di event detail: pemutar imersif (bukan kartu kaku) ──────── */
+.ed-live-section .ed-section-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+.ed-live-section .ed-section-eyebrow::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--danger, #e23744);
+    box-shadow: 0 0 0 4px rgba(226, 55, 68, 0.18);
+    animation: live-pulse 1.2s ease-in-out infinite;
+}
+.ed-live-section .live-viewer {
+    position: relative;
+    gap: 0;
+    border: none;
+    border-radius: 18px;
+    overflow: hidden;
+    background: #000;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
+}
+/* Header (nama merchant + badge) melayang di atas video, bukan bar kaku. */
+.ed-live-section .live-viewer-header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 3;
+    padding: 12px 14px 26px;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0));
+}
+.ed-live-section .live-viewer-merchant {
+    color: #fff;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
+}
+.ed-live-section .live-viewer-video-wrap {
+    aspect-ratio: 16 / 9;
+    border-radius: 18px;
+}
+/* Kontrol (penonton + tombol) melayang di bawah video. */
+.ed-live-section .live-viewer-controls {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 3;
+    padding: 26px 14px 12px;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.66), rgba(0, 0, 0, 0));
+}
+.ed-live-section .live-viewer-viewers {
+    color: #fff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+.ed-live-section .live-viewer-error {
+    margin: 10px 12px;
+}

@@ -8,7 +8,7 @@ use crate::web::api::create_merchant_event;
 use crate::web::app::AuthResource;
 use crate::web::components::event_story_preview::EventStoryPreviewInline;
 use crate::web::hooks::ThemeToggle;
-use crate::web::utils::{map_set, DEFAULT_LAT, DEFAULT_LNG};
+use crate::web::utils::{map_picker, map_set, DEFAULT_LAT, DEFAULT_LNG};
 
 const CATEGORIES: &[&str] = &[
     "Musik", "Festival", "Konser", "Olahraga", "Teknologi",
@@ -32,8 +32,18 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
     let f_lng      = RwSignal::new(DEFAULT_LNG);
     let loc_touched = RwSignal::new(false);
 
-    // Peta di-init oleh skrip auto-init di shell (via data-attribute pada div di
-    // bawah) — TIDAK bergantung hydration WASM, jadi tetap muncul & bisa diklik.
+    // Peta di-init dua jalur (idempoten, guard `_leaflet_id` di shell):
+    // (1) skrip auto-init di shell via data-attribute — jalan tanpa hydration;
+    // (2) Effect ini — jalur hydration/SPA sebagai cadangan.
+    Effect::new(move |_| {
+        map_picker(
+            "create-loc-map",
+            "create-lat",
+            "create-lng",
+            f_lat.get_untracked(),
+            f_lng.get_untracked(),
+        );
+    });
 
     let cover_preview: RwSignal<Option<String>> = RwSignal::new(None);
 

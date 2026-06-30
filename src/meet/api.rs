@@ -41,7 +41,10 @@ async fn create_room(auth: AuthUser, State(state): State<Arc<AppState>>) -> Resp
     if auth.require_role("merchant").is_err() && auth.require_role("admin").is_err() {
         return err(StatusCode::FORBIDDEN, "Hanya merchant yang bisa membuat meet");
     }
-    let info = state.meet_svc.create_room(auth.id(), auth.name());
+    let info = match state.meet_svc.create_room(auth.id(), auth.name()) {
+        Ok(i) => i,
+        Err(e) => return err(StatusCode::SERVICE_UNAVAILABLE, &e),
+    };
     let join_path = format!("/meet/{}", info.room_id);
     ok(json!({ "room_id": info.room_id, "join_path": join_path, "host_name": info.host_name }))
 }
@@ -161,9 +164,18 @@ async fn meet_ws_loop(
                         .filter(|n| !n.trim().is_empty())
                         .unwrap_or_else(|| "Host".to_string());
                     is_host = true;
-                    state.meet_svc.register_peer(
+                    if !state.meet_svc.register_peer(
                         &room_id, &peer_id, &name, photo, true, out_tx.clone(),
-                    );
+                    ) {
+                        let _ = socket
+                            .send(Message::Text(
+                                json!({ "type": "error", "message": "Meet tidak ditemukan" })
+                                    .to_string()
+                                    .into(),
+                            ))
+                            .await;
+                        return;
+                    }
                     // Beri host snapshot: peserta admitted lain + waiting room.
                     let _ = socket
                         .send(Message::Text(
@@ -181,14 +193,23 @@ async fn meet_ws_loop(
                 } else {
                     // Tamu → waiting room. Beri tahu host ada permintaan masuk.
                     let name = req_name.unwrap_or_else(|| "Tamu".to_string());
-                    state.meet_svc.register_peer(
+                    if !state.meet_svc.register_peer(
                         &room_id,
                         &peer_id,
                         &name,
                         photo.clone(),
                         false,
                         out_tx.clone(),
-                    );
+                    ) {
+                        let _ = socket
+                            .send(Message::Text(
+                                json!({ "type": "error", "message": "Ruang meet penuh" })
+                                    .to_string()
+                                    .into(),
+                            ))
+                            .await;
+                        return;
+                    }
                     let _ = socket
                         .send(Message::Text(
                             json!({ "type": "waiting", "self_id": peer_id })

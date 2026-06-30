@@ -18,6 +18,12 @@ const SWEEP_INTERVAL: Duration = Duration::from_secs(60);
 /// Room dengan 0 peserta yang lebih tua dari ini dianggap yatim dan dibuang.
 /// Harus > jendela create→connect agar room yang baru dibuat tidak ikut tersapu.
 const ORPHAN_MAX_AGE_SECS: i64 = 120;
+/// Batas keras jumlah room serentak — cegah OOM dari abuse (spam buat room).
+/// Aman untuk box kecil; naikkan bila perlu.
+const MAX_ROOMS: usize = 500;
+/// Batas keras peserta per room. Mesh P2P ideal ≤ ~6; beri sedikit buffer.
+/// Di atas ini, koneksi mesh (N×(N-1)) membebani browser, bukan server.
+const MAX_PEERS_PER_ROOM: usize = 12;
 
 pub struct MeetService {
     rooms: Arc<DashMap<String, Arc<MeetRoom>>>,
@@ -58,8 +64,13 @@ impl MeetService {
     /// Buat (atau buat-ulang idempoten) ruang meet milik satu host. Id
     /// deterministik `meet_{host_id}` — sama seperti `live`, sehingga merchant
     /// yang membuka ulang tab tidak menumpuk room basi.
-    pub fn create_room(&self, host_id: &str, host_name: &str) -> MeetRoomInfo {
+    pub fn create_room(&self, host_id: &str, host_name: &str) -> Result<MeetRoomInfo, String> {
         let room_id = format!("meet_{host_id}");
+        // Hard cap: tolak kalau sudah penuh DAN ini room baru (bukan re-create
+        // room milik host yang sama, yang sifatnya idempoten/mengganti).
+        if !self.rooms.contains_key(&room_id) && self.rooms.len() >= MAX_ROOMS {
+            return Err("Kapasitas server meet penuh, coba lagi nanti".into());
+        }
         // Bersihkan room lama (peserta lama akan putus sendiri saat WS-nya tutup;
         // di sini cukup ganti agar daftar peserta mulai bersih).
         let room = Arc::new(MeetRoom::new(
@@ -69,7 +80,7 @@ impl MeetService {
         ));
         let info = room.info();
         self.rooms.insert(room_id, room);
-        info
+        Ok(info)
     }
 
     pub fn get_room(&self, room_id: &str) -> Option<Arc<MeetRoom>> {
@@ -99,6 +110,10 @@ impl MeetService {
         let Some(room) = self.rooms.get(room_id) else {
             return false;
         };
+        // Hard cap peserta per room (host dikecualikan agar host selalu bisa masuk).
+        if !is_host && room.peers.len() >= MAX_PEERS_PER_ROOM {
+            return false;
+        }
         room.peers.insert(
             peer_id.to_string(),
             Peer {

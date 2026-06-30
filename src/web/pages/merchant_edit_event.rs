@@ -8,7 +8,7 @@ use crate::web::api::{get_merchant_event_detail, update_merchant_event};
 use crate::web::app::AuthResource;
 use crate::web::components::event_story_preview::EventStoryPreviewInline;
 use crate::web::hooks::ThemeToggle;
-use crate::web::utils::{map_set, DEFAULT_LAT, DEFAULT_LNG};
+use crate::web::utils::{map_picker, map_set, DEFAULT_LAT, DEFAULT_LNG};
 
 const CATEGORIES: &[&str] = &[
     "Musik", "Festival", "Konser", "Olahraga", "Teknologi",
@@ -66,7 +66,12 @@ pub fn MerchantEditEventPage() -> impl IntoView {
     // tersimpan lewat `map_set` di Effect di bawah.
     Effect::new(move |_| {
         if initialized.get() {
-            map_set("edit-loc-map", f_lat.get_untracked(), f_lng.get_untracked());
+            let la = f_lat.get_untracked();
+            let lo = f_lng.get_untracked();
+            // Buat peta bila belum dibuat auto-init (jalur hydration), lalu pusatkan
+            // ke lokasi tersimpan (kalau peta sudah dibuat auto-init di koordinat default).
+            map_picker("edit-loc-map", "edit-lat", "edit-lng", la, lo);
+            map_set("edit-loc-map", la, lo);
         }
     });
 
