@@ -8,7 +8,7 @@ use crate::web::api::{get_merchant_event_detail, update_merchant_event};
 use crate::web::app::AuthResource;
 use crate::web::components::event_story_preview::EventStoryPreviewInline;
 use crate::web::hooks::ThemeToggle;
-use crate::web::utils::{map_destroy, map_picker, map_set, DEFAULT_LAT, DEFAULT_LNG};
+use crate::web::utils::{map_picker, map_set, DEFAULT_LAT, DEFAULT_LNG};
 
 const CATEGORIES: &[&str] = &[
     "Musik", "Festival", "Konser", "Olahraga", "Teknologi",
@@ -61,13 +61,19 @@ pub fn MerchantEditEventPage() -> impl IntoView {
     let loc_touched = RwSignal::new(false);
     let initialized = RwSignal::new(false);
 
-    // Inisialisasi peta picker setelah data event ter-populate & div ter-render.
+    // Peta di-init oleh skrip auto-init di shell (via data-attribute pada div) —
+    // tak bergantung hydration. Saat data event termuat, pin disetel ke lokasi
+    // tersimpan lewat `map_set` di Effect di bawah.
     Effect::new(move |_| {
         if initialized.get() {
-            map_picker("edit-loc-map", "edit-lat", "edit-lng");
+            let la = f_lat.get_untracked();
+            let lo = f_lng.get_untracked();
+            // Buat peta bila belum dibuat auto-init (jalur hydration), lalu pusatkan
+            // ke lokasi tersimpan (kalau peta sudah dibuat auto-init di koordinat default).
+            map_picker("edit-loc-map", "edit-lat", "edit-lng", la, lo);
+            map_set("edit-loc-map", la, lo);
         }
     });
-    on_cleanup(|| map_destroy("edit-loc-map"));
 
     let cover_preview: RwSignal<Option<String>> = RwSignal::new(None);
     let navigate = use_navigate();
@@ -355,6 +361,9 @@ pub fn MerchantEditEventPage() -> impl IntoView {
                                     "Klik peta atau geser pin untuk menandai lokasi venue."
                                 </p>
                                 <div id="edit-loc-map"
+                                     data-map-picker="1"
+                                     data-lat-input="edit-lat"
+                                     data-lng-input="edit-lng"
                                      style="width:100%;height:300px;border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-bottom:12px;background:var(--bg-elevated)">
                                 </div>
                                 <div class="medit-grid-2">

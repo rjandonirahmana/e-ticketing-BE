@@ -8,6 +8,15 @@ use tokio::task::JoinHandle;
 use super::room::{LiveRoom, RoomInfo, ViewerInfo};
 use super::sfu::{SfuCommand, SfuEngine, SfuEvent};
 
+/// Batas keras jumlah room live serentak — jaring pengaman RAM/CPU. Id room
+/// deterministik per merchant (`live_{id}`), jadi praktis sudah dibatasi jumlah
+/// merchant; ini menutup skenario ekstrem.
+const MAX_LIVE_ROOMS: usize = 200;
+/// Batas keras penonton unik per room live — plafon RAM/CPU (tiap subscriber =
+/// satu peer SFU). Bukan target, hanya pelindung; SFU single-thread realistis
+/// jauh di bawah ini.
+const MAX_VIEWERS_PER_ROOM: usize = 500;
+
 pub struct LiveStreamService {
     rooms: Arc<DashMap<String, Arc<LiveRoom>>>,
     cmd_tx: mpsc::Sender<SfuCommand>,
@@ -147,6 +156,10 @@ impl LiveStreamService {
         event_slug: Option<&str>,
     ) -> Result<RoomInfo, String> {
         let room_id = format!("live_{}", merchant_id);
+        // Hard cap: tolak room baru bila penuh (re-create room sendiri tetap boleh).
+        if !self.rooms.contains_key(&room_id) && self.rooms.len() >= MAX_LIVE_ROOMS {
+            return Err("Kapasitas live server penuh, coba lagi nanti".into());
+        }
         let (tx, rx) = oneshot::channel();
         self.cmd_tx
             .send(SfuCommand::CreateRoom {
@@ -212,6 +225,12 @@ impl LiveStreamService {
         sdp_offer: &str,
         viewer: ViewerInfo,
     ) -> Result<String, String> {
+        // Hard cap penonton: tolak SEBELUM membuat peer SFU bila room penuh.
+        if let Some(room) = self.rooms.get(room_id) {
+            if room.viewer_count() >= MAX_VIEWERS_PER_ROOM {
+                return Err("Room live penuh, coba lagi nanti".into());
+            }
+        }
         let (tx, rx) = oneshot::channel();
         self.cmd_tx
             .send(SfuCommand::SubscribeSdp {

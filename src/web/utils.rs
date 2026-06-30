@@ -56,22 +56,26 @@ fn call_js(name: &str, args: &js_sys::Array) {
 /// marker, koordinat ditulis ke `<input id=lat_input_id>` & `<input id=lng_input_id>`
 /// lalu di-dispatch event `input` — sehingga signal Leptos (lewat on:input) ikut
 /// ter-update tanpa perlu callback closure dari Rust.
-pub fn map_picker(map_id: &str, lat_input_id: &str, lng_input_id: &str) {
+pub fn map_picker(map_id: &str, lat_input_id: &str, lng_input_id: &str, lat: f64, lng: f64) {
     #[cfg(target_arch = "wasm32")]
     {
         use wasm_bindgen::JsValue;
+        // Koordinat awal dioper EKSPLISIT (bukan dibaca dari value input yang bisa
+        // belum ter-update saat edit) → pin selalu mendarat di lokasi yang benar.
         call_js(
             "pulseMapPicker",
-            &js_sys::Array::of3(
+            &js_sys::Array::of5(
                 &JsValue::from_str(map_id),
                 &JsValue::from_str(lat_input_id),
                 &JsValue::from_str(lng_input_id),
+                &JsValue::from_f64(lat),
+                &JsValue::from_f64(lng),
             ),
         );
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = (map_id, lat_input_id, lng_input_id);
+        let _ = (map_id, lat_input_id, lng_input_id, lat, lng);
     }
 }
 

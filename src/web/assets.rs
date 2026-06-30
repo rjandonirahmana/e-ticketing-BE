@@ -11,9 +11,12 @@
 //! dipakai jika ada fetch CSS manual atau saat debug. Tetap dipertahankan agar
 //! bisa fallback.
 
+use std::hash::{Hash, Hasher};
+use std::sync::LazyLock;
+
 use axum::{
     extract::Path,
-    http::{header, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
     Router,
@@ -95,14 +98,41 @@ async fn serve_leaflet_css() -> Response {
         .into_response()
 }
 
-async fn serve_app_bundle() -> Response {
+/// ETag = hash isi bundle. Berubah setiap CSS berubah → URL/identitas berbeda,
+/// jadi browser tidak menyajikan CSS basi setelah deploy/edit.
+static BUNDLE_ETAG: LazyLock<String> = LazyLock::new(|| {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    APP_BUNDLE.hash(&mut h);
+    format!("\"{:x}\"", h.finish())
+});
+
+async fn serve_app_bundle(headers: HeaderMap) -> Response {
+    let etag = BUNDLE_ETAG.as_str();
+    // `no-cache` = browser WAJIB revalidasi tiap load (kirim If-None-Match).
+    // Bila ETag cocok → 304 (tak kirim ulang CSS). Bila CSS berubah → ETag beda
+    // → 200 dengan CSS baru. Hasilnya: perubahan SELALU tampil, tanpa download
+    // ulang saat tidak berubah. (Sebelumnya max-age 24 jam → perubahan "tak
+    // muncul" sampai cache kedaluwarsa / hard refresh.)
+    if headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        == Some(etag)
+    {
+        return (
+            StatusCode::NOT_MODIFIED,
+            [(header::ETAG, HeaderValue::from_str(etag).unwrap())],
+        )
+            .into_response();
+    }
     (
         [
-            (header::CONTENT_TYPE,  HeaderValue::from_static("text/css; charset=utf-8")),
-            (header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=86400, stale-while-revalidate=86400")),
+            (header::CONTENT_TYPE, HeaderValue::from_static("text/css; charset=utf-8")),
+            (header::CACHE_CONTROL, HeaderValue::from_static("no-cache")),
+            (header::ETAG, HeaderValue::from_str(etag).unwrap()),
         ],
         APP_BUNDLE,
-    ).into_response()
+    )
+        .into_response()
 }
 
 async fn serve_css(Path(file): Path<String>) -> Response {

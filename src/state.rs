@@ -90,6 +90,8 @@ pub struct AppState {
     pub live_svc: Arc<LiveStreamService>,
     /// Meet service (konferensi P2P mesh, signaling + waiting room).
     pub meet_svc: Arc<MeetService>,
+    /// CPU/RAM efektif VPS + plafon turunannya (deteksi saat start).
+    pub capacity: crate::utils::capacity::Capacity,
 }
 
 impl AppState {
@@ -105,6 +107,7 @@ impl AppState {
         redis_client: redis::Client,
         rustfs: RustFsConfig,
         sfu_bind_addr: String,
+        capacity: crate::utils::capacity::Capacity,
     ) -> Self {
         let http = HttpClient::builder()
             .pool_idle_timeout(Some(Duration::from_secs(30)))
@@ -126,7 +129,7 @@ impl AppState {
         let story_repo = Arc::new(PgStoryRepository::new(pool.clone())); // ← NEW
 
         // ── WS Manager ────────────────────────────────────────────────────────
-        let ws_mgr = WsManager::new(redis_client)
+        let ws_mgr = WsManager::new(redis_client, capacity.recommended_max_ws)
             .await
             .expect("WsManager init failed");
 
@@ -192,6 +195,7 @@ impl AppState {
             pub_cache: Arc::new(PublicCache::new()),
             live_svc,
             meet_svc,
+            capacity,
         }
     }
 }

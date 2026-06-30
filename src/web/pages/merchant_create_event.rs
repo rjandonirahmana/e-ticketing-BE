@@ -8,7 +8,7 @@ use crate::web::api::create_merchant_event;
 use crate::web::app::AuthResource;
 use crate::web::components::event_story_preview::EventStoryPreviewInline;
 use crate::web::hooks::ThemeToggle;
-use crate::web::utils::{map_destroy, map_picker, map_set, DEFAULT_LAT, DEFAULT_LNG};
+use crate::web::utils::{map_picker, map_set, DEFAULT_LAT, DEFAULT_LNG};
 
 const CATEGORIES: &[&str] = &[
     "Musik", "Festival", "Konser", "Olahraga", "Teknologi",
@@ -32,11 +32,18 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
     let f_lng      = RwSignal::new(DEFAULT_LNG);
     let loc_touched = RwSignal::new(false);
 
-    // Inisialisasi peta picker setelah komponen ter-mount (client-only).
+    // Peta di-init dua jalur (idempoten, guard `_leaflet_id` di shell):
+    // (1) skrip auto-init di shell via data-attribute — jalan tanpa hydration;
+    // (2) Effect ini — jalur hydration/SPA sebagai cadangan.
     Effect::new(move |_| {
-        map_picker("create-loc-map", "create-lat", "create-lng");
+        map_picker(
+            "create-loc-map",
+            "create-lat",
+            "create-lng",
+            f_lat.get_untracked(),
+            f_lng.get_untracked(),
+        );
     });
-    on_cleanup(|| map_destroy("create-loc-map"));
 
     let cover_preview: RwSignal<Option<String>> = RwSignal::new(None);
 
@@ -358,6 +365,9 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
                 </p>
                 <div
                     id="create-loc-map"
+                    data-map-picker="1"
+                    data-lat-input="create-lat"
+                    data-lng-input="create-lng"
                     style="width:100%;height:300px;border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-bottom:12px;background:var(--bg-elevated)"
                 ></div>
                 <div class="medit-grid-2">

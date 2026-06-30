@@ -94,6 +94,34 @@ async fn list_rooms(State(state): State<Arc<AppState>>) -> Response {
     ok(state.live_svc.list_rooms())
 }
 
+/// Metrik runtime realtime untuk monitoring VPS kecil: jumlah WS aktif, room
+/// chat, room+penonton live, room+peserta meet. Ringan (baca counter in-memory).
+async fn stats(State(state): State<Arc<AppState>>) -> Response {
+    let live = state.live_svc.list_rooms();
+    let live_viewers: usize = live.iter().map(|r| r.viewer_count).sum();
+    let meet = state.meet_svc.list_rooms();
+    let meet_participants: usize = meet.iter().map(|r| r.participant_count).sum();
+    let cap = &state.capacity;
+    let ws_active = state.ws_mgr.online_count();
+    let ws_max = state.ws_mgr.max_connections();
+    ok(serde_json::json!({
+        // Sumber daya VPS terdeteksi (cgroup-aware) + plafon turunannya.
+        "cpu_cores": cap.cpu_cores,
+        "ram_mb": cap.ram_bytes / (1024 * 1024),
+        "source": cap.source,
+        "ws_max": ws_max,
+        "ws_capacity_pct": if ws_max > 0 { ws_active * 100 / ws_max } else { 0 },
+        // Beban realtime saat ini.
+        "ws_active": ws_active,
+        "ws_dropped": state.ws_mgr.dropped(),
+        "ws_rooms": state.ws_mgr.room_count(),
+        "live_rooms": live.len(),
+        "live_viewers": live_viewers,
+        "meet_rooms": meet.len(),
+        "meet_participants": meet_participants,
+    }))
+}
+
 /// Daftar ICE server untuk semua klien WebRTC (live + meet). STUN publik selalu
 /// disertakan; TURN ditambahkan bila `TURN_URL` di-set di env (lihat
 /// `.env.example`). Browser tak bisa baca env server → diambil dari sini.
@@ -497,6 +525,7 @@ pub fn live_router(state: Arc<AppState>) -> Router {
     // Route publik (tidak perlu login).
     let public = Router::new()
         .route("/api/live/rooms", get(list_rooms))
+        .route("/api/stats", get(stats))
         .route("/api/rtc/ice", get(ice_servers))
         .route("/ws/lives", get(lives_ws))
         .route("/api/live/rooms/{room_id}", get(get_room))

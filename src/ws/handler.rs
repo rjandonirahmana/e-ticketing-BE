@@ -42,7 +42,7 @@ use crate::{
     service::group_chat::GroupChatService,
     utils::jwt::JwtService,
     ws::{
-        manager::{WsManager, MAX_CONNECTIONS},
+        manager::WsManager,
         proto::{ErrorCode, WsClientMsg, WsEvent, WsMessage},
     },
 };
@@ -96,7 +96,7 @@ pub async fn ws_chat(
         }
     };
 
-    if state.ws_mgr.online_count() >= MAX_CONNECTIONS {
+    if state.ws_mgr.online_count() >= state.ws_mgr.max_connections() {
         return (StatusCode::SERVICE_UNAVAILABLE, "Server at capacity").into_response();
     }
 

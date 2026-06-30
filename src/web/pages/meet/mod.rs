@@ -26,13 +26,14 @@ use leptos_router::hooks::{use_navigate, use_params_map};
 use serde::Deserialize;
 use serde_json::json;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
 use crate::web::app::AuthResource;
 use signaling::{connect, setup_preview, teardown};
 use tiles::{initial_of, CAM_OFF_SVG, CAM_ON_SVG, MIC_OFF_SVG, MIC_ON_SVG};
+use webrtc::replace_video_everywhere;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
@@ -102,6 +103,55 @@ async fn get_user_media() -> Result<web_sys::MediaStream, String> {
     Ok(web_sys::MediaStream::from(val))
 }
 
+async fn get_display_media() -> Result<web_sys::MediaStream, String> {
+    let window = web_sys::window().ok_or("No window")?;
+    let promise = window
+        .navigator()
+        .media_devices()
+        .map_err(|_| "MediaDevices tidak didukung".to_string())?
+        .get_display_media()
+        .map_err(|_| "getDisplayMedia gagal".to_string())?;
+    let val = wasm_bindgen_futures::JsFuture::from(promise)
+        .await
+        .map_err(|e| format!("Berbagi layar dibatalkan: {e:?}"))?;
+    Ok(web_sys::MediaStream::from(val))
+}
+
+/// Hentikan screen share: stop track layar, kembalikan track kamera ke semua
+/// peer (via replace_track) & ke preview lokal. Idempoten (tombol + event
+/// `onended` browser bisa dua-duanya memanggil).
+fn stop_share(
+    ctx: &Ctx,
+    sharing: RwSignal<bool>,
+    local_sig: RwSignal<Option<send_wrapper::SendWrapper<web_sys::MediaStream>>>,
+    screen_store: StoredValue<Option<send_wrapper::SendWrapper<web_sys::MediaStream>>>,
+    cam: RwSignal<bool>,
+) {
+    if !sharing.get_untracked() {
+        return;
+    }
+    if let Some(s) = screen_store.get_value() {
+        let tracks = s.get_tracks();
+        for i in 0..tracks.length() {
+            let t: web_sys::MediaStreamTrack = tracks.get(i).unchecked_into();
+            t.stop();
+        }
+    }
+    screen_store.set_value(None);
+    let cam_stream = ctx.local.borrow().clone();
+    if let Some(cam_stream) = cam_stream {
+        let vtracks = cam_stream.get_video_tracks();
+        let first = vtracks.get(0);
+        if !first.is_undefined() {
+            let t: web_sys::MediaStreamTrack = first.unchecked_into();
+            t.set_enabled(cam.get_untracked());
+            replace_video_everywhere(ctx, Some(&t));
+        }
+        local_sig.set(Some(send_wrapper::SendWrapper::new(cam_stream)));
+    }
+    sharing.set(false);
+}
+
 async fn api_create_room() -> Result<String, String> {
     let resp = gloo_net::http::Request::post("/api/meet/rooms")
         .json(&json!({}))
@@ -125,6 +175,11 @@ struct Ctx {
     /// Status mic/kamera terakhir tiap peer remote (untuk dipasang ke tile yang
     /// mungkin dibuat setelah pesan state tiba).
     states: Rc<RefCell<HashMap<String, (bool, bool)>>>,
+    /// ICE candidate yang tiba SEBELUM remote description di-set → dibuffer per
+    /// peer lalu di-flush setelah SRD. Mencegah `addIceCandidate` gagal.
+    pending_ice: Rc<RefCell<HashMap<String, Vec<serde_json::Value>>>>,
+    /// Peer yang remote description-nya sudah di-set (boleh terima candidate).
+    remote_ready: Rc<RefCell<HashSet<String>>>,
     local: Rc<RefCell<Option<web_sys::MediaStream>>>,
     /// Daftar ICE server (STUN + TURN) yang diambil sekali saat connect.
     ice: Rc<RefCell<Option<js_sys::Array>>>,
@@ -138,6 +193,8 @@ struct Ctx {
     cam: RwSignal<bool>,
     /// Jumlah peer remote (peserta = ini + 1).
     count: RwSignal<usize>,
+    /// Riwayat chat dalam meet: (nama_pengirim, teks).
+    chat: RwSignal<Vec<(String, String)>>,
 }
 
 impl Ctx {
@@ -186,6 +243,12 @@ pub fn MeetPage() -> impl IntoView {
     let mic = RwSignal::new(true);
     let cam = RwSignal::new(true);
     let count = RwSignal::new(0usize);
+    let chat = RwSignal::new(Vec::<(String, String)>::new());
+    let show_chat = RwSignal::new(false);
+    let chat_input = RwSignal::new(String::new());
+    let sharing = RwSignal::new(false);
+    let screen_store: StoredValue<Option<send_wrapper::SendWrapper<web_sys::MediaStream>>> =
+        StoredValue::new(None);
 
     let local_sig: RwSignal<Option<send_wrapper::SendWrapper<web_sys::MediaStream>>> =
         RwSignal::new(None);
@@ -197,6 +260,8 @@ pub fn MeetPage() -> impl IntoView {
         pcs: Rc::new(RefCell::new(HashMap::new())),
         names: Rc::new(RefCell::new(HashMap::new())),
         states: Rc::new(RefCell::new(HashMap::new())),
+        pending_ice: Rc::new(RefCell::new(HashMap::new())),
+        remote_ready: Rc::new(RefCell::new(HashSet::new())),
         local: Rc::new(RefCell::new(None)),
         ice: Rc::new(RefCell::new(None)),
         tiles: tiles_ref,
@@ -207,6 +272,7 @@ pub fn MeetPage() -> impl IntoView {
         mic,
         cam,
         count,
+        chat,
     };
     let ctx = StoredValue::new_local(ctx);
 
@@ -300,6 +366,40 @@ pub fn MeetPage() -> impl IntoView {
         c.send_state();
     };
 
+    // Bagikan layar: getDisplayMedia → replace_track ke semua peer; preview
+    // lokal jadi layar. Stop (tombol / event onended browser) → balik ke kamera.
+    let toggle_share = Action::new_local(move |_: &()| {
+        let c = ctx.get_value();
+        async move {
+            if sharing.get_untracked() {
+                stop_share(&c, sharing, local_sig, screen_store, cam);
+                return;
+            }
+            let screen = match get_display_media().await {
+                Ok(s) => s,
+                Err(_) => return, // user batal / tak didukung
+            };
+            let first = screen.get_video_tracks().get(0);
+            if first.is_undefined() {
+                return;
+            }
+            let strack: web_sys::MediaStreamTrack = first.unchecked_into();
+            replace_video_everywhere(&c, Some(&strack));
+            local_sig.set(Some(send_wrapper::SendWrapper::new(screen.clone())));
+            // Browser punya tombol "Stop sharing" sendiri → track akan 'ended'.
+            {
+                let c2 = c.clone();
+                let cb = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
+                    stop_share(&c2, sharing, local_sig, screen_store, cam);
+                });
+                strack.set_onended(Some(cb.as_ref().unchecked_ref()));
+                cb.forget();
+            }
+            screen_store.set_value(Some(send_wrapper::SendWrapper::new(screen)));
+            sharing.set(true);
+        }
+    });
+
     let leave = move |_| {
         teardown(&ctx.get_value());
         phase.set(Phase::Ended);
@@ -332,6 +432,53 @@ pub fn MeetPage() -> impl IntoView {
         let _ = &invite_url;
         copied.set(true);
     };
+
+    // Kirim pesan chat ke semua peserta.
+    let send_chat = move || {
+        let t = chat_input.get_untracked().trim().to_string();
+        if t.is_empty() {
+            return;
+        }
+        ctx.get_value().ws_send(json!({ "type": "chat", "text": t }));
+        chat_input.set(String::new());
+    };
+
+    // Auto-reconnect signaling: bila WS meet putus saat masih in-meet, sambung
+    // ulang tiap 3 dtk. Media WebRTC yang sudah jalan tetap hidup; reconnect
+    // memulihkan jalur signaling (admit / chat / peer baru).
+    // Catatan: bila HOST yang putus, server membubarkan room (by design) →
+    // reconnect host = membuat room baru; reconnect tamu = minta izin lagi.
+    Effect::new(move |_| {
+        let interval = send_wrapper::SendWrapper::new(gloo_timers::callback::Interval::new(
+            3_000,
+            move || {
+                if phase.get_untracked() != Phase::InMeet {
+                    return;
+                }
+                let closed = ctx
+                    .get_value()
+                    .ws
+                    .borrow()
+                    .as_ref()
+                    .map(|w| w.ready_state() == web_sys::WebSocket::CLOSED)
+                    .unwrap_or(true);
+                if !closed {
+                    return;
+                }
+                let rid = room_id.get_untracked();
+                if rid.is_empty() {
+                    return;
+                }
+                let host = is_host();
+                let name = self_name.get_untracked();
+                let c = ctx.get_value();
+                wasm_bindgen_futures::spawn_local(async move {
+                    connect(c, rid, host, name).await;
+                });
+            },
+        ));
+        on_cleanup(move || drop(interval));
+    });
 
     on_cleanup(move || teardown(&ctx.get_value()));
 
@@ -367,7 +514,8 @@ pub fn MeetPage() -> impl IntoView {
                 >
                     <div class="meet-tile meet-tile--self"
                          class:cam-off=move || !cam.get()
-                         class:mic-off=move || !mic.get()>
+                         class:mic-off=move || !mic.get()
+                         class:meet-sharing=move || sharing.get()>
                         <video
                             node_ref=local_ref
                             class="meet-tile-video"
@@ -450,6 +598,22 @@ pub fn MeetPage() -> impl IntoView {
                         on:click=toggle_cam aria-label="Kamera"
                         inner_html=move || if cam.get() { CAM_ON_SVG } else { CAM_OFF_SVG }>
                     </button>
+                    <button class="meet-ctrl" class:meet-ctrl--on=move || show_chat.get()
+                        on:click=move |_| show_chat.update(|s| *s = !*s) aria-label="Chat">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                            <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>
+                        </svg>
+                    </button>
+                    <button class="meet-ctrl" class:meet-ctrl--on=move || sharing.get()
+                        on:click=move |_| { toggle_share.dispatch(()); } aria-label="Bagikan layar">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                            <rect x="2" y="3" width="20" height="14" rx="2"/>
+                            <line x1="8" y1="21" x2="16" y2="21"/>
+                            <line x1="12" y1="17" x2="12" y2="21"/>
+                        </svg>
+                    </button>
                     {move || is_host().then(|| view! {
                         <button class="meet-ctrl meet-ctrl--people"
                             on:click=move |_| show_people.update(|s| *s = !*s)
@@ -524,6 +688,45 @@ pub fn MeetPage() -> impl IntoView {
                                 </For>
                             }.into_any()
                         }}
+                    </div>
+                </div>
+            })}
+
+            // ── Panel chat (semua peserta) ──────────────────────────────────────
+            {move || (phase.get() == Phase::InMeet && show_chat.get()).then(|| view! {
+                <div class="meet-chat">
+                    <div class="meet-chat-head">
+                        <span>"Chat"</span>
+                        <button class="meet-people-close"
+                            on:click=move |_| show_chat.set(false)>"✕"</button>
+                    </div>
+                    <div class="meet-chat-msgs">
+                        {move || {
+                            let msgs = chat.get();
+                            if msgs.is_empty() {
+                                view! { <p class="meet-waitroom-empty">"Belum ada pesan."</p> }.into_any()
+                            } else {
+                                msgs.into_iter().map(|(name, text)| view! {
+                                    <div class="meet-chat-msg">
+                                        <span class="meet-chat-name">{name}</span>
+                                        <span class="meet-chat-text">{text}</span>
+                                    </div>
+                                }).collect_view().into_any()
+                            }
+                        }}
+                    </div>
+                    <div class="meet-chat-input-row">
+                        <input
+                            class="meet-input"
+                            placeholder="Tulis pesan..."
+                            prop:value=move || chat_input.get()
+                            on:input=move |e| chat_input.set(event_target_value(&e))
+                            on:keydown=move |e: leptos::ev::KeyboardEvent| {
+                                if e.key() == "Enter" { e.prevent_default(); send_chat(); }
+                            }
+                        />
+                        <button class="meet-btn meet-btn--primary meet-btn--small"
+                            on:click=move |_| send_chat()>"Kirim"</button>
                     </div>
                 </div>
             })}

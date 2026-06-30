@@ -175,22 +175,31 @@ pub struct WsManager {
     redis: ConnectionManager,
     pub dropped: Arc<AtomicU64>,
     conn_limit: Arc<Semaphore>,
+    /// Batas koneksi efektif (diturunkan dari RAM VPS saat start; lihat
+    /// `utils::capacity`). Fallback `MAX_CONNECTIONS` bila 0 diberikan.
+    max_conn: usize,
     active_conns: Arc<AtomicUsize>,
     rate_limit: Arc<RateLimitRegistry>,
     shutdown: CancellationToken,
 }
 
 impl WsManager {
-    pub async fn new(redis_client: redis::Client) -> anyhow::Result<Arc<Self>> {
+    pub async fn new(
+        redis_client: redis::Client,
+        max_connections: usize,
+    ) -> anyhow::Result<Arc<Self>> {
         let redis = ConnectionManager::new(redis_client.clone()).await?;
         let shutdown = CancellationToken::new();
+        // Clamp aman: minimal 100, dan tak lebih dari plafon absolut MAX_CONNECTIONS.
+        let max_conn = max_connections.clamp(100, MAX_CONNECTIONS);
 
         let mgr = Arc::new(Self {
             sessions: DashMap::with_hasher(RandomState::new()),
             room_members: DashMap::with_hasher(RandomState::new()),
             redis,
             dropped: Arc::new(AtomicU64::new(0)),
-            conn_limit: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
+            conn_limit: Arc::new(Semaphore::new(max_conn)),
+            max_conn,
             active_conns: Arc::new(AtomicUsize::new(0)),
             rate_limit: Arc::new(RateLimitRegistry::new()),
             shutdown: shutdown.clone(),
@@ -390,6 +399,10 @@ impl WsManager {
 
     pub fn online_count(&self) -> usize {
         self.active_conns.load(Ordering::Relaxed)
+    }
+    /// Batas koneksi WS efektif (auto-skala dari RAM VPS saat start).
+    pub fn max_connections(&self) -> usize {
+        self.max_conn
     }
     pub fn dropped(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)

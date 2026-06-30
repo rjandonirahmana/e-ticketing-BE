@@ -77,6 +77,22 @@ pub(super) fn new_peer_connection(ctx: &Ctx, peer_id: &str) -> Option<web_sys::R
     Some(pc)
 }
 
+/// Ganti track video yang sedang dikirim ke SEMUA peer (untuk screen share ⇄
+/// kamera). Cari RtpSender yang track-nya video lalu `replace_track` — tanpa
+/// renegosiasi SDP (replace_track tidak butuh offer/answer baru).
+pub(super) fn replace_video_everywhere(ctx: &Ctx, track: Option<&web_sys::MediaStreamTrack>) {
+    for pc in ctx.pcs.borrow().values() {
+        let senders = pc.get_senders();
+        for i in 0..senders.length() {
+            let sender: web_sys::RtcRtpSender = senders.get(i).unchecked_into();
+            let is_video = sender.track().map(|t| t.kind() == "video").unwrap_or(false);
+            if is_video {
+                let _ = sender.replace_track(track);
+            }
+        }
+    }
+}
+
 fn reflect_sdp(obj: &JsValue) -> String {
     js_sys::Reflect::get(obj, &JsValue::from_str("sdp"))
         .ok()
@@ -119,6 +135,8 @@ pub(super) async fn handle_offer(ctx: &Ctx, from: &str, sdp: &str) {
     {
         return;
     }
+    // Remote (offer) sudah di-set → ICE candidate dari peer ini boleh ditambah.
+    mark_ready_and_flush(ctx, from).await;
     let Ok(answer) = wasm_bindgen_futures::JsFuture::from(pc.create_answer()).await else {
         return;
     };
@@ -143,13 +161,19 @@ pub(super) async fn handle_answer(ctx: &Ctx, from: &str, sdp: &str) {
     if let Some(pc) = pc {
         let desc = web_sys::RtcSessionDescriptionInit::new(web_sys::RtcSdpType::Answer);
         desc.set_sdp(sdp);
-        let _ = wasm_bindgen_futures::JsFuture::from(pc.set_remote_description(&desc)).await;
+        if wasm_bindgen_futures::JsFuture::from(pc.set_remote_description(&desc))
+            .await
+            .is_ok()
+        {
+            // Remote (answer) sudah di-set → flush ICE candidate yang dibuffer.
+            mark_ready_and_flush(ctx, from).await;
+        }
     }
 }
 
-pub(super) async fn handle_candidate(ctx: &Ctx, from: &str, data: &serde_json::Value) {
-    let pc = ctx.pcs.borrow().get(from).cloned();
-    let Some(pc) = pc else { return };
+/// Tambahkan satu ICE candidate ke peer connection (abaikan error: kandidat
+/// duplikat / mDNS yang tak bisa di-parse itu non-fatal).
+async fn apply_candidate(pc: &web_sys::RtcPeerConnection, data: &serde_json::Value) {
     let cand = data.get("candidate").and_then(|c| c.as_str()).unwrap_or("");
     if cand.is_empty() {
         return;
@@ -161,9 +185,41 @@ pub(super) async fn handle_candidate(ctx: &Ctx, from: &str, data: &serde_json::V
     if let Some(idx) = data.get("sdp_mline_index").and_then(|i| i.as_u64()) {
         init.set_sdp_m_line_index(Some(idx as u16));
     }
-    let _ =
-        wasm_bindgen_futures::JsFuture::from(pc.add_ice_candidate_with_opt_rtc_ice_candidate_init(
-            Some(&init),
-        ))
-        .await;
+    let _ = wasm_bindgen_futures::JsFuture::from(
+        pc.add_ice_candidate_with_opt_rtc_ice_candidate_init(Some(&init)),
+    )
+    .await;
+}
+
+/// Tandai remote description peer sudah di-set, lalu flush semua ICE candidate
+/// yang tiba lebih dulu (sebelum SRD). Tanpa buffering ini, `addIceCandidate`
+/// sebelum `setRemoteDescription` gagal → koneksi sering tak pernah terbentuk.
+async fn mark_ready_and_flush(ctx: &Ctx, peer: &str) {
+    ctx.remote_ready.borrow_mut().insert(peer.to_string());
+    let buffered = ctx.pending_ice.borrow_mut().remove(peer).unwrap_or_default();
+    if buffered.is_empty() {
+        return;
+    }
+    let pc = ctx.pcs.borrow().get(peer).cloned();
+    if let Some(pc) = pc {
+        for data in &buffered {
+            apply_candidate(&pc, data).await;
+        }
+    }
+}
+
+pub(super) async fn handle_candidate(ctx: &Ctx, from: &str, data: &serde_json::Value) {
+    let ready = ctx.remote_ready.borrow().contains(from);
+    let pc = ctx.pcs.borrow().get(from).cloned();
+    // Buffer jika PC belum ada ATAU remote description belum di-set.
+    match (ready, pc) {
+        (true, Some(pc)) => apply_candidate(&pc, data).await,
+        _ => {
+            ctx.pending_ice
+                .borrow_mut()
+                .entry(from.to_string())
+                .or_default()
+                .push(data.clone());
+        }
+    }
 }

@@ -10,7 +10,7 @@ use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::web::api::get_event_detail;
 use crate::web::app::{AuthResource, CartContext};
-use crate::web::components::LiveStreamViewer;
+use crate::web::components::{LiveStreamViewer, MerchantLivePip};
 use crate::web::hooks::ThemeToggle;
 use crate::web::models::{CartItem, format_date, format_price};
 
@@ -258,6 +258,9 @@ pub fn EventDetailPage() -> impl IntoView {
                         view! {
                                 <Title text=meta_title />
                                 <Meta name="description" content=meta_desc />
+                                // Overlay live melayang: muncul saat merchant pemilik
+                                // event ini sedang siaran (room SFU benar-benar ada).
+                                <MerchantLivePip room_id=live_room_id.clone() />
                                 // ── Header ───────────────────────────────────────────
                                 <header class="page-header ed-header">
                                     <button class="back-btn" aria-label="Back"
