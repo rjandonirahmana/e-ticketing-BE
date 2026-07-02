@@ -64,10 +64,10 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                 <script inner_html=r##"
                 (function(){
                   window.__pulseMaps = window.__pulseMaps || {};
-                  // Tiles CartoDB Voyager (data OpenStreetMap, tampilan lebih bersih).
+                  // Tiles OpenStreetMap resmi (paling andal & tak butuh API key).
                   function tile(m){
-                    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-                      {maxZoom:20, subdomains:'abcd', attribution:'&copy; OpenStreetMap, &copy; CARTO'}).addTo(m);
+                    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      {maxZoom:19, attribution:'&copy; OpenStreetMap contributors'}).addTo(m);
                   }
                   // Pin SVG kustom — tidak memuat gambar marker default Leaflet
                   // (yang sering 404 di setup SPA → marker tak terlihat).

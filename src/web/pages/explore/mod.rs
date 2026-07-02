@@ -14,6 +14,7 @@ use crate::web::components::story_viewer::StoryViewer;
 use crate::web::components::{BottomNav, EmptyState, EventCardShimmer};
 use crate::web::components::ThemeToggle;
 use crate::web::state::use_events_store;
+use crate::web::utils::format_number;
 
 #[cfg(feature = "hydrate")]
 use leptos::task::spawn_local;
@@ -388,19 +389,19 @@ pub fn ExplorePage() -> impl IntoView {
             <div class="exp-feed">
                 {move || {
                     if store.loading.get() {
-                        (0..3)
+                        let shims = (0..6)
                             .map(|i| {
                                 view! {
                                     <div
                                         class="exp-shimmer-wrap"
-                                        style=format!("animation-delay:{}ms", i * 80)
+                                        style=format!("animation-delay:{}ms", i * 60)
                                     >
                                         <EventCardShimmer />
                                     </div>
                                 }
                             })
-                            .collect_view()
-                            .into_any()
+                            .collect_view();
+                        view! { <div class="exp-mkt-grid">{shims}</div> }.into_any()
                     } else if !store.error.with(|e| e.is_empty()) {
                         view! {
                             <div class="exp-empty">
@@ -438,70 +439,99 @@ pub fn ExplorePage() -> impl IntoView {
                             }
                                 .into_any()
                         } else {
-                            list.into_iter()
+                            let cards = list.into_iter()
                                 .enumerate()
                                 .map(|(i, ev)| {
                                     let href = format!("/events/{}", ev.slug);
-                                    let venue_str = if ev.city.is_empty() {
-                                        ev.venue.to_uppercase()
+                                    let loc = if !ev.city.is_empty() {
+                                        ev.city.clone()
                                     } else {
-                                        format!(
-                                            "{} • {}",
-                                            ev.venue.to_uppercase(),
-                                            ev.city.to_uppercase(),
-                                        )
+                                        ev.venue.clone()
                                     };
-                                    let is_hot = i % 2 == 0;
-                                    let badge_class = if is_hot {
-                                        "exp-card-v2__badge exp-card-v2__badge--hot"
+                                    let cat = ev.category.first().cloned().unwrap_or_default();
+                                    let sold = ev.total_sold.max(0);
+                                    let sold_label = if sold > 0 {
+                                        format!("{} Terjual", format_number(sold as i64))
                                     } else {
-                                        "exp-card-v2__badge exp-card-v2__badge--limited"
+                                        "Baru".to_string()
                                     };
-                                    let badge_text = if is_hot {
-                                        "⚡ SELLING FAST"
-                                    } else {
-                                        "LIMITED SEATS"
-                                    };
-                                    let cat = ev
-                                        .category
-                                        .first()
-                                        .cloned()
-                                        .unwrap_or_default()
-                                        .to_uppercase();
+                                    let is_free = ev.price <= 0;
+                                    let price_disp = if is_free { "Gratis".to_string() } else { ev.price_str.clone() };
                                     view! {
-                                        <div class="exp-cascade" style=format!("--i:{}", i)>
-                                            <a href=href class="exp-card-v2">
-                                                <div class="exp-card-v2__eyebrow">{cat}</div>
-                                                <div class="exp-card-v2__img-wrap">
-                                                    <img
-                                                        src=ev.cover.clone()
-                                                        alt=ev.title.clone()
-                                                        class="exp-card-v2__img"
-                                                        loading="lazy"
-                                                    />
-                                                    <span class=badge_class>{badge_text}</span>
+                                        <a
+                                            href=href
+                                            class="exp-mkt-card exp-cascade"
+                                            style=format!("--i:{}", i)
+                                        >
+                                            <div class="exp-mkt-img-wrap">
+                                                <img
+                                                    src=ev.cover.clone()
+                                                    alt=ev.title.clone()
+                                                    class="exp-mkt-img"
+                                                    loading="lazy"
+                                                />
+                                                {ev.is_live.then(|| view! {
+                                                    <span class="exp-mkt-live">
+                                                        <span class="exp-mkt-live-dot"></span>
+                                                        "LIVE"
+                                                    </span>
+                                                })}
+                                            </div>
+                                            <div class="exp-mkt-body">
+                                                {(!cat.is_empty()).then(|| view! {
+                                                    <span class="exp-mkt-merchant">{cat.clone()}</span>
+                                                })}
+                                                <h3 class="exp-mkt-title">{ev.title.clone()}</h3>
+                                                <div class="exp-mkt-meta">
+                                                    <span class="exp-mkt-meta-row">
+                                                        <svg
+                                                            width="12" height="12" viewBox="0 0 24 24"
+                                                            fill="none" stroke="currentColor"
+                                                            stroke-width="2" stroke-linecap="round"
+                                                            stroke-linejoin="round"
+                                                        >
+                                                            <rect x="3" y="4" width="18" height="18" rx="2" />
+                                                            <line x1="16" y1="2" x2="16" y2="6" />
+                                                            <line x1="8" y1="2" x2="8" y2="6" />
+                                                            <line x1="3" y1="10" x2="21" y2="10" />
+                                                        </svg>
+                                                        {ev.date.clone()}
+                                                    </span>
+                                                    {(!loc.is_empty()).then(|| view! {
+                                                        <span class="exp-mkt-meta-row">
+                                                            <svg
+                                                                width="12" height="12" viewBox="0 0 24 24"
+                                                                fill="none" stroke="currentColor"
+                                                                stroke-width="2" stroke-linecap="round"
+                                                                stroke-linejoin="round"
+                                                            >
+                                                                <path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0118 0z" />
+                                                                <circle cx="12" cy="10" r="3" />
+                                                            </svg>
+                                                            {loc.clone()}
+                                                        </span>
+                                                    })}
                                                 </div>
-                                                <div class="exp-card-v2__body">
-                                                    <h2 class="exp-card-v2__title">{ev.title.clone()}</h2>
-                                                    <div class="exp-card-v2__meta">
-                                                        <div class="exp-card-v2__venue-date">
-                                                            <span class="exp-card-v2__venue">{venue_str}</span>
-                                                            <span class="exp-card-v2__date">{ev.date.clone()}</span>
-                                                        </div>
-                                                        <div class="exp-card-v2__price-wrap">
-                                                            <span class="exp-card-v2__price-label">"STARTS FROM"</span>
-                                                            <span class="exp-card-v2__price">
-                                                                {ev.price_str.clone()}
-                                                            </span>
-                                                        </div>
-                                                    </div>
+                                                <div class="exp-mkt-price-block">
+                                                    <span class="exp-mkt-from">"Mulai Dari"</span>
+                                                    <span class="exp-mkt-price">{price_disp}</span>
                                                 </div>
-                                            </a>
-                                        </div>
+                                                <div class="exp-mkt-foot">
+                                                    <svg
+                                                        class="exp-mkt-star"
+                                                        width="13" height="13" viewBox="0 0 24 24"
+                                                        fill="currentColor" stroke="none"
+                                                    >
+                                                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                                                    </svg>
+                                                    <span class="exp-mkt-sold">{sold_label}</span>
+                                                </div>
+                                            </div>
+                                        </a>
                                     }
                                 })
-                                .collect_view()
-                                .into_any()
+                                .collect_view();
+                            view! { <div class="exp-mkt-grid">{cards}</div> }.into_any()
                         }
                     }
                 }}

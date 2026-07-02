@@ -8,9 +8,9 @@ use leptos_meta::*;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_params_map};
 
-use crate::web::api::get_event_detail;
+use crate::web::api::{get_event_detail, get_events};
 use crate::web::app::{AuthResource, CartContext};
-use crate::web::components::{LiveStreamViewer, MerchantLivePip};
+use crate::web::components::{EventCard, LiveStreamViewer, MerchantLivePip};
 use crate::web::hooks::ThemeToggle;
 use crate::web::models::{CartItem, format_date, format_price};
 
@@ -19,6 +19,8 @@ pub fn EventDetailPage() -> impl IntoView {
     let params    = use_params_map();
     let slug      = Memo::new(move |_| params.read().get("slug").unwrap_or_default());
     let event_res = Resource::new_blocking(move || slug.get(), |s| get_event_detail(s));
+    // Event lain untuk dijelajahi di bawah detail (arah marketplace).
+    let more_events = Resource::new(|| (), |_| get_events(Some(1), None, None, None, Some(8)));
 
     let navigate  = use_navigate();
     let auth     = use_context::<AuthResource>().expect("AuthResource missing");
@@ -451,6 +453,48 @@ pub fn EventDetailPage() -> impl IntoView {
                                                 })}
                                             </div>
                                         </div>
+
+                                        // ── Event lain (arah marketplace) ─────────
+                                        <section class="section ed-more">
+                                            <h2 class="section-title">"Event Lainnya"</h2>
+                                            {move || more_events.get().map(|res| match res {
+                                                Ok(p) => {
+                                                    let cur = slug.get();
+                                                    let cards = p.data.into_iter()
+                                                        .filter(|e| e.slug != cur)
+                                                        .take(6)
+                                                        .map(|e| {
+                                                            let href = format!("/events/{}", e.slug);
+                                                            let city = e.city.clone().unwrap_or_default();
+                                                            let vn = e.venue.clone().unwrap_or_default();
+                                                            let venue = if city.is_empty() {
+                                                                vn
+                                                            } else if vn.is_empty() {
+                                                                city
+                                                            } else {
+                                                                format!("{vn} • {city}")
+                                                            };
+                                                            let cat = e.category.first().cloned()
+                                                                .unwrap_or_else(|| e.status.clone());
+                                                            view! {
+                                                                <EventCard
+                                                                    href=href
+                                                                    img=e.cover_url.clone().unwrap_or_default()
+                                                                    alt=e.name.clone()
+                                                                    badge=cat
+                                                                    title=e.name.clone()
+                                                                    date=crate::web::models::format_date(&e.event_date)
+                                                                    venue=venue
+                                                                    price=crate::web::models::format_price(e.display_price)
+                                                                />
+                                                            }
+                                                        })
+                                                        .collect_view();
+                                                    view! { <div class="ed-more-grid">{cards}</div> }.into_any()
+                                                }
+                                                Err(_) => view! {}.into_any(),
+                                            })}
+                                        </section>
                                     </div>
                                 </div>
 

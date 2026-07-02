@@ -58,13 +58,18 @@ pub fn MerchantLivePip(
 
     let pip_ref = NodeRef::<leptos::html::Div>::new();
 
-    // ── Drag state (Copy via StoredValue) ──────────────────────────────────────
+    // ── Drag state ─────────────────────────────────────────────────────────────
+    // Pakai `transform: translate3d` (GPU-composited, tanpa reflow) → geser mulus.
+    // `tx/ty` = offset terakumulasi (persist antar-drag); `bx/by` = offset saat
+    // pointerdown; `px/py` = posisi pointer saat pointerdown.
     let d_active: StoredValue<bool> = StoredValue::new(false);
     let d_moved: StoredValue<bool> = StoredValue::new(false);
     let d_px: StoredValue<f64> = StoredValue::new(0.0);
     let d_py: StoredValue<f64> = StoredValue::new(0.0);
-    let d_left: StoredValue<f64> = StoredValue::new(0.0);
-    let d_top: StoredValue<f64> = StoredValue::new(0.0);
+    let d_bx: StoredValue<f64> = StoredValue::new(0.0);
+    let d_by: StoredValue<f64> = StoredValue::new(0.0);
+    let d_tx: StoredValue<f64> = StoredValue::new(0.0);
+    let d_ty: StoredValue<f64> = StoredValue::new(0.0);
 
     let open_lives = move || {
         #[cfg(target_arch = "wasm32")]
@@ -74,21 +79,22 @@ pub fn MerchantLivePip(
         }
     };
 
+    let apply_transform = move |el: &web_sys::HtmlDivElement, x: f64, y: f64| {
+        let s = web_sys::HtmlElement::style(el.unchecked_ref());
+        let _ = s.set_property("transform", &format!("translate3d({x}px,{y}px,0)"));
+    };
+
     let on_down = move |e: web_sys::PointerEvent| {
         let Some(el) = pip_ref.get() else { return };
-        let rect = el.get_bounding_client_rect();
-        d_left.set_value(rect.left());
-        d_top.set_value(rect.top());
         d_px.set_value(e.client_x() as f64);
         d_py.set_value(e.client_y() as f64);
+        d_bx.set_value(d_tx.get_value());
+        d_by.set_value(d_ty.get_value());
         d_active.set_value(true);
         d_moved.set_value(false);
-        // Pin ke left/top (lepas right/bottom) supaya bisa digeser bebas.
+        // Nonaktifkan transition saat menyeret → ikut jari 1:1.
         let s = web_sys::HtmlElement::style(el.unchecked_ref());
-        let _ = s.set_property("left", &format!("{}px", rect.left()));
-        let _ = s.set_property("top", &format!("{}px", rect.top()));
-        let _ = s.set_property("right", "auto");
-        let _ = s.set_property("bottom", "auto");
+        let _ = s.set_property("transition", "none");
         let _ = el.set_pointer_capture(e.pointer_id());
     };
     let on_move = move |e: web_sys::PointerEvent| {
@@ -100,12 +106,13 @@ pub fn MerchantLivePip(
         if dx.abs() > 4.0 || dy.abs() > 4.0 {
             d_moved.set_value(true);
         }
-        let Some(el) = pip_ref.get() else { return };
-        let nl = (d_left.get_value() + dx).max(4.0);
-        let nt = (d_top.get_value() + dy).max(4.0);
-        let s = web_sys::HtmlElement::style(el.unchecked_ref());
-        let _ = s.set_property("left", &format!("{}px", nl));
-        let _ = s.set_property("top", &format!("{}px", nt));
+        let nx = d_bx.get_value() + dx;
+        let ny = d_by.get_value() + dy;
+        d_tx.set_value(nx);
+        d_ty.set_value(ny);
+        if let Some(el) = pip_ref.get() {
+            apply_transform(&el, nx, ny);
+        }
     };
     let on_up = move |_e: web_sys::PointerEvent| {
         let was = d_active.get_value();
