@@ -2150,3 +2150,18 @@
 .ed-live-section .live-viewer-error {
     margin: 10px 12px;
 }
+
+.mlpip { will-change: transform; }
+
+/* ── Event lain di bawah detail (grid marketplace) ────────────────────────── */
+.ed-more { margin-top: 6px; }
+.ed-more-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-top: 12px;
+}
+/* Tetap 2 kolom di semua ukuran (konsisten dgn Explore). */
+@media (min-width: 640px) {
+    .ed-more-grid { gap: 16px; }
+}

@@ -967,6 +967,14 @@
     }
 }
 
+/* Grid event beranda (2 kolom, gaya marketplace) */
+.events-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    padding: 0 20px 24px;
+}
+
 /* Shared EventCard — wraps images + body */
 .explore-event-card-v2 {
     display: flex;
