@@ -1,0 +1,577 @@
+/* ==== page-merchant-live.css ==== */
+/* ═════════════════════════════════════════════════════════════════════════
+   MERCHANT LIVE — Go Live page + Live Stream Viewer
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* ── Live button in merchant header ────────────────────────────────────── */
+.mhub-live-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 14px;
+    border-radius: 100px;
+    background: var(--live-green);
+    color: var(--text-on-accent);
+    font-family: var(--font-body);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-decoration: none;
+    transition: opacity 0.15s, transform 0.15s;
+    flex-shrink: 0;
+}
+.mhub-live-btn:hover { opacity: 0.88; }
+.mhub-live-btn:active { transform: scale(0.94); }
+
+/* ── Merchant Live Page ────────────────────────────────────────────────── */
+.merchant-live-page {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 0 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.mlive-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 0;
+    position: sticky;
+    top: 0;
+    z-index: var(--z-header);
+    background: var(--bg-page);
+}
+
+.mlive-header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.mlive-back-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-soft);
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    transition: background 0.15s;
+}
+.mlive-back-btn:hover { background: var(--bg-elevated-2); }
+
+.mlive-header-title {
+    font-family: var(--font-display);
+    font-size: 20px;
+    letter-spacing: 0.04em;
+    color: var(--text-primary);
+}
+
+.mlive-live-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 100px;
+    background: var(--danger);
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    animation: live-pulse-bg 2s ease-in-out infinite;
+}
+
+.mlive-live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #fff;
+    animation: live-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+@keyframes live-pulse-bg {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.85; }
+}
+
+/* ── Preview area ──────────────────────────────────────────────────────── */
+.mlive-preview-area {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: 18px;
+    overflow: hidden;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+}
+
+.mlive-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.mlive-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(0, 0, 0, 0.5);
+    color: var(--text-muted);
+}
+.mlive-overlay svg { opacity: 0.5; }
+
+.mlive-overlay-text {
+    font-family: var(--font-body);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+
+/* ── Stats row ─────────────────────────────────────────────────────────── */
+.mlive-stats-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.mlive-stat {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.mlive-stat-label {
+    font-family: var(--font-body);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: var(--text-muted);
+}
+
+.mlive-stat-value {
+    font-family: var(--font-display);
+    font-size: 22px;
+    color: var(--text-primary);
+    letter-spacing: 0.02em;
+}
+
+/* ── Error ─────────────────────────────────────────────────────────────── */
+.mlive-error {
+    background: rgba(255, 79, 107, 0.1);
+    border: 1px solid rgba(255, 79, 107, 0.25);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-family: var(--font-body);
+    font-size: 12px;
+    color: var(--danger);
+}
+
+/* ── Action buttons ────────────────────────────────────────────────────── */
+.mlive-actions {
+    display: flex;
+    justify-content: center;
+}
+
+.mlive-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 36px;
+    border-radius: 100px;
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    border: none;
+    transition: opacity 0.15s, transform 0.15s;
+}
+.mlive-btn:active { transform: scale(0.95); }
+
+.mlive-btn--start {
+    background: var(--live-green);
+    color: var(--text-on-accent);
+    box-shadow: 0 0 30px rgba(57, 255, 138, 0.3);
+}
+.mlive-btn--start:hover { opacity: 0.9; }
+
+.mlive-btn--stop {
+    background: var(--danger);
+    color: #fff;
+    box-shadow: 0 0 20px rgba(255, 79, 107, 0.3);
+}
+.mlive-btn--stop:hover { opacity: 0.9; }
+
+/* ── Tips ──────────────────────────────────────────────────────────────── */
+.mlive-tips {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+}
+
+.mlive-tips-title {
+    font-family: var(--font-display);
+    font-size: 16px;
+    letter-spacing: 0.04em;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+}
+
+.mlive-tips-list {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.mlive-tips-list li {
+    font-family: var(--font-body);
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    padding-left: 16px;
+    position: relative;
+}
+
+.mlive-tips-list li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 7px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-lime);
+}
+
+/* ── Mode streaming penuh layar (immersive, mirip app live lain) ────────── */
+.merchant-live-page.is-streaming {
+    max-width: none;
+    padding: 0;
+    gap: 0;
+}
+
+/* Header → overlay transparan di atas video */
+.merchant-live-page.is-streaming .mlive-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: 14px 16px;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.55), transparent);
+    z-index: 70;
+}
+.merchant-live-page.is-streaming .mlive-header-title { color: #fff; }
+.merchant-live-page.is-streaming .mlive-back-btn {
+    color: #fff;
+    background: rgba(0, 0, 0, 0.35);
+    border-color: rgba(255, 255, 255, 0.25);
+}
+/* Badge LIVE di header redundan saat fullscreen (sudah ada di overlay video) */
+.merchant-live-page.is-streaming .mlive-header .mlive-live-badge { display: none; }
+
+/* Video memenuhi seluruh layar */
+.merchant-live-page.is-streaming .mlive-preview-area {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+    aspect-ratio: auto;
+    border: none;
+    border-radius: 0;
+    background: #000;
+    z-index: 40;
+}
+
+/* Sembunyikan elemen non-esensial + bottom nav saat streaming */
+.merchant-live-page.is-streaming .mlive-stats-row,
+.merchant-live-page.is-streaming .mlive-tips { display: none; }
+.merchant-live-page.is-streaming ~ .bottom-nav { display: none; }
+
+/* Tombol STOP mengambang di bawah */
+.merchant-live-page.is-streaming .mlive-actions {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 28px);
+    z-index: 70;
+}
+.merchant-live-page.is-streaming .mlive-error {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 92px);
+    z-index: 70;
+}
+
+/* Overlay info (LIVE + viewer) di atas video */
+.mlive-stream-overlay {
+    position: absolute;
+    top: 64px;
+    left: 16px;
+    right: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    pointer-events: none;
+    z-index: 60;
+}
+.mlive-stream-live {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 100px;
+    background: var(--danger);
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    animation: live-pulse-bg 2s ease-in-out infinite;
+}
+.mlive-stream-viewers {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 12px;
+    border-radius: 100px;
+    background: rgba(0, 0, 0, 0.5);
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* Toast sementara "{nama} telah join" (muncul sekali lalu hilang) */
+.mlive-join-toast {
+    position: absolute;
+    top: 64px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 60;
+    padding: 8px 16px;
+    border-radius: 100px;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    pointer-events: none;
+    animation: mlive-toast-in 0.25s ease;
+}
+@keyframes mlive-toast-in {
+    from { opacity: 0; transform: translate(-50%, -6px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════
+   LIVE STREAM VIEWER (embedded in event detail)
+   ═════════════════════════════════════════════════════════════════════════ */
+
+.live-viewer {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+}
+
+.live-viewer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--bg-elevated);
+}
+
+.live-viewer-merchant {
+    font-family: var(--font-display);
+    font-size: 14px;
+    letter-spacing: 0.04em;
+    color: var(--text-primary);
+}
+
+.live-viewer-badge {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 12px;
+    border-radius: 100px;
+    background: var(--danger);
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+}
+
+.live-viewer-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #fff;
+    animation: live-pulse 1.2s ease-in-out infinite;
+}
+
+.live-viewer-video-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #000;
+}
+
+.live-viewer-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.live-viewer-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(0, 0, 0, 0.55);
+    color: rgba(255, 255, 255, 0.78);
+    font-family: var(--font-body);
+    font-size: 12px;
+    letter-spacing: 0.02em;
+}
+
+/* Overlay yang sekaligus tombol (klik di mana saja untuk gabung) */
+.live-viewer-overlay--btn {
+    border: none;
+    width: 100%;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.live-viewer-overlay--btn:hover { background: rgba(0, 0, 0, 0.42); }
+.live-viewer-overlay--btn:active { background: rgba(0, 0, 0, 0.6); }
+
+.live-viewer-play {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--live-green);
+    color: var(--text-on-accent);
+    padding-left: 3px;
+    box-shadow: 0 0 26px rgba(57, 255, 138, 0.45);
+    transition: transform 0.15s;
+}
+.live-viewer-overlay--btn:hover .live-viewer-play { transform: scale(1.06); }
+
+.live-viewer-spinner {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: var(--live-green);
+    animation: live-spin 0.8s linear infinite;
+}
+
+@keyframes live-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Section live di halaman detail event */
+.ed-live-section .live-viewer {
+    margin-top: 6px;
+}
+
+.live-viewer-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+}
+
+.live-viewer-viewers {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font-body);
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.live-viewer-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 18px;
+    border-radius: 100px;
+    font-family: var(--font-body);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    border: none;
+    transition: opacity 0.15s, transform 0.15s;
+}
+.live-viewer-btn:active { transform: scale(0.94); }
+.live-viewer-btn:disabled { opacity: 0.55; cursor: progress; }
+
+.live-viewer-btn--join {
+    background: var(--live-green);
+    color: var(--text-on-accent);
+}
+
+.live-viewer-btn--leave {
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+}
+
+.live-viewer-error {
+    margin: 0 14px 10px;
+    background: rgba(255, 79, 107, 0.1);
+    border: 1px solid rgba(255, 79, 107, 0.2);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-family: var(--font-body);
+    font-size: 11px;
+    color: var(--danger);
+}
+
+/* ── Light theme adjustments ────────────────────────────────────────────── */
+[data-theme="light"] .mlive-btn--start {
+    box-shadow: 0 0 20px rgba(10, 112, 53, 0.2);
+}
+[data-theme="light"] .mlive-btn--stop {
+    box-shadow: 0 0 20px rgba(188, 24, 48, 0.2);
+}
+

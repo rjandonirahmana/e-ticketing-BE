@@ -1,0 +1,381 @@
+/* ==== page-scan.css ==== */
+/* ═══════════════════════════════════════════════════════════════════════
+   SCAN PAGE
+   Auto-extracted from styles.css — edit this file for page-specific styles
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   SCAN PAGE  /merchant/scan
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* Scan button di merchant header */
+.mhub-scan-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border-radius: 100px;
+    background: var(--accent-lime);
+    color: var(--text-on-accent);
+    font-family: var(--font-body);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-decoration: none;
+    transition: opacity 0.2s;
+}
+.mhub-scan-btn:hover {
+    opacity: 0.88;
+}
+
+/* Page layout */
+.scan-page {
+    background: var(--bg-page);
+    width: 100%;
+    max-width: 480px;
+    margin: 0 auto;
+    min-height: 100dvh;
+    position: relative;
+}
+
+.scan-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--overlay-blur);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+}
+.scan-header-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.scan-header-title {
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: 0.04em;
+}
+.scan-header-sub {
+    font-family: var(--font-body);
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+}
+
+/* Body */
+.scan-body {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 20px 16px 40px;
+}
+
+/* Viewfinder */
+.scan-viewfinder-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.scan-viewfinder {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1/1;
+    max-height: 320px;
+    border-radius: 20px;
+    overflow: hidden;
+    background: #0a0a0a;
+    border: 1.5px solid var(--border-soft);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.scan-viewfinder--active {
+    border-color: var(--accent-lime);
+}
+
+.scan-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 18px;
+    opacity: 0;
+    pointer-events: none;
+}
+.scan-video--active {
+    opacity: 1;
+}
+
+/* Corner frame overlay */
+.scan-frame {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+.scan-frame-corner {
+    position: absolute;
+    width: 28px;
+    height: 28px;
+    border-color: var(--accent-lime);
+    border-style: solid;
+    border-width: 0;
+}
+.scan-frame-corner--tl {
+    top: 16px;
+    left: 16px;
+    border-top-width: 3px;
+    border-left-width: 3px;
+    border-radius: 4px 0 0 0;
+}
+.scan-frame-corner--tr {
+    top: 16px;
+    right: 16px;
+    border-top-width: 3px;
+    border-right-width: 3px;
+    border-radius: 0 4px 0 0;
+}
+.scan-frame-corner--bl {
+    bottom: 16px;
+    left: 16px;
+    border-bottom-width: 3px;
+    border-left-width: 3px;
+    border-radius: 0 0 0 4px;
+}
+.scan-frame-corner--br {
+    bottom: 16px;
+    right: 16px;
+    border-bottom-width: 3px;
+    border-right-width: 3px;
+    border-radius: 0 0 4px 0;
+}
+
+/* Scanning line animation */
+.scan-line {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    height: 2px;
+    background: var(--accent-lime);
+    box-shadow: 0 0 8px var(--accent-lime);
+    animation: scan-sweep 2s ease-in-out infinite;
+}
+@keyframes scan-sweep {
+    0% {
+        top: 16px;
+    }
+    50% {
+        top: calc(100% - 16px);
+    }
+    100% {
+        top: 16px;
+    }
+}
+
+/* Placeholder */
+.scan-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 24px;
+}
+.scan-placeholder-text {
+    font-family: var(--font-body);
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: center;
+    line-height: 1.5;
+}
+
+/* Processing overlay */
+.scan-processing {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 600;
+}
+.scan-spinner {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: var(--accent-lime);
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Controls */
+.scan-controls {
+    display: flex;
+    justify-content: center;
+}
+.scan-start-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 13px 32px;
+    border-radius: 100px;
+    background: var(--accent-lime);
+    color: var(--text-on-accent);
+    border: none;
+    cursor: pointer;
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    transition: opacity 0.2s;
+}
+.scan-start-btn:hover {
+    opacity: 0.88;
+}
+.scan-stop-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 28px;
+    border-radius: 100px;
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    border: 1.5px solid var(--border);
+    cursor: pointer;
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    transition: background 0.2s;
+}
+
+/* Result card */
+.scan-result {
+    border-radius: 18px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    text-align: center;
+}
+.scan-result--valid {
+    background: rgba(100, 255, 100, 0.1);
+    border: 1.5px solid rgba(100, 255, 100, 0.3);
+}
+.scan-result--used {
+    background: rgba(255, 200, 50, 0.1);
+    border: 1.5px solid rgba(255, 200, 50, 0.3);
+}
+.scan-result--invalid {
+    background: rgba(255, 80, 80, 0.1);
+    border: 1.5px solid rgba(255, 80, 80, 0.3);
+}
+
+.scan-result-icon {
+    font-size: 40px;
+}
+.scan-result-title {
+    font-family: var(--font-display);
+    font-size: 18px;
+    color: var(--text-primary);
+    letter-spacing: 0.04em;
+}
+.scan-result-detail {
+    font-family: var(--font-body);
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    white-space: pre-line;
+}
+.scan-again-btn {
+    margin-top: 4px;
+    padding: 10px 28px;
+    border-radius: 100px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    transition: background 0.2s;
+}
+.scan-again-btn:hover {
+    background: var(--bg-card-hover);
+}
+
+/* Manual input */
+.scan-manual-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.scan-manual-label {
+    font-family: var(--font-body);
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+    text-align: center;
+}
+.scan-manual-row {
+    display: flex;
+    gap: 8px;
+}
+.scan-manual-input {
+    flex: 1;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 11px 14px;
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+.scan-manual-input:focus {
+    border-color: var(--accent-lime);
+}
+.scan-manual-input::placeholder {
+    color: var(--text-muted);
+}
+.scan-manual-btn {
+    padding: 11px 18px;
+    border-radius: 12px;
+    background: var(--accent-blue);
+    color: #fff;
+    border: none;
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: opacity 0.2s;
+}
+.scan-manual-btn:hover {
+    opacity: 0.88;
+}
+.scan-manual-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+

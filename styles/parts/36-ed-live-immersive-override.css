@@ -1,0 +1,63 @@
+/* ===== ed-live immersive override ===== */
+/* ── Live section di event detail: pemutar imersif (bukan kartu kaku) ──────── */
+.ed-live-section .ed-section-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+.ed-live-section .ed-section-eyebrow::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--danger, #e23744);
+    box-shadow: 0 0 0 4px rgba(226, 55, 68, 0.18);
+    animation: live-pulse 1.2s ease-in-out infinite;
+}
+.ed-live-section .live-viewer {
+    position: relative;
+    gap: 0;
+    border: none;
+    border-radius: 18px;
+    overflow: hidden;
+    background: #000;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
+}
+/* Header (nama merchant + badge) melayang di atas video, bukan bar kaku. */
+.ed-live-section .live-viewer-header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 3;
+    padding: 12px 14px 26px;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0));
+}
+.ed-live-section .live-viewer-merchant {
+    color: #fff;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
+}
+.ed-live-section .live-viewer-video-wrap {
+    aspect-ratio: 16 / 9;
+    border-radius: 18px;
+}
+/* Kontrol (penonton + tombol) melayang di bawah video. */
+.ed-live-section .live-viewer-controls {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 3;
+    padding: 26px 14px 12px;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.66), rgba(0, 0, 0, 0));
+}
+.ed-live-section .live-viewer-viewers {
+    color: #fff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+.ed-live-section .live-viewer-error {
+    margin: 10px 12px;
+}
+
+.mlpip { will-change: transform; }
+

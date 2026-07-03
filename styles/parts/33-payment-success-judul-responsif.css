@@ -1,0 +1,3 @@
+/* ===== payment-success: judul responsif (override) ===== */
+.ps-title { font-size: clamp(32px, 11vw, 46px); line-height: 1.05; }
+

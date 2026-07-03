@@ -15,59 +15,18 @@ use std::hash::{Hash, Hasher};
 use std::sync::LazyLock;
 
 use axum::{
-    extract::Path,
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
     Router,
 };
 
-/// Tabel nama-file → isi CSS (embedded). Path relatif terhadap file ini
-/// (`src/web/assets.rs` → `../../styles/`).
-macro_rules! css_table {
-    ($($name:literal),+ $(,)?) => {
-        &[ $( ($name, include_str!(concat!("../../styles/", $name))) ),+ ]
-    };
-}
-
-/// Daftar semua CSS yang di-embed ke binary.
-static STYLES: &[(&str, &str)] = css_table![
-    "tokens.css",
-    "base.css",
-    "components.css",
-    "page-home.css",
-    "page-explore.css",
-    "page-event-detail.css",
-    "page-auth.css",
-    "page-tickets.css",
-    "page-ticket-detail.css",
-    "page-orders.css",
-    "page-order-detail.css",
-    "page-order-tickets.css",
-    "page-profile.css",
-    "page-merchant.css",
-    "page-merchant-event.css",
-    "page-lives.css",
-    "page-merchant-landing.css",
-    "page-merchant-live.css",
-    "page-meet.css",
-    "page-admin.css",
-    "page-messages.css",
-    "page-notifications.css",
-    "notifications.css",
-    "page-cart.css",
-    "page-scan.css",
-    "page-story.css",
-    "page-misc.css",
-    "subscription.css",
-    "profile_premium.css",
-    "message_stories.css",
-];
-
-/// Bundled stylesheet — semua CSS di-embed ke binary dan disajikan sebagai
-/// satu file `/styles/app.css` dengan cache 24 jam. Browser hanya download
-/// sekali; kunjungan berikutnya menggunakan cache → HTML jauh lebih kecil.
-static APP_BUNDLE: &str = include_str!("../../styles/app.bundle.css");
+/// Bundled stylesheet. Di-GENERATE oleh `build.rs` dari `styles/parts/*.css`
+/// (disatukan urut nama file) → ditulis ke `OUT_DIR/app.bundle.css` → di-embed
+/// ke binary di sini. **Sumber tunggal = `styles/parts/`** (edit di situ saja);
+/// tak ada lagi `app.bundle.css` yang perlu di-sync manual. Disajikan sebagai
+/// satu file `/styles/app.css`.
+static APP_BUNDLE: &str = include_str!(concat!(env!("OUT_DIR"), "/app.bundle.css"));
 
 // Leaflet di-self-host (di-embed ke binary) alih-alih dari CDN unpkg. unpkg
 // tidak untuk produksi & sering lambat/diblokir di sebagian jaringan/ekstensi
@@ -135,20 +94,6 @@ async fn serve_app_bundle(headers: HeaderMap) -> Response {
         .into_response()
 }
 
-async fn serve_css(Path(file): Path<String>) -> Response {
-    match STYLES.iter().find(|(name, _)| *name == file) {
-        Some((_, body)) => (
-            [
-                (header::CONTENT_TYPE,  HeaderValue::from_static("text/css; charset=utf-8")),
-                (header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=86400, stale-while-revalidate=86400")),
-            ],
-            *body,
-        )
-            .into_response(),
-        None => (StatusCode::NOT_FOUND, "/* stylesheet not found */").into_response(),
-    }
-}
-
 /// Router untuk `/styles/*` — gabungkan ke router utama.
 pub fn router<S>() -> Router<S>
 where
@@ -156,7 +101,6 @@ where
 {
     Router::new()
         .route("/styles/app.css", get(serve_app_bundle))
-        .route("/styles/{file}", get(serve_css))
         .route("/vendor/leaflet.js", get(serve_leaflet_js))
         .route("/vendor/leaflet.css", get(serve_leaflet_css))
 }

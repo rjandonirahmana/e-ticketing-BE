@@ -1,0 +1,8 @@
+/* ============================================================================
+   Stub untuk cargo-leptos `style-file`.
+
+   CSS ASLI aplikasi TIDAK di sini. Sumber CSS = `styles/parts/*.css` yang
+   digabung oleh `build.rs` → di-embed & disajikan di `/styles/app.css`
+   (lihat src/web/assets.rs). File ini hanya agar pipeline SASS cargo-leptos
+   punya input yang valid; output `/pkg/*.css`-nya tidak di-link oleh shell().
+   ============================================================================ */

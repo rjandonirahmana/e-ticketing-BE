@@ -1,0 +1,582 @@
+/* ==== base.css ==== */
+/* ═══════════════════════════════════════════════════════════════════════
+   BASE RESET, ANIMATIONS & LAYOUT
+   Auto-extracted from styles.css — edit this file for page-specific styles
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── BASE RESET ────────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+html {
+    scroll-behavior: smooth;
+}
+body {
+    background-color: var(--bg-page);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100dvh;
+    overflow-x: hidden;
+}
+h1,
+h2,
+h3,
+h4,
+h5 {
+    font-family: var(--font-display);
+    letter-spacing: 0.02em;
+    line-height: 1.1;
+}
+::-webkit-scrollbar {
+    width: 4px;
+}
+::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+}
+::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 4px;
+}
+
+/* ── ANIMATIONS ─────────────────────────────────────────────────────────────── */
+@keyframes fadeUp {
+    from {
+        opacity: 0;
+        transform: translateY(16px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+@keyframes pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.4;
+    }
+}
+@keyframes orbFloat {
+    0%,
+    100% {
+        transform: translate(0, 0);
+    }
+    50% {
+        transform: translate(30px, 20px);
+    }
+}
+@keyframes pulse-ring {
+    0% {
+        transform: translateX(-50%) scale(0.8);
+        opacity: 0.8;
+    }
+    100% {
+        transform: translateX(-50%) scale(1.6);
+        opacity: 0;
+    }
+}
+
+.animate-fade-up {
+    animation: fadeUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.animate-fade-up-delay-1 {
+    animation-delay: 0.1s;
+}
+.animate-fade-up-delay-2 {
+    animation-delay: 0.2s;
+}
+.animate-fade-up-delay-3 {
+    animation-delay: 0.35s;
+}
+
+/* ── SHARED CHROME ──────────────────────────────────────────────────────────── */
+.icon-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-secondary);
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    transition: color 0.2s;
+}
+.nav-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    border: 2px solid rgba(79, 107, 255, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    text-decoration: none;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+.nav-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 480px;
+    background: var(--overlay-blur);
+    backdrop-filter: blur(20px);
+    border-top: 1px solid var(--border-strong);
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    padding: 8px 0 20px;
+    z-index: 100;
+}
+.bottom-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    text-decoration: none;
+    padding: 6px 0;
+    color: var(--text-muted);
+    transition: color 0.2s;
+}
+.bottom-item--active {
+    color: var(--accent-lime);
+}
+.bottom-label {
+    font-family: var(--font-body);
+    font-size: 9px;
+    letter-spacing: 0.06em;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   KONSISTENSI UKURAN — semua halaman gunakan base .page (480px, padding-bottom 100px)
+   Override per-halaman hanya jika benar-benar diperlukan
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* Cart punya fixed footer lebih tinggi — beri ruang lebih */
+.cart-page {
+    padding-bottom: 160px;
+}
+
+/* Profile & detail acara perlu penanganan overflow */
+.profile-page {
+    position: relative;
+    width: 100%;
+}
+
+/* ── 5. overflow-x containment without breaking fixed children ───────────── */
+/* .page must NOT have overflow-x: hidden (breaks position:fixed).
+   Containment is on body instead (already set above).
+   Guard negative-margin scroll tracks explicitly: */
+.home-genre-grid,
+.lineup-grid,
+.chip-row,
+.exp-chips {
+    /* These use negative margins or padding tricks for edge-to-edge scroll.
+     clip-path on parent is safer than overflow:hidden for fixed children. */
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.home-genre-grid::-webkit-scrollbar,
+.lineup-grid::-webkit-scrollbar {
+    display: none;
+}
+
+/* ── 6. Bottom-nav on-screen guarantee ──────────────────────────────────── */
+/* Force bottom-nav to always be within the safe viewport area */
+.bottom-nav {
+    /* Pad for iOS home indicator */
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    /* Ensure it's never obscured by transforms on parent */
+    will-change: unset;
+    transform: translateX(-50%); /* re-assert, no translateY */
+}
+
+/* Ensure <main> always takes full viewport width — prevents shimmer width collapse */
+main {
+    display: block;
+    width: 100%;
+    min-height: 100dvh;
+}
+
+/* Page bottom padding accounts for nav + safe area */
+.page {
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 12px));
+}
+
+/* Generic content container — same 480px width as .page */
+.container {
+    width: 100%;
+    max-width: 480px;
+    margin: 0 auto;
+}
+/* ══════════════════════════════════════════════════════════════════════════════
+   MOBILE TAP HIGHLIGHT FIX — Hapus kotak biru/highlight saat touch di mobile
+   Berlaku untuk semua elemen interaktif
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+*,
+*::before,
+*::after {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none; /* Cegah callout (copy/paste popup) saat long-press link */
+}
+
+/* Pastikan focus tetap terlihat untuk aksesibilitas keyboard (bukan touch) */
+:focus-visible {
+    outline: 2px solid var(--accent-lime, #c8ff5e);
+    outline-offset: 2px;
+}
+
+/* Hapus outline default yang muncul dari rule sebelumnya saat tap touch */
+:focus:not(:focus-visible) {
+    outline: none;
+}
+
+/* Semua elemen yang bisa diklik */
+a,
+button,
+input,
+select,
+textarea,
+label,
+[role="button"],
+[tabindex],
+.chip,
+.filter-tab,
+.bottom-item,
+.menu-item,
+.notif-card,
+.ticket-card--link,
+.trending-card,
+.event-card,
+.upcoming-card,
+.rec-card,
+.vl-event-card,
+.order-card,
+.order-card-compact,
+.explore-event-card-v2,
+.exp-card-wrap,
+.msg-convo-row,
+.msg-hot-card,
+.mhub-nav-item,
+.mhub-event-card,
+.story-add-btn,
+.story-user-btn,
+.sc-tombol-bulat,
+.sc-tombol-alat,
+.sc-tombol-stiker,
+.sc-item-musik,
+.sc-item-filter,
+.drg-overlay,
+.home-genre-card,
+.ed-accordion-item,
+.ed-cat-card-full,
+.banner-slide-inner,
+.exp-banner-link,
+.back-btn,
+.bell-btn,
+.icon-btn,
+.theme-toggle,
+.home-link,
+.nav-avatar {
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* User-select: none untuk elemen UI yang tidak perlu dipilih teks */
+button,
+.chip,
+.filter-tab,
+.bottom-item,
+.bottom-label,
+.section-title,
+.page-logo,
+.kinetic-logo,
+[role="button"] {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+
+
+/* Audio Pill — Instagram Glass */
+.ap-root {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 100px;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    transition: background 0.15s;
+    
+    /* 🔴 FIX: fixed width untuk semua state */
+    width: 140px;           /* fixed width */
+    justify-content: center; /* center content */
+    box-sizing: border-box;
+}
+
+.ap-root:active { transform: scale(0.92); }
+.ap-root:hover  { background: rgba(0,0,0,0.45); }
+.ap-root:hover {
+    background: rgba(0, 0, 0, 0.65);
+}
+
+.ap-icon-wrap {
+    position: relative;
+    width: 18px; height: 18px;
+    display: grid; place-items: center;
+}
+.ap-speaker, .ap-slash { grid-area: 1/1; }
+
+/* Wave Bars — pure CSS, no JS/WASM alloc */
+.ap-waves {
+    position: absolute;
+    right: -10px; top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 14px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+.ap-waves--active { opacity: 1; }
+.ap-bar {
+    width: 2.5px;
+    border-radius: 2px;
+    background: #39ff8a; /* hijau Instagram */
+    animation: ap-wave 0.8s ease-in-out infinite;
+}
+.ap-bar:nth-child(1) { height: 6px; animation-delay: 0s; }
+.ap-bar:nth-child(2) { height: 10px; animation-delay: 0.15s; }
+.ap-bar:nth-child(3) { height: 6px; animation-delay: 0.3s; }
+
+@keyframes ap-wave {
+    0%, 100% { transform: scaleY(0.6); }
+    50%      { transform: scaleY(1.0); }
+}
+
+.ap-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex: 1;
+    text-align: center;
+}
+.ap-root:hover .ap-label,
+.ap-root:focus-visible .ap-label {
+    max-width: 120px;
+    opacity: 1;
+    margin-left: 2px;
+}
+
+.ap-icon-wrap {
+    position: relative;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Close button: absolute positioning alternative (optional) */
+.sv-close-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.45);
+    border: none;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;      /* never shrink */
+    transition: background 0.15s;
+}
+
+/* Alternative: absolute positioning untuk X (paling robust) */
+.sv-header--absolute-x {
+    position: relative;
+}
+.sv-header--absolute-x .sv-close-btn {
+    position: absolute;
+    top: 10px;
+    right: 14px;
+    z-index: 11;
+}
+
+
+/* Scale badge di kiri overlay */
+.drg-scale-badge {
+    position: absolute;
+    left: -48px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    pointer-events: none;
+    animation: badge-pop 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.drg-scale-badge__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: white;
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.3);
+}
+.drg-scale-badge__text {
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    font-family: -apple-system, sans-serif;
+    min-width: 28px;
+}
+
+/* Instagram text styles */
+.ig-text-classic {
+    font-family: "Bebas Neue", "Arial Black", sans-serif;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.6);
+    font-weight: 600;
+}
+.ig-text-modern {
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+}
+.ig-text-strong {
+    font-family: "Arial Black", sans-serif;
+    text-transform: uppercase;
+    background: rgba(0,0,0,0.8);
+    padding: 4px 12px;
+    border-radius: 4px;
+}
+.ig-text-typewriter {
+    font-family: "Courier New", monospace;
+    background: rgba(0,0,0,0.75);
+    padding: 6px 10px;
+}
+
+/* Panel teks */
+.sc-text-preview-box {
+    min-height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    border-radius: 12px;
+    margin-bottom: 12px;
+    transition: all 0.15s ease;
+    word-break: break-word;
+}
+.sc-text-edit-row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+.sc-size-rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: 40px;
+}
+.sc-slider-vertical {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    height: 120px;
+    width: 4px;
+    accent-color: #fff;
+}
+.sc-size-label {
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+}
+.sc-text-controls {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.sc-font-carousel {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 4px 0;
+}
+.sc-font-chip {
+    white-space: nowrap;
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 1px solid rgba(255,255,255,0.3);
+    background: transparent;
+    color: white;
+    font-size: 13px;
+}
+.sc-font-chip--aktif {
+    background: white;
+    color: black;
+    border-color: white;
+}
+.sc-align-row {
+    display: flex;
+    gap: 8px;
+}
+.sc-align-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.2);
+    background: transparent;
+    color: white;
+    font-size: 16px;
+}
+.sc-align-btn--aktif {
+    background: rgba(255,255,255,0.2);
+}
+.sc-bg-toggle {
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 1px solid rgba(255,255,255,0.3);
+    background: transparent;
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+}
+.sc-bg-toggle--on {
+    background: white;
+    color: black;
+}
+
