@@ -19,8 +19,33 @@ pub fn EventDetailPage() -> impl IntoView {
     let params    = use_params_map();
     let slug      = Memo::new(move |_| params.read().get("slug").unwrap_or_default());
     let event_res = Resource::new_blocking(move || slug.get(), |s| get_event_detail(s));
-    // Event lain untuk dijelajahi di bawah detail (arah marketplace).
-    let more_events = Resource::new(|| (), |_| get_events(Some(1), None, None, None, Some(8)));
+    // Kategori event ini → dipakai untuk (a) mencari event BERKAITAN, dan
+    // (b) mencatat minat user untuk rekomendasi "Untuk Kamu".
+    let rel_cat = Memo::new(move |_| {
+        event_res
+            .get()
+            .and_then(|r| r.ok())
+            .and_then(|ev| ev.category.first().cloned())
+    });
+    // Event berkaitan: kategori sama; bila kategori kosong → fallback terbaru.
+    let more_events = Resource::new(
+        move || rel_cat.get(),
+        |cat| get_events(Some(1), None, cat, None, Some(24)),
+    );
+    // Rekomendasi implisit (tanpa "like"): catat kategori event yang dibuka user
+    // ke localStorage. Effect hanya jalan di client saat detail sudah termuat.
+    Effect::new(move |_| {
+        if let Some(Ok(ev)) = event_res.get() {
+            let cats = ev.category.clone();
+            // (a) Client: localStorage (jalan utk semua user, termasuk anonim).
+            crate::web::behavior::record_view(&cats);
+            // (b) Server: persist ke DB (user login) untuk rekomendasi lintas-sesi.
+            //     No-op diam-diam bila belum login.
+            leptos::task::spawn_local(async move {
+                let _ = crate::web::api::record_affinity(cats).await;
+            });
+        }
+    });
 
     let navigate  = use_navigate();
     let auth     = use_context::<AuthResource>().expect("AuthResource missing");
@@ -109,6 +134,16 @@ pub fn EventDetailPage() -> impl IntoView {
                         // event berstatus "live". room_id mengikuti format SFU.
                         let is_live      = ev.status.eq_ignore_ascii_case("live");
                         let live_room_id = format!("live_{}", ev.merchant_id);
+                        // Social proof (gaya marketplace): terjual + sisa stok.
+                        // Sumber data asli: agregasi SUM(sold)/SUM(quota) dari
+                        // ticket_variants (ter-update tiap order via order.rs).
+                        let sold_count = ev.total_sold.max(0);
+                        let quota      = ev.total_quota.max(0);
+                        let remaining  = (quota - sold_count).max(0);
+                        let sold_pct   = if quota > 0 {
+                            ((sold_count as f64 / quota as f64) * 100.0).round().clamp(0.0, 100.0) as i32
+                        } else { 0 };
+                        let low_stock  = quota > 0 && remaining <= (quota / 10).max(5);
 
                         // ── Cart total helpers: inline in each closure ─────────
                         // cart_ctx is Copy. Each closure gets a distinct clone of ev_id.
@@ -374,6 +409,47 @@ pub fn EventDetailPage() -> impl IntoView {
                                 <div class="ed-body">
                                     <div class="ed-main">
 
+                                        // Social proof strip (gaya marketplace) — data asli variant
+                                        <div class="ed-social-proof">
+                                            <div class="ed-sp-head">
+                                                <div class="ed-sp-item">
+                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                                                        stroke="currentColor" stroke-width="2"
+                                                        stroke-linecap="round" stroke-linejoin="round">
+                                                        <path d="M4 4h16a2 2 0 012 2v3a2 2 0 000 4v3a2 2 0 01-2 2H4a2 2 0 01-2-2v-3a2 2 0 000-4V6a2 2 0 012-2z" />
+                                                        <line x1="12" y1="4" x2="12" y2="20" stroke-dasharray="2 3" />
+                                                    </svg>
+                                                    <span><b>{sold_count}</b>" terjual"</span>
+                                                </div>
+                                                <div class="ed-sp-item ed-sp-verified">
+                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                                                        stroke="currentColor" stroke-width="2"
+                                                        stroke-linecap="round" stroke-linejoin="round">
+                                                        <path d="M9 12l2 2 4-4" />
+                                                        <path d="M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7l7-4z" />
+                                                    </svg>
+                                                    <span>"Terverifikasi"</span>
+                                                </div>
+                                            </div>
+                                            {(quota > 0).then(|| view! {
+                                                <div class="ed-sp-stock">
+                                                    <div class="ed-sp-bar">
+                                                        <div
+                                                            class=if low_stock { "ed-sp-bar-fill ed-sp-bar-fill--low" } else { "ed-sp-bar-fill" }
+                                                            style=format!("width:{}%", sold_pct.max(3))
+                                                        ></div>
+                                                    </div>
+                                                    <div class=if low_stock { "ed-sp-remain ed-sp-low" } else { "ed-sp-remain" }>
+                                                        {if low_stock {
+                                                            view! { <span>"🔥 Segera habis — sisa "<b>{remaining}</b>" tiket"</span> }.into_any()
+                                                        } else {
+                                                            view! { <span>"Sisa "<b>{remaining}</b>" dari "{quota}" tiket"</span> }.into_any()
+                                                        }}
+                                                    </div>
+                                                </div>
+                                            })}
+                                        </div>
+
                                         // Live stream (tampil saat event sedang live)
                                         {is_live.then({
                                             let rid = live_room_id.clone();
@@ -456,13 +532,12 @@ pub fn EventDetailPage() -> impl IntoView {
 
                                         // ── Event lain (arah marketplace) ─────────
                                         <section class="section ed-more">
-                                            <h2 class="section-title">"Event Lainnya"</h2>
+                                            <h2 class="section-title">"Event Berkaitan"</h2>
                                             {move || more_events.get().map(|res| match res {
                                                 Ok(p) => {
                                                     let cur = slug.get();
                                                     let cards = p.data.into_iter()
                                                         .filter(|e| e.slug != cur)
-                                                        .take(6)
                                                         .map(|e| {
                                                             let href = format!("/events/{}", e.slug);
                                                             let city = e.city.clone().unwrap_or_default();

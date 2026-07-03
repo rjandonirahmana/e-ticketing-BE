@@ -1,0 +1,381 @@
+/* ==== page-order-detail.css ==== */
+/* ═══════════════════════════════════════════════════════════════════════
+   ORDER DETAIL — Verification Page — page-order-detail.css
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Page shell ─────────────────────────────────────────────────────────────── */
+.vp-page { background: var(--bg-page); min-height: 100vh; }
+
+/* ── Header ─────────────────────────────────────────────────────────────────── */
+.vp-header { border-bottom: none !important; }
+.vp-header-title {
+    font-family: var(--font-body);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+/* ── Loading shimmer ─────────────────────────────────────────────────────────── */
+.vp-loading {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+.vp-shimmer {
+    background: linear-gradient(90deg, var(--bg-card) 25%, rgba(255,255,255,0.04) 50%, var(--bg-card) 75%);
+    background-size: 200% 100%;
+    animation: vp-shimmer 1.4s infinite;
+    border-radius: 16px;
+}
+@keyframes vp-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+.vp-shimmer--meta  { height: 64px; }
+.vp-shimmer--qr    { height: 320px; }
+.vp-shimmer--btn   { height: 52px; border-radius: 100px; }
+
+/* ── Error state ─────────────────────────────────────────────────────────────── */
+.vp-error {
+    margin: 50px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    text-align: center;
+}
+.vp-error-icon { font-size: 36px; }
+.vp-error-msg { font-size: 14px; color: var(--text-secondary); }
+.vp-back-link { font-size: 13px; color: var(--accent-blue); text-decoration: none; }
+
+/* ── Content wrapper ─────────────────────────────────────────────────────────── */
+.vp-content {
+    padding: 8px 20px 60px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+/* ── ORDER ID + TIME REMAINING ───────────────────────────────────────────────── */
+.vp-meta-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+.vp-meta-block {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.vp-meta-block--right { align-items: flex-end; }
+.vp-meta-label {
+    font-family: var(--font-body);
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+.vp-order-code {
+    font-family: var(--font-display);
+    font-size: 22px;
+    letter-spacing: 2px;
+    color: var(--accent-blue);
+}
+.vp-timer {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font-display);
+    font-size: 26px;
+    letter-spacing: 2px;
+    color: var(--accent-lime, #c8ff5e);
+    font-variant-numeric: tabular-nums;
+}
+.vp-timer svg { color: var(--accent-lime, #c8ff5e); flex-shrink: 0; }
+
+/* ── Status badge ────────────────────────────────────────────────────────────── */
+.vp-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 100px;
+    font-family: var(--font-body);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    width: fit-content;
+}
+.vp-status-badge--pending {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-primary);
+}
+.vp-status-badge--paid {
+    background: rgba(57,255,138,0.12);
+    border: 1px solid rgba(57,255,138,0.25);
+    color: #39ff8a;
+}
+.vp-status-badge--cancelled {
+    background: rgba(255,80,80,0.1);
+    border: 1px solid rgba(255,80,80,0.2);
+    color: #ff8a65;
+}
+.vp-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent-lime, #c8ff5e);
+    flex-shrink: 0;
+    animation: vp-pulse 2s infinite;
+}
+.vp-status-badge--paid    .vp-status-dot { background: #39ff8a; animation: none; }
+.vp-status-badge--cancelled .vp-status-dot { background: #ff8a65; animation: none; }
+@keyframes vp-pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.35; }
+}
+
+/* ── QR card ─────────────────────────────────────────────────────────────────── */
+.vp-qr-card {
+    background: #ffffff;
+    border-radius: 20px;
+    overflow: hidden;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+.vp-qr-card-header {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.vp-qr-logo {
+    width: 34px;
+    height: 34px;
+    background: #0d0d1a;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.vp-gpn-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #0d0d1a;
+    letter-spacing: 0.1em;
+}
+
+/* Dark container for QR code with glow */
+.vp-qr-container {
+    width: 100%;
+    background: #0d0d1a;
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    min-height: 200px;
+}
+.vp-qr-glow {
+    position: absolute;
+    inset: 0;
+    border-radius: 12px;
+    background: radial-gradient(ellipse at center,
+        rgba(79, 107, 255, 0.18) 0%,
+        rgba(124, 79, 255, 0.12) 40%,
+        transparent 70%);
+    pointer-events: none;
+}
+.vp-qr-inner {
+    position: relative;
+    z-index: 1;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 0 30px rgba(79, 107, 255, 0.35), 0 0 60px rgba(124, 79, 255, 0.2);
+}
+
+.vp-scan-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #999;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin: 0;
+}
+
+/* ── Paid card ───────────────────────────────────────────────────────────────── */
+.vp-paid-card {
+    background: rgba(57,255,138,0.06);
+    border: 1px solid rgba(57,255,138,0.18);
+    border-radius: 20px;
+    padding: 28px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    text-align: center;
+}
+.vp-paid-icon { margin-bottom: 4px; }
+.vp-paid-title {
+    font-family: var(--font-display);
+    font-size: 28px;
+    letter-spacing: 1px;
+    color: var(--text-primary);
+}
+.vp-paid-method {
+    font-family: var(--font-body);
+    font-size: 11px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin: 0;
+}
+.vp-paid-date {
+    font-family: var(--font-body);
+    font-size: 11px;
+    color: var(--text-muted);
+    margin: 0;
+}
+.vp-view-ticket-btn {
+    margin-top: 10px;
+    display: inline-flex;
+    align-items: center;
+    padding: 11px 28px;
+    border-radius: 100px;
+    background: rgba(79,107,255,0.18);
+    color: #8aabff;
+    border: 1px solid rgba(79,107,255,0.3);
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: opacity 0.15s;
+}
+.vp-view-ticket-btn:hover { opacity: 0.85; }
+
+/* ── Total Payment ───────────────────────────────────────────────────────────── */
+.vp-total-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    text-align: center;
+}
+.vp-total-label {
+    font-family: var(--font-body);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+.vp-total-amount {
+    font-family: var(--font-display);
+    font-size: 40px;
+    letter-spacing: 1px;
+    color: var(--text-primary);
+    line-height: 1;
+}
+
+/* ── Save QR button ──────────────────────────────────────────────────────────── */
+.vp-save-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 16px 24px;
+    border-radius: 100px;
+    background: linear-gradient(135deg, #5b7cff 0%, #7c5fff 100%);
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border: none;
+    cursor: pointer;
+    transition: opacity 0.18s ease, transform 0.12s ease;
+}
+.vp-save-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+.vp-save-btn:active { transform: translateY(0); opacity: 1; }
+
+/* ── How to Pay card ─────────────────────────────────────────────────────────── */
+.vp-howto-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-soft);
+    border-radius: 18px;
+    padding: 18px 18px 20px;
+}
+.vp-howto-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    color: var(--text-primary);
+}
+.vp-howto-header svg { color: var(--text-secondary); }
+.vp-howto-title {
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.vp-howto-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.vp-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+.vp-step-num {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--accent-lime, #c8ff5e);
+    color: #0d0d1a;
+    font-size: 11px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+.vp-step-text {
+    font-family: var(--font-body);
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+    margin: 0;
+}
+.vp-step-italic { font-style: italic; }
+
+/* ── Secure footer ───────────────────────────────────────────────────────────── */
+.vp-secure-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    font-family: var(--font-body);
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    padding-bottom: 8px;
+}
+.vp-secure-footer svg { opacity: 0.5; }
+

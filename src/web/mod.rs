@@ -11,6 +11,7 @@ pub mod api;
 pub mod app;
 #[cfg(feature = "ssr")]
 pub mod assets;
+pub mod behavior;
 pub mod components;
 pub mod hooks;
 pub mod models;

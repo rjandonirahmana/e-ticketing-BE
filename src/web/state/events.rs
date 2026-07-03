@@ -58,14 +58,31 @@ pub(super) fn event_to_explore(e: &Event) -> ExploreEvent {
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
+/// Jumlah event per "halaman" (chunk) fetch. Explore memuat sebagian dulu, lalu
+/// "Muat lebih banyak" mengambil chunk berikutnya via LIMIT/OFFSET (page+1).
+pub const PAGE_SIZE: i64 = 20;
+
 #[derive(Clone, Copy)]
 pub struct EventsCtx {
     pub items: RwSignal<Vec<ExploreEvent>>,
     pub categories: RwSignal<Vec<String>>,
     pub loading: RwSignal<bool>,
+    /// True saat fetch chunk berikutnya (load_more) sedang berjalan.
+    pub loading_more: RwSignal<bool>,
+    /// True bila masih ada halaman berikutnya (page < total_pages).
+    pub has_more: RwSignal<bool>,
     pub error: RwSignal<String>,
+    /// Halaman terakhir yang sudah dimuat (mulai 1).
+    page: RwSignal<i64>,
+    /// Kategori aktif saat ini (untuk load_more mengikuti filter).
+    cur_cat: RwSignal<String>,
     // Cancels stale fetches when category changes rapidly.
     fetch_gen: RwSignal<u32>,
+}
+
+fn cat_to_opt(category: &str) -> Option<String> {
+    let c = if category == "All" { "" } else { category };
+    if c.is_empty() { None } else { Some(c.to_string()) }
 }
 
 impl EventsCtx {
@@ -73,12 +90,15 @@ impl EventsCtx {
         self.load_cat(String::new());
     }
 
+    /// Muat halaman PERTAMA untuk kategori (reset daftar).
     pub fn load_cat(&self, category: String) {
         if is_server() {
             return;
         }
-        leptos::logging::log!("[EventsStore] load_cat: category={:?}", category);
         self.loading.set(true);
+        self.error.set(String::new());
+        self.cur_cat.set(category.clone());
+        self.page.set(1);
 
         // Increment generation so any in-flight fetch from the previous
         // category becomes a no-op when it completes.
@@ -88,39 +108,72 @@ impl EventsCtx {
         let fetch_gen = self.fetch_gen;
         let items = self.items;
         let loading = self.loading;
+        let has_more = self.has_more;
         let error = self.error;
 
         spawn_local(async move {
-            let cat = if category == "All" { String::new() } else { category };
-            let cat_opt = if cat.is_empty() { None } else { Some(cat) };
-
-            leptos::logging::log!("[EventsStore] get_events fetch starting...");
+            let cat_opt = cat_to_opt(&category);
 
             // Race the server function against an 8-second safety timeout.
-            // Prevents infinite shimmer if the DB query hangs or network drops.
-            let fetch = get_events(Some(1), None, cat_opt, None, Some(40));
+            let fetch = get_events(Some(1), None, cat_opt, None, Some(PAGE_SIZE));
             let timeout = gloo_timers::future::TimeoutFuture::new(8_000);
-
             let result = futures::future::select(Box::pin(fetch), Box::pin(timeout)).await;
 
             match result {
                 futures::future::Either::Left((srv_result, _)) => {
-                    leptos::logging::log!("[EventsStore] get_events ok={}", srv_result.is_ok());
                     if fetch_gen.get_untracked() == gen {
                         match srv_result {
-                            Ok(res) => items.set(res.data.iter().map(event_to_explore).collect()),
+                            Ok(res) => {
+                                has_more.set(res.page < res.total_pages);
+                                items.set(res.data.iter().map(event_to_explore).collect());
+                            }
                             Err(e) => error.set(e.to_string()),
                         }
                     }
                 }
                 futures::future::Either::Right(_) => {
-                    leptos::logging::log!("[EventsStore] get_events TIMED OUT after 12s");
                     if fetch_gen.get_untracked() == gen {
                         error.set("Koneksi ke server habis waktu. Coba refresh.".to_string());
                     }
                 }
             }
             loading.set(false);
+        });
+    }
+
+    /// Muat halaman BERIKUTNYA (LIMIT/OFFSET) dan APPEND ke daftar.
+    pub fn load_more(&self) {
+        if is_server() {
+            return;
+        }
+        if self.loading.get_untracked()
+            || self.loading_more.get_untracked()
+            || !self.has_more.get_untracked()
+        {
+            return;
+        }
+        self.loading_more.set(true);
+        let next = self.page.get_untracked() + 1;
+        self.page.set(next);
+
+        let gen = self.fetch_gen.get_untracked(); // append hanya bila kategori tak berubah
+        let fetch_gen = self.fetch_gen;
+        let items = self.items;
+        let has_more = self.has_more;
+        let loading_more = self.loading_more;
+        let cat = self.cur_cat.get_untracked();
+
+        spawn_local(async move {
+            let cat_opt = cat_to_opt(&cat);
+            let res = get_events(Some(next), None, cat_opt, None, Some(PAGE_SIZE)).await;
+            if fetch_gen.get_untracked() == gen {
+                if let Ok(res) = res {
+                    has_more.set(res.page < res.total_pages);
+                    let mut more: Vec<_> = res.data.iter().map(event_to_explore).collect();
+                    items.update(|v| v.append(&mut more));
+                }
+            }
+            loading_more.set(false);
         });
     }
 }
@@ -133,7 +186,11 @@ pub fn provide_events_store() {
         // hydrates with the same initial state → no hydration mismatch.
         // ExplorePage's Effect triggers the actual fetch post-hydration.
         loading: RwSignal::new(true),
+        loading_more: RwSignal::new(false),
+        has_more: RwSignal::new(false),
         error: RwSignal::new(String::new()),
+        page: RwSignal::new(1),
+        cur_cat: RwSignal::new(String::new()),
         fetch_gen: RwSignal::new(0),
     };
 

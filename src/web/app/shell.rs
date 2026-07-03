@@ -209,13 +209,8 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                   // skrip ini yang meng-init-nya. Jalan di SSR-only maupun hydrate,
                   // dan saat navigasi SPA (lewat MutationObserver). Guard
                   // `data-map-init` mencegah init ganda.
-                  function autoInitMaps(){
-                    var ps = document.querySelectorAll('[data-map-picker]:not([data-map-init])');
-                    for(var i=0;i<ps.length;i++){ (function(el){
-                      el.setAttribute('data-map-init','1');
-                      if(!el._leaflet_id){ el.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-size:13px">Memuat peta…</div>'; }
-                      window.pulseMapPicker(el.id, el.getAttribute('data-lat-input'), el.getAttribute('data-lng-input'));
-                    })(ps[i]); }
+                  // VIEWER (peta read-only di halaman publik) → init langsung.
+                  function initViewers(){
                     var vs = document.querySelectorAll('[data-map-viewer]:not([data-map-init])');
                     for(var j=0;j<vs.length;j++){ (function(el){
                       el.setAttribute('data-map-init','1');
@@ -223,12 +218,28 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                         parseFloat(el.getAttribute('data-lng')), el.getAttribute('data-label')||'Lokasi');
                     })(vs[j]); }
                   }
-                  if(document.readyState!=='loading'){ autoInitMaps(); }
-                  else { document.addEventListener('DOMContentLoaded', autoInitMaps); }
+                  // PICKER (create/update event) — JANGAN di-init saat DOMContentLoaded:
+                  // kalau Leaflet mengisi div SEBELUM hydration WASM, Leptos menganggap
+                  // div itu "harusnya kosong" → mismatch → peta terhapus / hydration gagal.
+                  // Jadi picker di-init oleh Leptos Effect (post-hydration). Fungsi ini
+                  // hanya FALLBACK bila Effect gagal (mis. WASM tak load): jalan setelah
+                  // jeda, dan skip bila peta sudah dibuat Effect (_leaflet_id ada).
+                  function initPickersFallback(){
+                    var ps = document.querySelectorAll('[data-map-picker]:not([data-map-init])');
+                    for(var i=0;i<ps.length;i++){ (function(el){
+                      if(el._leaflet_id){ el.setAttribute('data-map-init','1'); return; }
+                      el.setAttribute('data-map-init','1');
+                      window.pulseMapPicker(el.id, el.getAttribute('data-lat-input'), el.getAttribute('data-lng-input'));
+                    })(ps[i]); }
+                  }
+                  function autoInitMaps(){ initViewers(); }
+                  function schedulePickers(){ setTimeout(initPickersFallback, 1200); }
+                  if(document.readyState!=='loading'){ autoInitMaps(); schedulePickers(); }
+                  else { document.addEventListener('DOMContentLoaded', function(){ autoInitMaps(); schedulePickers(); }); }
                   try{
                     var __mo=new MutationObserver(function(){
                       if(window.__mapT) return;
-                      window.__mapT=setTimeout(function(){ window.__mapT=null; autoInitMaps(); }, 100);
+                      window.__mapT=setTimeout(function(){ window.__mapT=null; autoInitMaps(); schedulePickers(); }, 100);
                     });
                     __mo.observe(document.documentElement, {childList:true, subtree:true});
                   }catch(e){}

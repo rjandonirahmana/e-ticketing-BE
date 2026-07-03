@@ -53,6 +53,85 @@ pub fn ExplorePage() -> impl IntoView {
         store.load_cat(cat);
     });
 
+    // Rekomendasi "Untuk Kamu" (tanpa perlu "like"):
+    //   1) Coba rekomendasi SERVER (user login) dari DB perilaku (user_affinity).
+    //   2) Fallback: kategori favorit dari localStorage (perilaku di device ini).
+    let rec_events = RwSignal::new(Vec::<crate::web::state::events::ExploreEvent>::new());
+    #[cfg(feature = "hydrate")]
+    Effect::new(move |_| {
+        spawn_local(async move {
+            // (1) Server-side (persisten, lintas-sesi untuk user login).
+            if let Ok(res) = crate::web::api::get_recommended_events().await {
+                if !res.data.is_empty() {
+                    rec_events.set(
+                        res.data
+                            .iter()
+                            .map(crate::web::state::events::event_to_explore_pub)
+                            .collect(),
+                    );
+                    return;
+                }
+            }
+            // (2) Fallback client-side (localStorage) untuk anonim / belum ada data.
+            let cats = crate::web::behavior::top_categories(1);
+            if let Some(cat) = cats.into_iter().next() {
+                if let Ok(res) =
+                    crate::web::api::get_events(Some(1), None, Some(cat), None, Some(10)).await
+                {
+                    rec_events.set(
+                        res.data
+                            .iter()
+                            .map(crate::web::state::events::event_to_explore_pub)
+                            .collect(),
+                    );
+                }
+            }
+        });
+    });
+
+    // Infinite scroll: pasang listener "scroll" di window. Saat jarak ke bawah
+    // dokumen < 700px, panggil load_more() (yang menaikkan OFFSET & append).
+    // load_more() sudah punya guard (loading/loading_more/has_more) → aman dipanggil
+    // berkali-kali tiap event scroll tanpa fetch ganda.
+    #[cfg(feature = "hydrate")]
+    {
+        let scroll_cb: StoredValue<Option<SendWrapper<Closure<dyn Fn()>>>> =
+            StoredValue::new(None);
+        Effect::new(move |_| {
+            let cb = Closure::<dyn Fn()>::new(move || {
+                let Some(win) = web_sys::window() else { return };
+                let inner_h = win.inner_height().ok().and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let scroll_y = win.scroll_y().unwrap_or(0.0);
+                let doc_h = win
+                    .document()
+                    .and_then(|d| d.document_element())
+                    .map(|e| e.scroll_height() as f64)
+                    .unwrap_or(0.0);
+                if doc_h - (scroll_y + inner_h) < 700.0 {
+                    store.load_more();
+                }
+            });
+            if let Some(win) = web_sys::window() {
+                let _ = win.add_event_listener_with_callback(
+                    "scroll",
+                    cb.as_ref().unchecked_ref(),
+                );
+            }
+            scroll_cb.set_value(Some(SendWrapper::new(cb)));
+        });
+        on_cleanup(move || {
+            if let Some(Some(cb)) = scroll_cb.try_update_value(|o| o.take()) {
+                if let Some(win) = web_sys::window() {
+                    let _ = win.remove_event_listener_with_callback(
+                        "scroll",
+                        cb.as_ref().unchecked_ref(),
+                    );
+                }
+                drop(cb);
+            }
+        });
+    }
+
     let close_gen = RwSignal::new(0u32);
 
     let open_overlay = move || {
@@ -310,6 +389,40 @@ pub fn ExplorePage() -> impl IntoView {
                 </div>
             </div>
 
+            // ── Untuk Kamu (rekomendasi implisit dari perilaku) ──────────────
+            {move || {
+                let list = rec_events.get();
+                (!list.is_empty()).then(|| {
+                    let cards = list.into_iter().take(10).map(|ev| {
+                        let href = format!("/events/{}", ev.slug);
+                        view! {
+                            <a href=href class="exp-fy-card">
+                                <div class="exp-fy-img-wrap">
+                                    <img src=ev.cover.clone() alt=ev.title.clone()
+                                        class="exp-fy-img" loading="lazy" />
+                                    {ev.is_live.then(|| view! {
+                                        <span class="exp-fy-live">"LIVE"</span>
+                                    })}
+                                </div>
+                                <div class="exp-fy-body">
+                                    <div class="exp-fy-title">{ev.title.clone()}</div>
+                                    <div class="exp-fy-price">{ev.price_str.clone()}</div>
+                                </div>
+                            </a>
+                        }
+                    }).collect_view();
+                    view! {
+                        <div class="exp-fy-section">
+                            <div class="exp-fy-head">
+                                <span class="exp-section-eyebrow">"REKOMENDASI"</span>
+                                <h2 class="exp-fy-title-h">"Untuk Kamu"</h2>
+                            </div>
+                            <div class="exp-fy-rail">{cards}</div>
+                        </div>
+                    }
+                })
+            }}
+
             <div class="exp-section-hdr-row">
                 <div class="exp-section-hdr-left">
                     <span class="exp-section-eyebrow">"TRENDING NOW"</span>
@@ -536,6 +649,20 @@ pub fn ExplorePage() -> impl IntoView {
                     }
                 }}
             </div>
+
+            // Auto-load (infinite scroll): saat load_more berjalan, tampilkan
+            // kartu shimmer (bukan spinner) — konsisten dgn loading awal. Scroll
+            // listener (Effect di atas) yang memicu load_more otomatis.
+            {move || (store.has_more.get() && store.loading_more.get()).then(|| {
+                let shims = (0..4)
+                    .map(|i| view! {
+                        <div class="exp-shimmer-wrap" style=format!("animation-delay:{}ms", i * 60)>
+                            <EventCardShimmer />
+                        </div>
+                    })
+                    .collect_view();
+                view! { <div class="exp-mkt-grid exp-mkt-grid--more">{shims}</div> }
+            })}
 
             <div class="exp-genre-section">
                 <span class="exp-section-eyebrow">"EXPLORE BY GENRE"</span>

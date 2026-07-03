@@ -1,0 +1,6 @@
+/* ===== merchant header fix (override agar judul tak wrap) ===== */
+.mhub-header { flex-wrap: wrap; gap: 10px; }
+.mhub-header-left { flex-shrink: 0; }
+.mhub-header-right { flex-wrap: wrap; justify-content: flex-end; }
+.mhub-header-title { white-space: nowrap; }
+

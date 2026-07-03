@@ -1,0 +1,19 @@
+/* ===== PiP draggable override ===== */
+/* ── PiP override: lebih kecil + draggable ────────────────────────────────── */
+.mlpip {
+    width: 150px;
+    max-width: 42vw;
+    cursor: move;
+    touch-action: none; /* drag di mobile tidak memicu scroll */
+    user-select: none;
+    -webkit-user-select: none;
+}
+.mlpip-video { cursor: move; }
+.mlpip-bar { cursor: move; }
+.mlpip-grip {
+    margin-left: auto;
+    opacity: 0.75;
+    font-size: 12px;
+    letter-spacing: -1px;
+}
+

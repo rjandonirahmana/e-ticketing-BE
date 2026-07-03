@@ -21,7 +21,9 @@ name = "e-ticketing"
 output-name = "e-ticketing"
 site-root = "target/site"
 site-pkg-dir = "pkg"
-style-file = "styles/tokens.css"
+# CSS asli app = styles/parts/*.css (digabung build.rs → /styles/app.css).
+# File ini cuma stub agar pipeline SASS cargo-leptos punya input valid.
+style-file = "styles/leptos.css"
 assets-dir = "public"
 site-addr = "0.0.0.0:3000"
 reload-port = 3001
