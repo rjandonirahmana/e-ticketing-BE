@@ -15,6 +15,7 @@ pub mod chat;
 pub mod admin;
 pub mod subscription;
 pub mod checkout;
+pub mod reco;
 
 pub use session::*;
 pub use auth::*;
@@ -30,3 +31,4 @@ pub use chat::*;
 pub use admin::*;
 pub use subscription::*;
 pub use checkout::*;
+pub use reco::*;

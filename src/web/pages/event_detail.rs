@@ -30,13 +30,20 @@ pub fn EventDetailPage() -> impl IntoView {
     // Event berkaitan: kategori sama; bila kategori kosong → fallback terbaru.
     let more_events = Resource::new(
         move || rel_cat.get(),
-        |cat| get_events(Some(1), None, cat, None, Some(9)),
+        |cat| get_events(Some(1), None, cat, None, Some(24)),
     );
     // Rekomendasi implisit (tanpa "like"): catat kategori event yang dibuka user
     // ke localStorage. Effect hanya jalan di client saat detail sudah termuat.
     Effect::new(move |_| {
         if let Some(Ok(ev)) = event_res.get() {
-            crate::web::behavior::record_view(&ev.category);
+            let cats = ev.category.clone();
+            // (a) Client: localStorage (jalan utk semua user, termasuk anonim).
+            crate::web::behavior::record_view(&cats);
+            // (b) Server: persist ke DB (user login) untuk rekomendasi lintas-sesi.
+            //     No-op diam-diam bila belum login.
+            leptos::task::spawn_local(async move {
+                let _ = crate::web::api::record_affinity(cats).await;
+            });
         }
     });
 
@@ -531,7 +538,6 @@ pub fn EventDetailPage() -> impl IntoView {
                                                     let cur = slug.get();
                                                     let cards = p.data.into_iter()
                                                         .filter(|e| e.slug != cur)
-                                                        .take(6)
                                                         .map(|e| {
                                                             let href = format!("/events/{}", e.slug);
                                                             let city = e.city.clone().unwrap_or_default();

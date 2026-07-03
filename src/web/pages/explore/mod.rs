@@ -53,14 +53,28 @@ pub fn ExplorePage() -> impl IntoView {
         store.load_cat(cat);
     });
 
-    // Rekomendasi implisit "Untuk Kamu": ambil kategori favorit user (dari
-    // perilaku browsing di localStorage, tanpa perlu "like") → fetch event-nya.
+    // Rekomendasi "Untuk Kamu" (tanpa perlu "like"):
+    //   1) Coba rekomendasi SERVER (user login) dari DB perilaku (user_affinity).
+    //   2) Fallback: kategori favorit dari localStorage (perilaku di device ini).
     let rec_events = RwSignal::new(Vec::<crate::web::state::events::ExploreEvent>::new());
     #[cfg(feature = "hydrate")]
     Effect::new(move |_| {
-        let cats = crate::web::behavior::top_categories(1);
-        if let Some(cat) = cats.into_iter().next() {
-            spawn_local(async move {
+        spawn_local(async move {
+            // (1) Server-side (persisten, lintas-sesi untuk user login).
+            if let Ok(res) = crate::web::api::get_recommended_events().await {
+                if !res.data.is_empty() {
+                    rec_events.set(
+                        res.data
+                            .iter()
+                            .map(crate::web::state::events::event_to_explore_pub)
+                            .collect(),
+                    );
+                    return;
+                }
+            }
+            // (2) Fallback client-side (localStorage) untuk anonim / belum ada data.
+            let cats = crate::web::behavior::top_categories(1);
+            if let Some(cat) = cats.into_iter().next() {
                 if let Ok(res) =
                     crate::web::api::get_events(Some(1), None, Some(cat), None, Some(10)).await
                 {
@@ -71,8 +85,8 @@ pub fn ExplorePage() -> impl IntoView {
                             .collect(),
                     );
                 }
-            });
-        }
+            }
+        });
     });
 
     // Infinite scroll: pasang listener "scroll" di window. Saat jarak ke bawah
