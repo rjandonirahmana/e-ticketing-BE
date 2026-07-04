@@ -64,6 +64,22 @@ pub fn provide_theme() {
                         let _ = html.set_attribute("data-theme", &current);
                     }
                 }
+                // Sinkronkan <meta name="theme-color"> (helper JS di shell.rs) agar
+                // warna chrome browser (address bar mobile) ikut tema.
+                {
+                    use wasm_bindgen::JsCast;
+                    if let Ok(f) = js_sys::Reflect::get(
+                        &win,
+                        &wasm_bindgen::JsValue::from_str("__setThemeColor"),
+                    ) {
+                        if let Ok(func) = f.dyn_into::<js_sys::Function>() {
+                            let _ = func.call1(
+                                &wasm_bindgen::JsValue::NULL,
+                                &wasm_bindgen::JsValue::from_str(&current),
+                            );
+                        }
+                    }
+                }
                 if let Ok(Some(storage)) = win.local_storage() {
                     let _ = storage.set_item("kinetic.theme", &current);
                 }

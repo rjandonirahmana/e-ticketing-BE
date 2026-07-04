@@ -170,9 +170,16 @@ async fn main() -> Result<()> {
     // ── Meet router (WebRTC P2P mesh + waiting room) ─────────────────────────
     let meet_api = meet_router(state.clone());
 
+    // ── Health check (untuk Docker HEALTHCHECK / pingora / uptime monitor) ───
+    // Sengaja tanpa query DB: liveness murah yang tak ikut tumbang saat DB
+    // sibuk. Kesehatan DB sudah diverifikasi fail-fast saat startup.
+    let health_router: axum::Router = axum::Router::new()
+        .route("/healthz", axum::routing::get(|| async { "ok" }));
+
     // ── WebSocket + REST API + CSS assets + SSR ───────────────────────────────
     let app = chat_router(ws_state, state.clone())
         .layer(cors)
+        .merge(health_router)
         .merge(e_ticketing::web::assets::router())
         .merge(upload_router)
         .merge(rest_api)

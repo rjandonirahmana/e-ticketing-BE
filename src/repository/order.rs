@@ -121,7 +121,7 @@ static STMT_INSERT_ORDER_IDEMPOTENCY: LazyLock<String> = LazyLock::new(|| {
                DO NOTHING
                RETURNING {0}, TRUE AS is_new
            )
-           SELECT * FROM ins
+           SELECT {0}, is_new FROM ins
            UNION ALL
            SELECT {0}, FALSE AS is_new
            FROM orders

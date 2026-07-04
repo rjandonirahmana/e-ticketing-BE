@@ -11,10 +11,17 @@ use leptos::prelude::*;
 #[cfg_attr(not(feature = "ssr"), allow(unused_imports))]
 use super::helpers::*;
 
-/// Catat perilaku: user membuka event dengan kategori `categories`. Skor tiap
-/// kategori di-upsert (+1). Aman dipanggil selalu — no-op bila tak login.
+/// Catat perilaku: user berinteraksi dengan event berkategori `categories`.
+/// `signal`: "view" (default) | "cart" | "purchase" — bobot naik sesuai kuatnya
+/// niat. Hanya menulis buffer in-memory (flush batch oleh AffinityService) —
+/// TIDAK ada round-trip DB di jalur request. No-op bila tak login.
 #[server(RecordAffinity, "/api-fn")]
-pub async fn record_affinity(categories: Vec<String>) -> Result<(), ServerFnError> {
+pub async fn record_affinity(
+    categories: Vec<String>,
+    signal: Option<String>,
+) -> Result<(), ServerFnError> {
+    use crate::service::affinity::AffinitySignal;
+
     // Diam-diam berhenti bila belum login (user anonim ditangani localStorage).
     let Ok(claims) = auth_claims().await else {
         return Ok(());
@@ -23,28 +30,13 @@ pub async fn record_affinity(categories: Vec<String>) -> Result<(), ServerFnErro
         return Ok(());
     }
     let state = app_state().await?;
-    let client = state
-        .pool
-        .get()
-        .await
-        .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })?;
-
-    for cat in categories.iter().take(3) {
-        let c = cat.trim().to_string();
-        if c.is_empty() {
-            continue;
-        }
-        // Upsert O(1): +1 pada kategori tsb; recency lewat updated_at.
-        let _ = client
-            .execute(
-                "INSERT INTO user_affinity (user_id, category, score, updated_at) \
-                 VALUES (decode($1,'hex'), $2, 1.0, NOW()) \
-                 ON CONFLICT (user_id, category) DO UPDATE \
-                   SET score = user_affinity.score + 1.0, updated_at = NOW()",
-                &[&claims.user_id, &c],
-            )
-            .await;
-    }
+    // "purchase" tak diterima dari client (bisa dipalsukan) — sinyal purchase
+    // dicatat server-side saat order benar-benar dibuat (checkout.rs).
+    let sig = match signal.as_deref() {
+        Some("cart") => AffinitySignal::Cart,
+        _ => AffinitySignal::View,
+    };
+    state.affinity_svc.record(&claims.user_id, &categories, sig);
     Ok(())
 }
 
@@ -71,11 +63,16 @@ pub async fn get_recommended_events() -> Result<PaginatedEvents, ServerFnError> 
         Err(_) => return Ok(empty()),
     };
 
-    // Kategori favorit user. Graceful: kalau tabel belum dimigrasi → kosong.
+    // Kategori favorit user, diurutkan skor TER-DECAY (minat lama memudar —
+    // konsisten dengan decay saat tulis di AffinityService).
+    // Graceful: kalau tabel belum dimigrasi → kosong.
     let row = match client
         .query_opt(
             "SELECT category FROM user_affinity WHERE user_id = decode($1,'hex') \
-             ORDER BY score DESC, updated_at DESC LIMIT 1",
+             ORDER BY score * POWER(0.977, \
+                 GREATEST(EXTRACT(EPOCH FROM (NOW() - updated_at)), 0) / 86400.0) DESC, \
+               updated_at DESC \
+             LIMIT 1",
             &[&claims.user_id],
         )
         .await

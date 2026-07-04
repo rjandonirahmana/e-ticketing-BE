@@ -1,3 +1,4 @@
+pub mod affinity; // behavior tracking (buffer in-memory + batch flush)
 pub mod auth;
 pub mod banners;
 pub mod event;

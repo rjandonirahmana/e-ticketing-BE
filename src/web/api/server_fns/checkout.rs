@@ -49,6 +49,13 @@ pub async fn create_order_cart(
         .await
         .map_err(map_app_error)?;
 
+    // Behavior: pembelian = sinyal minat terkuat (bobot 5). Dicatat server-side
+    // dari order asli (tak bisa dipalsukan client), background — checkout tidak
+    // menunggu.
+    state
+        .affinity_svc
+        .record_purchase(claims.user_id.clone(), order.id.clone());
+
     let order_ref = OrderRef {
         id: order.id.clone(),
         order_code: order.order_code.clone(),

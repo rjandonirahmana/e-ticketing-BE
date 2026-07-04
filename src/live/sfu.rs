@@ -18,6 +18,12 @@ const BUF_SIZE: usize = 65535;
 /// satu core CPU), tapi tetap bangun cukup sering untuk memproses command,
 /// menjalankan timer str0m, dan burst keyframe untuk penonton baru.
 const MAX_POLL_WAIT: Duration = Duration::from_millis(10);
+/// Timeout `recv_from` saat SFU benar-benar idle (tak ada room & peer): thread
+/// cukup bangun 4×/dtk untuk mengecek command, bukan 100×/dtk. Menghemat CPU
+/// 24/7 karena mayoritas waktu server TIDAK sedang ada siaran. Trade-off:
+/// command pertama (mis. CreateRoom saat merchant klik GO LIVE) menunggu
+/// maksimal 250 ms sekali — tak terasa untuk aksi manual.
+const IDLE_POLL_WAIT: Duration = Duration::from_millis(250);
 /// Tenggang sebelum peer yang berstatus ICE `Disconnected` benar-benar dibuang.
 /// `Disconnected` itu transien (bisa pulih ke `Connected`); membuang seketika
 /// memutus koneksi yang sebenarnya masih hidup.
@@ -204,11 +210,24 @@ impl SfuEngine {
 
         let mut cmd_rx = cmd_rx;
         let mut buf = vec![0u8; BUF_SIZE];
+        // Mode timeout socket saat ini (false = aktif 10 ms). Hanya panggil
+        // set_read_timeout saat mode BERUBAH, bukan tiap iterasi (hemat syscall).
+        let mut idle_mode = false;
 
         loop {
             engine.process_commands(&mut cmd_rx);
 
             engine.poll_all_peers(&event_tx);
+
+            // Adaptif: tanpa room & peer, tidur lebih lama di recv_from.
+            let want_idle = engine.peers.is_empty() && engine.rooms.is_empty();
+            if want_idle != idle_mode {
+                idle_mode = want_idle;
+                let wait = if idle_mode { IDLE_POLL_WAIT } else { MAX_POLL_WAIT };
+                if let Err(e) = engine.socket.set_read_timeout(Some(wait)) {
+                    tracing::warn!(error = %e, "SFU set_read_timeout gagal");
+                }
+            }
 
             engine.read_socket(&mut buf);
         }

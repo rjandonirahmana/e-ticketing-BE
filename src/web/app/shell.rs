@@ -4,6 +4,7 @@
 //! lalu me-mount `<App/>` yang sama untuk hydration (zero DOM mismatch → no FOUC).
 
 use leptos::prelude::*;
+use leptos::nonce::{provide_nonce, use_nonce};
 use leptos_meta::*;
 
 use super::router::App;
@@ -18,6 +19,12 @@ use super::router::App;
 ///    HTTP round-trip untuk CSS, tidak pernah 404, tidak perlu assets router.
 ///    Browser tetap bisa cache via ETag pada full-page response.
 pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
+    // CSP nonce: generate & provide via context. HydrationScripts/AutoReload &
+    // leptos_meta otomatis memakainya; tag inline manual di bawah menambah
+    // `nonce=use_nonce()`. CSP dikirim lewat <Meta http-equiv> — OPT-IN via env
+    // `ENABLE_CSP=1` (default OFF) agar bisa dites tanpa risiko blank page.
+    provide_nonce();
+    let csp_on = std::env::var("ENABLE_CSP").ok().as_deref() == Some("1");
     view! {
         <!DOCTYPE html>
         <html lang="id" data-theme="dark">
@@ -26,9 +33,25 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                 <meta name="viewport" content="width=device-width, initial-scale=1" />
                 <meta name="theme-color" content="#050814" />
 
+                // ── Content-Security-Policy (opt-in, nonce-based) ────────────
+                {csp_on.then(|| view! {
+                    <Meta
+                        http_equiv="Content-Security-Policy"
+                        content=move || use_nonce().map(|n| format!(
+                            "default-src 'self'; \
+                             script-src 'strict-dynamic' 'nonce-{n}' 'wasm-unsafe-eval'; \
+                             style-src 'self' 'nonce-{n}' https://fonts.googleapis.com; \
+                             font-src 'self' https://fonts.gstatic.com; \
+                             img-src * data: blob:; \
+                             connect-src 'self' ws: wss:; \
+                             base-uri 'self'; form-action 'self'; object-src 'none'"
+                        )).unwrap_or_default()
+                    />
+                })}
+
                 // ── Fix FOUC #1: Inline theme script ────────────────────────
                 // Synchronous/blocking — eksekusi sebelum CSS apapun di-parse.
-                <script inner_html=r#"(function(){try{var t=localStorage.getItem('kinetic.theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();"# />
+                <script nonce=use_nonce() inner_html=r#"(function(){try{var t=localStorage.getItem('kinetic.theme');var th=(t==='light'||t==='dark')?t:'dark';document.documentElement.setAttribute('data-theme',th);window.__setThemeColor=function(x){var m=document.querySelector('meta[name=theme-color]');if(m)m.setAttribute('content',x==='light'?'#ffffff':'#050814');};window.__setThemeColor(th);}catch(e){}})();"# />
 
                 // ── CSS: single cached external file ────────────────────────
                 // Render-blocking <link rel="stylesheet"> in <head> keeps the
@@ -53,15 +76,15 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                 // Leaflet di-self-host dari binary (bukan CDN unpkg) agar peta
                 // selalu ter-load — lihat web/assets.rs (serve_leaflet_js/css).
                 <link rel="stylesheet" href="/vendor/leaflet.css" />
-                <script src="/vendor/leaflet.js"></script>
+                <script src="/vendor/leaflet.js" nonce=use_nonce()></script>
                 // Style kustom: pin SVG (tanpa gambar eksternal) + tombol locate.
-                <style inner_html=r#"
+                <style nonce=use_nonce() inner_html=r#"
                 .leaflet-div-icon.pulse-pin{background:transparent;border:none;}
                 .pulse-pin svg{display:block;filter:drop-shadow(0 3px 4px rgba(0,0,0,.35));}
                 .pulse-locate{font-size:17px;font-weight:700;line-height:30px;text-align:center;}
                 .leaflet-container{font-family:var(--font-body,sans-serif);}
                 "# />
-                <script inner_html=r##"
+                <script nonce=use_nonce() inner_html=r##"
                 (function(){
                   window.__pulseMaps = window.__pulseMaps || {};
                   // Tiles OpenStreetMap resmi (paling andal & tak butuh API key).
@@ -233,13 +256,29 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                     })(ps[i]); }
                   }
                   function autoInitMaps(){ initViewers(); }
-                  function schedulePickers(){ setTimeout(initPickersFallback, 1200); }
-                  if(document.readyState!=='loading'){ autoInitMaps(); schedulePickers(); }
-                  else { document.addEventListener('DOMContentLoaded', function(){ autoInitMaps(); schedulePickers(); }); }
+                  // Fallback picker: jalan HANYA bila WASM gagal load (mismatch
+                  // hydration terhindar). Bila `window.__pulseHydrated` ter-set
+                  // (WASM jalan — lihat lib.rs hydrate()), Effect Leptos yang
+                  // meng-init picker, jadi fallback tak perlu bertindak.
+                  function schedulePickers(){
+                    setTimeout(function(){
+                      if(window.__pulseHydrated) return;   // WASM ada → biar Effect
+                      initPickersFallback();
+                    }, 1500);
+                  }
+                  function needsPicker(){ return !!document.querySelector('[data-map-picker]:not([data-map-init])'); }
+                  if(document.readyState!=='loading'){ autoInitMaps(); if(needsPicker()) schedulePickers(); }
+                  else { document.addEventListener('DOMContentLoaded', function(){ autoInitMaps(); if(needsPicker()) schedulePickers(); }); }
                   try{
                     var __mo=new MutationObserver(function(){
                       if(window.__mapT) return;
-                      window.__mapT=setTimeout(function(){ window.__mapT=null; autoInitMaps(); schedulePickers(); }, 100);
+                      window.__mapT=setTimeout(function(){
+                        window.__mapT=null;
+                        autoInitMaps();
+                        // Hanya jadwalkan fallback bila memang ada picker belum ter-init
+                        // → hindari akumulasi setTimeout tiap mutasi DOM (SPA).
+                        if(needsPicker()) schedulePickers();
+                      }, 120);
                     });
                     __mo.observe(document.documentElement, {childList:true, subtree:true});
                   }catch(e){}
@@ -271,7 +310,7 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                 // Hilang secara otomatis setelah WASM hydration selesai karena
                 // Leptos menggantikan/update DOM. Script inline ini jauh lebih
                 // cepat dari polling JS — tidak ada delay tambahan.
-                <style inner_html=r#"
+                <style nonce=use_nonce() inner_html=r#"
                 #hydration-loader{
                 position:fixed;top:0;left:0;right:0;height:2px;
                 background:linear-gradient(90deg,#c8ff5e,#4f6bff);
@@ -284,7 +323,7 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                 100%{transform:scaleX(0) translateX(100%)}
                 }
                 "# />
-                <script inner_html=r#"
+                <script nonce=use_nonce() inner_html=r#"
                 (function(){
                 var bar = document.createElement('div');
                 bar.id = 'hydration-loader';

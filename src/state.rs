@@ -12,6 +12,7 @@ use crate::repository::{
     order::PgOrderRepository, story::PgStoryRepository, ticket::PgTicketRepository,
     user::PgUserRepository,
 };
+use crate::service::affinity::AffinityService;
 use crate::service::norifications::NotificationService;
 use crate::service::notification_store::NotificationStoreService;
 use crate::service::{
@@ -41,6 +42,10 @@ pub struct PublicCache {
     pub events: Cache<String, crate::web::models::PaginatedEvents>,
     /// Key: event slug. 60 s TTL — event detail jarang berubah.
     pub event_detail: Cache<String, crate::web::models::EventWithVariants>,
+    /// Respons JSON REST publik (/api/events*, /api/banners) yang SUDAH
+    /// terserialisasi, sebagai `Bytes` (clone murah, langsung jadi body).
+    /// Tanpa ini setiap request REST = query DB + serialisasi ulang.
+    pub rest: Cache<String, bytes::Bytes>,
 }
 
 impl PublicCache {
@@ -61,6 +66,10 @@ impl PublicCache {
             event_detail: Cache::builder()
                 .max_capacity(512)
                 .time_to_live(Duration::from_secs(60))
+                .build(),
+            rest: Cache::builder()
+                .max_capacity(1024)
+                .time_to_live(Duration::from_secs(30))
                 .build(),
         }
     }
@@ -90,6 +99,8 @@ pub struct AppState {
     pub live_svc: Arc<LiveStreamService>,
     /// Meet service (konferensi P2P mesh, signaling + waiting room).
     pub meet_svc: Arc<MeetService>,
+    /// Behavior tracking (afinitas kategori): buffer in-memory + batch flush.
+    pub affinity_svc: Arc<AffinityService>,
     /// CPU/RAM efektif VPS + plafon turunannya (deteksi saat start).
     pub capacity: crate::utils::capacity::Capacity,
 }
@@ -176,6 +187,7 @@ impl AppState {
             .unwrap_or_else(|_| "0.0.0.0:4000".parse().expect("default SFU addr"));
         let live_svc = LiveStreamService::new(sfu_addr);
         let meet_svc = MeetService::new();
+        let affinity_svc = AffinityService::new(pool.clone());
 
         Self {
             pool,
@@ -195,6 +207,7 @@ impl AppState {
             pub_cache: Arc::new(PublicCache::new()),
             live_svc,
             meet_svc,
+            affinity_svc,
             capacity,
         }
     }

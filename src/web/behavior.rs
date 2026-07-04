@@ -21,6 +21,13 @@ const DECAY: f64 = 0.92;
 /// Catat bahwa user membuka event dengan kategori `categories`.
 /// Semua skor di-decay, lalu kategori yang dilihat ditambah +1.
 pub fn record_view(categories: &[String]) {
+    record_signal(categories, 1.0);
+}
+
+/// Catat sinyal minat dengan bobot eksplisit: view=1, add-to-cart=3
+/// (memilih produk = niat lebih kuat dari sekadar membuka halaman).
+/// Semua skor di-decay dulu, lalu kategori terkait ditambah `weight`.
+pub fn record_signal(categories: &[String], weight: f64) {
     #[cfg(target_arch = "wasm32")]
     {
         use std::collections::BTreeMap;
@@ -35,7 +42,7 @@ pub fn record_view(categories: &[String]) {
             if c.is_empty() {
                 continue;
             }
-            *map.entry(c.to_string()).or_insert(0.0) += 1.0;
+            *map.entry(c.to_string()).or_insert(0.0) += weight;
         }
         // Buang skor yang sudah terlalu kecil agar map tak membengkak.
         map.retain(|_, v| *v > 0.05);
@@ -46,7 +53,7 @@ pub fn record_view(categories: &[String]) {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = categories;
+        let _ = (categories, weight);
     }
 }
 

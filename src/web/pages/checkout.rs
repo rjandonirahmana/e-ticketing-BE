@@ -154,10 +154,14 @@ pub fn CheckoutPage() -> impl IntoView {
                         paying.set(false);
                         nav("/payment-success", Default::default());
                     } else {
+                        // Order pending → langsung ke halaman ORDER DETAIL yang
+                        // sudah siap bayar (QR QRIS + panduan + tombol konfirmasi),
+                        // bukan halaman ringkasan generik /order-created.
+                        let oid = order.id.clone();
                         pending_order_sig.set(Some(order));
                         items_sig.set(vec![]);
                         paying.set(false);
-                        nav("/order-created", Default::default());
+                        nav(&format!("/orders/{oid}"), Default::default());
                     }
                 }
                 Err(e) => {
