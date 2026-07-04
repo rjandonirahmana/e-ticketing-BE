@@ -89,10 +89,13 @@ pub fn ExplorePage() -> impl IntoView {
         });
     });
 
-    // Infinite scroll: pasang listener "scroll" di window. Saat jarak ke bawah
-    // dokumen < 700px, panggil load_more() (yang menaikkan OFFSET & append).
-    // load_more() sudah punya guard (loading/loading_more/has_more) → aman dipanggil
-    // berkali-kali tiap event scroll tanpa fetch ganda.
+    // Infinite scroll: pasang listener "scroll" di window. Prefetch dimulai
+    // ~2.5 layar sebelum ujung dokumen — cukup jauh agar fetch selesai SEBELUM
+    // user tiba di bawah (shimmer nyaris tak pernah terlihat pada scroll
+    // normal; dulu 700px fixed → flick cepat selalu menabrak shimmer selama
+    // network round-trip). load_more() sudah punya guard
+    // (loading/loading_more/has_more) → aman dipanggil berkali-kali tiap event
+    // scroll tanpa fetch ganda.
     #[cfg(feature = "hydrate")]
     {
         let scroll_cb: StoredValue<Option<SendWrapper<Closure<dyn Fn()>>>> =
@@ -107,7 +110,9 @@ pub fn ExplorePage() -> impl IntoView {
                     .and_then(|d| d.document_element())
                     .map(|e| e.scroll_height() as f64)
                     .unwrap_or(0.0);
-                if doc_h - (scroll_y + inner_h) < 700.0 {
+                // Ambang relatif viewport (min. 1200px utk layar pendek).
+                let threshold = (inner_h * 2.5).max(1200.0);
+                if doc_h - (scroll_y + inner_h) < threshold {
                     store.load_more();
                 }
             });
@@ -392,41 +397,50 @@ pub fn ExplorePage() -> impl IntoView {
             // ── Untuk Kamu (rekomendasi implisit dari perilaku) ──────────────
             {move || {
                 let list = rec_events.get();
-                (!list.is_empty()).then(|| {
-                    let cards = list.into_iter().take(10).map(|ev| {
-                        let href = format!("/events/{}", ev.slug);
+                (!list.is_empty())
+                    .then(|| {
+                        let cards = list
+                            .into_iter()
+                            .take(10)
+                            .map(|ev| {
+                                let href = format!("/events/{}", ev.slug);
+                                view! {
+                                    <a href=href class="exp-fy-card">
+                                        <div class="exp-fy-img-wrap">
+                                            <img
+                                                src=ev.cover.clone()
+                                                alt=ev.title.clone()
+                                                class="exp-fy-img"
+                                                loading="lazy"
+                                            />
+                                            {ev
+                                                .is_live
+                                                .then(|| view! { <span class="exp-fy-live">"LIVE"</span> })}
+                                        </div>
+                                        <div class="exp-fy-body">
+                                            <div class="exp-fy-title">{ev.title.clone()}</div>
+                                            <div class="exp-fy-price">{ev.price_str.clone()}</div>
+                                        </div>
+                                    </a>
+                                }
+                            })
+                            .collect_view();
                         view! {
-                            <a href=href class="exp-fy-card">
-                                <div class="exp-fy-img-wrap">
-                                    <img src=ev.cover.clone() alt=ev.title.clone()
-                                        class="exp-fy-img" loading="lazy" />
-                                    {ev.is_live.then(|| view! {
-                                        <span class="exp-fy-live">"LIVE"</span>
-                                    })}
+                            <div class="exp-fy-section">
+                                <div class="exp-fy-head">
+                                    <span class="exp-section-eyebrow">"REKOMENDASI"</span>
+                                    <h2 class="exp-fy-title-h">"Untuk Kamu"</h2>
                                 </div>
-                                <div class="exp-fy-body">
-                                    <div class="exp-fy-title">{ev.title.clone()}</div>
-                                    <div class="exp-fy-price">{ev.price_str.clone()}</div>
-                                </div>
-                            </a>
-                        }
-                    }).collect_view();
-                    view! {
-                        <div class="exp-fy-section">
-                            <div class="exp-fy-head">
-                                <span class="exp-section-eyebrow">"REKOMENDASI"</span>
-                                <h2 class="exp-fy-title-h">"Untuk Kamu"</h2>
+                                <div class="exp-fy-rail">{cards}</div>
                             </div>
-                            <div class="exp-fy-rail">{cards}</div>
-                        </div>
-                    }
-                })
+                        }
+                    })
             }}
 
             <div class="exp-section-hdr-row">
                 <div class="exp-section-hdr-left">
                     <span class="exp-section-eyebrow">"TRENDING NOW"</span>
-                    <h2 class="exp-section-title">"Live Events"</h2>
+                    <h2 class="exp-section-title">"Story Events"</h2>
                 </div>
                 <A href="/events" attr:class="exp-view-all">
                     "View All →"
@@ -468,7 +482,16 @@ pub fn ExplorePage() -> impl IntoView {
                 <div class="exp-results-left">
                     <span class="exp-results-eyebrow">"Acara Tersedia"</span>
                     <span class="exp-results-count">
-                        {move || filtered.with(|f| f.len())} " acara tersedia"
+                        // TOTAL dari COUNT server (semua halaman), bukan jumlah
+                        // item yang baru termuat. Saat user mengetik pencarian
+                        // (filter lokal), tampilkan jumlah hasil filter itu.
+                        {move || {
+                            if query.get().trim().is_empty() {
+                                store.total.get().max(0)
+                            } else {
+                                filtered.with(|f| f.len()) as i64
+                            }
+                        }} " acara tersedia"
                     </span>
                 </div>
                 <div class="exp-results-right">
@@ -531,7 +554,7 @@ pub fn ExplorePage() -> impl IntoView {
                                 </button>
                             </div>
                         }
-                        .into_any()
+                            .into_any()
                     } else {
                         let list = filtered.get();
                         if list.is_empty() {
@@ -552,7 +575,8 @@ pub fn ExplorePage() -> impl IntoView {
                             }
                                 .into_any()
                         } else {
-                            let cards = list.into_iter()
+                            let cards = list
+                                .into_iter()
                                 .enumerate()
                                 .map(|(i, ev)| {
                                     let href = format!("/events/{}", ev.slug);
@@ -569,12 +593,21 @@ pub fn ExplorePage() -> impl IntoView {
                                         "Baru".to_string()
                                     };
                                     let is_free = ev.price <= 0;
-                                    let price_disp = if is_free { "Gratis".to_string() } else { ev.price_str.clone() };
+                                    let price_disp = if is_free {
+                                        "Gratis".to_string()
+                                    } else {
+                                        ev.price_str.clone()
+                                    };
                                     view! {
                                         <a
                                             href=href
                                             class="exp-mkt-card exp-cascade"
-                                            style=format!("--i:{}", i)
+                                            // Delay cascade relatif CHUNK (bukan index
+                                            // global) + cap 5: tanpa ini kartu hasil
+                                            // load_more (index 20, 21, …) tak terlihat
+                                            // 1,4 dtk+ (opacity 0 menunggu delay) —
+                                            // itulah "transisi shimmer → data lambat".
+                                            style=format!("--i:{}", (i % 20).min(5))
                                         >
                                             <div class="exp-mkt-img-wrap">
                                                 <img
@@ -583,24 +616,34 @@ pub fn ExplorePage() -> impl IntoView {
                                                     class="exp-mkt-img"
                                                     loading="lazy"
                                                 />
-                                                {ev.is_live.then(|| view! {
-                                                    <span class="exp-mkt-live">
-                                                        <span class="exp-mkt-live-dot"></span>
-                                                        "LIVE"
-                                                    </span>
-                                                })}
+                                                {ev
+                                                    .is_live
+                                                    .then(|| {
+                                                        view! {
+                                                            <span class="exp-mkt-live">
+                                                                <span class="exp-mkt-live-dot"></span>
+                                                                "LIVE"
+                                                            </span>
+                                                        }
+                                                    })}
                                             </div>
                                             <div class="exp-mkt-body">
-                                                {(!cat.is_empty()).then(|| view! {
-                                                    <span class="exp-mkt-merchant">{cat.clone()}</span>
-                                                })}
-                                                <h3 class="exp-mkt-title">{ev.title.clone()}</h3>
+                                                {(!cat.is_empty())
+                                                    .then(|| {
+                                                        view! {
+                                                            <span class="exp-mkt-merchant">{cat.clone()}</span>
+                                                        }
+                                                    })} <h3 class="exp-mkt-title">{ev.title.clone()}</h3>
                                                 <div class="exp-mkt-meta">
                                                     <span class="exp-mkt-meta-row">
                                                         <svg
-                                                            width="12" height="12" viewBox="0 0 24 24"
-                                                            fill="none" stroke="currentColor"
-                                                            stroke-width="2" stroke-linecap="round"
+                                                            width="12"
+                                                            height="12"
+                                                            viewBox="0 0 24 24"
+                                                            fill="none"
+                                                            stroke="currentColor"
+                                                            stroke-width="2"
+                                                            stroke-linecap="round"
                                                             stroke-linejoin="round"
                                                         >
                                                             <rect x="3" y="4" width="18" height="18" rx="2" />
@@ -610,30 +653,38 @@ pub fn ExplorePage() -> impl IntoView {
                                                         </svg>
                                                         {ev.date.clone()}
                                                     </span>
-                                                    {(!loc.is_empty()).then(|| view! {
-                                                        <span class="exp-mkt-meta-row">
-                                                            <svg
-                                                                width="12" height="12" viewBox="0 0 24 24"
-                                                                fill="none" stroke="currentColor"
-                                                                stroke-width="2" stroke-linecap="round"
-                                                                stroke-linejoin="round"
-                                                            >
-                                                                <path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0118 0z" />
-                                                                <circle cx="12" cy="10" r="3" />
-                                                            </svg>
-                                                            {loc.clone()}
-                                                        </span>
-                                                    })}
-                                                </div>
-                                                <div class="exp-mkt-price-block">
+                                                    {(!loc.is_empty())
+                                                        .then(|| {
+                                                            view! {
+                                                                <span class="exp-mkt-meta-row">
+                                                                    <svg
+                                                                        width="12"
+                                                                        height="12"
+                                                                        viewBox="0 0 24 24"
+                                                                        fill="none"
+                                                                        stroke="currentColor"
+                                                                        stroke-width="2"
+                                                                        stroke-linecap="round"
+                                                                        stroke-linejoin="round"
+                                                                    >
+                                                                        <path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0118 0z" />
+                                                                        <circle cx="12" cy="10" r="3" />
+                                                                    </svg>
+                                                                    {loc.clone()}
+                                                                </span>
+                                                            }
+                                                        })}
+                                                </div> <div class="exp-mkt-price-block">
                                                     <span class="exp-mkt-from">"Mulai Dari"</span>
                                                     <span class="exp-mkt-price">{price_disp}</span>
-                                                </div>
-                                                <div class="exp-mkt-foot">
+                                                </div> <div class="exp-mkt-foot">
                                                     <svg
                                                         class="exp-mkt-star"
-                                                        width="13" height="13" viewBox="0 0 24 24"
-                                                        fill="currentColor" stroke="none"
+                                                        width="13"
+                                                        height="13"
+                                                        viewBox="0 0 24 24"
+                                                        fill="currentColor"
+                                                        stroke="none"
                                                     >
                                                         <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
                                                     </svg>
@@ -644,25 +695,29 @@ pub fn ExplorePage() -> impl IntoView {
                                     }
                                 })
                                 .collect_view();
-                            view! { <div class="exp-mkt-grid">{cards}</div> }.into_any()
+                            let shims = store
+                                .loading_more
+                                .get()
+                                .then(|| {
+                                    (0..4)
+                                        .map(|_| {
+                                            // Shimmer load_more menyatu di grid yang SAMA
+                                            // (bukan grid terpisah di bawah) — kartu shimmer
+                                            // langsung tergantikan data di posisinya, sama
+                                            // seperti "Event Berkaitan" di detail event.
+                                            view! {
+                                                <div class="exp-shimmer-wrap">
+                                                    <EventCardShimmer />
+                                                </div>
+                                            }
+                                        })
+                                        .collect_view()
+                                });
+                            view! { <div class="exp-mkt-grid">{cards}{shims}</div> }.into_any()
                         }
                     }
                 }}
             </div>
-
-            // Auto-load (infinite scroll): saat load_more berjalan, tampilkan
-            // kartu shimmer (bukan spinner) — konsisten dgn loading awal. Scroll
-            // listener (Effect di atas) yang memicu load_more otomatis.
-            {move || (store.has_more.get() && store.loading_more.get()).then(|| {
-                let shims = (0..4)
-                    .map(|i| view! {
-                        <div class="exp-shimmer-wrap" style=format!("animation-delay:{}ms", i * 60)>
-                            <EventCardShimmer />
-                        </div>
-                    })
-                    .collect_view();
-                view! { <div class="exp-mkt-grid exp-mkt-grid--more">{shims}</div> }
-            })}
 
             <div class="exp-genre-section">
                 <span class="exp-section-eyebrow">"EXPLORE BY GENRE"</span>

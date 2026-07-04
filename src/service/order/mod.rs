@@ -348,17 +348,17 @@ impl OrderService {
     // ── Detail ────────────────────────────────────────────────────────────────
 
     pub async fn detail(&self, order_id: &str, viewer_id: &str) -> AppResult<OrderDetailResponse> {
-        let order = self
-            .repo
-            .find_by_id(order_id)
-            .await?
-            .ok_or_else(|| AppError::NotFound("Order not found".into()))?;
+        // Order & items independen secara data → ambil paralel (1 latensi,
+        // bukan 2 berurutan). Cek kepemilikan tetap dilakukan SEBELUM data
+        // dikembalikan — items tak pernah bocor ke viewer yang salah.
+        let (order, items) =
+            tokio::try_join!(self.repo.find_by_id(order_id), self.repo.list_items(order_id))?;
+        let order = order.ok_or_else(|| AppError::NotFound("Order not found".into()))?;
 
         if order.customer_id != viewer_id {
             return Err(AppError::Forbidden("Not your order".into()));
         }
 
-        let items = self.repo.list_items(order_id).await?;
         Ok(build_detail_response(order, items))
     }
 

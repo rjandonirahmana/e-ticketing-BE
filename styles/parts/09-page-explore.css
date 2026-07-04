@@ -38,7 +38,16 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 0 20px 18px;
+    padding: 10px 20px 12px;
+    /* Menempel di atas viewport saat scroll: tombol search selalu terjangkau
+       tanpa harus kembali ke atas. Di bawah bottom-nav (100) & search overlay
+       (300), di atas kartu/section (≤50). */
+    position: sticky;
+    top: 0;
+    z-index: 90;
+    background: var(--bg-page);
+    /* Garis halus saat menempel agar terpisah dari konten yang lewat. */
+    box-shadow: 0 1px 0 var(--border-soft);
 }
 
 .exp-searchbar {

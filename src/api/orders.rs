@@ -97,6 +97,11 @@ async fn create_order(
     let is_premium = state.story_svc.is_premium(&claims.user_id).await.unwrap_or(false);
     let order = state.order_svc.create(&claims.user_id, req, is_premium).await.map_err(app_err)?;
 
+    // Behavior: pembelian = sinyal minat terkuat (bobot 5), dicatat background.
+    state
+        .affinity_svc
+        .record_purchase(claims.user_id.clone(), order.id.clone());
+
     Ok(Json(serde_json::json!({
         "order": {
             "id": order.id,

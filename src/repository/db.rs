@@ -130,25 +130,37 @@ fn format_pg_error(e: &tokio_postgres::Error, query: &str) -> anyhow::Error {
 
 /// Run a query that returns no rows (INSERT/UPDATE/DELETE).
 /// Returns the number of rows affected.
+///
+/// Statement di-prepare lewat cache per-koneksi deadpool (`prepare_cached`):
+/// query panas yang sama tidak lagi membayar round-trip parse+describe setiap
+/// panggilan — Postgres tinggal Bind+Execute statement yang sudah tersimpan.
 pub async fn exec_drop(
     pool: &Pool,
     query: &str,
     params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
 ) -> Result<u64> {
     let conn = get_conn(pool).await?;
-    conn.execute(query, params)
+    let stmt = conn
+        .prepare_cached(query)
+        .await
+        .map_err(|e| format_pg_error(&e, query))?;
+    conn.execute(&stmt, params)
         .await
         .map_err(|e| format_pg_error(&e, query))
 }
 
-/// Run a query and return all rows.
+/// Run a query and return all rows. Pakai statement cache (lihat `exec_drop`).
 pub async fn exec_rows(
     pool: &Pool,
     query: &str,
     params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
 ) -> Result<Vec<Row>> {
     let conn = get_conn(pool).await?;
-    conn.query(query, params)
+    let stmt = conn
+        .prepare_cached(query)
+        .await
+        .map_err(|e| format_pg_error(&e, query))?;
+    conn.query(&stmt, params)
         .await
         .map_err(|e| format_pg_error(&e, query))
 }

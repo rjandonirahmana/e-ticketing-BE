@@ -71,6 +71,9 @@ pub struct EventsCtx {
     pub loading_more: RwSignal<bool>,
     /// True bila masih ada halaman berikutnya (page < total_pages).
     pub has_more: RwSignal<bool>,
+    /// TOTAL acara di server untuk filter aktif (dari COUNT query, bukan
+    /// jumlah item yang sudah termuat) — untuk label "N acara tersedia".
+    pub total: RwSignal<i64>,
     pub error: RwSignal<String>,
     /// Halaman terakhir yang sudah dimuat (mulai 1).
     page: RwSignal<i64>,
@@ -109,6 +112,7 @@ impl EventsCtx {
         let items = self.items;
         let loading = self.loading;
         let has_more = self.has_more;
+        let total = self.total;
         let error = self.error;
 
         spawn_local(async move {
@@ -125,6 +129,7 @@ impl EventsCtx {
                         match srv_result {
                             Ok(res) => {
                                 has_more.set(res.page < res.total_pages);
+                                total.set(res.total);
                                 items.set(res.data.iter().map(event_to_explore).collect());
                             }
                             Err(e) => error.set(e.to_string()),
@@ -160,6 +165,7 @@ impl EventsCtx {
         let fetch_gen = self.fetch_gen;
         let items = self.items;
         let has_more = self.has_more;
+        let total = self.total;
         let loading_more = self.loading_more;
         let cat = self.cur_cat.get_untracked();
 
@@ -169,6 +175,7 @@ impl EventsCtx {
             if fetch_gen.get_untracked() == gen {
                 if let Ok(res) = res {
                     has_more.set(res.page < res.total_pages);
+                    total.set(res.total);
                     let mut more: Vec<_> = res.data.iter().map(event_to_explore).collect();
                     items.update(|v| v.append(&mut more));
                 }
@@ -188,6 +195,7 @@ pub fn provide_events_store() {
         loading: RwSignal::new(true),
         loading_more: RwSignal::new(false),
         has_more: RwSignal::new(false),
+        total: RwSignal::new(0),
         error: RwSignal::new(String::new()),
         page: RwSignal::new(1),
         cur_cat: RwSignal::new(String::new()),

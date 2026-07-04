@@ -51,6 +51,17 @@ pub fn hydrate() {
     use web::app::App;
     console_error_panic_hook::set_once();
 
+    // Tandai WASM sudah jalan → fallback JS peta (shell.rs) tahu tak perlu
+    // meng-init picker sendiri (Effect Leptos yang menangani, post-hydration).
+    // Ini menutup race: fallback hanya bertindak bila WASM BENAR-BENAR gagal load.
+    if let Some(win) = web_sys::window() {
+        let _ = js_sys::Reflect::set(
+            &win,
+            &wasm_bindgen::JsValue::from_str("__pulseHydrated"),
+            &wasm_bindgen::JsValue::TRUE,
+        );
+    }
+
     // True hydration: attach event listener & signals ke DOM yang sudah
     // di-render server. Jangan clear body — struktur DOM harus identik.
     leptos::mount::hydrate_body(App);

@@ -31,18 +31,22 @@ browserquery = "defaults"
 env = "DEV"
 bin-features = ["ssr"]
 lib-features = ["hydrate"]
+# Bundle WASM release memakai profil size-opt terpisah; binary server tetap
+# full-speed lewat [profile.release] biasa.
+lib-profile-release = "wasm-release"
 
 # ── Features ───────────────────────────────────────────────────────────────────
 [features]
 default = ["ssr"]
 ssr = [
     "leptos/ssr",
+    "leptos/nonce",
     "leptos_meta/ssr",
     "leptos_router/ssr",
     "dep:leptos_axum",
     "dep:urlencoding",
 ]
-hydrate = ["leptos/hydrate"]
+hydrate = ["leptos/hydrate", "leptos/nonce"]
 
 # ── Shared deps (dikompilasi untuk SEMUA target: native SSR + WASM) ────────────
 # ATURAN: jangan taruh dep yang menarik tokio/mio/axum di sini.
@@ -253,5 +257,11 @@ lto = "thin"
 codegen-units = 1
 strip = "symbols"
 
-[profile.release.package.e-ticketing]
+# Profil khusus bundle WASM (dipakai via `lib-profile-release` di metadata
+# leptos): optimalkan UKURAN agar download+hydration cepat. JANGAN pakai
+# `[profile.release.package.e-ticketing] opt-level="z"` — override per-package
+# ikut mengenai BINARY SERVER native, membuat kode terpanas (handler, SQL,
+# serialisasi) terkompilasi untuk size alih-alih speed.
+[profile.wasm-release]
+inherits = "release"
 opt-level = "z"

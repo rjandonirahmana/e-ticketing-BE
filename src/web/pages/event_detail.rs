@@ -27,11 +27,91 @@ pub fn EventDetailPage() -> impl IntoView {
             .and_then(|r| r.ok())
             .and_then(|ev| ev.category.first().cloned())
     });
-    // Event berkaitan: kategori sama; bila kategori kosong → fallback terbaru.
-    let more_events = Resource::new(
-        move || rel_cat.get(),
-        |cat| get_events(Some(1), None, cat, None, Some(24)),
-    );
+    // ── Event Berkaitan: daftar inkremental (LIMIT/OFFSET) ────────────────────
+    // Dulu fetch 24 item sekaligus. Sekarang chunk kecil per halaman
+    // (page/per_page get_events = LIMIT/OFFSET di DB); chunk berikutnya diminta
+    // otomatis saat user scroll mendekati ujung halaman.
+    const REL_PAGE_SIZE: i64 = 12;
+    let rel_items: RwSignal<Vec<crate::web::models::Event>> = RwSignal::new(Vec::new());
+    let rel_page = RwSignal::new(1i64);
+    let rel_has_more = RwSignal::new(false);
+    let rel_loading = RwSignal::new(false);
+
+    // Muat satu halaman berikutnya & APPEND. Guard rangkap (loading/has_more)
+    // agar aman dipanggil bertubi-tubi dari event scroll tanpa fetch ganda.
+    let load_rel = move || {
+        if rel_loading.get_untracked() {
+            return;
+        }
+        let next = rel_page.get_untracked();
+        if next > 1 && !rel_has_more.get_untracked() {
+            return;
+        }
+        rel_loading.set(true);
+        let cat = rel_cat.get_untracked();
+        leptos::task::spawn_local(async move {
+            if let Ok(res) = get_events(Some(next), None, cat, None, Some(REL_PAGE_SIZE)).await {
+                rel_has_more.set(res.page < res.total_pages);
+                rel_page.set(next + 1);
+                rel_items.update(|v| v.extend(res.data));
+            }
+            rel_loading.set(false);
+        });
+    };
+
+    // Reset + muat halaman pertama begitu detail event termuat / slug berganti.
+    Effect::new(move |_| {
+        if event_res.get().map(|r| r.is_ok()) != Some(true) {
+            return;
+        }
+        let _ = rel_cat.get(); // ikut re-run bila kategori (slug) berubah
+        rel_items.set(Vec::new());
+        rel_page.set(1);
+        rel_has_more.set(false);
+        load_rel();
+    });
+
+    // Infinite scroll: mulai prefetch ~2.5 layar sebelum ujung dokumen supaya
+    // data tiba sebelum user sampai di bawah (sama seperti Explore).
+    #[cfg(feature = "hydrate")]
+    {
+        use send_wrapper::SendWrapper;
+        use wasm_bindgen::prelude::*;
+        use wasm_bindgen::JsCast;
+
+        let scroll_cb: StoredValue<Option<SendWrapper<Closure<dyn Fn()>>>> =
+            StoredValue::new(None);
+        Effect::new(move |_| {
+            let cb = Closure::<dyn Fn()>::new(move || {
+                let Some(win) = web_sys::window() else { return };
+                let inner_h = win.inner_height().ok().and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let scroll_y = win.scroll_y().unwrap_or(0.0);
+                let doc_h = win
+                    .document()
+                    .and_then(|d| d.document_element())
+                    .map(|e| e.scroll_height() as f64)
+                    .unwrap_or(0.0);
+                let threshold = (inner_h * 2.5).max(1200.0);
+                if doc_h - (scroll_y + inner_h) < threshold {
+                    load_rel();
+                }
+            });
+            if let Some(win) = web_sys::window() {
+                let _ =
+                    win.add_event_listener_with_callback("scroll", cb.as_ref().unchecked_ref());
+            }
+            scroll_cb.set_value(Some(SendWrapper::new(cb)));
+        });
+        on_cleanup(move || {
+            if let Some(Some(cb)) = scroll_cb.try_update_value(|o| o.take()) {
+                if let Some(win) = web_sys::window() {
+                    let _ = win
+                        .remove_event_listener_with_callback("scroll", cb.as_ref().unchecked_ref());
+                }
+                drop(cb);
+            }
+        });
+    }
     // Rekomendasi implisit (tanpa "like"): catat kategori event yang dibuka user
     // ke localStorage. Effect hanya jalan di client saat detail sudah termuat.
     Effect::new(move |_| {
@@ -42,7 +122,7 @@ pub fn EventDetailPage() -> impl IntoView {
             // (b) Server: persist ke DB (user login) untuk rekomendasi lintas-sesi.
             //     No-op diam-diam bila belum login.
             leptos::task::spawn_local(async move {
-                let _ = crate::web::api::record_affinity(cats).await;
+                let _ = crate::web::api::record_affinity(cats, None).await;
             });
         }
     });
@@ -213,6 +293,7 @@ pub fn EventDetailPage() -> impl IntoView {
                                 let cover_a  = cover_a.clone();
                                 let tname_a  = tname_a.clone();
                                 let vid_add  = vid_add.clone();
+                                let cats_a   = cats.clone();
                                 move |e: web_sys::MouseEvent| {
                                     e.stop_propagation();
                                     cart_ctx.add_item(CartItem {
@@ -224,6 +305,18 @@ pub fn EventDetailPage() -> impl IntoView {
                                         event_cover: cover_a.clone(),
                                         quantity:    1,
                                         unit_price:  vprice_val,
+                                    });
+                                    // Behavior: memilih produk (add-to-cart) = sinyal
+                                    // minat kuat (bobot 3). Anonim → localStorage;
+                                    // login → buffer server (tanpa blokir UI).
+                                    crate::web::behavior::record_signal(&cats_a, 3.0);
+                                    let cats_srv = cats_a.clone();
+                                    leptos::task::spawn_local(async move {
+                                        let _ = crate::web::api::record_affinity(
+                                            cats_srv,
+                                            Some("cart".into()),
+                                        )
+                                        .await;
                                     });
                                 }
                             };
@@ -533,42 +626,52 @@ pub fn EventDetailPage() -> impl IntoView {
                                         // ── Event lain (arah marketplace) ─────────
                                         <section class="section ed-more">
                                             <h2 class="section-title">"Event Berkaitan"</h2>
-                                            {move || more_events.get().map(|res| match res {
-                                                Ok(p) => {
-                                                    let cur = slug.get();
-                                                    let cards = p.data.into_iter()
-                                                        .filter(|e| e.slug != cur)
-                                                        .map(|e| {
-                                                            let href = format!("/events/{}", e.slug);
-                                                            let city = e.city.clone().unwrap_or_default();
-                                                            let vn = e.venue.clone().unwrap_or_default();
-                                                            let venue = if city.is_empty() {
-                                                                vn
-                                                            } else if vn.is_empty() {
-                                                                city
-                                                            } else {
-                                                                format!("{vn} • {city}")
-                                                            };
-                                                            let cat = e.category.first().cloned()
-                                                                .unwrap_or_else(|| e.status.clone());
-                                                            view! {
-                                                                <EventCard
-                                                                    href=href
-                                                                    img=e.cover_url.clone().unwrap_or_default()
-                                                                    alt=e.name.clone()
-                                                                    badge=cat
-                                                                    title=e.name.clone()
-                                                                    date=crate::web::models::format_date(&e.event_date)
-                                                                    venue=venue
-                                                                    price=crate::web::models::format_price(e.display_price)
-                                                                />
-                                                            }
-                                                        })
-                                                        .collect_view();
-                                                    view! { <div class="ed-more-grid">{cards}</div> }.into_any()
-                                                }
-                                                Err(_) => view! {}.into_any(),
-                                            })}
+                                            {move || {
+                                                let cur = slug.get();
+                                                let items = rel_items.get();
+                                                let loading = rel_loading.get();
+                                                let cards = items.into_iter()
+                                                    .filter(|e| e.slug != cur)
+                                                    .map(|e| {
+                                                        let href = format!("/events/{}", e.slug);
+                                                        let city = e.city.clone().unwrap_or_default();
+                                                        let vn = e.venue.clone().unwrap_or_default();
+                                                        let venue = if city.is_empty() {
+                                                            vn
+                                                        } else if vn.is_empty() {
+                                                            city
+                                                        } else {
+                                                            format!("{vn} • {city}")
+                                                        };
+                                                        let cat = e.category.first().cloned()
+                                                            .unwrap_or_else(|| e.status.clone());
+                                                        view! {
+                                                            <EventCard
+                                                                href=href
+                                                                img=e.cover_url.clone().unwrap_or_default()
+                                                                alt=e.name.clone()
+                                                                badge=cat
+                                                                title=e.name.clone()
+                                                                date=crate::web::models::format_date(&e.event_date)
+                                                                venue=venue
+                                                                price=crate::web::models::format_price(e.display_price)
+                                                            />
+                                                        }
+                                                    })
+                                                    .collect_view();
+                                                // Shimmer kecil saat chunk berikutnya sedang
+                                                // dimuat (append), konsisten dengan Explore.
+                                                let shims = loading.then(|| (0..2i32)
+                                                    .map(|_| view! {
+                                                        <div class="shim"
+                                                            style="height:220px;border-radius:14px">
+                                                        </div>
+                                                    })
+                                                    .collect_view());
+                                                view! {
+                                                    <div class="ed-more-grid">{cards}{shims}</div>
+                                                }.into_any()
+                                            }}
                                         </section>
                                     </div>
                                 </div>

@@ -100,7 +100,7 @@ pub fn OrderDetailPage() -> impl IntoView {
                                     }
                                         .into_any()
                                 }
-                                Ok(o) => order_view(o).into_any(),
+                                Ok(o) => order_view(o, order).into_any(),
                             }
                         })
                         .unwrap_or_else(|| view! { <div /> }.into_any())
@@ -110,12 +110,21 @@ pub fn OrderDetailPage() -> impl IntoView {
     }
 }
 
-fn order_view(o: crate::web::models::OrderDetail) -> impl IntoView {
+fn order_view(
+    o: crate::web::models::OrderDetail,
+    // Resource halaman: di-refetch setelah konfirmasi bayar sukses sehingga
+    // kartu QR pending langsung berganti tampilan LUNAS tanpa reload.
+    order_res: Resource<Result<crate::web::models::OrderDetail, ServerFnError>>,
+) -> impl IntoView {
     let status = o.status.to_lowercase();
     let is_pending = status == "pending" || status == "waiting";
     let is_paid = matches!(status.as_str(), "paid" | "completed");
     let order_code = o.order_code.clone();
     let total = o.total_amount;
+
+    // State tombol konfirmasi pembayaran (QRIS / transfer manual).
+    let paying = RwSignal::new(false);
+    let pay_err = RwSignal::new(String::new());
 
     // Sisa waktu awal dihitung server-side dari expired_at → SSR render benar.
     let initial_secs: i64 = o
@@ -360,6 +369,54 @@ fn order_view(o: crate::web::models::OrderDetail) -> impl IntoView {
                                 </div>
                             </div>
                         </div>
+                    }
+                })}
+
+            // ── Konfirmasi pembayaran (pending) ───────────────────────
+            // Setelah scan QRIS / transfer, user menekan tombol ini →
+            // confirm_order_payment → refetch: halaman flip ke status LUNAS.
+            {is_pending
+                .then(|| {
+                    let oid = o.id.clone();
+                    view! {
+                        {move || {
+                            (!pay_err.get().is_empty())
+                                .then(|| view! { <div class="pay-error">{pay_err.get()}</div> })
+                        }}
+                        <button
+                            class="oc-bank-btn"
+                            disabled=move || paying.get()
+                            on:click=move |_| {
+                                if paying.get_untracked() {
+                                    return;
+                                }
+                                paying.set(true);
+                                pay_err.set(String::new());
+                                let id = oid.clone();
+                                leptos::task::spawn_local(async move {
+                                    match crate::web::api::server_fns::confirm_order_payment(id)
+                                        .await
+                                    {
+                                        Ok(_) => order_res.refetch(),
+                                        Err(e) => pay_err.set(e.to_string()),
+                                    }
+                                    paying.set(false);
+                                });
+                            }
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                                <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
+                                <polyline points="22 4 12 14.01 9 11.01" />
+                            </svg>
+                            {move || {
+                                if paying.get() {
+                                    "MEMERIKSA PEMBAYARAN…"
+                                } else {
+                                    "SAYA SUDAH BAYAR (QRIS / TRANSFER)"
+                                }
+                            }}
+                        </button>
                     }
                 })}
 
