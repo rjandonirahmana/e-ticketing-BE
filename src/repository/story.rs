@@ -55,6 +55,58 @@ fn row_to_subscription(row: &Row) -> Result<UserSubscription> {
     })
 }
 
+/// Map satu row (query list_groups / list_groups_public / list_all_paged —
+/// kolomnya identik) menjadi StoryItemResponse.
+fn row_to_story_item(row: &Row) -> Result<StoryItemResponse> {
+    let id_bytes: Vec<u8> = row.try_get("id")?;
+    let user_bytes: Vec<u8> = row.try_get("user_id")?;
+    let event_bytes: Option<Vec<u8>> = row.try_get("event_id")?;
+
+    let overlays_json: Option<serde_json::Value> = row.try_get("overlays")?;
+    let overlays: Vec<JsonValue> = match overlays_json {
+        Some(serde_json::Value::Array(a)) => a,
+        _ => vec![],
+    };
+
+    Ok(StoryItemResponse {
+        id: bin_to_ulid(id_bytes)?,
+        user_id: bin_to_ulid(user_bytes)?,
+        username: row.try_get("username")?,
+        avatar_url: row.try_get("avatar_url")?,
+        media_url: row.try_get("media_url")?,
+        media_type: row.try_get("media_type")?,
+        filter: row.try_get("filter")?,
+        overlays,
+        created_at: row.try_get("created_at")?,
+        expires_at: row.try_get("expires_at")?,
+        viewed: row.try_get("viewed")?,
+        event_id: bin_to_ulid_opt(event_bytes)?,
+        event_slug: row.try_get("event_slug")?,
+        event_title: row.try_get("event_title")?,
+    })
+}
+
+/// Group rows hasil query list_groups/list_groups_public per user_id
+/// (urutan baris sudah benar dari ORDER BY di SQL).
+fn rows_to_story_groups(rows: &[Row]) -> Result<Vec<StoryGroupResponse>> {
+    let mut groups: Vec<StoryGroupResponse> = Vec::new();
+    for row in rows {
+        let item = row_to_story_item(row)?;
+
+        if let Some(g) = groups.iter_mut().find(|g| g.user_id == item.user_id) {
+            g.stories.push(item);
+        } else {
+            groups.push(StoryGroupResponse {
+                user_id: item.user_id.clone(),
+                username: item.username.clone(),
+                avatar_url: item.avatar_url.clone(),
+                stories: vec![item],
+            });
+        }
+    }
+    Ok(groups)
+}
+
 // ── Trait ─────────────────────────────────────────────────────────────────────
 
 #[async_trait]
@@ -81,6 +133,15 @@ pub trait StoryRepository: Send + Sync {
     /// Ambil semua story aktif (belum expired), dikelompokkan per user.
     /// Story milik `viewer_id` ditaruh di posisi pertama.
     async fn list_groups(&self, viewer_id: &str) -> Result<Vec<StoryGroupResponse>>;
+
+    /// Versi publik (viewer anonim / belum login): semua story aktif tanpa
+    /// status `viewed` per-user. Dipakai agar pengunjung tetap bisa melihat
+    /// daftar story di StoryBar; membuka story digate di sisi client (login).
+    async fn list_groups_public(&self) -> Result<Vec<StoryGroupResponse>>;
+
+    /// Arsip story publik: SEMUA story yang pernah ada (termasuk yang sudah
+    /// expired), terbaru dulu, dengan paginasi. Dipakai halaman /stories.
+    async fn list_all_paged(&self, limit: i64, offset: i64) -> Result<Vec<StoryItemResponse>>;
 
     /// Tandai story sudah dilihat oleh viewer.
     async fn mark_viewed(&self, story_id: &str, viewer_id: &str) -> Result<()>;
@@ -135,8 +196,9 @@ impl StoryRepository for PgStoryRepository {
     async fn is_premium(&self, user_id: &str) -> Result<bool> {
         let uid = id_to_vec(user_id)?;
         let conn = get_conn(&self.pool).await?;
-        let row = conn
-            .query_opt(
+        // prepare_cached: dipanggil di setiap create-order → jalur panas.
+        let stmt = conn
+            .prepare_cached(
                 r#"
                 SELECT 1 FROM user_subscriptions
                 WHERE  user_id   = $1
@@ -144,8 +206,11 @@ impl StoryRepository for PgStoryRepository {
                   AND  expires_at > NOW()
                 LIMIT 1
                 "#,
-                &[&uid],
             )
+            .await
+            .context("is_premium prepare")?;
+        let row = conn
+            .query_opt(&stmt, &[&uid])
             .await
             .context("is_premium query")?;
         Ok(row.is_some())
@@ -156,16 +221,19 @@ impl StoryRepository for PgStoryRepository {
     async fn count_today(&self, user_id: &str) -> Result<i64> {
         let uid = id_to_vec(user_id)?;
         let conn = get_conn(&self.pool).await?;
-        let row = conn
-            .query_one(
+        let stmt = conn
+            .prepare_cached(
                 r#"
                 SELECT COUNT(*)::BIGINT
                 FROM   stories
                 WHERE  user_id    = $1
                   AND  created_at >= DATE_TRUNC('day', NOW() AT TIME ZONE 'UTC')
                 "#,
-                &[&uid],
             )
+            .await
+            .context("count_today prepare")?;
+        let row = conn
+            .query_one(&stmt, &[&uid])
             .await
             .context("count_today query")?;
         Ok(row.try_get::<_, i64>(0)?)
@@ -197,8 +265,8 @@ impl StoryRepository for PgStoryRepository {
         let overlays_json = serde_json::Value::Array(overlays.to_vec());
 
         let conn = get_conn(&self.pool).await?;
-        let row = conn
-            .query_one(
+        let stmt = conn
+            .prepare_cached(
                 r#"
                 INSERT INTO stories
                     (id, user_id, media_url, media_type, filter, overlays,
@@ -212,6 +280,12 @@ impl StoryRepository for PgStoryRepository {
                     id, user_id, media_url, media_type, filter, overlays,
                     event_id, event_slug, event_title, created_at, expires_at
                 "#,
+            )
+            .await
+            .context("insert story prepare")?;
+        let row = conn
+            .query_one(
+                &stmt,
                 &[
                     &id_bytes,
                     &uid,
@@ -236,9 +310,10 @@ impl StoryRepository for PgStoryRepository {
         let vid = id_to_vec(viewer_id)?;
         let conn = get_conn(&self.pool).await?;
 
-        // Ambil semua story aktif beserta info view
-        let rows = conn
-            .query(
+        // Ambil semua story aktif beserta info view (prepare_cached: jalur
+        // panas — StoryBar memanggil ini di tiap kunjungan Explore/Messages).
+        let stmt = conn
+            .prepare_cached(
                 r#"
                 SELECT
                     s.id,
@@ -266,55 +341,91 @@ impl StoryRepository for PgStoryRepository {
                     s.user_id,
                     s.created_at ASC
                 "#,
-                &[&vid],
             )
+            .await
+            .context("list_groups prepare")?;
+        let rows = conn
+            .query(&stmt, &[&vid])
             .await
             .context("list_groups query")?;
 
-        // Group by user_id (order sudah benar dari ORDER BY)
-        let mut groups: Vec<StoryGroupResponse> = Vec::new();
-        for row in &rows {
-            let id_bytes: Vec<u8> = row.try_get("id")?;
-            let user_bytes: Vec<u8> = row.try_get("user_id")?;
-            let event_bytes: Option<Vec<u8>> = row.try_get("event_id")?;
-            let user_id_str = bin_to_ulid(user_bytes.clone())?;
+        rows_to_story_groups(&rows)
+    }
 
-            let overlays_json: Option<serde_json::Value> = row.try_get("overlays")?;
-            let overlays: Vec<JsonValue> = match overlays_json {
-                Some(serde_json::Value::Array(a)) => a,
-                _ => vec![],
-            };
+    async fn list_groups_public(&self) -> Result<Vec<StoryGroupResponse>> {
+        let conn = get_conn(&self.pool).await?;
 
-            let item = StoryItemResponse {
-                id: bin_to_ulid(id_bytes)?,
-                user_id: user_id_str.clone(),
-                username: row.try_get("username")?,
-                avatar_url: row.try_get("avatar_url")?,
-                media_url: row.try_get("media_url")?,
-                media_type: row.try_get("media_type")?,
-                filter: row.try_get("filter")?,
-                overlays,
-                created_at: row.try_get("created_at")?,
-                expires_at: row.try_get("expires_at")?,
-                viewed: row.try_get("viewed")?,
-                event_id: bin_to_ulid_opt(event_bytes)?,
-                event_slug: row.try_get("event_slug")?,
-                event_title: row.try_get("event_title")?,
-            };
+        // Tanpa join story_views: viewer anonim tidak punya status `viewed`.
+        let stmt = conn
+            .prepare_cached(
+                r#"
+                SELECT
+                    s.id,
+                    s.user_id,
+                    COALESCE(u.name, 'Unknown')       AS username,
+                    COALESCE(u.avatar_url, '')         AS avatar_url,
+                    s.media_url,
+                    s.media_type,
+                    s.filter,
+                    s.overlays,
+                    s.created_at,
+                    s.expires_at,
+                    s.event_id,
+                    s.event_slug,
+                    s.event_title,
+                    FALSE                              AS viewed
+                FROM   stories s
+                JOIN   users u   ON u.id = s.user_id
+                WHERE  s.expires_at > NOW()
+                ORDER BY s.user_id, s.created_at ASC
+                "#,
+            )
+            .await
+            .context("list_groups_public prepare")?;
+        let rows = conn
+            .query(&stmt, &[])
+            .await
+            .context("list_groups_public query")?;
 
-            if let Some(g) = groups.iter_mut().find(|g| g.user_id == user_id_str) {
-                g.stories.push(item);
-            } else {
-                groups.push(StoryGroupResponse {
-                    user_id: user_id_str,
-                    username: item.username.clone(),
-                    avatar_url: item.avatar_url.clone(),
-                    stories: vec![item],
-                });
-            }
-        }
+        rows_to_story_groups(&rows)
+    }
 
-        Ok(groups)
+    async fn list_all_paged(&self, limit: i64, offset: i64) -> Result<Vec<StoryItemResponse>> {
+        let conn = get_conn(&self.pool).await?;
+
+        // TANPA filter expires_at: arsip menampilkan story yang pernah ada.
+        let stmt = conn
+            .prepare_cached(
+                r#"
+                SELECT
+                    s.id,
+                    s.user_id,
+                    COALESCE(u.name, 'Unknown')       AS username,
+                    COALESCE(u.avatar_url, '')         AS avatar_url,
+                    s.media_url,
+                    s.media_type,
+                    s.filter,
+                    s.overlays,
+                    s.created_at,
+                    s.expires_at,
+                    s.event_id,
+                    s.event_slug,
+                    s.event_title,
+                    FALSE                              AS viewed
+                FROM   stories s
+                JOIN   users u   ON u.id = s.user_id
+                ORDER BY s.created_at DESC
+                LIMIT $1 OFFSET $2
+                "#,
+            )
+            .await
+            .context("list_all_paged prepare")?;
+        let rows = conn
+            .query(&stmt, &[&limit, &offset])
+            .await
+            .context("list_all_paged query")?;
+
+        rows.iter().map(row_to_story_item).collect()
     }
 
     // ── Mark viewed ───────────────────────────────────────────────────────────
@@ -323,16 +434,19 @@ impl StoryRepository for PgStoryRepository {
         let sid = id_to_vec(story_id)?;
         let vid = id_to_vec(viewer_id)?;
         let conn = get_conn(&self.pool).await?;
-        conn.execute(
-            r#"
-            INSERT INTO story_views (story_id, viewer_id)
-            VALUES ($1, $2)
-            ON CONFLICT DO NOTHING
-            "#,
-            &[&sid, &vid],
-        )
-        .await
-        .context("mark_viewed")?;
+        let stmt = conn
+            .prepare_cached(
+                r#"
+                INSERT INTO story_views (story_id, viewer_id)
+                VALUES ($1, $2)
+                ON CONFLICT DO NOTHING
+                "#,
+            )
+            .await
+            .context("mark_viewed prepare")?;
+        conn.execute(&stmt, &[&sid, &vid])
+            .await
+            .context("mark_viewed")?;
         Ok(())
     }
 
@@ -342,11 +456,12 @@ impl StoryRepository for PgStoryRepository {
         let sid = id_to_vec(story_id)?;
         let oid = id_to_vec(owner_id)?;
         let conn = get_conn(&self.pool).await?;
+        let stmt = conn
+            .prepare_cached("DELETE FROM stories WHERE id = $1 AND user_id = $2")
+            .await
+            .context("delete story prepare")?;
         let n = conn
-            .execute(
-                "DELETE FROM stories WHERE id = $1 AND user_id = $2",
-                &[&sid, &oid],
-            )
+            .execute(&stmt, &[&sid, &oid])
             .await
             .context("delete story")?;
         Ok(n > 0)
@@ -357,16 +472,19 @@ impl StoryRepository for PgStoryRepository {
     async fn find_by_id(&self, story_id: &str) -> Result<Option<Story>> {
         let sid = id_to_vec(story_id)?;
         let conn = get_conn(&self.pool).await?;
-        let row = conn
-            .query_opt(
+        let stmt = conn
+            .prepare_cached(
                 r#"
                 SELECT id, user_id, media_url, media_type, filter, overlays,
                        event_id, event_slug, event_title, created_at, expires_at
                 FROM   stories
                 WHERE  id = $1
                 "#,
-                &[&sid],
             )
+            .await
+            .context("find_by_id story prepare")?;
+        let row = conn
+            .query_opt(&stmt, &[&sid])
             .await
             .context("find_by_id story")?;
         row.map(|r| row_to_story(&r)).transpose()

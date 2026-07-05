@@ -99,12 +99,28 @@ pub fn EventCardShimmer() -> impl IntoView {
 
 #[component]
 pub fn TicketCardShimmer() -> impl IntoView {
+    // Skeleton meniru layout .ticket-card asli di /tickets:
+    // cover penuh → judul besar → baris venue•tanggal → meta grid 2 kolom
+    // (TIER/PRICE) → QR di tengah → footer (tombol OPEN QR + kode tiket).
     view! {
         <div class="shim-ticket-card">
-            <div class="shim shim-tkt-title"></div>
-            <div class="shim shim-tkt-venue"></div>
-            <div class="shim shim-tkt-date"></div>
-            <div class="shim shim-tkt-badge"></div>
+            <div class="shim shim-tkt-cover"></div>
+            <div class="shim-tkt-body">
+                <div class="shim shim-tkt-title"></div>
+                <div class="shim shim-tkt-venue"></div>
+                <div class="shim-tkt-meta">
+                    <div class="shim shim-tkt-meta-item"></div>
+                    <div class="shim shim-tkt-meta-item"></div>
+                </div>
+                <div class="shim-tkt-qr-wrap">
+                    <div class="shim shim-tkt-qr"></div>
+                    <div class="shim shim-tkt-code"></div>
+                </div>
+                <div class="shim-tkt-foot">
+                    <div class="shim shim-tkt-badge"></div>
+                    <div class="shim shim-tkt-price"></div>
+                </div>
+            </div>
         </div>
     }
 }

@@ -1,5 +1,7 @@
 use leptos::prelude::*;
+use leptos_router::hooks::use_navigate;
 
+use crate::web::app::AuthResource;
 use crate::web::state::stories::use_stories_store;
 
 #[cfg(target_arch = "wasm32")]
@@ -22,6 +24,12 @@ fn store_from_page() {}
 #[component]
 pub fn StoryBar() -> impl IntoView {
     let ctx = use_stories_store();
+
+    // Story list tetap tampil untuk pengunjung anonim (server fn mengembalikan
+    // daftar publik), tapi MEMBUKA story butuh login → redirect ke /login.
+    let auth = use_context::<AuthResource>().expect("AuthResource missing");
+    let is_logged_in = move || auth.get().and_then(|r| r.ok()).flatten().is_some();
+    let navigate = use_navigate();
 
     // Trigger load when this component first mounts (client-side only).
     // Effect does not run during SSR; ctx.load() has is_server() + loading guards.
@@ -87,15 +95,19 @@ pub fn StoryBar() -> impl IntoView {
 
             // ── Story groups ─────────────────────────────────────────────
             // StoryGroup { user_id, username, avatar_url, stories, all_viewed }
-            {move || {
+            {
+                let navigate = navigate.clone();
+                move || {
                 let groups = ctx.groups.get();
                 if groups.is_empty() {
                     return view! { <></> }.into_any();
                 }
+                let navigate = navigate.clone();
                 groups
                     .into_iter()
                     .enumerate()
-                    .map(|(idx, group)| {
+                    .map(move |(idx, group)| {
+                        let nav = navigate.clone();
                         let all_viewed = group.all_viewed;
                         let username   = group.username.clone();
                         let avatar_url = group.avatar_url.clone();
@@ -115,7 +127,15 @@ pub fn StoryBar() -> impl IntoView {
                             <div class="story-item">
                                 <button
                                     class=btn_class
-                                    on:click=move |_| ctx.open(idx)
+                                    on:click=move |_| {
+                                        if is_logged_in() {
+                                            ctx.open(idx);
+                                        } else {
+                                            // Belum login: lihat list boleh,
+                                            // membuka story harus masuk dulu.
+                                            nav("/login", Default::default());
+                                        }
+                                    }
                                     aria-label=format!("Lihat cerita {}", username)
                                 >
                                     <div class=ring_class>
@@ -137,3 +157,4 @@ pub fn StoryBar() -> impl IntoView {
         </div>
     }
 }
+

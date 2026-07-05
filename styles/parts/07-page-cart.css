@@ -621,3 +621,137 @@
     cursor: not-allowed;
 }
 
+
+/* ── Checkout: panel sukses pasca-bayar (data dari response API) ───────────── */
+.co-done-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 210;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(5, 8, 20, 0.72);
+    backdrop-filter: blur(12px);
+    animation: coDoneFade 0.25s ease;
+}
+@keyframes coDoneFade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+.co-done-card {
+    width: 100%;
+    max-width: 400px;
+    max-height: 86vh;
+    overflow-y: auto;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 28px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    animation: coDonePop 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+@keyframes coDonePop {
+    from { transform: translateY(16px) scale(0.97); opacity: 0; }
+    to { transform: none; opacity: 1; }
+}
+.co-done-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(79, 107, 255, 0.14);
+    color: var(--accent-blue);
+}
+.co-done-icon--paid {
+    background: rgba(200, 255, 94, 0.14);
+    color: var(--accent-lime);
+}
+.co-done-title {
+    font-family: var(--font-display);
+    font-size: 22px;
+    letter-spacing: 0.04em;
+    text-align: center;
+    color: var(--text-primary);
+}
+.co-done-sub {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    text-align: center;
+    margin-top: -6px;
+}
+.co-done-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+}
+.co-done-code {
+    color: var(--text-primary);
+    font-weight: 700;
+}
+.co-done-status {
+    color: var(--accent-blue);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
+.co-done-status--paid {
+    color: var(--accent-lime);
+}
+.co-done-items {
+    border-top: 1px solid var(--border-soft);
+    border-bottom: 1px solid var(--border-soft);
+    padding: 10px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.co-done-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+.co-done-item span:last-child {
+    white-space: nowrap;
+    color: var(--text-primary);
+}
+.co-done-total {
+    font-size: 14px;
+    color: var(--text-primary);
+    font-weight: 700;
+}
+.co-done-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px;
+    border-radius: 100px;
+    background: var(--accent-lime);
+    color: var(--text-on-accent);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-decoration: none;
+}
+.co-done-secondary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+    border-radius: 100px;
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    font-size: 12px;
+    text-decoration: none;
+}

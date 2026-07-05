@@ -71,6 +71,23 @@ pub fn EventDetailPage() -> impl IntoView {
         load_rel();
     });
 
+    // Footer beli disembunyikan begitu user scroll melewati kartu venue
+    // ("Get Directions" = bagian detail terakhir) → area "Event Berkaitan"
+    // bersih tanpa tombol beli menutupi konten.
+    let past_dirs = RwSignal::new(false);
+
+    // Peta venue asli (OpenStreetMap) langsung dirender di detail event bila
+    // koordinat tersedia — init post-hydration (pola sama dgn venue_location).
+    Effect::new(move |_| {
+        if let Some(Ok(ev)) = event_res.get() {
+            if let (Some(la), Some(lo)) = (ev.latitude, ev.longitude) {
+                let label = ev.venue.clone().unwrap_or_else(|| ev.name.clone());
+                crate::web::utils::map_viewer("ed-venue-map", la, lo, &label);
+            }
+        }
+    });
+    on_cleanup(|| crate::web::utils::map_destroy("ed-venue-map"));
+
     // Infinite scroll: mulai prefetch ~2.5 layar sebelum ujung dokumen supaya
     // data tiba sebelum user sampai di bawah (sama seperti Explore).
     #[cfg(feature = "hydrate")]
@@ -94,6 +111,16 @@ pub fn EventDetailPage() -> impl IntoView {
                 let threshold = (inner_h * 2.5).max(1200.0);
                 if doc_h - (scroll_y + inner_h) < threshold {
                     load_rel();
+                }
+                // Deteksi "sudah melewati kartu venue": bottom kartu di atas
+                // viewport → sembunyikan footer beli (set hanya saat berubah).
+                let past = win
+                    .document()
+                    .and_then(|d| d.get_element_by_id("ed-venue-card"))
+                    .map(|el| el.get_bounding_client_rect().bottom() < 0.0)
+                    .unwrap_or(false);
+                if past_dirs.get_untracked() != past {
+                    past_dirs.set(past);
                 }
             });
             if let Some(win) = web_sys::window() {
@@ -210,6 +237,7 @@ pub fn EventDetailPage() -> impl IntoView {
                         let ev_name    = ev.name.clone();
                         let ev_cover   = ev.cover_url.clone().unwrap_or_default();
                         let variants   = ev.event_variants.clone();
+                        let has_coords = ev.latitude.is_some() && ev.longitude.is_some();
                         // Live streaming: badge + embedded viewer hanya tampil saat
                         // event berstatus "live". room_id mengikuti format SFU.
                         let is_live      = ev.status.eq_ignore_ascii_case("live");
@@ -593,17 +621,28 @@ pub fn EventDetailPage() -> impl IntoView {
                                         <section class="section">
                                             <h2 class="section-title">"The Venue"</h2>
                                         </section>
-                                        <div class="map-card">
-                                            <div class="map-visual">
-                                                <div class="map-grid"></div>
-                                                <div class="map-pin">
-                                                    <svg width="28" height="36" viewBox="0 0 32 40">
-                                                        <path d="M16 0C7.163 0 0 7.163 0 16c0 11 16 24 16 24s16-13 16-24C32 7.163 24.837 0 16 0z"
-                                                            fill="#c8ff5e" />
-                                                        <circle cx="16" cy="16" r="6" fill="#0d0d1a" />
-                                                    </svg>
-                                                </div>
-                                            </div>
+                                        <div class="map-card" id="ed-venue-card">
+                                            // Peta OpenStreetMap asli langsung tampil bila event
+                                            // punya koordinat; fallback visual dekoratif bila kosong.
+                                            {if has_coords {
+                                                view! {
+                                                    <div id="ed-venue-map"
+                                                        class="map-visual map-visual--live"></div>
+                                                }.into_any()
+                                            } else {
+                                                view! {
+                                                    <div class="map-visual">
+                                                        <div class="map-grid"></div>
+                                                        <div class="map-pin">
+                                                            <svg width="28" height="36" viewBox="0 0 32 40">
+                                                                <path d="M16 0C7.163 0 0 7.163 0 16c0 11 16 24 16 24s16-13 16-24C32 7.163 24.837 0 16 0z"
+                                                                    fill="#c8ff5e" />
+                                                                <circle cx="16" cy="16" r="6" fill="#0d0d1a" />
+                                                            </svg>
+                                                        </div>
+                                                    </div>
+                                                }.into_any()
+                                            }}
                                             <div class="map-info">
                                                 {(!ev_slug.is_empty()).then({
                                                     let es = ev_slug.clone();
@@ -677,7 +716,15 @@ pub fn EventDetailPage() -> impl IntoView {
                                 </div>
 
                                 // ── Sticky footer: starting price + Secure Tickets ───
-                                <div class="sticky-footer ed-mobile-footer">
+                                // Otomatis slide-down (hilang) begitu user melewati kartu
+                                // venue — konten "Event Berkaitan" tampil tanpa halangan.
+                                <div class=move || {
+                                    if past_dirs.get() {
+                                        "sticky-footer ed-mobile-footer ed-footer-hidden"
+                                    } else {
+                                        "sticky-footer ed-mobile-footer"
+                                    }
+                                }>
                                     <div class="ed-footer-starting">
                                         {move || {
                                             let qty: i32 = cart_ctx.items.with(|v| {
