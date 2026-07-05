@@ -442,7 +442,8 @@ pub fn ExplorePage() -> impl IntoView {
                     <span class="exp-section-eyebrow">"TRENDING NOW"</span>
                     <h2 class="exp-section-title">"Story Events"</h2>
                 </div>
-                <A href="/events" attr:class="exp-view-all">
+                // Arsip publik semua story yang pernah ada (bukan list event).
+                <A href="/stories" attr:class="exp-view-all">
                     "View All →"
                 </A>
             </div>

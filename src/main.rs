@@ -157,8 +157,13 @@ async fn main() -> Result<()> {
         .with_state(leptos_options);
 
     // ── Upload routes ─────────────────────────────────────────────────────────
+    // DefaultBodyLimit: tanpa ini axum memakai batas default 2MB — upload video
+    // story >2MB ditolak 413 sebelum sampai handler, padahal service mengizinkan
+    // 50MB. Batas 52MB (media 50MB + overhead multipart) sekaligus jadi pagar
+    // RAM per-request karena handler membaca file ke memori.
     let upload_router: axum::Router = axum::Router::new()
         .route("/upload/story", axum::routing::post(story_upload))
+        .layer(axum::extract::DefaultBodyLimit::max(52 * 1024 * 1024))
         .layer(axum::Extension(state.clone()));
 
     // ── REST API router (Next.js frontend) ───────────────────────────────────

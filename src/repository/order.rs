@@ -299,11 +299,11 @@ pub struct OrderTx;
 
 impl OrderTx {
     pub async fn lock_variants(
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &deadpool_postgres::Transaction<'_>,
         id_bytes_list: &[Vec<u8>],
     ) -> Result<Vec<LockedVariant>> {
         let stmt = tx
-            .prepare(STMT_LOCK_VARIANTS)
+            .prepare_cached(STMT_LOCK_VARIANTS)
             .await
             .context("lock_variants prepare")?;
 
@@ -334,7 +334,7 @@ impl OrderTx {
     }
 
     pub async fn insert_order(
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &deadpool_postgres::Transaction<'_>,
         id_bytes: &[u8],
         customer_bytes: &[u8],
         order_code: &str,
@@ -344,7 +344,7 @@ impl OrderTx {
     ) -> Result<(Order, bool)> {
         if idempotency_key.is_none() {
             let stmt = tx
-                .prepare(&STMT_INSERT_ORDER_SIMPLE)
+                .prepare_cached(&STMT_INSERT_ORDER_SIMPLE)
                 .await
                 .context("insert_order prepare")?;
 
@@ -359,7 +359,7 @@ impl OrderTx {
 
         let key = idempotency_key.unwrap();
         let stmt = tx
-            .prepare(&STMT_INSERT_ORDER_IDEMPOTENCY)
+            .prepare_cached(&STMT_INSERT_ORDER_IDEMPOTENCY)
             .await
             .context("insert_order_idempotency prepare")?;
 
@@ -381,7 +381,7 @@ impl OrderTx {
     }
 
     pub async fn insert_order_items_batch(
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &deadpool_postgres::Transaction<'_>,
         order_id_bytes: &[u8],
         items: &[ItemRow],
     ) -> Result<()> {
@@ -396,7 +396,7 @@ impl OrderTx {
         let subtotals: Vec<Decimal> = items.iter().map(|r| r.subtotal).collect();
 
         let stmt = tx
-            .prepare(STMT_INSERT_ORDER_ITEMS)
+            .prepare_cached(STMT_INSERT_ORDER_ITEMS)
             .await
             .context("insert_order_items_batch prepare")?;
 
@@ -411,7 +411,7 @@ impl OrderTx {
     }
 
     pub async fn bump_sold_batch(
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &deadpool_postgres::Transaction<'_>,
         updates: &[(&[u8], i32)],
     ) -> Result<(), anyhow::Error> {
         if updates.is_empty() {
@@ -429,7 +429,7 @@ impl OrderTx {
         let expected = ids.len();
 
         let stmt = tx
-            .prepare(STMT_BUMP_SOLD)
+            .prepare_cached(STMT_BUMP_SOLD)
             .await
             .context("bump_sold_batch prepare")?;
 
@@ -451,12 +451,12 @@ impl OrderTx {
     }
 
     pub async fn mark_paid(
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &deadpool_postgres::Transaction<'_>,
         order_bytes: &[u8],
         payment_method: &str,
     ) -> Result<Option<Order>> {
         let stmt = tx
-            .prepare(&STMT_MARK_PAID)
+            .prepare_cached(&STMT_MARK_PAID)
             .await
             .context("mark_paid prepare")?;
 
@@ -470,11 +470,11 @@ impl OrderTx {
     }
 
     pub async fn fetch_items_for_mint(
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &deadpool_postgres::Transaction<'_>,
         order_bytes: &[u8],
     ) -> Result<Vec<(Vec<u8>, i32)>> {
         let stmt = tx
-            .prepare(STMT_FETCH_ITEMS_FOR_MINT)
+            .prepare_cached(STMT_FETCH_ITEMS_FOR_MINT)
             .await
             .context("fetch_items_for_mint prepare")?;
 
@@ -487,11 +487,11 @@ impl OrderTx {
     }
 
     pub async fn fetch_items_detail(
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &deadpool_postgres::Transaction<'_>,
         order_bytes: &[u8],
     ) -> Result<Vec<OrderItemResponse>> {
         let stmt = tx
-            .prepare(QUERY_ITEMS_DETAIL)
+            .prepare_cached(QUERY_ITEMS_DETAIL)
             .await
             .context("fetch_items_detail prepare")?;
 
@@ -504,7 +504,7 @@ impl OrderTx {
     }
 
     pub async fn mint_tickets_batch(
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &deadpool_postgres::Transaction<'_>,
         items: &[(Vec<u8>, i32)],
         order_id_bytes: &[u8], // ← NEW: stored in every ticket row
     ) -> Result<u64> {
@@ -533,7 +533,7 @@ impl OrderTx {
         let count = ids.len() as u64;
 
         let stmt = tx
-            .prepare(STMT_MINT_TICKETS)
+            .prepare_cached(STMT_MINT_TICKETS)
             .await
             .context("mint_tickets_batch prepare")?;
 
@@ -546,11 +546,11 @@ impl OrderTx {
     }
 
     pub async fn cancel_order(
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &deadpool_postgres::Transaction<'_>,
         order_bytes: &[u8],
     ) -> Result<u64> {
         let stmt = tx
-            .prepare(STMT_CANCEL_ORDER)
+            .prepare_cached(STMT_CANCEL_ORDER)
             .await
             .context("cancel_order prepare")?;
 
@@ -560,11 +560,11 @@ impl OrderTx {
     }
 
     pub async fn fetch_items_for_refund(
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &deadpool_postgres::Transaction<'_>,
         order_bytes: &[u8],
     ) -> Result<Vec<(Vec<u8>, i32)>> {
         let stmt = tx
-            .prepare(STMT_FETCH_ITEMS_FOR_REFUND)
+            .prepare_cached(STMT_FETCH_ITEMS_FOR_REFUND)
             .await
             .context("fetch_items_for_refund prepare")?;
 
@@ -582,7 +582,7 @@ impl OrderTx {
     }
 
     pub async fn refund_sold_batch(
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &deadpool_postgres::Transaction<'_>,
         updates: &[(Vec<u8>, i32)],
     ) -> Result<()> {
         if updates.is_empty() {
@@ -593,7 +593,7 @@ impl OrderTx {
         let qtys: Vec<i32> = updates.iter().map(|(_, q)| *q).collect();
 
         let stmt = tx
-            .prepare(STMT_REFUND_SOLD)
+            .prepare_cached(STMT_REFUND_SOLD)
             .await
             .context("refund_sold_batch prepare")?;
 

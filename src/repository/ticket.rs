@@ -201,11 +201,13 @@ impl TicketRepository for PgTicketRepository {
         let mut conn = get_conn(&self.pool).await?;
         let tx = conn.transaction().await?;
 
+        // prepare_cached: statement cache per-koneksi deadpool — scan tiket
+        // adalah jalur panas saat check-in, hindari parse+plan berulang.
+        let lock_stmt = tx
+            .prepare_cached("SELECT id, status FROM tickets WHERE ticket_code = $1 FOR UPDATE")
+            .await?;
         let row = tx
-            .query_opt(
-                "SELECT id, status FROM tickets WHERE ticket_code = $1 FOR UPDATE",
-                &[&code],
-            )
+            .query_opt(&lock_stmt, &[&code])
             .await?
             .ok_or_else(|| anyhow::anyhow!("Ticket not found"))?;
 
@@ -262,7 +264,8 @@ impl TicketRepository for PgTicketRepository {
             JOIN events e          ON tv.event_id = e.id
         "#;
 
-        let detail_row = tx.query_one(VALIDATE_DETAIL_SQL, &[&id_bytes]).await?;
+        let detail_stmt = tx.prepare_cached(VALIDATE_DETAIL_SQL).await?;
+        let detail_row = tx.query_one(&detail_stmt, &[&id_bytes]).await?;
 
         tx.commit().await?;
 

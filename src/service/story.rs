@@ -241,6 +241,18 @@ impl<R: StoryRepository> StoryService<R> {
             .map_err(|e| AppError::Internal(e))
     }
 
+    /// Arsip story publik untuk halaman /stories: semua story yang pernah ada
+    /// (termasuk expired), terbaru dulu, dengan paginasi.
+    pub async fn list_all(&self, page: i64, per_page: i64) -> AppResult<Vec<crate::models::stories::StoryItemResponse>> {
+        let page = page.max(1);
+        let per_page = per_page.clamp(1, 48);
+        let offset = (page - 1) * per_page;
+        self.repo
+            .list_all_paged(per_page, offset)
+            .await
+            .map_err(|e| AppError::Internal(e))
+    }
+
     // ── Mark viewed ───────────────────────────────────────────────────────────
 
     pub async fn mark_viewed(&self, story_id: &str, viewer_id: &str) -> AppResult<()> {
