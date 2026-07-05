@@ -26,13 +26,27 @@ static LIST_ORDERS_BY_CUSTOMER: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// Enriched list query — joins first event info per order via DISTINCT ON.
-/// DISTINCT ON (oi.order_id) picks one item per order (earliest by created_at),
-/// then LEFT JOINs events to get name, date, venue, cover_url.
+/// Enriched list query — halaman order customer dulu (memakai index
+/// idx_orders_customer_date), baru LEFT JOIN LATERAL mengambil SATU item
+/// pertama per order (earliest by created_at) + info event-nya.
+/// Versi lama memakai CTE `DISTINCT ON` atas SELURUH order_items (semua user,
+/// tanpa filter customer) sehingga /orders makin lambat seiring tabel
+/// membesar — lateral hanya menyentuh baris milik halaman ini.
 static LIST_ORDERS_WITH_EVENT: &str = r#"
-    WITH first_item AS (
-        SELECT DISTINCT ON (oi.order_id)
-            oi.order_id,
+    SELECT
+        o.id, o.customer_id, o.order_code, o.status, o.total_amount,
+        o.payment_method, o.paid_at, o.expired_at, o.created_at, o.updated_at,
+        fi.event_name, fi.event_date, fi.venue, fi.cover_url
+    FROM (
+        SELECT id, customer_id, order_code, status, total_amount,
+               payment_method, paid_at, expired_at, created_at, updated_at
+        FROM orders
+        WHERE customer_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2 OFFSET $3
+    ) o
+    LEFT JOIN LATERAL (
+        SELECT
             e.name        AS event_name,
             e.event_date  AS event_date,
             e.venue       AS venue,
@@ -40,17 +54,11 @@ static LIST_ORDERS_WITH_EVENT: &str = r#"
         FROM order_items oi
         JOIN event_variants ev ON oi.ticket_variant_id = ev.id
         JOIN events e           ON ev.event_id = e.id
-        ORDER BY oi.order_id, oi.created_at
-    )
-    SELECT
-        o.id, o.customer_id, o.order_code, o.status, o.total_amount,
-        o.payment_method, o.paid_at, o.expired_at, o.created_at, o.updated_at,
-        fi.event_name, fi.event_date, fi.venue, fi.cover_url
-    FROM orders o
-    LEFT JOIN first_item fi ON fi.order_id = o.id
-    WHERE o.customer_id = $1
+        WHERE oi.order_id = o.id
+        ORDER BY oi.created_at
+        LIMIT 1
+    ) fi ON TRUE
     ORDER BY o.created_at DESC
-    LIMIT $2 OFFSET $3
 "#;
 
 /// Query items dengan full join — dipakai oleh list_items (repo) dan

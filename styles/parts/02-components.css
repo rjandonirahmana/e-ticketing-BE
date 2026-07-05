@@ -747,32 +747,73 @@
     width: 25%;
 }
 
-/* ── Ticket card skeleton ─────────────────────────────────────────────── */
+/* ── Ticket card skeleton ── dimensi mengikuti .ticket-card asli ─────── */
 .shim-ticket-card {
     background: var(--bg-card);
-    border: 1px solid var(--border-soft);
-    border-radius: 16px;
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.shim-ticket-card + .shim-ticket-card {
+    margin-top: 16px;
+}
+.shim-ticket-card .shim-tkt-cover {
+    height: 180px;
+    width: 100%;
+    border-radius: 0;
+}
+.shim-tkt-body {
     padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
 }
 .shim-ticket-card .shim-tkt-title {
-    height: 20px;
+    height: 26px;
     width: 70%;
 }
 .shim-ticket-card .shim-tkt-venue {
     height: 11px;
     width: 55%;
 }
-.shim-ticket-card .shim-tkt-date {
+.shim-tkt-meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+.shim-tkt-meta .shim-tkt-meta-item {
+    height: 30px;
+}
+.shim-tkt-qr-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+.shim-tkt-qr-wrap .shim-tkt-qr {
+    width: 184px;
+    height: 184px;
+    border-radius: 12px;
+}
+.shim-tkt-qr-wrap .shim-tkt-code {
     height: 11px;
-    width: 40%;
+    width: 130px;
+}
+.shim-tkt-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 }
 .shim-ticket-card .shim-tkt-badge {
-    height: 24px;
-    width: 80px;
+    height: 30px;
+    width: 100px;
     border-radius: 100px;
+}
+.shim-tkt-foot .shim-tkt-price {
+    height: 16px;
+    width: 90px;
 }
 
 /* ── Order card skeleton ──────────────────────────────────────────────── */

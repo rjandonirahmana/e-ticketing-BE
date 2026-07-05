@@ -1989,3 +1989,26 @@
     background: #5a9000;
 }
 
+
+/* ── Footer beli: transisi hide saat melewati kartu venue ──────────────────── */
+.ed-mobile-footer.sticky-footer {
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+.ed-mobile-footer.ed-footer-hidden {
+    transform: translateX(-50%) translateY(130%);
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* ── Peta venue asli (Leaflet) di detail event ─────────────────────────────── */
+.map-visual--live {
+    height: 240px;
+    display: block;
+    background: var(--bg-elevated);
+    /* Kurung z-index internal Leaflet (pane 400, kontrol 1000) di dalam
+       stacking context container — tanpa ini peta menutupi footer beli
+       (z-index 80) saat footer melintas di atas area peta. */
+    position: relative;
+    z-index: 0;
+    isolation: isolate;
+}

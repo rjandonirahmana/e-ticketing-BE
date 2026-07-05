@@ -55,6 +55,53 @@ fn row_to_subscription(row: &Row) -> Result<UserSubscription> {
     })
 }
 
+/// Group rows hasil query list_groups/list_groups_public per user_id
+/// (urutan baris sudah benar dari ORDER BY di SQL).
+fn rows_to_story_groups(rows: &[Row]) -> Result<Vec<StoryGroupResponse>> {
+    let mut groups: Vec<StoryGroupResponse> = Vec::new();
+    for row in rows {
+        let id_bytes: Vec<u8> = row.try_get("id")?;
+        let user_bytes: Vec<u8> = row.try_get("user_id")?;
+        let event_bytes: Option<Vec<u8>> = row.try_get("event_id")?;
+        let user_id_str = bin_to_ulid(user_bytes.clone())?;
+
+        let overlays_json: Option<serde_json::Value> = row.try_get("overlays")?;
+        let overlays: Vec<JsonValue> = match overlays_json {
+            Some(serde_json::Value::Array(a)) => a,
+            _ => vec![],
+        };
+
+        let item = StoryItemResponse {
+            id: bin_to_ulid(id_bytes)?,
+            user_id: user_id_str.clone(),
+            username: row.try_get("username")?,
+            avatar_url: row.try_get("avatar_url")?,
+            media_url: row.try_get("media_url")?,
+            media_type: row.try_get("media_type")?,
+            filter: row.try_get("filter")?,
+            overlays,
+            created_at: row.try_get("created_at")?,
+            expires_at: row.try_get("expires_at")?,
+            viewed: row.try_get("viewed")?,
+            event_id: bin_to_ulid_opt(event_bytes)?,
+            event_slug: row.try_get("event_slug")?,
+            event_title: row.try_get("event_title")?,
+        };
+
+        if let Some(g) = groups.iter_mut().find(|g| g.user_id == user_id_str) {
+            g.stories.push(item);
+        } else {
+            groups.push(StoryGroupResponse {
+                user_id: user_id_str,
+                username: item.username.clone(),
+                avatar_url: item.avatar_url.clone(),
+                stories: vec![item],
+            });
+        }
+    }
+    Ok(groups)
+}
+
 // ── Trait ─────────────────────────────────────────────────────────────────────
 
 #[async_trait]
@@ -81,6 +128,11 @@ pub trait StoryRepository: Send + Sync {
     /// Ambil semua story aktif (belum expired), dikelompokkan per user.
     /// Story milik `viewer_id` ditaruh di posisi pertama.
     async fn list_groups(&self, viewer_id: &str) -> Result<Vec<StoryGroupResponse>>;
+
+    /// Versi publik (viewer anonim / belum login): semua story aktif tanpa
+    /// status `viewed` per-user. Dipakai agar pengunjung tetap bisa melihat
+    /// daftar story di StoryBar; membuka story digate di sisi client (login).
+    async fn list_groups_public(&self) -> Result<Vec<StoryGroupResponse>>;
 
     /// Tandai story sudah dilihat oleh viewer.
     async fn mark_viewed(&self, story_id: &str, viewer_id: &str) -> Result<()>;
@@ -271,50 +323,42 @@ impl StoryRepository for PgStoryRepository {
             .await
             .context("list_groups query")?;
 
-        // Group by user_id (order sudah benar dari ORDER BY)
-        let mut groups: Vec<StoryGroupResponse> = Vec::new();
-        for row in &rows {
-            let id_bytes: Vec<u8> = row.try_get("id")?;
-            let user_bytes: Vec<u8> = row.try_get("user_id")?;
-            let event_bytes: Option<Vec<u8>> = row.try_get("event_id")?;
-            let user_id_str = bin_to_ulid(user_bytes.clone())?;
+        rows_to_story_groups(&rows)
+    }
 
-            let overlays_json: Option<serde_json::Value> = row.try_get("overlays")?;
-            let overlays: Vec<JsonValue> = match overlays_json {
-                Some(serde_json::Value::Array(a)) => a,
-                _ => vec![],
-            };
+    async fn list_groups_public(&self) -> Result<Vec<StoryGroupResponse>> {
+        let conn = get_conn(&self.pool).await?;
 
-            let item = StoryItemResponse {
-                id: bin_to_ulid(id_bytes)?,
-                user_id: user_id_str.clone(),
-                username: row.try_get("username")?,
-                avatar_url: row.try_get("avatar_url")?,
-                media_url: row.try_get("media_url")?,
-                media_type: row.try_get("media_type")?,
-                filter: row.try_get("filter")?,
-                overlays,
-                created_at: row.try_get("created_at")?,
-                expires_at: row.try_get("expires_at")?,
-                viewed: row.try_get("viewed")?,
-                event_id: bin_to_ulid_opt(event_bytes)?,
-                event_slug: row.try_get("event_slug")?,
-                event_title: row.try_get("event_title")?,
-            };
+        // Tanpa join story_views: viewer anonim tidak punya status `viewed`.
+        let rows = conn
+            .query(
+                r#"
+                SELECT
+                    s.id,
+                    s.user_id,
+                    COALESCE(u.name, 'Unknown')       AS username,
+                    COALESCE(u.avatar_url, '')         AS avatar_url,
+                    s.media_url,
+                    s.media_type,
+                    s.filter,
+                    s.overlays,
+                    s.created_at,
+                    s.expires_at,
+                    s.event_id,
+                    s.event_slug,
+                    s.event_title,
+                    FALSE                              AS viewed
+                FROM   stories s
+                JOIN   users u   ON u.id = s.user_id
+                WHERE  s.expires_at > NOW()
+                ORDER BY s.user_id, s.created_at ASC
+                "#,
+                &[],
+            )
+            .await
+            .context("list_groups_public query")?;
 
-            if let Some(g) = groups.iter_mut().find(|g| g.user_id == user_id_str) {
-                g.stories.push(item);
-            } else {
-                groups.push(StoryGroupResponse {
-                    user_id: user_id_str,
-                    username: item.username.clone(),
-                    avatar_url: item.avatar_url.clone(),
-                    stories: vec![item],
-                });
-            }
-        }
-
-        Ok(groups)
+        rows_to_story_groups(&rows)
     }
 
     // ── Mark viewed ───────────────────────────────────────────────────────────

@@ -42,17 +42,22 @@ const METHODS: &[PayMethod] = &[
 
 #[component]
 pub fn CheckoutPage() -> impl IntoView {
-    let navigate = use_navigate();
-    let nav_redirect = navigate.clone();
+    let nav_redirect = use_navigate();
 
     let cart_ctx = use_context::<CartContext>().expect("CartContext not provided");
     let items_sig = cart_ctx.items;
 
+    // Order hasil checkout (response API create_order_cart). Saat terisi,
+    // halaman menampilkan panel sukses berisi data pembayaran — BUKAN redirect.
+    let placed_order: RwSignal<Option<crate::web::models::OrderRef>> = RwSignal::new(None);
+
     // Redirect to /cart when opened directly (empty cart / reload).
     // Use replace:true so the /checkout entry is removed from history,
     // preventing a back-button loop (back from /cart → /checkout → /cart …).
+    // GUARD: setelah order berhasil dibuat cart memang dikosongkan — jangan
+    // ikut redirect ke /cart kosong; panel sukses yang tampil.
     Effect::new(move |_| {
-        if items_sig.with(|v| v.is_empty()) {
+        if items_sig.with(|v| v.is_empty()) && placed_order.with(|p| p.is_none()) {
             nav_redirect.clone()("/cart", NavigateOptions { replace: true, ..NavigateOptions::default() });
         }
     });
@@ -113,7 +118,6 @@ pub fn CheckoutPage() -> impl IntoView {
         let items = items_sig.get();
         let m = method.get();
         let promo = if promo_applied.get() { Some(promo_code.get()) } else { None };
-        let nav = navigate.clone();
 
         let items_for_order: Vec<serde_json::Value> = items
             .iter()
@@ -138,6 +142,10 @@ pub fn CheckoutPage() -> impl IntoView {
 
                     let order = res.order;
 
+                    // Simpan snapshot untuk halaman lain yang membutuhkan
+                    // (payment-success / order detail), lalu tampilkan panel
+                    // sukses IN-PAGE dari data response — tanpa redirect,
+                    // sehingga user tidak pernah mendarat di /cart kosong.
                     if order.status.eq_ignore_ascii_case("paid")
                         || order.status.eq_ignore_ascii_case("completed")
                     {
@@ -150,19 +158,12 @@ pub fn CheckoutPage() -> impl IntoView {
                                 .unwrap_or_default(),
                             total_amount: order.total_amount,
                         }));
-                        items_sig.set(vec![]);
-                        paying.set(false);
-                        nav("/payment-success", Default::default());
                     } else {
-                        // Order pending → langsung ke halaman ORDER DETAIL yang
-                        // sudah siap bayar (QR QRIS + panduan + tombol konfirmasi),
-                        // bukan halaman ringkasan generik /order-created.
-                        let oid = order.id.clone();
-                        pending_order_sig.set(Some(order));
-                        items_sig.set(vec![]);
-                        paying.set(false);
-                        nav(&format!("/orders/{oid}"), Default::default());
+                        pending_order_sig.set(Some(order.clone()));
                     }
+                    items_sig.set(vec![]);
+                    paying.set(false);
+                    placed_order.set(Some(order));
                 }
                 Err(e) => {
                     paying.set(false);
@@ -489,6 +490,118 @@ pub fn CheckoutPage() -> impl IntoView {
                     </svg>
                 </div>
             </div>
+
+            // ── Panel sukses (data dari response API checkout) ────────────────────
+            // Tampil setelah order dibuat: ringkasan pembayaran + tombol lanjut ke
+            // order detail (bayar) atau kembali ke home/explore. Tidak ada redirect.
+            {move || {
+                placed_order
+                    .get()
+                    .map(|o| {
+                        let is_paid = o.status.eq_ignore_ascii_case("paid")
+                            || o.status.eq_ignore_ascii_case("completed");
+                        let oid = o.id.clone();
+                        view! {
+                            <div class="co-done-overlay">
+                                <div class="co-done-card">
+                                    <div class=if is_paid {
+                                        "co-done-icon co-done-icon--paid"
+                                    } else {
+                                        "co-done-icon"
+                                    }>
+                                        {if is_paid {
+                                            view! {
+                                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none"
+                                                    stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                                                    <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
+                                                    <polyline points="22 4 12 14.01 9 11.01" />
+                                                </svg>
+                                            }
+                                                .into_any()
+                                        } else {
+                                            view! {
+                                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none"
+                                                    stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                                                    <circle cx="12" cy="12" r="10" />
+                                                    <polyline points="12 6 12 12 16 14" />
+                                                </svg>
+                                            }
+                                                .into_any()
+                                        }}
+                                    </div>
+                                    <h2 class="co-done-title">
+                                        {if is_paid { "PEMBAYARAN BERHASIL" } else { "ORDER BERHASIL DIBUAT" }}
+                                    </h2>
+                                    <p class="co-done-sub">
+                                        {if is_paid {
+                                            "Tiketmu sudah terbit. Sampai jumpa di venue!"
+                                        } else {
+                                            "Selesaikan pembayaran di halaman order untuk menerbitkan tiketmu."
+                                        }}
+                                    </p>
+                                    <div class="co-done-row">
+                                        <span>"ORDER ID"</span>
+                                        <span class="co-done-code">{"#"}{o.order_code.clone()}</span>
+                                    </div>
+                                    <div class="co-done-row">
+                                        <span>"STATUS"</span>
+                                        <span class=if is_paid {
+                                            "co-done-status co-done-status--paid"
+                                        } else {
+                                            "co-done-status"
+                                        }>
+                                            {if is_paid { "LUNAS".to_string() } else { o.status.to_uppercase() }}
+                                        </span>
+                                    </div>
+                                    <div class="co-done-items">
+                                        {o
+                                            .items
+                                            .iter()
+                                            .map(|i| {
+                                                view! {
+                                                    <div class="co-done-item">
+                                                        <span>
+                                                            {format!(
+                                                                "{} — {} ×{}",
+                                                                i.event_name,
+                                                                i.variant_name,
+                                                                i.quantity,
+                                                            )}
+                                                        </span>
+                                                        <span>{format_idr(i.subtotal)}</span>
+                                                    </div>
+                                                }
+                                            })
+                                            .collect_view()}
+                                    </div>
+                                    <div class="co-done-row co-done-total">
+                                        <span>"TOTAL"</span>
+                                        <span>{format_idr(o.total_amount)}</span>
+                                    </div>
+                                    {if is_paid {
+                                        view! {
+                                            <A href="/tickets" attr:class="co-done-btn">"LIHAT E-TICKET"</A>
+                                        }
+                                            .into_any()
+                                    } else {
+                                        view! {
+                                            <A
+                                                href=format!("/orders/{oid}")
+                                                attr:class="co-done-btn"
+                                            >
+                                                "LANJUT KE PEMBAYARAN"
+                                            </A>
+                                        }
+                                            .into_any()
+                                    }}
+                                    <A href="/explore" attr:class="co-done-secondary">
+                                        "Kembali ke Home / Explore"
+                                    </A>
+                                </div>
+                            </div>
+                        }
+                    })
+            }}
 
             // ── Sticky pay bar ────────────────────────────────────────────────────
             <div class="pay-bar">

@@ -232,6 +232,15 @@ impl<R: StoryRepository> StoryService<R> {
             .map_err(|e| AppError::Internal(e))
     }
 
+    /// Daftar story untuk pengunjung anonim (belum login): semua story aktif
+    /// tanpa status viewed. Membuka story tetap digate login di sisi client.
+    pub async fn list_groups_public(&self) -> AppResult<Vec<StoryGroupResponse>> {
+        self.repo
+            .list_groups_public()
+            .await
+            .map_err(|e| AppError::Internal(e))
+    }
+
     // ── Mark viewed ───────────────────────────────────────────────────────────
 
     pub async fn mark_viewed(&self, story_id: &str, viewer_id: &str) -> AppResult<()> {
