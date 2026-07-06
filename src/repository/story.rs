@@ -55,7 +55,7 @@ fn row_to_subscription(row: &Row) -> Result<UserSubscription> {
     })
 }
 
-/// Map satu row (query list_groups / list_groups_public / list_all_paged —
+/// Map satu row (query list_groups / list_groups_public / list_user_groups_paged —
 /// kolomnya identik) menjadi StoryItemResponse.
 fn row_to_story_item(row: &Row) -> Result<StoryItemResponse> {
     let id_bytes: Vec<u8> = row.try_get("id")?;
@@ -139,9 +139,14 @@ pub trait StoryRepository: Send + Sync {
     /// daftar story di StoryBar; membuka story digate di sisi client (login).
     async fn list_groups_public(&self) -> Result<Vec<StoryGroupResponse>>;
 
-    /// Arsip story publik: SEMUA story yang pernah ada (termasuk yang sudah
-    /// expired), terbaru dulu, dengan paginasi. Dipakai halaman /stories.
-    async fn list_all_paged(&self, limit: i64, offset: i64) -> Result<Vec<StoryItemResponse>>;
+    /// Arsip story publik per USER (halaman /stories): satu grup per user —
+    /// termasuk story yang sudah expired — diurutkan berdasarkan story terbaru
+    /// tiap user. Paginasi per user (limit/offset = jumlah user, bukan story).
+    async fn list_user_groups_paged(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<StoryGroupResponse>>;
 
     /// Tandai story sudah dilihat oleh viewer.
     async fn mark_viewed(&self, story_id: &str, viewer_id: &str) -> Result<()>;
@@ -390,13 +395,27 @@ impl StoryRepository for PgStoryRepository {
         rows_to_story_groups(&rows)
     }
 
-    async fn list_all_paged(&self, limit: i64, offset: i64) -> Result<Vec<StoryItemResponse>> {
+    async fn list_user_groups_paged(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<StoryGroupResponse>> {
         let conn = get_conn(&self.pool).await?;
 
         // TANPA filter expires_at: arsip menampilkan story yang pernah ada.
+        // CTE memilih HALAMAN user (diurutkan story terbarunya), baru join
+        // mengambil seluruh story milik user-user tersebut — story dalam grup
+        // urut ASC agar viewer memutar dari yang paling lama.
         let stmt = conn
             .prepare_cached(
                 r#"
+                WITH paged_users AS (
+                    SELECT user_id, MAX(created_at) AS latest_at
+                    FROM   stories
+                    GROUP  BY user_id
+                    ORDER  BY latest_at DESC
+                    LIMIT $1 OFFSET $2
+                )
                 SELECT
                     s.id,
                     s.user_id,
@@ -412,20 +431,20 @@ impl StoryRepository for PgStoryRepository {
                     s.event_slug,
                     s.event_title,
                     FALSE                              AS viewed
-                FROM   stories s
+                FROM   paged_users pu
+                JOIN   stories s ON s.user_id = pu.user_id
                 JOIN   users u   ON u.id = s.user_id
-                ORDER BY s.created_at DESC
-                LIMIT $1 OFFSET $2
+                ORDER BY pu.latest_at DESC, s.user_id, s.created_at ASC
                 "#,
             )
             .await
-            .context("list_all_paged prepare")?;
+            .context("list_user_groups_paged prepare")?;
         let rows = conn
             .query(&stmt, &[&limit, &offset])
             .await
-            .context("list_all_paged query")?;
+            .context("list_user_groups_paged query")?;
 
-        rows.iter().map(row_to_story_item).collect()
+        rows_to_story_groups(&rows)
     }
 
     // ── Mark viewed ───────────────────────────────────────────────────────────

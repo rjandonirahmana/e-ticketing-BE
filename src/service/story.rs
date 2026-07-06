@@ -241,14 +241,18 @@ impl<R: StoryRepository> StoryService<R> {
             .map_err(|e| AppError::Internal(e))
     }
 
-    /// Arsip story publik untuk halaman /stories: semua story yang pernah ada
-    /// (termasuk expired), terbaru dulu, dengan paginasi.
-    pub async fn list_all(&self, page: i64, per_page: i64) -> AppResult<Vec<crate::models::stories::StoryItemResponse>> {
+    /// Arsip story publik untuk halaman /stories: satu grup per user (termasuk
+    /// story expired), user dengan story terbaru dulu. Paginasi per user.
+    pub async fn list_user_groups(
+        &self,
+        page: i64,
+        per_page: i64,
+    ) -> AppResult<Vec<StoryGroupResponse>> {
         let page = page.max(1);
         let per_page = per_page.clamp(1, 48);
         let offset = (page - 1) * per_page;
         self.repo
-            .list_all_paged(per_page, offset)
+            .list_user_groups_paged(per_page, offset)
             .await
             .map_err(|e| AppError::Internal(e))
     }

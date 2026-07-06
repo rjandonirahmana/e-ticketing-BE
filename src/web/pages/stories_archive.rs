@@ -1,18 +1,22 @@
-//! stories_archive.rs — Halaman /stories: arsip publik semua story user yang
-//! pernah ada (termasuk yang sudah lewat 24 jam), terbaru dulu.
+//! stories_archive.rs — Halaman /stories: arsip publik story, SATU kartu per
+//! user (termasuk story yang sudah lewat 24 jam), user dengan story terbaru
+//! dulu. Klik kartu membuka StoryViewer penuh berisi SEMUA story user itu;
+//! tap kanan / swipe di akhir grup otomatis lanjut ke user berikutnya.
 //!
 //! Terbuka untuk pengunjung anonim (daftar bersifat publik — konsisten dengan
-//! StoryBar). MEMBUKA story (lightbox) tetap butuh login → redirect /login.
+//! StoryBar). MEMBUKA story (viewer) tetap butuh login → redirect /login.
 
 use leptos::prelude::*;
 use leptos_router::components::A;
 use leptos_router::hooks::use_navigate;
 
-use crate::web::api::get_all_stories;
+use crate::web::api::get_story_archive_groups;
 use crate::web::app::AuthResource;
+use crate::web::components::story_viewer::StoryViewer;
 use crate::web::hooks::ThemeToggle;
-use crate::web::state::stories::{StoryItem, StoryMediaType};
+use crate::web::state::stories::{use_stories_store, StoryGroup, StoryMediaType};
 
+/// Jumlah USER per halaman (bukan jumlah story).
 const PER_PAGE: usize = 24;
 
 fn fmt_date(d: &chrono::DateTime<chrono::Utc>) -> String {
@@ -24,20 +28,21 @@ pub fn StoriesArchivePage() -> impl IntoView {
     let auth = use_context::<AuthResource>().expect("AuthResource missing");
     let is_logged_in = move || auth.get().and_then(|r| r.ok()).flatten().is_some();
     let navigate = use_navigate();
+    let ctx = use_stories_store();
 
     // Daftar inkremental: halaman pertama via Resource (ikut SSR), halaman
     // berikutnya di-append lewat tombol "Muat Lebih Banyak".
-    let items: RwSignal<Vec<StoryItem>> = RwSignal::new(Vec::new());
+    let groups: RwSignal<Vec<StoryGroup>> = RwSignal::new(Vec::new());
     let page = RwSignal::new(1i64);
     let has_more = RwSignal::new(false);
     let loading = RwSignal::new(false);
 
-    let first_page = Resource::new(|| (), |_| get_all_stories(Some(1)));
+    let first_page = Resource::new(|| (), |_| get_story_archive_groups(Some(1)));
     Effect::new(move |_| {
         if let Some(Ok(list)) = first_page.get() {
             has_more.set(list.len() == PER_PAGE);
             page.set(2);
-            items.set(list);
+            groups.set(list);
         }
     });
 
@@ -48,17 +53,22 @@ pub fn StoriesArchivePage() -> impl IntoView {
         loading.set(true);
         let next = page.get_untracked();
         leptos::task::spawn_local(async move {
-            if let Ok(list) = get_all_stories(Some(next)).await {
+            if let Ok(list) = get_story_archive_groups(Some(next)).await {
                 has_more.set(list.len() == PER_PAGE);
                 page.set(next + 1);
-                items.update(|v| v.extend(list));
+                groups.update(|v| v.extend(list));
             }
             loading.set(false);
         });
     };
 
-    // Lightbox: story yang sedang dibuka (hanya user login).
-    let active: RwSignal<Option<StoryItem>> = RwSignal::new(None);
+    // Buka StoryViewer pada grup ke-idx: sinkronkan seluruh grup arsip yang
+    // sudah termuat ke stories store, sehingga next() di akhir grup otomatis
+    // lanjut ke user berikutnya (dan prev() ke user sebelumnya).
+    let open_group = move |idx: usize| {
+        ctx.groups.set(groups.get_untracked());
+        ctx.open(idx);
+    };
 
     view! {
         <div class="page sarc-page">
@@ -84,7 +94,7 @@ pub fn StoriesArchivePage() -> impl IntoView {
             <div class="sarc-hero">
                 <h1 class="sarc-title">"SEMUA STORY"</h1>
                 <p class="sarc-sub">
-                    "Arsip cerita publik dari semua pengguna — termasuk yang sudah berakhir."
+                    "Satu kartu per pengguna — buka untuk melihat semua story-nya."
                 </p>
             </div>
 
@@ -100,7 +110,7 @@ pub fn StoriesArchivePage() -> impl IntoView {
                 {move || {
                     // Sentuh resource agar Suspense menunggu halaman pertama di SSR.
                     let _ = first_page.get();
-                    let list = items.get();
+                    let list = groups.get();
                     if list.is_empty() {
                         return view! {
                             <div class="sarc-empty">
@@ -119,21 +129,32 @@ pub fn StoriesArchivePage() -> impl IntoView {
                         <div class="sarc-grid">
                             {list
                                 .into_iter()
-                                .map(|s| {
-                                    let expired = s.expires_at <= chrono::Utc::now();
-                                    let username = s.username.clone();
-                                    let avatar = s.avatar_url.clone();
-                                    let media = s.media_url.clone();
-                                    let is_video = s.media_type == StoryMediaType::Video;
-                                    let date_str = fmt_date(&s.created_at);
+                                .enumerate()
+                                .map(|(idx, g)| {
+                                    // Story dalam grup urut ASC → terbaru = last().
+                                    let latest = g.stories.last().cloned();
+                                    let (cover, is_video, date_str, any_active) = latest
+                                        .map(|s| {
+                                            (
+                                                s.media_url.clone(),
+                                                s.media_type == StoryMediaType::Video,
+                                                fmt_date(&s.created_at),
+                                                g.stories
+                                                    .iter()
+                                                    .any(|st| st.expires_at > chrono::Utc::now()),
+                                            )
+                                        })
+                                        .unwrap_or((String::new(), false, String::new(), false));
+                                    let count = g.stories.len();
+                                    let username = g.username.clone();
+                                    let avatar = g.avatar_url.clone();
                                     let nav = nav_grid.clone();
-                                    let item = s.clone();
                                     view! {
                                         <button
                                             class="sarc-card"
                                             on:click=move |_| {
                                                 if is_logged_in() {
-                                                    active.set(Some(item.clone()));
+                                                    open_group(idx);
                                                 } else {
                                                     nav("/login", Default::default());
                                                 }
@@ -143,7 +164,7 @@ pub fn StoriesArchivePage() -> impl IntoView {
                                                 view! {
                                                     <video
                                                         class="sarc-card-media"
-                                                        src=media.clone()
+                                                        src=cover.clone()
                                                         muted=true
                                                         playsinline=true
                                                         preload="metadata"
@@ -160,7 +181,7 @@ pub fn StoriesArchivePage() -> impl IntoView {
                                                 view! {
                                                     <img
                                                         class="sarc-card-media"
-                                                        src=media.clone()
+                                                        src=cover.clone()
                                                         alt=username.clone()
                                                         loading="lazy"
                                                     />
@@ -168,7 +189,21 @@ pub fn StoriesArchivePage() -> impl IntoView {
                                                     .into_any()
                                             }}
                                             <div class="sarc-card-grad"></div>
-                                            {(!expired)
+                                            {(count > 1)
+                                                .then(|| {
+                                                    view! {
+                                                        <span class="sarc-count-badge">
+                                                            <svg width="11" height="11" viewBox="0 0 24 24"
+                                                                fill="none" stroke="currentColor"
+                                                                stroke-width="2.5" stroke-linecap="round">
+                                                                <rect x="7" y="3" width="14" height="14" rx="2" />
+                                                                <path d="M3 7v12a2 2 0 002 2h12" />
+                                                            </svg>
+                                                            {count.to_string()}
+                                                        </span>
+                                                    }
+                                                })}
+                                            {any_active
                                                 .then(|| {
                                                     view! {
                                                         <span class="sarc-live-badge">"AKTIF"</span>
@@ -188,7 +223,9 @@ pub fn StoriesArchivePage() -> impl IntoView {
                                                     })}
                                                 <div class="sarc-card-meta">
                                                     <span class="sarc-card-user">{username.clone()}</span>
-                                                    <span class="sarc-card-date">{date_str}</span>
+                                                    <span class="sarc-card-date">
+                                                        {format!("{count} story • {date_str}")}
+                                                    </span>
                                                 </div>
                                             </div>
                                         </button>
@@ -222,90 +259,9 @@ pub fn StoriesArchivePage() -> impl IntoView {
                     })
             }}
 
-            // ── Lightbox (hanya user login) ───────────────────────────────────
-            {move || {
-                active
-                    .get()
-                    .map(|s| {
-                        let is_video = s.media_type == StoryMediaType::Video;
-                        let media = s.media_url.clone();
-                        let username = s.username.clone();
-                        let avatar = s.avatar_url.clone();
-                        let date_str = fmt_date(&s.created_at);
-                        let event_link = s
-                            .event_slug
-                            .clone()
-                            .filter(|slug| !slug.is_empty())
-                            .map(|slug| {
-                                let title = s
-                                    .event_title
-                                    .clone()
-                                    .unwrap_or_else(|| "Lihat Event".into());
-                                view! {
-                                    <A
-                                        href=format!("/events/{slug}")
-                                        attr:class="sarc-lb-event"
-                                    >
-                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                                            stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                                            <rect x="3" y="4" width="18" height="18" rx="2" />
-                                            <line x1="16" y1="2" x2="16" y2="6" />
-                                            <line x1="8" y1="2" x2="8" y2="6" />
-                                            <line x1="3" y1="10" x2="21" y2="10" />
-                                        </svg>
-                                        {title}
-                                    </A>
-                                }
-                            });
-                        view! {
-                            <div class="sarc-lightbox" on:click=move |_| active.set(None)>
-                                <div class="sarc-lb-inner" on:click=|e| e.stop_propagation()>
-                                    <div class="sarc-lb-head">
-                                        {(!avatar.is_empty())
-                                            .then(|| {
-                                                view! {
-                                                    <img
-                                                        class="sarc-card-avatar"
-                                                        src=avatar.clone()
-                                                        alt=username.clone()
-                                                    />
-                                                }
-                                            })}
-                                        <div class="sarc-card-meta">
-                                            <span class="sarc-card-user">{username.clone()}</span>
-                                            <span class="sarc-card-date">{date_str}</span>
-                                        </div>
-                                        <button
-                                            class="sarc-lb-close"
-                                            aria-label="Tutup"
-                                            on:click=move |_| active.set(None)
-                                        >
-                                            "✕"
-                                        </button>
-                                    </div>
-                                    {if is_video {
-                                        view! {
-                                            <video
-                                                class="sarc-lb-media"
-                                                src=media.clone()
-                                                controls=true
-                                                autoplay=true
-                                                playsinline=true
-                                            ></video>
-                                        }
-                                            .into_any()
-                                    } else {
-                                        view! {
-                                            <img class="sarc-lb-media" src=media.clone() alt=username.clone() />
-                                        }
-                                            .into_any()
-                                    }}
-                                    {event_link}
-                                </div>
-                            </div>
-                        }
-                    })
-            }}
+            // ── Story viewer fullscreen (hanya user login) ────────────────────
+            // Tap kanan / swipe kiri: story berikutnya, lalu user berikutnya.
+            <StoryViewer />
         </div>
     }
 }

@@ -24,27 +24,18 @@ pub async fn get_story_groups(
     return Ok(srv_story_groups_to_web(groups));
 }
 
-/// Arsip story publik (halaman /stories): semua story yang pernah ada —
-/// termasuk yang sudah expired — terbaru dulu. Tidak butuh login untuk
-/// MELIHAT daftar; membuka story digate login di client.
-#[server(GetAllStories, "/api-fn")]
-pub async fn get_all_stories(
+/// Arsip story publik (halaman /stories): SATU grup per user — termasuk story
+/// yang sudah expired — user dengan story terbaru dulu. Paginasi per user.
+/// Tidak butuh login untuk MELIHAT daftar; membuka story digate login di client.
+#[server(GetStoryArchiveGroups, "/api-fn")]
+pub async fn get_story_archive_groups(
     page: Option<i64>,
-) -> Result<Vec<crate::web::state::stories::StoryItem>, ServerFnError> {
+) -> Result<Vec<crate::web::state::stories::StoryGroup>, ServerFnError> {
     let state = app_state().await?;
-    let items = state
+    let groups = state
         .story_svc
-        .list_all(page.unwrap_or(1), 24)
+        .list_user_groups(page.unwrap_or(1), 24)
         .await
         .map_err(map_app_error)?;
-
-    // Reuse mapper group→web: bungkus flat list dalam satu grup sementara,
-    // lalu ambil kembali stories-nya (field grup tidak dipakai mapper item).
-    let mapped = srv_story_groups_to_web(vec![crate::models::stories::StoryGroupResponse {
-        user_id: String::new(),
-        username: String::new(),
-        avatar_url: String::new(),
-        stories: items,
-    }]);
-    return Ok(mapped.into_iter().flat_map(|g| g.stories).collect());
+    return Ok(srv_story_groups_to_web(groups));
 }
