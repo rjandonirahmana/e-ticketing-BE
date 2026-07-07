@@ -19,11 +19,38 @@ use crate::web::state::stories::{use_stories_store, StoryMediaType};
 
 // ── Konstanta ──────────────────────────────────────────────────────────
 const STORY_DURATION_MS: f64 = 5_000.0;
-const TAP_THRESHOLD_PX: f64 = 50.0;
+/// Batas tunggu metadata video sebelum fallback ke durasi default —
+/// mencegah story stuck selamanya bila `loadedmetadata`/`error` tak pernah fire.
+const VIDEO_METADATA_TIMEOUT_MS: i32 = 5_000;
 const SWIPE_THRESHOLD_PX: f64 = 80.0;
 const DOUBLE_TAP_MS: f64 = 300.0;
 const DOUBLE_TAP_DISTANCE_PX: f64 = 40.0;
 const MAX_CONCURRENT_HEARTS: u32 = 5;
+
+// ── Konstanta gesture cube ala Instagram ──────────────────────────────
+/// Jarak minimum sebelum sumbu gesture dikunci (horizontal vs vertikal).
+const AXIS_LOCK_PX: f64 = 12.0;
+/// Fraksi lebar layar yang harus di-drag agar pindah grup di-commit.
+const GROUP_COMMIT_RATIO: f64 = 0.25;
+/// Kecepatan flick (px/ms) yang langsung commit walau jarak kurang.
+const FLICK_VELOCITY: f64 = 0.55;
+/// Durasi animasi settle rotasi cube (ms).
+const CUBE_SETTLE_MS: i32 = 260;
+/// Jarak drag ke bawah untuk menutup viewer.
+const CLOSE_DRAG_PX: f64 = 130.0;
+
+/// Sumbu gesture yang dikunci saat touchmove pertama yang signifikan —
+/// meniru gesture recognizer Instagram: satu gesture = satu sumbu.
+#[derive(Clone, Copy, PartialEq)]
+enum DragAxis {
+    None,
+    /// Drag kiri/kanan → cube rotate antar-grup (antar-user)
+    Horizontal,
+    /// Drag ke bawah → kecilkan + tutup viewer
+    VerticalDown,
+    /// Drag ke atas → buka event (swipe-up "See More")
+    VerticalUp,
+}
 
 // ── RafState ───────────────────────────────────────────────────────────
 #[derive(Clone, Copy)]
@@ -78,6 +105,58 @@ fn start_raf(
     }
 }
 
+// ── Helper: tulis inline style langsung ke elemen (dipakai saat drag —
+//    sengaja bypass sistem reaktif agar 60fps tanpa re-render) ─────────
+fn set_el_style(el: &web_sys::HtmlElement, prop: &str, val: &str) {
+    let _ = el.style().set_property(prop, val);
+}
+
+fn remove_el_style(el: &web_sys::HtmlElement, prop: &str) {
+    let _ = el.style().remove_property(prop);
+}
+
+// ── Helper: jalankan closure sekali setelah `ms` — Closure::once sehingga
+//    captures dibebaskan setelah callback jalan (tidak leak permanen) ───
+fn after_timeout(ms: i32, f: impl FnOnce() + 'static) {
+    let Some(win) = web_sys::window() else { return };
+    let cb = Closure::once(f);
+    let _ =
+        win.set_timeout_with_callback_and_timeout_and_arguments_0(cb.as_ref().unchecked_ref(), ms);
+    cb.forget();
+}
+
+// ── Face cube tetangga: preview story pertama user sebelah (ala IG) ────
+fn neighbor_face(p: crate::web::state::stories::GroupPreview, side: &'static str) -> impl IntoView {
+    view! {
+        <div class=format!(
+            "sv-face-neighbor {side}",
+        )>
+            {if p.is_video {
+                Either::Left(
+                    view! {
+                        <video
+                            class="sv-media"
+                            src=p.media_url
+                            muted
+                            playsinline
+                            preload="metadata"
+                        ></video>
+                    },
+                )
+            } else {
+                Either::Right(
+                    view! { <img class="sv-media" src=p.media_url alt="" decoding="async" /> },
+                )
+            }} <div class="sv-face-scrim"></div> <div class="sv-face-id">
+                <div class="sv-avatar-ring sv-face-avatar">
+                    <img class="sv-avatar" src=p.avatar_url alt=p.username.clone() />
+                </div>
+                <span class="sv-face-username">{p.username}</span>
+            </div>
+        </div>
+    }
+}
+
 // ══════════════════════════════════════════════════════════════════════
 #[component]
 pub fn StoryViewer() -> impl IntoView {
@@ -121,6 +200,18 @@ pub fn StoryViewer() -> impl IntoView {
     let video_duration_ms: StoredValue<f64> = StoredValue::new(STORY_DURATION_MS);
     let media_area_ref = NodeRef::<Div>::new();
 
+    // ── Cube swipe antar-user (ala Instagram) ─────────────────────────
+    let scene_ref = NodeRef::<Div>::new();
+    let cube_ref = NodeRef::<Div>::new();
+    let backdrop_ref = NodeRef::<Div>::new();
+    let drag_axis: StoredValue<DragAxis> = StoredValue::new(DragAxis::None);
+    let drag_w: StoredValue<f64> = StoredValue::new(480.0);
+    let drag_h: StoredValue<f64> = StoredValue::new(800.0);
+    // true selama animasi settle berjalan — semua input diabaikan
+    let settling: StoredValue<bool> = StoredValue::new(false);
+    // true saat drag horizontal aktif — face tetangga dirender hanya saat ini
+    let cube_active = RwSignal::new(false);
+
     let kb_fn: StoredValue<Option<SendWrapper<Closure<dyn Fn(web_sys::KeyboardEvent)>>>> =
         StoredValue::new(None);
     let vis_closure: StoredValue<Option<SendWrapper<Closure<dyn Fn()>>>> = StoredValue::new(None);
@@ -153,6 +244,33 @@ pub fn StoryViewer() -> impl IntoView {
             .and_then(|w| w.performance())
             .map(|p| p.now())
             .unwrap_or(0.0)
+    };
+
+    // Fallback bila video tidak pernah fire `loadedmetadata` (broken/stalled):
+    // mulai RAF dengan durasi default agar story auto-advance, tidak stuck.
+    // Story-scoped: hanya jalan bila grup+story yang ditunggu masih aktif,
+    // sehingga timer basi dari story sebelumnya tidak memotong story berikutnya.
+    let start_video_fallback = move |exp_gi: usize, exp_si: usize| {
+        if !waiting_for_video.get_value() {
+            return;
+        }
+        if ctx.active_group.get_untracked() != Some(exp_gi)
+            || ctx.active_story_idx.get_untracked() != exp_si
+        {
+            return;
+        }
+        waiting_for_video.set_value(false);
+        video_duration_ms.set_value(STORY_DURATION_MS);
+        raf_state.update_value(|st| {
+            if st.active_idx == exp_si {
+                st.duration_ms = STORY_DURATION_MS;
+                st.start_ms = now_ms();
+                st.cancelled = false;
+            }
+        });
+        if !is_paused.get_untracked() && raf_id.get_value() == 0 {
+            start_raf(&raf_closure, &raf_id);
+        }
     };
 
     // ── Keyboard handler factory ───────────────────────────────────────
@@ -261,7 +379,8 @@ pub fn StoryViewer() -> impl IntoView {
     // ══════════════════════════════════════════════════════════════════
     Effect::new(move |_| {
         let si = ctx.active_story_idx.get();
-        let open = ctx.active_group.get().is_some();
+        let gi_opt = ctx.active_group.get();
+        let open = gi_opt.is_some();
 
         if !open {
             raf_state.update_value(|s| s.cancelled = true);
@@ -323,6 +442,14 @@ pub fn StoryViewer() -> impl IntoView {
                 paused_at_ms: 0.0,
             });
             // Fill visual sudah direset di atas, tidak perlu mulai RAF dulu
+
+            // Safety net: bila metadata/error tak pernah datang (video broken/
+            // stalled), fallback ke durasi default setelah timeout agar tidak stuck.
+            if let Some(gi) = gi_opt {
+                after_timeout(VIDEO_METADATA_TIMEOUT_MS, move || {
+                    start_video_fallback(gi, si);
+                });
+            }
         }
     });
 
@@ -533,75 +660,310 @@ pub fn StoryViewer() -> impl IntoView {
     // EVENT HANDLERS
     // ══════════════════════════════════════════════════════════════════
 
-    let on_touch_start = move |ev: leptos::ev::TouchEvent| {
-        if let Some(t) = ev.touches().get(0) {
-            let ts = (t.client_x() as f64, t.client_y() as f64, now_ms());
-            touch_start.set(Some(ts));
-            touch_last.set(Some(ts));
-            is_paused.set(true);
+    // Gesture cube pakai Pointer Events → satu jalur kode untuk mouse (desktop),
+    // sentuhan (mobile), dan pen. Sebelumnya hanya on:touch* sehingga di desktop
+    // (mouse) drag antar-user tidak pernah ter-trigger.
+    let on_pointer_down = move |ev: leptos::ev::PointerEvent| {
+        if settling.get_value() {
+            return;
+        }
+        // Mouse: hanya tombol kiri (0). Sentuhan/pen selalu 0.
+        if ev.button() != 0 {
+            return;
+        }
+        let ts = (ev.client_x() as f64, ev.client_y() as f64, now_ms());
+        touch_start.set(Some(ts));
+        touch_last.set(Some(ts));
+        drag_axis.set_value(DragAxis::None);
+        is_paused.set(true);
+
+        // Ukur dimensi aktual utk geometri cube; --sv-w dipakai CSS face
+        // (rotateY ± translateZ(var(--sv-w)/2)) agar rotasi presisi.
+        if let Some(cube) = cube_ref.get_untracked() {
+            let w = cube.offset_width() as f64;
+            let h = cube.offset_height() as f64;
+            if w > 0.0 {
+                drag_w.set_value(w);
+                drag_h.set_value(h.max(1.0));
+                set_el_style(&cube, "--sv-w", &format!("{w}px"));
+            }
         }
     };
 
-    let on_touch_move = move |ev: leptos::ev::TouchEvent| {
-        if let Some(t) = ev.touches().get(0) {
-            touch_last.set(Some((t.client_x() as f64, t.client_y() as f64, now_ms())));
+    let on_pointer_move = move |ev: leptos::ev::PointerEvent| {
+        if settling.get_value() {
+            return;
+        }
+        // Hover mouse juga memicu pointermove — abaikan bila tidak sedang menekan
+        // (touch_start baru ter-set di pointerdown).
+        let Some((sx, sy, _)) = touch_start.get_untracked() else {
+            return;
+        };
+        let (cx, cy) = (ev.client_x() as f64, ev.client_y() as f64);
+        touch_last.set(Some((cx, cy, now_ms())));
+        let dx = cx - sx;
+        let dy = cy - sy;
+
+        // Kunci sumbu pada gerakan signifikan pertama — satu gesture satu sumbu,
+        // persis gesture recognizer Instagram.
+        if drag_axis.get_value() == DragAxis::None
+            && (dx.abs() > AXIS_LOCK_PX || dy.abs() > AXIS_LOCK_PX)
+        {
+            if dx.abs() > dy.abs() {
+                drag_axis.set_value(DragAxis::Horizontal);
+                show_detail_tag.set(false);
+                cube_active.set(true);
+                // Tangkap pointer → sisa gesture tetap terkirim walau kursor
+                // keluar elemen (penting untuk mouse drag di desktop).
+                if let Some(el) = ev.current_target() {
+                    let el: web_sys::Element = el.unchecked_into();
+                    let _ = el.set_pointer_capture(ev.pointer_id());
+                }
+            } else if dy > 0.0 {
+                drag_axis.set_value(DragAxis::VerticalDown);
+            } else {
+                drag_axis.set_value(DragAxis::VerticalUp);
+            }
+        }
+
+        match drag_axis.get_value() {
+            DragAxis::Horizontal => {
+                // Cube ikut jari: sudut proporsional terhadap jarak drag.
+                ev.prevent_default();
+                let w = drag_w.get_value();
+                let mut deg = (dx / w) * 90.0;
+                // Rubber-band bila swipe kanan di grup pertama (tidak ada prev).
+                // Swipe kiri di grup terakhir tetap penuh — commit = tutup viewer.
+                if deg > 0.0 && !ctx.has_prev_group() {
+                    deg *= 0.25;
+                }
+                deg = deg.clamp(-90.0, 90.0);
+                if let Some(cube) = cube_ref.get_untracked() {
+                    set_el_style(&cube, "transition", "none");
+                    set_el_style(
+                        &cube,
+                        "transform",
+                        &format!("translateZ(calc(var(--sv-w) / -2)) rotateY({deg:.3}deg)"),
+                    );
+                }
+            }
+            DragAxis::VerticalDown => {
+                // Viewer mengecil + turun mengikuti jari, backdrop memudar (ala IG).
+                ev.prevent_default();
+                let dyc = dy.max(0.0);
+                let scale = (1.0 - dyc / drag_h.get_value() * 0.25).max(0.75);
+                if let Some(scene) = scene_ref.get_untracked() {
+                    set_el_style(&scene, "transition", "none");
+                    set_el_style(
+                        &scene,
+                        "transform",
+                        &format!("translateX(-50%) translateY({dyc:.1}px) scale({scale:.4})"),
+                    );
+                    set_el_style(&scene, "border-radius", "18px");
+                }
+                if let Some(bd) = backdrop_ref.get_untracked() {
+                    set_el_style(
+                        &bd,
+                        "opacity",
+                        &format!("{:.3}", (1.0 - dyc / 600.0).max(0.2)),
+                    );
+                }
+            }
+            _ => {}
         }
     };
 
-    let on_touch_end = move |_ev: leptos::ev::TouchEvent| {
+    let on_pointer_up = move |ev: leptos::ev::PointerEvent| {
+        if settling.get_value() {
+            return;
+        }
+        // Lepas pointer capture bila sempat ditangkap saat drag horizontal.
+        if let Some(t) = ev.current_target() {
+            let el: web_sys::Element = t.unchecked_into();
+            if el.has_pointer_capture(ev.pointer_id()) {
+                let _ = el.release_pointer_capture(ev.pointer_id());
+            }
+        }
+        let axis = drag_axis.get_value();
+        drag_axis.set_value(DragAxis::None);
         is_paused.set(false);
 
-        if let (Some((sx, sy, st)), Some((ex, ey, _))) = (touch_start.get(), touch_last.get()) {
-            let dx = ex - sx;
-            let dy = ey - sy;
-            let dt = now_ms() - st;
-
-            if dx.abs() > dy.abs() && dx.abs() > SWIPE_THRESHOLD_PX && dt < 500.0 {
-                // Swipe horizontal → prev/next story
-                touch_handled.set_value(true);
-                show_detail_tag.set(false);
-                if dx < 0.0 {
-                    ctx.next();
-                } else {
-                    ctx.prev();
-                }
-            } else if dy < -(SWIPE_THRESHOLD_PX) && dt < 450.0 {
-                // ── Swipe UP — navigasi ke event jika story punya event_slug ──
-                // Ini meniru gesture "See More" / swipe-up Instagram.
-                // Syarat: swipe ke atas (dy negatif) dan lebih dominan dari horizontal.
-                touch_handled.set_value(true);
-                let slug = ctx.with_current_story(|s| s.event_slug.clone()).flatten();
-                if let Some(slug) = slug {
-                    if let Some(win) = web_sys::window() {
-                        // Haptic feedback jika tersedia (mobile)
-                        if let Ok(vibrate_fn) = js_sys::Reflect::get(
-                            &win.navigator(),
-                            &wasm_bindgen::JsValue::from_str("vibrate"),
-                        ) {
-                            if vibrate_fn.is_function() {
-                                let f: js_sys::Function = vibrate_fn.unchecked_into();
-                                let _ = f.call1(
-                                    &win.navigator(),
-                                    &wasm_bindgen::JsValue::from_f64(40.0),
-                                );
-                            }
-                        }
-                        let _ = win.location().set_href(&format!("/events/{}", slug));
-                    }
-                }
-            } else if dy > TAP_THRESHOLD_PX * 1.6 {
-                // Swipe DOWN → tutup story viewer
-                touch_handled.set_value(true);
-                ctx.close();
-            }
-            // Tap biasa: biarkan click event menangani (termasuk double-tap logic)
-        }
-
+        let start = touch_start.get_untracked();
+        let last = touch_last.get_untracked();
         touch_start.set(None);
         touch_last.set(None);
+
+        let (Some((sx, sy, st)), Some((ex, ey, et))) = (start, last) else {
+            return;
+        };
+        let dx = ex - sx;
+        let dy = ey - sy;
+        let dt = (et - st).max(1.0);
+
+        match axis {
+            // ── Drag horizontal → pindah GRUP (user) dengan settle cube ──
+            DragAxis::Horizontal => {
+                touch_handled.set_value(true);
+                let w = drag_w.get_value();
+                let vx = dx / dt;
+                let commit = dx.abs() > w * GROUP_COMMIT_RATIO
+                    || (vx.abs() > FLICK_VELOCITY && dx.abs() > 40.0);
+                let to_next = dx < 0.0;
+
+                let Some(cube) = cube_ref.get_untracked() else {
+                    cube_active.set(false);
+                    return;
+                };
+
+                if commit && (to_next || ctx.has_prev_group()) {
+                    // Selesaikan rotasi ke ±90°, lalu ganti grup.
+                    // next_group() di grup terakhir menutup viewer (perilaku IG).
+                    settling.set_value(true);
+                    let deg = if to_next { -90.0 } else { 90.0 };
+                    set_el_style(
+                        &cube,
+                        "transition",
+                        "transform 0.26s cubic-bezier(0.2, 0.8, 0.25, 1)",
+                    );
+                    set_el_style(
+                        &cube,
+                        "transform",
+                        &format!("translateZ(calc(var(--sv-w) / -2)) rotateY({deg}deg)"),
+                    );
+                    after_timeout(CUBE_SETTLE_MS + 20, move || {
+                        // Reset + ganti grup dalam satu closure → satu paint,
+                        // tidak ada flash konten lama.
+                        if let Some(cube) = cube_ref.get_untracked() {
+                            remove_el_style(&cube, "transition");
+                            remove_el_style(&cube, "transform");
+                        }
+                        let _ = cube_active.try_set(false);
+                        if to_next {
+                            ctx.next_group();
+                        } else {
+                            ctx.prev_group();
+                        }
+                        let _ = settling.try_update_value(|v| *v = false);
+                    });
+                } else {
+                    // Snap back ke 0° (drag kurang jauh / rubber-band)
+                    settling.set_value(true);
+                    set_el_style(
+                        &cube,
+                        "transition",
+                        "transform 0.22s cubic-bezier(0.2, 0.8, 0.25, 1)",
+                    );
+                    set_el_style(
+                        &cube,
+                        "transform",
+                        "translateZ(calc(var(--sv-w) / -2)) rotateY(0deg)",
+                    );
+                    after_timeout(240, move || {
+                        if let Some(cube) = cube_ref.get_untracked() {
+                            remove_el_style(&cube, "transition");
+                            remove_el_style(&cube, "transform");
+                        }
+                        let _ = cube_active.try_set(false);
+                        let _ = settling.try_update_value(|v| *v = false);
+                    });
+                }
+            }
+
+            // ── Drag ke bawah → tutup viewer (lanjutkan gerakan + fade) ──
+            DragAxis::VerticalDown => {
+                touch_handled.set_value(true);
+                let vy = dy / dt;
+                let commit = dy > CLOSE_DRAG_PX || (vy > FLICK_VELOCITY && dy > 60.0);
+                let Some(scene) = scene_ref.get_untracked() else {
+                    return;
+                };
+                if commit {
+                    settling.set_value(true);
+                    set_el_style(
+                        &scene,
+                        "transition",
+                        "transform 0.24s ease-in, opacity 0.24s ease-in",
+                    );
+                    set_el_style(
+                        &scene,
+                        "transform",
+                        "translateX(-50%) translateY(70vh) scale(0.7)",
+                    );
+                    set_el_style(&scene, "opacity", "0");
+                    if let Some(bd) = backdrop_ref.get_untracked() {
+                        set_el_style(&bd, "transition", "opacity 0.24s ease-in");
+                        set_el_style(&bd, "opacity", "0");
+                    }
+                    after_timeout(240, move || {
+                        let _ = settling.try_update_value(|v| *v = false);
+                        ctx.close();
+                    });
+                } else {
+                    // Snap back ke posisi semula
+                    settling.set_value(true);
+                    set_el_style(
+                        &scene,
+                        "transition",
+                        "transform 0.22s cubic-bezier(0.2, 0.8, 0.25, 1), border-radius 0.22s ease",
+                    );
+                    set_el_style(&scene, "transform", "translateX(-50%)");
+                    set_el_style(&scene, "border-radius", "0px");
+                    if let Some(bd) = backdrop_ref.get_untracked() {
+                        set_el_style(&bd, "transition", "opacity 0.2s ease");
+                        set_el_style(&bd, "opacity", "1");
+                    }
+                    after_timeout(240, move || {
+                        if let Some(scene) = scene_ref.get_untracked() {
+                            remove_el_style(&scene, "transition");
+                            remove_el_style(&scene, "transform");
+                            remove_el_style(&scene, "border-radius");
+                        }
+                        if let Some(bd) = backdrop_ref.get_untracked() {
+                            remove_el_style(&bd, "transition");
+                            remove_el_style(&bd, "opacity");
+                        }
+                        let _ = settling.try_update_value(|v| *v = false);
+                    });
+                }
+            }
+
+            // ── Swipe UP — navigasi ke event jika story punya event_slug ──
+            // Meniru gesture "See More" / swipe-up Instagram.
+            DragAxis::VerticalUp => {
+                if -dy > SWIPE_THRESHOLD_PX && dt < 450.0 {
+                    touch_handled.set_value(true);
+                    let slug = ctx.with_current_story(|s| s.event_slug.clone()).flatten();
+                    if let Some(slug) = slug {
+                        if let Some(win) = web_sys::window() {
+                            // Haptic feedback jika tersedia (mobile)
+                            if let Ok(vibrate_fn) = js_sys::Reflect::get(
+                                &win.navigator(),
+                                &wasm_bindgen::JsValue::from_str("vibrate"),
+                            ) {
+                                if vibrate_fn.is_function() {
+                                    let f: js_sys::Function = vibrate_fn.unchecked_into();
+                                    let _ = f.call1(
+                                        &win.navigator(),
+                                        &wasm_bindgen::JsValue::from_f64(40.0),
+                                    );
+                                }
+                            }
+                            let _ = win.location().set_href(&format!("/events/{}", slug));
+                        }
+                    }
+                }
+            }
+
+            // Tap biasa: biarkan click event menangani (termasuk double-tap)
+            DragAxis::None => {}
+        }
     };
 
     let on_media_click = move |ev: leptos::ev::MouseEvent| {
+        // Abaikan click selama animasi settle cube/close berjalan
+        if settling.get_value() {
+            return;
+        }
         // FIX P0-b: batalkan jika touch sudah menangani gesture ini
         if touch_handled.get_value() {
             touch_handled.set_value(false);
@@ -808,12 +1170,24 @@ pub fn StoryViewer() -> impl IntoView {
                 .map(|_| {
                     view! {
                         <div class="sv-portal">
-                <div class="sv-backdrop" on:click=move |_| ctx.close()></div>
+                <div class="sv-backdrop" node_ref=backdrop_ref on:click=move |_| ctx.close()></div>
+
+                // ── Scene: kolom story + perspective utk cube antar-user ──
+                <div class="sv-scene" node_ref=scene_ref>
+                <div class="sv-cube" node_ref=cube_ref
+                     class=("is-3d", move || cube_active.get())>
+
+                // ── Face kiri: preview grup (user) sebelumnya — hanya saat drag ──
+                {move || cube_active.get()
+                    .then(|| ctx.group_preview(-1))
+                    .flatten()
+                    .map(|p| neighbor_face(p, "sv-face-prev"))}
 
                 <div class="sv-container"
-                     on:touchstart=on_touch_start
-                     on:touchmove=on_touch_move
-                     on:touchend=on_touch_end>
+                     on:pointerdown=on_pointer_down
+                     on:pointermove=on_pointer_move
+                     on:pointerup=on_pointer_up
+                     on:pointercancel=on_pointer_up>
 
                     // ── Progress bar ──────────────────────────────────
                     // FIX P1-b: buat NodeRef BARU tiap kali closure reaktif re-run.
@@ -982,6 +1356,14 @@ pub fn StoryViewer() -> impl IntoView {
                                                    }
                                                }
                                            }
+                                           on:error=move |_| {
+                                               // Video gagal load → langsung fallback,
+                                               // tanpa menunggu safety timeout.
+                                               if let Some(gi) = ctx.active_group.get_untracked() {
+                                                   let si = ctx.active_story_idx.get_untracked();
+                                                   start_video_fallback(gi, si);
+                                               }
+                                           }
                                     />
                                 }),
                             }
@@ -1080,13 +1462,40 @@ pub fn StoryViewer() -> impl IntoView {
                     </div>
 
                     // ── Tap zones ─────────────────────────────────────
+                    // Guard touch_handled: click sintetis pasca-swipe tidak
+                    // boleh ikut memicu prev/next (double-fire).
                     <div class="sv-tap-zone sv-tap-zone--left"
-                         on:click=move |ev| { ev.stop_propagation(); ctx.prev(); }>
+                         on:click=move |ev| {
+                             ev.stop_propagation();
+                             if settling.get_value() { return; }
+                             if touch_handled.get_value() {
+                                 touch_handled.set_value(false);
+                                 return;
+                             }
+                             ctx.prev();
+                         }>
                     </div>
                     <div class="sv-tap-zone sv-tap-zone--right"
-                         on:click=move |ev| { ev.stop_propagation(); ctx.next(); }>
+                         on:click=move |ev| {
+                             ev.stop_propagation();
+                             if settling.get_value() { return; }
+                             if touch_handled.get_value() {
+                                 touch_handled.set_value(false);
+                                 return;
+                             }
+                             ctx.next();
+                         }>
                     </div>
 
+                </div>
+
+                // ── Face kanan: preview grup (user) berikutnya — hanya saat drag ──
+                {move || cube_active.get()
+                    .then(|| ctx.group_preview(1))
+                    .flatten()
+                    .map(|p| neighbor_face(p, "sv-face-next"))}
+
+                </div>
                 </div>
             </div>
                     }
