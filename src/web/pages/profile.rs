@@ -13,14 +13,19 @@
 //! menyediakan field-nya; `active_tickets` & "Active Experiences" diisi dari
 //! tiket nyata via `get_my_tickets`.
 
+use leptos::either::Either;
 use leptos::prelude::*;
 use leptos_router::components::A;
 
 use crate::web::hooks::ThemeToggle;
-use crate::web::api::{get_my_tickets, get_premium_status, logout_action};
+use crate::web::api::{
+    delete_my_story, get_my_story_group, get_my_tickets, get_premium_status, logout_action,
+};
 use crate::web::app::AuthResource;
+use crate::web::components::story_viewer::StoryViewer;
 use crate::web::components::BottomNav;
 use crate::web::models::{format_date, format_price};
+use crate::web::state::stories::{use_stories_store, StoryMediaType};
 
 #[component]
 pub fn ProfilePage() -> impl IntoView {
@@ -48,6 +53,45 @@ pub fn ProfilePage() -> impl IntoView {
             if logged_in { get_my_tickets().await.unwrap_or_default() } else { vec![] }
         },
     );
+
+    // Store story global — dipakai untuk membuka <StoryViewer/> dari profil.
+    let ctx = use_stories_store();
+
+    // Story milik user sendiri sebagai satu grup (untuk thumbnail + viewer).
+    let my_group = Resource::new(
+        move || is_logged_in(),
+        |logged_in| async move {
+            if logged_in { get_my_story_group().await.ok().flatten() } else { None }
+        },
+    );
+
+    // Sinkronkan grup "Story Saya" ke store agar bisa dibuka viewer (open_at).
+    Effect::new(move |_| {
+        if let Some(Some(group)) = my_group.get() {
+            ctx.groups.set(vec![group]);
+        }
+    });
+
+    // Refetch saat viewer ditutup (mis. sesudah hapus dari dalam viewer).
+    Effect::new(move |prev: Option<bool>| {
+        let open = ctx.active_group.get().is_some();
+        if prev == Some(true) && !open {
+            my_group.refetch();
+        }
+        open
+    });
+
+    // Aksi hapus story (dari thumbnail); setelah selesai → refetch daftar.
+    let delete_story = Action::new(|id: &String| {
+        let id = id.clone();
+        async move { delete_my_story(id).await }
+    });
+    Effect::new(move |_| {
+        // value() menjadi Some setiap kali aksi selesai → refresh daftar.
+        if delete_story.value().get().is_some() {
+            my_group.refetch();
+        }
+    });
 
     let on_logout = move |_: web_sys::MouseEvent| {
         leptos::task::spawn_local(async move {
@@ -231,6 +275,122 @@ pub fn ProfilePage() -> impl IntoView {
                                                     })
                                             }}
                                         </Suspense>
+
+                                        // ── Story Saya (list + hapus) ──────────────
+                                        <div class="menu-section">
+                                            <span class="menu-section-label">"STORY SAYA"</span>
+                                            <Suspense fallback=|| {
+                                                view! {
+                                                    <div class="my-stories-hint">"Memuat story…"</div>
+                                                }
+                                            }>
+                                                {move || {
+                                                    match my_group.get() {
+                                                        Some(Some(group)) if !group.stories.is_empty() => {
+                                                            let now = chrono::Utc::now();
+                                                            Either::Right(
+                                                                view! {
+                                                                    <div class="my-stories-grid">
+                                                                        {group
+                                                                            .stories
+                                                                            .iter()
+                                                                            .enumerate()
+                                                                            .map(|(i, s)| {
+                                                                                let id = s.id.clone();
+                                                                                let is_video = matches!(
+                                                                                    s.media_type,
+                                                                                    StoryMediaType::Video
+                                                                                );
+                                                                                let url = s.media_url.clone();
+                                                                                let active = s.expires_at > now;
+                                                                                view! {
+                                                                                    <div
+                                                                                        class="my-story-cell"
+                                                                                        on:click=move |_| ctx.open_at(0, i)
+                                                                                    >
+                                                                                            {if is_video {
+                                                                                                Either::Left(
+                                                                                                    view! {
+                                                                                                        <video
+                                                                                                            class="my-story-thumb"
+                                                                                                            src=url
+                                                                                                            muted
+                                                                                                            playsinline
+                                                                                                            preload="metadata"
+                                                                                                        ></video>
+                                                                                                    },
+                                                                                                )
+                                                                                            } else {
+                                                                                                Either::Right(
+                                                                                                    view! {
+                                                                                                        <img
+                                                                                                            class="my-story-thumb"
+                                                                                                            src=url
+                                                                                                            alt=""
+                                                                                                            decoding="async"
+                                                                                                        />
+                                                                                                    },
+                                                                                                )
+                                                                                            }}
+                                                                                            <span class=if active {
+                                                                                                "my-story-badge my-story-badge--active"
+                                                                                            } else {
+                                                                                                "my-story-badge"
+                                                                                            }>
+                                                                                                {if active { "Aktif" } else { "Arsip" }}
+                                                                                            </span>
+                                                                                            <button
+                                                                                                class="my-story-del"
+                                                                                                aria-label="Hapus story"
+                                                                                                on:click=move |ev| {
+                                                                                                    ev.stop_propagation();
+                                                                                                    let ok = web_sys::window()
+                                                                                                        .and_then(|w| {
+                                                                                                            w.confirm_with_message("Hapus story ini?").ok()
+                                                                                                        })
+                                                                                                        .unwrap_or(false);
+                                                                                                    if ok {
+                                                                                                        delete_story.dispatch(id.clone());
+                                                                                                    }
+                                                                                                }
+                                                                                            >
+                                                                                                <svg
+                                                                                                    width="16"
+                                                                                                    height="16"
+                                                                                                    viewBox="0 0 24 24"
+                                                                                                    fill="none"
+                                                                                                    stroke="currentColor"
+                                                                                                    stroke-width="2"
+                                                                                                    stroke-linecap="round"
+                                                                                                >
+                                                                                                    <polyline points="3 6 5 6 21 6" />
+                                                                                                    <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                                                                                                </svg>
+                                                                                            </button>
+                                                                                        </div>
+                                                                                    }
+                                                                                })
+                                                                                .collect_view()}
+                                                                        </div>
+                                                                    },
+                                                                )
+                                                        }
+                                                        Some(_) => Either::Left(
+                                                            view! {
+                                                                <div class="my-stories-hint">
+                                                                    "Belum ada story. Story yang kamu buat akan muncul di sini."
+                                                                </div>
+                                                            },
+                                                        ),
+                                                        None => Either::Left(
+                                                            view! {
+                                                                <div class="my-stories-hint">"Memuat story…"</div>
+                                                            },
+                                                        ),
+                                                    }
+                                                }}
+                                            </Suspense>
+                                        </div>
 
                                         // ── Account control menu ───────────────────
                                         <div class="menu-section">
@@ -517,6 +677,8 @@ pub fn ProfilePage() -> impl IntoView {
             }}
         </Suspense>
         <BottomNav active="profile" />
+        // Viewer story — dibuka saat thumbnail "Story Saya" di-klik (open_at).
+        <StoryViewer />
     </div>
     }
 }

@@ -151,8 +151,14 @@ pub trait StoryRepository: Send + Sync {
     /// Tandai story sudah dilihat oleh viewer.
     async fn mark_viewed(&self, story_id: &str, viewer_id: &str) -> Result<()>;
 
-    /// Hapus story — hanya oleh owner.
-    async fn delete(&self, story_id: &str, owner_id: &str) -> Result<bool>;
+    /// Hapus story — hanya oleh owner. Mengembalikan `media_url` story yang
+    /// terhapus (agar file di bucket bisa ikut dibersihkan), atau `None` bila
+    /// tidak ada yang terhapus (story tak ada / bukan milik owner).
+    async fn delete(&self, story_id: &str, owner_id: &str) -> Result<Option<String>>;
+
+    /// Story milik satu user sebagai SATU grup (aktif + expired), terbaru dulu —
+    /// dipakai viewer "Story Saya" di profil. Vec kosong bila belum ada story.
+    async fn list_my_group(&self, user_id: &str) -> Result<Vec<StoryGroupResponse>>;
 
     /// Ambil satu story by id.
     async fn find_by_id(&self, story_id: &str) -> Result<Option<Story>>;
@@ -471,19 +477,64 @@ impl StoryRepository for PgStoryRepository {
 
     // ── Delete ────────────────────────────────────────────────────────────────
 
-    async fn delete(&self, story_id: &str, owner_id: &str) -> Result<bool> {
+    async fn delete(&self, story_id: &str, owner_id: &str) -> Result<Option<String>> {
         let sid = id_to_vec(story_id)?;
         let oid = id_to_vec(owner_id)?;
         let conn = get_conn(&self.pool).await?;
         let stmt = conn
-            .prepare_cached("DELETE FROM stories WHERE id = $1 AND user_id = $2")
+            .prepare_cached(
+                "DELETE FROM stories WHERE id = $1 AND user_id = $2 RETURNING media_url",
+            )
             .await
             .context("delete story prepare")?;
-        let n = conn
-            .execute(&stmt, &[&sid, &oid])
+        let row = conn
+            .query_opt(&stmt, &[&sid, &oid])
             .await
             .context("delete story")?;
-        Ok(n > 0)
+        match row {
+            Some(r) => Ok(Some(r.try_get::<_, String>("media_url")?)),
+            None => Ok(None),
+        }
+    }
+
+    // ── List grup story milik sendiri (untuk viewer "Story Saya") ──────────────
+
+    async fn list_my_group(&self, user_id: &str) -> Result<Vec<StoryGroupResponse>> {
+        let uid = id_to_vec(user_id)?;
+        let conn = get_conn(&self.pool).await?;
+        // Kolom identik dengan list_groups agar bisa dipetakan row_to_story_item.
+        // `viewed` selalu FALSE (status dilihat tidak relevan untuk story sendiri).
+        let stmt = conn
+            .prepare_cached(
+                r#"
+                SELECT
+                    s.id,
+                    s.user_id,
+                    COALESCE(u.name, 'Unknown')   AS username,
+                    COALESCE(u.avatar_url, '')     AS avatar_url,
+                    s.media_url,
+                    s.media_type,
+                    s.filter,
+                    s.overlays,
+                    s.created_at,
+                    s.expires_at,
+                    s.event_id,
+                    s.event_slug,
+                    s.event_title,
+                    FALSE                          AS viewed
+                FROM   stories s
+                JOIN   users u ON u.id = s.user_id
+                WHERE  s.user_id = $1
+                ORDER BY s.created_at DESC
+                "#,
+            )
+            .await
+            .context("list_my_group prepare")?;
+        let rows = conn
+            .query(&stmt, &[&uid])
+            .await
+            .context("list_my_group query")?;
+        rows_to_story_groups(&rows)
     }
 
     // ── Find by id ────────────────────────────────────────────────────────────

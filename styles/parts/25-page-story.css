@@ -357,6 +357,65 @@
     flex-shrink: 0;
 }
 
+/* ── Menu ⋮ pemilik story (opsi hapus) ─────────────────────────────── */
+.sv-owner {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+.sv-owner-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+.sv-owner-btn:hover { background: rgba(255, 255, 255, 0.14); }
+.sv-owner-menu {
+    position: absolute;
+    top: 40px;
+    right: 0;
+    z-index: 30;
+    min-width: 168px;
+    padding: 6px;
+    border-radius: 14px;
+    background: rgba(28, 28, 30, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(12px);
+    animation: sv-owner-pop 0.14s ease;
+}
+@keyframes sv-owner-pop {
+    from { opacity: 0; transform: translateY(-6px) scale(0.96); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.sv-owner-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 12px;
+    border: none;
+    border-radius: 9px;
+    background: transparent;
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.12s ease;
+}
+.sv-owner-item:hover { background: rgba(255, 255, 255, 0.08); }
+.sv-owner-item--danger { color: #ff453a; }
+.sv-owner-item--danger:hover { background: rgba(255, 69, 58, 0.14); }
+
 .sv-avatar-ring {
     width: 42px;
     height: 42px;

@@ -15,7 +15,10 @@ use leptos::wasm_bindgen::JsCast;
 use send_wrapper::SendWrapper;
 use web_sys::js_sys;
 
+use crate::web::api::delete_my_story;
+use crate::web::app::AuthResource;
 use crate::web::state::stories::{use_stories_store, StoryMediaType};
+use leptos::task::spawn_local;
 
 // ── Konstanta ──────────────────────────────────────────────────────────
 const STORY_DURATION_MS: f64 = 5_000.0;
@@ -161,6 +164,8 @@ fn neighbor_face(p: crate::web::state::stories::GroupPreview, side: &'static str
 #[component]
 pub fn StoryViewer() -> impl IntoView {
     let ctx = use_stories_store();
+    // Auth (opsional) — untuk deteksi story milik sendiri → tampilkan menu hapus.
+    let auth = use_context::<AuthResource>();
 
     // ── Signals ───────────────────────────────────────────────────────
     let is_paused = RwSignal::new(false);
@@ -174,6 +179,8 @@ pub fn StoryViewer() -> impl IntoView {
     let img_loading = RwSignal::new(false);
     // Tap-to-reveal "klik detail" tag pada frame event — mirip product tag IG
     let show_detail_tag = RwSignal::new(false);
+    // Menu ⋮ pemilik story (opsi hapus) — hanya utk story milik user sendiri.
+    let show_owner_menu = RwSignal::new(false);
 
     let last_tap = StoredValue::new(None::<(f64, f64, f64)>);
 
@@ -582,6 +589,7 @@ pub fn StoryViewer() -> impl IntoView {
         let _si = ctx.active_story_idx.get();
         let _gi = ctx.active_group.get();
         show_detail_tag.set(false);
+        show_owner_menu.set(false);
         is_paused.set(false);
     });
 
@@ -964,6 +972,12 @@ pub fn StoryViewer() -> impl IntoView {
         if settling.get_value() {
             return;
         }
+        // Tap saat menu ⋮ terbuka → tutup menu saja (jangan navigasi).
+        if show_owner_menu.get_untracked() {
+            show_owner_menu.set(false);
+            is_paused.set(false);
+            return;
+        }
         // FIX P0-b: batalkan jika touch sudah menangani gesture ini
         if touch_handled.get_value() {
             touch_handled.set_value(false);
@@ -1021,6 +1035,39 @@ pub fn StoryViewer() -> impl IntoView {
 
     let on_hold_start = move |_: leptos::ev::MouseEvent| is_paused.set(true);
     let on_hold_end = move |_: leptos::ev::MouseEvent| is_paused.set(false);
+
+    // ── Kepemilikan story → menu ⋮ (hapus) hanya utk story sendiri ──────
+    let current_uid = move || {
+        auth.and_then(|a| a.get())
+            .and_then(|r| r.ok())
+            .flatten()
+            .map(|u| u.id)
+    };
+    let is_own_story = move || match current_uid() {
+        Some(uid) => ctx.with_current_story(|s| s.user_id == uid).unwrap_or(false),
+        None => false,
+    };
+    let on_delete_own = move || {
+        show_owner_menu.set(false);
+        let Some(id) = ctx.with_current_story(|s| s.id.clone()) else {
+            return;
+        };
+        let ok = web_sys::window()
+            .and_then(|w| {
+                w.confirm_with_message("Hapus story ini? Tindakan ini permanen.")
+                    .ok()
+            })
+            .unwrap_or(false);
+        if !ok {
+            return;
+        }
+        is_paused.set(true);
+        spawn_local(async move {
+            if delete_my_story(id).await.is_ok() {
+                ctx.remove_current_story();
+            }
+        });
+    };
 
     // ══════════════════════════════════════════════════════════════════
     // CLEANUP
@@ -1234,6 +1281,39 @@ pub fn StoryViewer() -> impl IntoView {
                                     </div>
                                 </div>
                                 <div class="sv-header-right">
+                                    // ── Menu ⋮ pemilik: hanya utk story sendiri ──
+                                    {move || is_own_story().then(|| view! {
+                                        <div class="sv-owner">
+                                            <button class="sv-owner-btn" aria-label="Opsi story"
+                                                    on:click=move |ev| {
+                                                        ev.stop_propagation();
+                                                        is_paused.set(true);
+                                                        show_owner_menu.update(|v| *v = !*v);
+                                                    }>
+                                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                                    <circle cx="12" cy="5" r="1.8" />
+                                                    <circle cx="12" cy="12" r="1.8" />
+                                                    <circle cx="12" cy="19" r="1.8" />
+                                                </svg>
+                                            </button>
+                                            {move || show_owner_menu.get().then(|| view! {
+                                                <div class="sv-owner-menu">
+                                                    <button class="sv-owner-item sv-owner-item--danger"
+                                                            on:click=move |ev| {
+                                                                ev.stop_propagation();
+                                                                on_delete_own();
+                                                            }>
+                                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                                             stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                                                            <polyline points="3 6 5 6 21 6" />
+                                                            <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                                                        </svg>
+                                                        <span>"Hapus story"</span>
+                                                    </button>
+                                                </div>
+                                            })}
+                                        </div>
+                                    })}
                                     <AudioPill is_muted=is_muted />
                                     <button class="sv-close-btn" aria-label="Tutup story"
                                             on:click=move |ev| { ev.stop_propagation(); ctx.close(); }>

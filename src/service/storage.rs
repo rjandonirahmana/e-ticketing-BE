@@ -190,4 +190,33 @@ impl StorageService {
         // But URL seen by client includes bucket: /image/{key}
         Ok(format!("{}/{}/{}", self.public_url, self.bucket, key))
     }
+
+    /// Hapus satu object dari bucket berdasarkan public URL hasil upload
+    /// (`{public_url}/{bucket}/{key}`). URL yang bukan milik bucket ini
+    /// (mis. asset eksternal) diabaikan tanpa error.
+    pub async fn delete_by_url(&self, media_url: &str) -> AppResult<()> {
+        let prefix = format!("{}/{}/", self.public_url, self.bucket);
+        let Some(key) = media_url.strip_prefix(&prefix) else {
+            tracing::debug!(
+                "delete_by_url: '{}' bukan object bucket '{}', dilewati",
+                media_url,
+                self.bucket
+            );
+            return Ok(());
+        };
+        if key.is_empty() {
+            return Ok(());
+        }
+        self.client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
+            .await
+            .map_err(|e| {
+                AppError::Internal(anyhow::anyhow!("RustFS delete_object gagal: {e}"))
+            })?;
+        tracing::debug!("Deleted object: bucket={}, key={}", self.bucket, key);
+        Ok(())
+    }
 }

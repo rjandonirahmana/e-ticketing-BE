@@ -145,6 +145,55 @@ impl StoriesCtx {
         self.progress.set(0.0);
     }
 
+    /// Buka viewer pada grup + indeks story tertentu — dipakai "Story Saya" di
+    /// profil yang membuka satu grup pada story yang di-klik.
+    pub fn open_at(&self, group_idx: usize, story_idx: usize) {
+        let valid = self.groups.with_untracked(|g| {
+            g.get(group_idx)
+                .map(|gr| story_idx < gr.stories.len())
+                .unwrap_or(false)
+        });
+        if !valid {
+            return;
+        }
+        self.clear_interval();
+        self.active_group.set(Some(group_idx));
+        self.active_story_idx.set(story_idx);
+        self.progress.set(0.0);
+        self.mark_current_viewed();
+    }
+
+    /// Hapus story yang sedang tampil dari state lokal, lalu lanjut ke story
+    /// berikutnya (atau tutup viewer bila grup jadi kosong). Penghapusan di
+    /// server dilakukan terpisah lewat server fn `delete_my_story`.
+    pub fn remove_current_story(&self) {
+        let Some(gi) = self.active_group.get_untracked() else {
+            return;
+        };
+        let si = self.active_story_idx.get_untracked();
+        let mut should_close = false;
+        let mut new_idx = si;
+        self.groups.update(|groups| {
+            if let Some(g) = groups.get_mut(gi) {
+                if si < g.stories.len() {
+                    g.stories.remove(si);
+                }
+                if g.stories.is_empty() {
+                    should_close = true;
+                } else if si >= g.stories.len() {
+                    new_idx = g.stories.len() - 1;
+                }
+            }
+        });
+        if should_close {
+            self.close();
+        } else {
+            self.progress.set(0.0);
+            // set() memberi notifikasi → effect story-change re-run (RAF reset).
+            self.active_story_idx.set(new_idx);
+        }
+    }
+
     pub fn next(&self) {
         let Some(gi) = self.active_group.get_untracked() else {
             return;
