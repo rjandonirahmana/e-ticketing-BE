@@ -39,3 +39,32 @@ pub async fn get_story_archive_groups(
         .map_err(map_app_error)?;
     return Ok(srv_story_groups_to_web(groups));
 }
+
+/// Story milik user yang login (aktif + arsip) sebagai satu grup — untuk section
+/// "Story Saya" di profil (thumbnail + buka viewer). `None` bila belum ada story.
+/// Wajib login.
+#[server(GetMyStoryGroup, "/api-fn")]
+pub async fn get_my_story_group(
+) -> Result<Option<crate::web::state::stories::StoryGroup>, ServerFnError> {
+    let state = app_state().await?;
+    let claims = auth_claims().await?;
+    let groups = state
+        .story_svc
+        .list_my_group(&claims.user_id)
+        .await
+        .map_err(map_app_error)?;
+    Ok(srv_story_groups_to_web(groups).into_iter().next())
+}
+
+/// Hapus satu story milik user. Owner-enforced di repo (DELETE ... AND user_id).
+#[server(DeleteMyStory, "/api-fn")]
+pub async fn delete_my_story(story_id: String) -> Result<(), ServerFnError> {
+    let state = app_state().await?;
+    let claims = auth_claims().await?;
+    state
+        .story_svc
+        .delete(&story_id, &claims.user_id)
+        .await
+        .map_err(map_app_error)?;
+    Ok(())
+}

@@ -257,6 +257,15 @@ impl<R: StoryRepository> StoryService<R> {
             .map_err(|e| AppError::Internal(e))
     }
 
+    /// Story milik user sendiri sebagai satu grup (aktif + arsip), terbaru dulu —
+    /// dipakai daftar + viewer "Story Saya" di halaman profil.
+    pub async fn list_my_group(&self, user_id: &str) -> AppResult<Vec<StoryGroupResponse>> {
+        self.repo
+            .list_my_group(user_id)
+            .await
+            .map_err(|e| AppError::Internal(e))
+    }
+
     // ── Mark viewed ───────────────────────────────────────────────────────────
 
     pub async fn mark_viewed(&self, story_id: &str, viewer_id: &str) -> AppResult<()> {
