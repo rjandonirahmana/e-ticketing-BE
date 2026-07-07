@@ -292,9 +292,12 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                 // render + remaining HTML parse, cutting time-to-interactive
                 // on first visit. crossorigin="" is required so the preloaded
                 // response is reusable by the fetch() inside the loader.
+                // NB: nama file hasil cargo-leptos adalah e-ticketing.wasm
+                // (TANPA sufiks _bg — itu nama internal wasm-bindgen). Preload
+                // ke _bg.wasm = 404 diam-diam, optimisasi tidak pernah jalan.
                 <link
                     rel="preload"
-                    href="/pkg/e-ticketing_bg.wasm"
+                    href="/pkg/e-ticketing.wasm"
                     attr:as="fetch"
                     attr:type="application/wasm"
                     crossorigin=""

@@ -79,6 +79,16 @@ pub struct StoryGroup {
     pub stories: Vec<StoryItem>,
 }
 
+/// Preview ringan story pertama sebuah grup — dipakai face cube saat swipe
+/// antar-user (drag horizontal ala Instagram).
+#[derive(Clone, Debug, PartialEq)]
+pub struct GroupPreview {
+    pub username: String,
+    pub avatar_url: String,
+    pub media_url: String,
+    pub is_video: bool,
+}
+
 // ── Context ───────────────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy)]
@@ -176,6 +186,75 @@ impl StoriesCtx {
             self.active_story_idx.set(prev_len.saturating_sub(1));
             self.progress.set(0.0);
         }
+    }
+
+    /// Pindah ke grup (user) BERIKUTNYA — dipakai swipe horizontal ala Instagram.
+    /// Berbeda dengan `next()`: langsung lompat user walau story user saat ini
+    /// masih tersisa. Di grup terakhir → tutup viewer (perilaku Instagram).
+    pub fn next_group(&self) {
+        let Some(gi) = self.active_group.get_untracked() else {
+            return;
+        };
+        let len = self.groups.with_untracked(|g| g.len());
+        if gi + 1 < len {
+            self.clear_interval();
+            self.active_group.set(Some(gi + 1));
+            self.active_story_idx.set(0);
+            self.progress.set(0.0);
+            self.mark_current_viewed();
+        } else {
+            self.close();
+        }
+    }
+
+    /// Pindah ke grup (user) SEBELUMNYA. Di grup pertama tidak melakukan apa-apa
+    /// (viewer melakukan rubber-band snap back).
+    pub fn prev_group(&self) {
+        let Some(gi) = self.active_group.get_untracked() else {
+            return;
+        };
+        if gi == 0 {
+            return;
+        }
+        self.clear_interval();
+        self.active_group.set(Some(gi - 1));
+        self.active_story_idx.set(0);
+        self.progress.set(0.0);
+        self.mark_current_viewed();
+    }
+
+    pub fn has_next_group(&self) -> bool {
+        let Some(gi) = self.active_group.get_untracked() else {
+            return false;
+        };
+        self.groups.with_untracked(|g| gi + 1 < g.len())
+    }
+
+    pub fn has_prev_group(&self) -> bool {
+        self.active_group
+            .get_untracked()
+            .map(|gi| gi > 0)
+            .unwrap_or(false)
+    }
+
+    /// Data ringan untuk face cube tetangga saat drag (story pertama grup di
+    /// offset ±1 dari grup aktif). Dipanggil reaktif — tracking `groups` dan
+    /// `active_group` agar preview ikut ter-update.
+    pub fn group_preview(&self, offset: isize) -> Option<GroupPreview> {
+        let gi = self.active_group.get()? as isize + offset;
+        if gi < 0 {
+            return None;
+        }
+        self.groups.with(|g| {
+            let group = g.get(gi as usize)?;
+            let story = group.stories.first()?;
+            Some(GroupPreview {
+                username: group.username.clone(),
+                avatar_url: group.avatar_url.clone(),
+                media_url: story.media_url.clone(),
+                is_video: matches!(story.media_type, StoryMediaType::Video),
+            })
+        })
     }
 
     pub fn set_interval_handle(&self, id: i32) {

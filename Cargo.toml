@@ -82,9 +82,9 @@ js-sys = "0.3"
 
 # Browser APIs — fitur minimal untuk SSR rlib compilation CSR module
 # (SSR tidak PAKAI ini, tapi CSR code butuh type defs saat dikompilasi sebagai rlib)
-gloo-net = "0.6"
-gloo-timers = { version = "0.3", features = ["futures"] }
-getrandom = "0.3"
+gloo-net = "0.7"
+gloo-timers = { version = "0.4", features = ["futures"] }
+getrandom = "0.4.3"
 qrcodegen = "1.8"
 web-sys = { version = "0.3", features = [
      "RtcPeerConnectionIceEvent",
@@ -191,7 +191,7 @@ bcrypt = "0.19.1"
 uuid = { version = "1", features = ["v4", "serde"] }
 
 # HTTP client (server functions → API internal)
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
 
 # Storage & TLS
 aws-sdk-s3 = "1.132.0"
@@ -205,27 +205,32 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # WebRTC SFU (Sans I/O — pure Rust, no C deps)
-str0m = "0.20"
+str0m = "0.21.0"
 
 # Misc server utils
-rand = "0.10.1"
+rand = "0.10.2"
 hex = "0.4"
 async-trait = "0.1"
-bytes = "1"
+bytes = "1.12.0"
 ahash = "0.8.12"
 dashmap = "6.1.0"
 moka = { version = "0.12", features = ["future"] }
 ulid = "1"
 chrono-tz = "0.10"
-rust_decimal = { version = "1.42.0", features = ["db-tokio-postgres"] }
+rust_decimal = { version = "1.42.1", features = ["db-tokio-postgres"] }
 rust_decimal_macros = "1"
 
 # ── WASM-only deps ─────────────────────────────────────────────────────────────
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1"
 lol_alloc = "0.4"
-gloo-net = { version = "0.6", features = ["http"] }
-getrandom = { version = "0.3", features = ["wasm_js"] }
+gloo-net = { version = "0.7.0", features = ["http"] }
+getrandom = { version = "0.4.3", features = ["wasm_js"] }
+# leptos 0.8 → rand 0.9 masih menarik getrandom 0.3 (versi LAMA, terpisah dari
+# 0.4 di atas). Tanpa fitur wasm_js pada versi 0.3 ini, build wasm32 gagal:
+# "The wasm32-unknown-unknown targets are not supported by default".
+# Dep rename ini tidak dipakai langsung — hanya mengaktifkan fitur via unification.
+getrandom_03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
 
 # ── Build deps ─────────────────────────────────────────────────────────────────
 [build-dependencies]

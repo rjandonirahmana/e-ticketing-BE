@@ -208,7 +208,10 @@
     z-index: var(--z-story, 900);
 }
 
-.sv-container {
+/* ── Scene: kolom story fixed + perspective utk cube swipe antar-user ──
+   Drag horizontal merotasi .sv-cube; face tetangga (preview user sebelah)
+   muncul di sisi kubus — persis transisi story Instagram. */
+.sv-scene {
     position: fixed;
     top: 0;
     left: 50%;
@@ -216,12 +219,71 @@
     width: 100%;
     max-width: 480px;
     height: 100dvh;
-    background: #000;
     z-index: var(--z-story-ui, 901);
+    perspective: 1400px;
+    overflow: hidden;
+    background: transparent;
+    animation: sv-in 0.22s ease;
+    will-change: transform;
+}
+
+.sv-cube {
+    position: absolute;
+    inset: 0;
+    transform-style: preserve-3d;
+    will-change: transform;
+}
+
+/* Saat drag aktif (.is-3d), face aktif maju setengah lebar kubus.
+   --sv-w di-set dari offsetWidth aktual pada touchstart. */
+.sv-cube.is-3d .sv-container {
+    transform: rotateY(0deg) translateZ(calc(var(--sv-w, 480px) / 2));
+    backface-visibility: hidden;
+}
+
+.sv-face-neighbor {
+    position: absolute;
+    inset: 0;
+    background: #000;
+    overflow: hidden;
+    backface-visibility: hidden;
+}
+.sv-face-prev { transform: rotateY(-90deg) translateZ(calc(var(--sv-w, 480px) / 2)); }
+.sv-face-next { transform: rotateY(90deg) translateZ(calc(var(--sv-w, 480px) / 2)); }
+
+/* Dim tipis di face tetangga — depth cue ala Instagram */
+.sv-face-scrim {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.38);
+}
+
+.sv-face-id {
+    position: absolute;
+    top: max(40px, env(safe-area-inset-top, 0px) + 34px);
+    left: 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 2;
+}
+.sv-face-avatar { width: 42px; height: 42px; }
+.sv-face-username {
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+.sv-container {
+    position: absolute;
+    inset: 0;
+    background: #000;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    animation: sv-in 0.22s ease;
+    touch-action: none;
 }
 
 @keyframes sv-in {
