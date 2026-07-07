@@ -19,6 +19,9 @@ use crate::web::state::stories::{use_stories_store, StoryMediaType};
 
 // ── Konstanta ──────────────────────────────────────────────────────────
 const STORY_DURATION_MS: f64 = 5_000.0;
+/// Batas tunggu metadata video sebelum fallback ke durasi default —
+/// mencegah story stuck selamanya bila `loadedmetadata`/`error` tak pernah fire.
+const VIDEO_METADATA_TIMEOUT_MS: i32 = 5_000;
 const SWIPE_THRESHOLD_PX: f64 = 80.0;
 const DOUBLE_TAP_MS: f64 = 300.0;
 const DOUBLE_TAP_DISTANCE_PX: f64 = 40.0;
@@ -117,29 +120,34 @@ fn remove_el_style(el: &web_sys::HtmlElement, prop: &str) {
 fn after_timeout(ms: i32, f: impl FnOnce() + 'static) {
     let Some(win) = web_sys::window() else { return };
     let cb = Closure::once(f);
-    let _ = win
-        .set_timeout_with_callback_and_timeout_and_arguments_0(cb.as_ref().unchecked_ref(), ms);
+    let _ =
+        win.set_timeout_with_callback_and_timeout_and_arguments_0(cb.as_ref().unchecked_ref(), ms);
     cb.forget();
 }
 
 // ── Face cube tetangga: preview story pertama user sebelah (ala IG) ────
-fn neighbor_face(
-    p: crate::web::state::stories::GroupPreview,
-    side: &'static str,
-) -> impl IntoView {
+fn neighbor_face(p: crate::web::state::stories::GroupPreview, side: &'static str) -> impl IntoView {
     view! {
-        <div class=format!("sv-face-neighbor {side}")>
+        <div class=format!(
+            "sv-face-neighbor {side}",
+        )>
             {if p.is_video {
-                Either::Left(view! {
-                    <video class="sv-media" src=p.media_url muted playsinline preload="metadata"></video>
-                })
+                Either::Left(
+                    view! {
+                        <video
+                            class="sv-media"
+                            src=p.media_url
+                            muted
+                            playsinline
+                            preload="metadata"
+                        ></video>
+                    },
+                )
             } else {
-                Either::Right(view! {
-                    <img class="sv-media" src=p.media_url alt="" decoding="async" />
-                })
-            }}
-            <div class="sv-face-scrim"></div>
-            <div class="sv-face-id">
+                Either::Right(
+                    view! { <img class="sv-media" src=p.media_url alt="" decoding="async" /> },
+                )
+            }} <div class="sv-face-scrim"></div> <div class="sv-face-id">
                 <div class="sv-avatar-ring sv-face-avatar">
                     <img class="sv-avatar" src=p.avatar_url alt=p.username.clone() />
                 </div>
@@ -236,6 +244,33 @@ pub fn StoryViewer() -> impl IntoView {
             .and_then(|w| w.performance())
             .map(|p| p.now())
             .unwrap_or(0.0)
+    };
+
+    // Fallback bila video tidak pernah fire `loadedmetadata` (broken/stalled):
+    // mulai RAF dengan durasi default agar story auto-advance, tidak stuck.
+    // Story-scoped: hanya jalan bila grup+story yang ditunggu masih aktif,
+    // sehingga timer basi dari story sebelumnya tidak memotong story berikutnya.
+    let start_video_fallback = move |exp_gi: usize, exp_si: usize| {
+        if !waiting_for_video.get_value() {
+            return;
+        }
+        if ctx.active_group.get_untracked() != Some(exp_gi)
+            || ctx.active_story_idx.get_untracked() != exp_si
+        {
+            return;
+        }
+        waiting_for_video.set_value(false);
+        video_duration_ms.set_value(STORY_DURATION_MS);
+        raf_state.update_value(|st| {
+            if st.active_idx == exp_si {
+                st.duration_ms = STORY_DURATION_MS;
+                st.start_ms = now_ms();
+                st.cancelled = false;
+            }
+        });
+        if !is_paused.get_untracked() && raf_id.get_value() == 0 {
+            start_raf(&raf_closure, &raf_id);
+        }
     };
 
     // ── Keyboard handler factory ───────────────────────────────────────
@@ -344,7 +379,8 @@ pub fn StoryViewer() -> impl IntoView {
     // ══════════════════════════════════════════════════════════════════
     Effect::new(move |_| {
         let si = ctx.active_story_idx.get();
-        let open = ctx.active_group.get().is_some();
+        let gi_opt = ctx.active_group.get();
+        let open = gi_opt.is_some();
 
         if !open {
             raf_state.update_value(|s| s.cancelled = true);
@@ -406,6 +442,14 @@ pub fn StoryViewer() -> impl IntoView {
                 paused_at_ms: 0.0,
             });
             // Fill visual sudah direset di atas, tidak perlu mulai RAF dulu
+
+            // Safety net: bila metadata/error tak pernah datang (video broken/
+            // stalled), fallback ke durasi default setelah timeout agar tidak stuck.
+            if let Some(gi) = gi_opt {
+                after_timeout(VIDEO_METADATA_TIMEOUT_MS, move || {
+                    start_video_fallback(gi, si);
+                });
+            }
         }
     });
 
@@ -718,7 +762,11 @@ pub fn StoryViewer() -> impl IntoView {
                     set_el_style(&scene, "border-radius", "18px");
                 }
                 if let Some(bd) = backdrop_ref.get_untracked() {
-                    set_el_style(&bd, "opacity", &format!("{:.3}", (1.0 - dyc / 600.0).max(0.2)));
+                    set_el_style(
+                        &bd,
+                        "opacity",
+                        &format!("{:.3}", (1.0 - dyc / 600.0).max(0.2)),
+                    );
                 }
             }
             _ => {}
@@ -836,7 +884,11 @@ pub fn StoryViewer() -> impl IntoView {
                         "transition",
                         "transform 0.24s ease-in, opacity 0.24s ease-in",
                     );
-                    set_el_style(&scene, "transform", "translateX(-50%) translateY(70vh) scale(0.7)");
+                    set_el_style(
+                        &scene,
+                        "transform",
+                        "translateX(-50%) translateY(70vh) scale(0.7)",
+                    );
                     set_el_style(&scene, "opacity", "0");
                     if let Some(bd) = backdrop_ref.get_untracked() {
                         set_el_style(&bd, "transition", "opacity 0.24s ease-in");
@@ -1302,6 +1354,14 @@ pub fn StoryViewer() -> impl IntoView {
                                                            start_raf(&raf_closure, &raf_id);
                                                        }
                                                    }
+                                               }
+                                           }
+                                           on:error=move |_| {
+                                               // Video gagal load → langsung fallback,
+                                               // tanpa menunggu safety timeout.
+                                               if let Some(gi) = ctx.active_group.get_untracked() {
+                                                   let si = ctx.active_story_idx.get_untracked();
+                                                   start_video_fallback(gi, si);
                                                }
                                            }
                                     />
