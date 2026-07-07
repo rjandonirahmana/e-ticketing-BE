@@ -278,15 +278,24 @@ impl<R: StoryRepository> StoryService<R> {
     // ── Delete story ──────────────────────────────────────────────────────────
 
     pub async fn delete(&self, story_id: &str, user_id: &str) -> AppResult<()> {
-        let deleted = self
+        // Hapus row dulu (owner-enforced) → dapat media_url hanya bila memang
+        // milik user. Ini mencegah penghapusan file untuk story yang bukan miliknya.
+        let media_url = self
             .repo
             .delete(story_id, user_id)
             .await
             .map_err(|e| AppError::Internal(e))?;
-        if !deleted {
+        let Some(media_url) = media_url else {
             return Err(AppError::NotFound(format!(
                 "Story {story_id} tidak ditemukan atau bukan milikmu"
             )));
+        };
+        // Best-effort: bersihkan file media di bucket RustFS. Kegagalan tidak
+        // membatalkan penghapusan story (row sudah hilang) — cukup di-log.
+        if let Err(e) = self.storage.delete_by_url(&media_url).await {
+            tracing::warn!(
+                "Gagal hapus file media story {story_id} dari bucket: {e}"
+            );
         }
         Ok(())
     }
