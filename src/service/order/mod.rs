@@ -22,6 +22,7 @@ use crate::repository::order::{
     ItemRow, LockedVariant, OrderRepository, OrderTx, OversellError,
 };
 use crate::repository::ticket::TicketRepository;
+use crate::service::background::BackgroundJobs;
 use crate::service::group_chat::GroupChatService;
 use crate::service::norifications::NotificationService;
 use crate::service::notification_store::NotificationStoreService;
@@ -34,6 +35,13 @@ use self::metrics::{
 
 // ── OrderService ──────────────────────────────────────────────────────────────
 
+/// Job latar order (notifikasi in-app, auto-join grup) berjalan lewat eksekutor
+/// bounded, bukan `tokio::spawn` telanjang. `NOTIF_CONCURRENCY` sengaja jauh di
+/// bawah ukuran pool DB (default 24) agar notifikasi tak pernah menghabiskan
+/// koneksi dari jalur checkout kritis saat flash-sale.
+const NOTIF_CONCURRENCY: usize = 8;
+const NOTIF_QUEUE_CAP: usize = 8192;
+
 pub struct OrderService {
     pub(super) repo: Arc<dyn OrderRepository>,
     pub(super) redis: redis::aio::ConnectionManager,
@@ -42,6 +50,7 @@ pub struct OrderService {
     pub(super) notif_store: Arc<NotificationStoreService>,
     pub(super) ticket_repo: Arc<dyn TicketRepository>,
     pub(super) group_svc: Arc<GroupChatService>,
+    pub(super) background: Arc<BackgroundJobs>,
 }
 
 impl OrderService {
@@ -62,6 +71,7 @@ impl OrderService {
             notif_store,
             ticket_repo,
             group_svc,
+            background: BackgroundJobs::new(NOTIF_CONCURRENCY, NOTIF_QUEUE_CAP),
         }
     }
 
@@ -113,7 +123,7 @@ impl OrderService {
                         let uid = customer_id.to_string();
                         let order_id = v.id.clone();
                         let order_code = v.order_code.clone();
-                        tokio::spawn(async move {
+                        self.background.spawn(async move {
                             let body = format!("Order {order_code} menunggu pembayaran.");
                             if let Err(e) = notif_store
                                 .create(CreateNotificationInput::order(
@@ -456,7 +466,7 @@ impl OrderService {
         let group_svc = self.group_svc.clone();
         let uid = viewer_id.to_string();
         let uname = user_name.to_string();
-        tokio::spawn(async move {
+        self.background.spawn(async move {
             for event_id in event_ids {
                 if let Err(e) = group_svc
                     .auto_join_after_payment(&event_id, &uid, &uname)
@@ -480,7 +490,7 @@ impl OrderService {
             let ticket_repo = self.ticket_repo.clone();
             let uid = viewer_id.to_string();
             let oid = order_id.to_string();
-            tokio::spawn(async move {
+            self.background.spawn(async move {
                 match ticket_repo.list_by_order(&oid, &uid, 100, 0).await {
                     Ok(tickets) => {
                         for t in tickets {

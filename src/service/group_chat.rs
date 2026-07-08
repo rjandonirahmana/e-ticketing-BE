@@ -75,13 +75,19 @@ impl GroupChatService {
             .add_member(room_id, user_id, MemberRole::Member)
             .await?;
 
-        // System message — konsisten dengan auto_join_after_payment
+        // System message — best-effort: member SUDAH ditambahkan di atas, jadi
+        // kegagalan menyimpan pesan sistem TIDAK boleh menggagalkan join (kalau
+        // di-`?` maka join balas error padahal user sudah member). Broadcast
+        // hanya bila tersimpan, agar klien tak menerima pesan yang absen di history.
         let sys = self.build_system_msg(
             room_id,
             &format!("{user_name} bergabung ke grup"),
         );
-        self.repo.save_message(&sys).await?;
-        self.fanout(room_id, &sys).await;
+        match self.repo.save_message(&sys).await {
+            Ok(()) => self.fanout(room_id, &sys).await,
+            Err(e) => tracing::warn!(user_id, room_id, error = %e,
+                "system join message gagal disimpan (join tetap sukses)"),
+        }
 
         tracing::info!(user_id, room_id, "User joined room");
         Ok(room)
@@ -119,13 +125,18 @@ impl GroupChatService {
             .add_member(&room.id, user_id, MemberRole::Member)
             .await?;
 
-        // Kirim system message ke room
+        // Kirim system message ke room — best-effort (lihat catatan di join_room).
+        // Auto-join dipanggil dari background job order; jangan gagalkan hanya
+        // karena pesan sistem tak tersimpan (member sudah ditambahkan di atas).
         let sys = self.build_system_msg(
             &room.id,
             &format!("{user_name} bergabung ke grup setelah membeli tiket"),
         );
-        self.repo.save_message(&sys).await?;
-        self.fanout(&room.id, &sys).await;
+        match self.repo.save_message(&sys).await {
+            Ok(()) => self.fanout(&room.id, &sys).await,
+            Err(e) => tracing::warn!(user_id, room_id = %room.id, error = %e,
+                "system auto-join message gagal disimpan (join tetap sukses)"),
+        }
 
         tracing::info!(
             user_id, room_id = %room.id, event_id,

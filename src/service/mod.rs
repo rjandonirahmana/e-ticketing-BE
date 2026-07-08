@@ -1,5 +1,6 @@
 pub mod affinity; // behavior tracking (buffer in-memory + batch flush)
 pub mod auth;
+pub mod background; // eksekutor tugas latar bounded (fire-and-forget aman)
 pub mod banners;
 pub mod event;
 pub mod group_chat;

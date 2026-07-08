@@ -27,6 +27,26 @@ use tokio::sync::mpsc;
 use crate::middleware::auth::AuthUser;
 use crate::state::AppState;
 
+/// Batas panjang metadata peer dari klien (anti-OOM). Tanpa ini, klien jahat bisa
+/// mengirim `photo` berisi Base64 gambar besar × 12 peer × 500 room → GB memori.
+const MAX_NAME_LEN: usize = 100;
+const MAX_PHOTO_LEN: usize = 512;
+
+/// Bersihkan `photo` dari klien: tolak Base64 inline (`data:`) & batasi panjang —
+/// hanya URL pendek yang diterima.
+fn sanitize_photo(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|s| !s.is_empty() && !s.starts_with("data:"))
+        .map(|s| s.chars().take(MAX_PHOTO_LEN).collect())
+}
+
+/// Batasi panjang nama dari klien.
+fn sanitize_name(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.chars().take(MAX_NAME_LEN).collect())
+}
+
 fn ok<T: Serialize>(data: T) -> Response {
     (StatusCode::OK, Json(json!({ "data": data }))).into_response()
 }
@@ -100,13 +120,23 @@ async fn meet_ws_loop(
     claims: Option<(String, String, String)>,
 ) {
     let peer_id = uuid::Uuid::new_v4().to_string();
-    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<String>();
+    let (out_tx, mut out_rx) = mpsc::channel::<String>(crate::meet::room::MEET_CHAN_CAP);
 
     let mut is_host = false;
 
     // ── Tahap 1: tunggu pesan `join` pertama ──────────────────────────────────
+    // Deadline: koneksi yang tak pernah mengirim `join` (half-open, port-scan,
+    // tab macet) tidak boleh menahan socket selamanya.
+    let join_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
-        match socket.recv().await {
+        let frame = tokio::select! {
+            f = socket.recv() => f,
+            _ = tokio::time::sleep_until(join_deadline) => {
+                tracing::debug!(room_id, "meet: join timeout — koneksi ditutup");
+                return;
+            }
+        };
+        match frame {
             Some(Ok(Message::Text(txt))) => {
                 let v: Value = match serde_json::from_str(&txt) {
                     Ok(v) => v,
@@ -116,17 +146,8 @@ async fn meet_ws_loop(
                     continue;
                 }
                 let want_host = v.get("as_host").and_then(|b| b.as_bool()).unwrap_or(false);
-                let req_name = v
-                    .get("name")
-                    .and_then(|n| n.as_str())
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(String::from);
-                let photo = v
-                    .get("photo")
-                    .and_then(|p| p.as_str())
-                    .filter(|s| !s.is_empty())
-                    .map(String::from);
+                let req_name = sanitize_name(v.get("name").and_then(|n| n.as_str()));
+                let photo = sanitize_photo(v.get("photo").and_then(|p| p.as_str()));
 
                 let Some(room) = state.meet_svc.get_room(&room_id) else {
                     let _ = socket
@@ -218,7 +239,7 @@ async fn meet_ws_loop(
                         ))
                         .await;
                     if let Some(htx) = room.host_tx() {
-                        let _ = htx.send(
+                        let _ = htx.try_send(
                             json!({
                                 "type": "join_request",
                                 "peer_id": peer_id,
@@ -237,8 +258,21 @@ async fn meet_ws_loop(
     }
 
     // ── Tahap 2: loop signaling + kontrol ─────────────────────────────────────
+    // Ping periodik: satu-satunya cara mendeteksi socket yang mati diam-diam
+    // (mobile hilang sinyal tanpa TCP FIN). Tanpa ini, peer hantu menahan slot
+    // room (cap 12) sampai TCP timeout OS (bisa berjam-jam). Kirim Ping gagal
+    // → break → cleanup melepas peer. Browser membalas Pong otomatis.
+    let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(30));
+    ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    ping_interval.tick().await; // tick pertama instan — buang
+
     loop {
         tokio::select! {
+            _ = ping_interval.tick() => {
+                if socket.send(Message::Ping(bytes::Bytes::new())).await.is_err() {
+                    break;
+                }
+            }
             // Pesan dari server/peer lain → teruskan ke browser ini.
             out = out_rx.recv() => {
                 match out {
@@ -411,7 +445,7 @@ async fn meet_ws_loop(
     } else {
         // Tamu batal dari waiting room → beri tahu host agar daftar diperbarui.
         if let Some(htx) = room.host_tx() {
-            let _ = htx.send(json!({ "type": "pending_left", "peer_id": peer_id }).to_string());
+            let _ = htx.try_send(json!({ "type": "pending_left", "peer_id": peer_id }).to_string());
         }
     }
 }

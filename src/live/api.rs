@@ -16,6 +16,31 @@ use crate::middleware::auth::{require_auth, AuthUser};
 use crate::state::AppState;
 use axum::middleware::from_fn_with_state;
 
+/// Batas metadata penonton dari klien (anti-OOM — sama seperti meet):
+/// tanpa cap, `viewer_photo` bisa berisi Base64 besar × 500 viewer × 200 room.
+const MAX_VIEWER_NAME_LEN: usize = 100;
+const MAX_VIEWER_PHOTO_LEN: usize = 512;
+
+fn sanitize_viewer_name(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.chars().take(MAX_VIEWER_NAME_LEN).collect())
+}
+
+fn sanitize_viewer_photo(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|s| !s.is_empty() && !s.starts_with("data:"))
+        .map(|s| s.chars().take(MAX_VIEWER_PHOTO_LEN).collect())
+}
+
+/// Otorisasi kontrol siaran: hanya PEMILIK room atau admin. Room id
+/// deterministik (`live_{merchant_id}`) dan terpampang publik lewat
+/// GET /api/live/rooms — tanpa cek ini, SEMUA user login bisa menghentikan
+/// (stop_room) atau menyabot (publish ke) siaran merchant lain.
+fn owns_room(auth: &AuthUser, room_id: &str) -> bool {
+    auth.require_role("admin").is_ok() || room_id == format!("live_{}", auth.id())
+}
+
 fn ok<T: Serialize>(data: T) -> Response {
     (StatusCode::OK, Json(serde_json::json!({ "data": data }))).into_response()
 }
@@ -193,11 +218,14 @@ async fn get_room(Path(room_id): Path<String>, State(state): State<Arc<AppState>
 // ── HTTP signaling (tetap ada untuk kompatibilitas klien lama) ─────────────────
 
 async fn publish_sdp(
-    _auth: AuthUser,
+    auth: AuthUser,
     Path(room_id): Path<String>,
     State(state): State<Arc<AppState>>,
     Json(body): Json<SdpReq>,
 ) -> impl IntoResponse {
+    if !owns_room(&auth, &room_id) {
+        return err(StatusCode::FORBIDDEN, "Bukan pemilik siaran ini");
+    }
     match state.live_svc.publish_sdp(&room_id, &body.sdp).await {
         Ok(answer) => ok(SdpRes { sdp: answer }),
         Err(e) => err(StatusCode::BAD_REQUEST, &e),
@@ -205,11 +233,14 @@ async fn publish_sdp(
 }
 
 async fn publish_ice(
-    _auth: AuthUser,
+    auth: AuthUser,
     Path(room_id): Path<String>,
     State(state): State<Arc<AppState>>,
     Json(body): Json<IceReq>,
 ) -> impl IntoResponse {
+    if !owns_room(&auth, &room_id) {
+        return err(StatusCode::FORBIDDEN, "Bukan pemilik siaran ini");
+    }
     match state
         .live_svc
         .publish_ice(
@@ -233,11 +264,9 @@ async fn subscribe_sdp(
     let sub_id = uuid::Uuid::new_v4().to_string();
     let viewer = crate::live::room::ViewerInfo {
         id: body.viewer_id.unwrap_or_else(|| sub_id.clone()),
-        name: body
-            .viewer_name
-            .filter(|n| !n.trim().is_empty())
+        name: sanitize_viewer_name(body.viewer_name.as_deref())
             .unwrap_or_else(|| "Anonim".to_string()),
-        photo_url: body.viewer_photo.filter(|p| !p.trim().is_empty()),
+        photo_url: sanitize_viewer_photo(body.viewer_photo.as_deref()),
     };
     match state
         .live_svc
@@ -288,10 +317,13 @@ async fn leave_room(
 }
 
 async fn stop_room(
-    _auth: AuthUser,
+    auth: AuthUser,
     Path(room_id): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
+    if !owns_room(&auth, &room_id) {
+        return err(StatusCode::FORBIDDEN, "Bukan pemilik siaran ini");
+    }
     match state.live_svc.stop_room(&room_id).await {
         Ok(()) => ok(serde_json::json!({ "ok": true })),
         Err(e) => err(StatusCode::NOT_FOUND, &e),
@@ -314,19 +346,37 @@ async fn stop_room(
 // Server otomatis memanggil stop_room saat WS ditutup (kamera mati / tab ditutup).
 
 async fn live_publish_ws(
-    _auth: AuthUser,
+    auth: AuthUser,
     ws: WebSocketUpgrade,
     Path(room_id): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> Response {
+    // Cek kepemilikan SEBELUM upgrade: loop publisher memanggil stop_room saat
+    // WS tutup — tanpa cek ini, siapa pun yang login bisa buka-tutup WS ke room
+    // merchant lain dan mematikan siarannya.
+    if !owns_room(&auth, &room_id) {
+        return err(StatusCode::FORBIDDEN, "Bukan pemilik siaran ini");
+    }
     ws.on_upgrade(move |socket| live_publish_ws_loop(socket, room_id, state))
 }
 
 async fn live_publish_ws_loop(mut socket: WebSocket, room_id: String, state: Arc<AppState>) {
     let mut negotiated = false;
 
+    // Deadline negosiasi: WS publisher yang tak pernah mengirim offer tidak
+    // boleh menahan socket selamanya. Timeout → break → stop_room membersihkan
+    // room yatim miliknya (perilaku yang memang diinginkan, lihat komentar bawah).
+    let offer_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+
     loop {
-        match socket.recv().await {
+        let frame = tokio::select! {
+            f = socket.recv() => f,
+            _ = tokio::time::sleep_until(offer_deadline), if !negotiated => {
+                tracing::debug!(room_id, "live publish: offer timeout — koneksi ditutup");
+                break;
+            }
+        };
+        match frame {
             None | Some(Err(_)) => break,
             Some(Ok(Message::Close(_))) => break,
             Some(Ok(Message::Text(txt))) => {
@@ -406,6 +456,11 @@ async fn live_subscribe_ws_loop(mut socket: WebSocket, room_id: String, state: A
     let sub_id = uuid::Uuid::new_v4().to_string();
     let mut subscribed = false;
 
+    // Deadline negosiasi: koneksi yang tak pernah mengirim subscribe_offer
+    // (half-open / port-scan / tab macet) tidak boleh menahan socket +
+    // broadcast receiver selamanya. Arm select-nya nonaktif setelah subscribed.
+    let join_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+
     // Dengarkan perubahan daftar room. Saat publisher mematikan siaran, room
     // dihapus dari snapshot → kita beri tahu penonton ("stream_ended") lalu tutup
     // koneksi, sehingga seluruh penonton otomatis keluar dari live.
@@ -413,6 +468,11 @@ async fn live_subscribe_ws_loop(mut socket: WebSocket, room_id: String, state: A
 
     loop {
         tokio::select! {
+            // ── Belum subscribe melewati deadline → tutup (hemat resource) ────
+            _ = tokio::time::sleep_until(join_deadline), if !subscribed => {
+                tracing::debug!(room_id, "live subscribe: offer timeout — koneksi ditutup");
+                break;
+            }
             // ── Perubahan room: deteksi siaran berakhir ───────────────────────
             changed = changes.recv() => {
                 match changed {
@@ -452,15 +512,9 @@ async fn live_subscribe_ws_loop(mut socket: WebSocket, room_id: String, state: A
                                 .filter(|s| !s.is_empty())
                                 .unwrap_or(&sub_id)
                                 .to_string(),
-                            name: v["viewer_name"]
-                                .as_str()
-                                .filter(|s| !s.trim().is_empty())
-                                .unwrap_or("Anonim")
-                                .to_string(),
-                            photo_url: v["viewer_photo"]
-                                .as_str()
-                                .filter(|s| !s.is_empty())
-                                .map(String::from),
+                            name: sanitize_viewer_name(v["viewer_name"].as_str())
+                                .unwrap_or_else(|| "Anonim".to_string()),
+                            photo_url: sanitize_viewer_photo(v["viewer_photo"].as_str()),
                         };
                         let resp =
                             match state.live_svc.subscribe_sdp(&room_id, &sub_id, sdp, viewer).await {

@@ -213,8 +213,16 @@ async fn main() -> Result<()> {
     tracing::info!("   WebSocket    : http://{}/ws/*", bind_addr);
     tracing::info!("   SFU (WebRTC) : udp://{}", cfg.sfu_bind_addr);
 
+    // Saat sinyal shutdown tiba: batalkan CancellationToken WsManager agar task
+    // latar (subscriber Redis, heartbeat per-koneksi, shrink) berhenti rapi —
+    // bukan di-kill paksa — SEBELUM axum berhenti menerima & men-drain HTTP.
+    let shutdown_state = state.clone();
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(async move {
+            shutdown_signal().await;
+            tracing::info!("Shutdown: membatalkan task WS (subscriber Redis, heartbeat, shrink)");
+            shutdown_state.ws_mgr.shutdown();
+        })
         .await?;
 
     Ok(())
