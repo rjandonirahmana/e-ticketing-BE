@@ -1,13 +1,11 @@
 //! service/storage_ext.rs
 //!
-//! Ekstensi StorageService untuk mendukung upload video (stories).
-//! Tambahkan method `upload_media` ke StorageService yang sudah ada.
-//!
-//! ── Cara integrasi ────────────────────────────────────────────────────────────
-//! Tambahkan impl block ini ke file `service/storage.rs` yang sudah ada,
-//! atau jadikan module terpisah lalu re-export dari storage.rs.
+//! Ekstensi StorageService untuk upload media story (gambar/video) via STREAMING
+//! dari file temp di disk — `upload_media_file`. Ukuran & magic bytes divalidasi
+//! caller (handler stream + StoryService), jadi di sini fokus streaming ke RustFS.
 
-use bytes::Bytes;
+use std::path::Path;
+
 use uuid::Uuid;
 
 use crate::{
@@ -15,37 +13,20 @@ use crate::{
     utils::error::{AppError, AppResult},
 };
 
-/// Max ukuran video: 50 MB
-const MAX_VIDEO_SIZE: usize = 50 * 1024 * 1024;
-/// Max ukuran gambar: 5 MB (sama dengan upload_image)
-const MAX_IMAGE_SIZE: usize = 5 * 1024 * 1024;
-
 impl StorageService {
-    /// Upload media (gambar ATAU video) ke RustFS.
+    /// Upload media dari FILE di disk (streaming) ke RustFS.
     ///
-    /// Berbeda dengan `upload_image` yang hanya gambar, method ini juga
-    /// menerima video (mp4/webm/mov). Tidak ada re-validasi magic bytes di sini
-    /// karena service pemanggil (StoryService) sudah melakukan deteksi sebelumnya.
-    pub async fn upload_media(
+    /// Berbeda dengan `upload_media` yang menerima `Bytes` (file penuh di RAM),
+    /// method ini memakai `ByteStream::from_path` — AWS SDK membaca file secara
+    /// bertahap dari disk dan mengeset `Content-Length` otomatis dari metadata,
+    /// jadi tak pernah memuat seluruh file ke RAM. Ukuran & magic bytes sudah
+    /// divalidasi caller (handler stream + StoryService) sebelum sampai sini.
+    pub async fn upload_media_file(
         &self,
-        data: Bytes,
+        path: &Path,
         folder_name: &str,
         content_type: &str,
     ) -> AppResult<String> {
-        // Cek ukuran berdasarkan tipe
-        let max = if content_type.starts_with("video/") {
-            MAX_VIDEO_SIZE
-        } else {
-            MAX_IMAGE_SIZE
-        };
-
-        if data.len() > max {
-            return Err(AppError::BadRequest(format!(
-                "File terlalu besar, maksimal {}MB",
-                max / 1024 / 1024
-            )));
-        }
-
         let ext = mime_to_ext(content_type);
         let filename = format!("{}.{}", Uuid::new_v4(), ext);
         let key = if folder_name.is_empty() {
@@ -55,14 +36,25 @@ impl StorageService {
             format!("{}/{}", folder, filename)
         };
 
-        tracing::debug!("Uploading media: bucket={}, key={}, type={}", self.bucket, key, content_type);
+        tracing::debug!(
+            "Streaming media file: bucket={}, key={}, type={}",
+            self.bucket,
+            key,
+            content_type
+        );
+
+        let body = aws_sdk_s3::primitives::ByteStream::from_path(path)
+            .await
+            .map_err(|e| {
+                AppError::Internal(anyhow::anyhow!("Gagal membuka file temp upload: {e}"))
+            })?;
 
         self.client
             .put_object()
             .bucket(&self.bucket)
             .key(&key)
             .content_type(content_type)
-            .body(aws_sdk_s3::primitives::ByteStream::from(data))
+            .body(body)
             .send()
             .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("RustFS upload gagal: {e}")))?;

@@ -18,9 +18,10 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tokio::net::TcpListener;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -100,8 +101,19 @@ async fn main() -> Result<()> {
         source = capacity.source,
         max_ws = capacity.recommended_max_ws,
         rec_db_pool = capacity.recommended_db_pool,
-        "Kapasitas terdeteksi (batas WS auto-skala dari RAM)"
+        max_upload = capacity.recommended_upload_concurrency,
+        "Kapasitas terdeteksi (batas WS & upload auto-skala dari RAM)"
     );
+
+    // ── Upload temp dir (streaming) ──────────────────────────────────────────
+    // Media story di-stream ke file temp lalu diteruskan ke storage. Direktori
+    // ini WAJIB disk-backed: bila tmpfs (RAM), streaming justru tetap memakan
+    // RAM. Default /var/tmp (disk & persisten, beda dari /tmp yang kerap tmpfs).
+    let upload_tmp_dir = PathBuf::from(
+        std::env::var("UPLOAD_TMP_DIR")
+            .unwrap_or_else(|_| "/var/tmp/e-ticketing-uploads".into()),
+    );
+    prepare_upload_tmp_dir(&upload_tmp_dir)?;
 
     // ── App state ────────────────────────────────────────────────────────────
     let state = Arc::new(
@@ -116,6 +128,7 @@ async fn main() -> Result<()> {
             ws_redis_client,
             cfg.rustfs.clone(),
             cfg.sfu_bind_addr.clone(),
+            upload_tmp_dir,
             capacity,
         )
         .await,
@@ -205,6 +218,54 @@ async fn main() -> Result<()> {
         .await?;
 
     Ok(())
+}
+
+/// Siapkan direktori temp upload: buat bila belum ada, uji-tulis (canary), dan
+/// peringatkan bila berada di tmpfs/ramfs (RAM). Gagal buat/tulis → fail-fast:
+/// lebih baik tahu saat deploy daripada setiap upload error 500.
+fn prepare_upload_tmp_dir(dir: &Path) -> Result<()> {
+    std::fs::create_dir_all(dir)
+        .with_context(|| format!("gagal membuat UPLOAD_TMP_DIR {}", dir.display()))?;
+
+    // Canary: pastikan benar-benar writable (permission/read-only mount).
+    let canary = dir.join(".write-test");
+    std::fs::write(&canary, b"ok")
+        .with_context(|| format!("UPLOAD_TMP_DIR {} tidak bisa ditulis", dir.display()))?;
+    let _ = std::fs::remove_file(&canary);
+
+    match mount_fstype_for(dir) {
+        Some(fs) if fs == "tmpfs" || fs == "ramfs" => tracing::warn!(
+            dir = %dir.display(), fstype = %fs,
+            "UPLOAD_TMP_DIR berada di RAM (tmpfs/ramfs) — streaming upload tetap \
+             memakai RAM. Set UPLOAD_TMP_DIR ke direktori disk (mis. /var/tmp)."
+        ),
+        Some(fs) => tracing::info!(dir = %dir.display(), fstype = %fs, "Upload temp dir siap (disk-backed)"),
+        None => tracing::info!(dir = %dir.display(), "Upload temp dir siap"),
+    }
+    Ok(())
+}
+
+/// Fstype dari mount yang paling spesifik (prefix terpanjang) menaungi `dir`,
+/// dibaca dari /proc/mounts. None di non-Linux / bila tak terbaca (best-effort).
+fn mount_fstype_for(dir: &Path) -> Option<String> {
+    let mounts = std::fs::read_to_string("/proc/mounts").ok()?;
+    let target = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    let mut best: Option<(usize, String)> = None;
+    for line in mounts.lines() {
+        let mut it = line.split_whitespace();
+        let (Some(_dev), Some(mount_point), Some(fstype)) = (it.next(), it.next(), it.next())
+        else {
+            continue;
+        };
+        // Cocokkan per-komponen agar "/var" tak salah cocok dengan "/variant".
+        if target.starts_with(Path::new(mount_point)) {
+            let len = mount_point.len();
+            if best.as_ref().map_or(true, |(l, _)| len > *l) {
+                best = Some((len, fstype.to_string()));
+            }
+        }
+    }
+    best.map(|(_, fs)| fs)
 }
 
 fn build_cors(_cfg: &AppConfig) -> tower_http::cors::CorsLayer {

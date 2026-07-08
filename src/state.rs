@@ -2,8 +2,11 @@
 //!
 //! UPDATED: tambah StoryService + PgStoryRepository
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+
+use tokio::sync::Semaphore;
 
 use crate::config::config::{RustFsConfig, WahaConfig};
 use crate::repository::{
@@ -101,6 +104,12 @@ pub struct AppState {
     pub meet_svc: Arc<MeetService>,
     /// Behavior tracking (afinitas kategori): buffer in-memory + batch flush.
     pub affinity_svc: Arc<AffinityService>,
+    /// Plafon upload media serentak (auto-skala dari kapasitas VPS). Permit
+    /// diambil di handler upload; penuh → 503 (fail-fast).
+    pub upload_limit: Arc<Semaphore>,
+    /// Direktori file temp untuk streaming upload. Harus disk-backed (bukan
+    /// tmpfs) agar streaming benar-benar mengurangi RAM. Divalidasi saat startup.
+    pub upload_tmp_dir: PathBuf,
     /// CPU/RAM efektif VPS + plafon turunannya (deteksi saat start).
     pub capacity: crate::utils::capacity::Capacity,
 }
@@ -118,6 +127,7 @@ impl AppState {
         redis_client: redis::Client,
         rustfs: RustFsConfig,
         sfu_bind_addr: String,
+        upload_tmp_dir: PathBuf,
         capacity: crate::utils::capacity::Capacity,
     ) -> Self {
         let http = HttpClient::builder()
@@ -188,6 +198,7 @@ impl AppState {
         let live_svc = LiveStreamService::new(sfu_addr);
         let meet_svc = MeetService::new();
         let affinity_svc = AffinityService::new(pool.clone());
+        let upload_limit = Arc::new(Semaphore::new(capacity.recommended_upload_concurrency));
 
         Self {
             pool,
@@ -208,6 +219,8 @@ impl AppState {
             live_svc,
             meet_svc,
             affinity_svc,
+            upload_limit,
+            upload_tmp_dir,
             capacity,
         }
     }
