@@ -7,6 +7,7 @@ use leptos_router::hooks::use_navigate;
 use crate::web::api::create_merchant_event;
 use crate::web::app::AuthResource;
 use crate::web::components::event_story_preview::EventStoryPreviewInline;
+use crate::web::components::variant_editor::{new_variant_row, rows_to_json, VariantEditor, VariantRow};
 use crate::web::hooks::ThemeToggle;
 use crate::web::utils::{map_picker, map_set, DEFAULT_LAT, DEFAULT_LNG};
 
@@ -31,6 +32,12 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
     let f_lat      = RwSignal::new(DEFAULT_LAT);
     let f_lng      = RwSignal::new(DEFAULT_LNG);
     let loc_touched = RwSignal::new(false);
+
+    // Varian tiket: mulai dengan satu baris default (samakan dengan perilaku
+    // lama "Umum"/gratis/kuota 100) — merchant tinggal mengubah/menambah.
+    let v_rows: RwSignal<Vec<VariantRow>> =
+        RwSignal::new(vec![new_variant_row(None, "Umum", "0", "100")]);
+    let v_removed: RwSignal<Vec<String>> = RwSignal::new(vec![]);
 
     // Peta di-init dua jalur (idempoten, guard `_leaflet_id` di shell):
     // (1) skrip auto-init di shell via data-attribute — jalan tanpa hydration;
@@ -92,6 +99,12 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
         let city = f_city.get_untracked();
         if city.trim().is_empty() { error_msg.set("Kota wajib diisi.".into()); return; }
 
+        // Validasi + serialisasi varian tiket (nama/harga/kuota per baris).
+        let variants_json = match rows_to_json(&v_rows.get_untracked(), &v_removed.get_untracked()) {
+            Ok(j) => j,
+            Err(m) => { error_msg.set(m); return; }
+        };
+
         let cats_str = cats.join(",");
         let start_iso = format!("{}T{}:00Z", date, time);
         let (lat, lng) = if loc_touched.get_untracked() {
@@ -102,7 +115,7 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
         submitting.set(true);
 
         leptos::task::spawn_local(async move {
-            match create_merchant_event(name, desc, venue, city, start_iso.clone(), start_iso, cats_str, lat, lng).await {
+            match create_merchant_event(name, desc, venue, city, start_iso.clone(), start_iso, cats_str, lat, lng, variants_json).await {
                 Ok(_slug) => {
                     success_msg.set("Event berhasil dibuat!".into());
                     submitting.set(false);
@@ -356,6 +369,8 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
                         on:input=move |e| f_city.set(event_target_value(&e))
                     />
                 </div>
+                // ── VARIAN TIKET ──────────────────────────────────────────────
+                <VariantEditor rows=v_rows removed_ids=v_removed />
                 // ── LOKASI DI PETA ────────────────────────────────────────────
                 <div class="medit-section-header">
                     <span class="medit-section-label">"LOKASI DI PETA"</span>

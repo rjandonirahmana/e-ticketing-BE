@@ -635,6 +635,27 @@ pub fn ExplorePage() -> impl IntoView {
                                                             <span class="exp-mkt-merchant">{cat.clone()}</span>
                                                         }
                                                     })} <h3 class="exp-mkt-title">{ev.title.clone()}</h3>
+                                                // Chip penyelenggara → profil merchant publik.
+                                                // <span> ber-click (bukan <a>) karena kartu ini
+                                                // sendiri <a> — anchor bersarang = HTML invalid.
+                                                <span
+                                                    class="exp-mkt-org"
+                                                    on:click={
+                                                        let org = format!("/m/{}", ev.merchant_id);
+                                                        move |e: leptos::ev::MouseEvent| {
+                                                            e.prevent_default();
+                                                            e.stop_propagation();
+                                                            #[cfg(target_arch = "wasm32")]
+                                                            if let Some(w) = web_sys::window() {
+                                                                let _ = w.location().assign(&org);
+                                                            }
+                                                            #[cfg(not(target_arch = "wasm32"))]
+                                                            let _ = &org;
+                                                        }
+                                                    }
+                                                >
+                                                    "PENYELENGGARA \u{2192}"
+                                                </span>
                                                 <div class="exp-mkt-meta">
                                                     <span class="exp-mkt-meta-row">
                                                         <svg

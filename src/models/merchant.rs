@@ -40,6 +40,37 @@ pub struct MerchantDetailResponse {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Profil merchant untuk halaman publik /m/{id} (sisi user).
+#[derive(Debug, Clone, Serialize)]
+pub struct MerchantPublicProfile {
+    pub merchant_id: String,
+    pub store_name: String,
+    pub description: Option<String>,
+    pub logo_url: Option<String>,
+    pub verified: bool,
+    pub followers: i64,
+    pub events_count: i64,
+    pub rating_avg: f64,
+    pub rating_count: i64,
+}
+
+/// Ringkasan rating (halaman reviews): rata-rata, total, distribusi per bintang.
+#[derive(Debug, Clone, Serialize)]
+pub struct MerchantReviewSummary {
+    pub avg: f64,
+    pub total: i64,
+    /// dist[0] = jumlah bintang 1 … dist[4] = jumlah bintang 5.
+    pub dist: [i64; 5],
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MerchantReviewItem {
+    pub user_name: String,
+    pub rating: i32,
+    pub comment: String,
+    pub created_at: DateTime<Utc>,
+}
+
 impl From<MerchantDetail> for MerchantDetailResponse {
     fn from(m: MerchantDetail) -> Self {
         Self {

@@ -1,0 +1,94 @@
+/* ── Profil merchant publik (/m/:id) + rating & reviews ─────────────────────
+   Prefix: mp-* (profil), mrv-* (reviews). Entry: tombol penyelenggara di
+   event detail (ed-organizer) & chip penyelenggara kartu explore (exp-mkt-org). */
+
+.mp-page { min-height: 100vh; padding-bottom: 90px; }
+.mp-container { padding: 0 16px; max-width: 640px; margin: 0 auto; }
+
+/* Hero */
+.mp-hero { position: relative; height: 190px; overflow: hidden; background: var(--bg-elevated); }
+.mp-hero img { width: 100%; height: 100%; object-fit: cover; opacity: .85; }
+.mp-hero-grad { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 25%, var(--bg) 100%); }
+
+/* Kepala profil */
+.mp-head { max-width: 640px; margin: -44px auto 0; padding: 0 16px; position: relative; display: flex; align-items: flex-end; gap: 12px; }
+.mp-avatar { width: 88px; height: 88px; border-radius: 50%; object-fit: cover; border: 3px solid var(--bg); background: var(--bg-elevated); flex: none; }
+.mp-avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: 800; color: var(--text-on-accent); background: var(--accent-lime); }
+.mp-head-actions { margin-left: auto; padding-bottom: 6px; }
+.mp-follow-btn { padding: 10px 24px; border-radius: 999px; border: 1px solid transparent; background: var(--accent-blue); color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; transition: opacity .15s; }
+.mp-follow-btn:disabled { opacity: .6; }
+.mp-follow-btn[data-on="true"] { background: var(--bg-elevated); color: var(--text-primary); border-color: var(--border); }
+
+.mp-name-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.mp-name { font-size: 24px; font-weight: 800; margin: 0; letter-spacing: -.02em; }
+.mp-verified { color: var(--accent-lime); display: inline-flex; }
+
+/* Statistik */
+.mp-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 16px 0 6px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 14px; padding: 12px 6px; }
+.mp-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; text-decoration: none; color: inherit; }
+.mp-stat + .mp-stat { border-left: 1px solid var(--border); }
+.mp-stat-num { font-size: 18px; font-weight: 800; }
+.mp-stat-star { color: var(--accent-lime); margin-left: 2px; font-size: 14px; }
+.mp-stat-label { font-size: 10px; letter-spacing: .12em; color: var(--text-muted); }
+.mp-stat-link:hover .mp-stat-num { color: var(--accent-lime); }
+
+/* Tabs */
+.mp-tabs { display: flex; gap: 18px; margin: 14px 0 12px; border-bottom: 1px solid var(--border); }
+.mp-tab { background: none; border: none; padding: 8px 2px 10px; font-size: 12px; letter-spacing: .12em; font-weight: 700; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; text-decoration: none; }
+.mp-tab--on { color: var(--text-primary); border-bottom-color: var(--accent-lime); }
+
+/* Grid event + tentang */
+.mp-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.mp-about-text { color: var(--text-primary); line-height: 1.65; white-space: pre-line; }
+.mp-empty { color: var(--text-muted); font-size: 14px; padding: 18px 0; }
+
+/* ── Reviews (/m/:id/reviews) ──────────────────────────────────────────────── */
+.mrv-store { margin: 14px 0 4px; font-size: 13px; letter-spacing: .08em; color: var(--text-muted); text-transform: uppercase; }
+
+.mrv-summary { margin-bottom: 18px; }
+.mrv-big { display: flex; align-items: center; gap: 14px; }
+.mrv-avg { font-size: 56px; font-weight: 900; color: var(--accent-lime); line-height: 1; letter-spacing: -.03em; }
+.mrv-big-side { display: flex; flex-direction: column; gap: 2px; }
+.mrv-outof { font-size: 13px; color: var(--text-muted); }
+.mrv-total { margin: 6px 0 14px; color: var(--text-muted); font-size: 14px; }
+
+.mrv-stars { display: inline-flex; gap: 2px; font-size: 16px; }
+.mrv-star { color: var(--border); }
+.mrv-star--on { color: var(--accent-lime); }
+
+.mrv-dist { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.mrv-dist-row { display: flex; align-items: center; gap: 10px; }
+.mrv-dist-star { width: 12px; text-align: right; font-size: 12px; color: var(--text-muted); }
+.mrv-dist-bar { flex: 1; height: 8px; border-radius: 999px; background: var(--border); overflow: hidden; }
+.mrv-dist-fill { height: 100%; border-radius: 999px; background: var(--accent-lime); }
+
+/* Daftar ulasan */
+.mrv-list-head { margin: 6px 0 10px; }
+.mrv-list { display: flex; flex-direction: column; gap: 10px; }
+.mrv-item { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
+.mrv-item-head { display: flex; align-items: center; gap: 10px; }
+.mrv-item-avatar { width: 38px; height: 38px; border-radius: 50%; background: var(--accent-blue); color: #fff; font-weight: 800; display: flex; align-items: center; justify-content: center; flex: none; }
+.mrv-item-who { display: flex; flex-direction: column; min-width: 0; margin-right: auto; }
+.mrv-item-name { font-weight: 700; font-size: 14px; }
+.mrv-item-date { font-size: 11px; color: var(--text-muted); }
+.mrv-item-text { margin: 10px 0 0; font-size: 14px; line-height: 1.6; color: var(--text-primary); }
+
+/* Form ulasan */
+.mrv-form { margin-top: 22px; }
+.mrv-form-body { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.mrv-pick { display: flex; gap: 6px; }
+.mrv-pick-star { background: none; border: none; font-size: 30px; line-height: 1; color: var(--border); cursor: pointer; padding: 2px; transition: transform .1s; }
+.mrv-pick-star:active { transform: scale(1.2); }
+.mrv-pick-star--on { color: var(--accent-lime); }
+.mrv-form-msg { font-size: 13px; color: var(--text-muted); margin: 0; }
+
+/* ── Entry point: penyelenggara di event detail & explore ──────────────────── */
+.ed-organizer { display: flex; align-items: center; gap: 10px; margin: 14px 0 4px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-elevated); text-decoration: none; color: inherit; }
+.ed-organizer:hover { border-color: var(--accent-lime); }
+.ed-org-icon { color: var(--accent-lime); display: inline-flex; flex: none; }
+.ed-org-text { font-weight: 700; font-size: 14px; margin-right: auto; }
+.ed-org-sub { display: block; font-weight: 400; font-size: 12px; color: var(--text-muted); }
+.ed-org-arrow { color: var(--text-muted); }
+
+.exp-mkt-org { display: inline-block; margin-top: 4px; font-size: 10px; letter-spacing: .1em; font-weight: 700; color: var(--accent-lime); cursor: pointer; }
+.exp-mkt-org:hover { text-decoration: underline; }

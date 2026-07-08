@@ -9,6 +9,7 @@ pub mod merchant_live_pip;
 pub mod merchant_dashboard_event;
 pub mod nav;
 pub mod story_bars;
+pub mod variant_editor;
 pub mod story_viewer;
 
 pub use cards::{

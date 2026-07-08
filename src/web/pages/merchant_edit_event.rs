@@ -7,6 +7,7 @@ use leptos_router::hooks::{use_navigate, use_params_map};
 use crate::web::api::{get_merchant_event_detail, update_merchant_event};
 use crate::web::app::AuthResource;
 use crate::web::components::event_story_preview::EventStoryPreviewInline;
+use crate::web::components::variant_editor::{rows_from_event, rows_to_json, VariantEditor, VariantRow};
 use crate::web::hooks::ThemeToggle;
 use crate::web::utils::{map_picker, map_set, DEFAULT_LAT, DEFAULT_LNG};
 
@@ -61,6 +62,10 @@ pub fn MerchantEditEventPage() -> impl IntoView {
     let loc_touched = RwSignal::new(false);
     let initialized = RwSignal::new(false);
 
+    // Varian tiket: di-prefill dari data event saat termuat (Effect di bawah).
+    let v_rows: RwSignal<Vec<VariantRow>> = RwSignal::new(vec![]);
+    let v_removed: RwSignal<Vec<String>> = RwSignal::new(vec![]);
+
     // Peta di-init oleh skrip auto-init di shell (via data-attribute pada div) —
     // tak bergantung hydration. Saat data event termuat, pin disetel ke lokasi
     // tersimpan lewat `map_set` di Effect di bawah.
@@ -105,6 +110,7 @@ pub fn MerchantEditEventPage() -> impl IntoView {
                 if let Some(url) = ev.cover_url {
                     if !url.is_empty() { cover_preview.set(Some(url)); }
                 }
+                v_rows.set(rows_from_event(&ev.event_variants));
                 initialized.set(true);
             }
         }
@@ -144,6 +150,13 @@ pub fn MerchantEditEventPage() -> impl IntoView {
         let cats  = f_cat.get_untracked().join(",");
         let current_slug = slug();
 
+        // Validasi + serialisasi varian tiket (termasuk id varian yang dihapus
+        // dari form — server menonaktifkannya).
+        let variants_json = match rows_to_json(&v_rows.get_untracked(), &v_removed.get_untracked()) {
+            Ok(j) => j,
+            Err(m) => { error_msg.set(m); return; }
+        };
+
         // Combine date + time into RFC3339 format that the server can parse.
         // Server expects chrono::DateTime<Utc>, so "2024-01-15" alone fails.
         let date_iso = if !time.is_empty() {
@@ -160,7 +173,7 @@ pub fn MerchantEditEventPage() -> impl IntoView {
 
         saving.set(true);
         leptos::task::spawn_local(async move {
-            match update_merchant_event(current_slug, name, desc, venue, city, date_iso.clone(), date_iso, cats, lat, lng).await {
+            match update_merchant_event(current_slug, name, desc, venue, city, date_iso.clone(), date_iso, cats, lat, lng, variants_json).await {
                 Ok(_) => { saved.set(true); saving.set(false); }
                 Err(e) => { error_msg.set(e.to_string()); saving.set(false); }
             }
@@ -352,6 +365,9 @@ pub fn MerchantEditEventPage() -> impl IntoView {
                                            prop:value=move || f_venue.get()
                                            on:input=move |e| f_venue.set(event_target_value(&e))/>
                                 </div>
+
+                                // ── VARIAN TIKET ──────────────────────────────
+                                <VariantEditor rows=v_rows removed_ids=v_removed />
 
                                 // ── LOKASI DI PETA ────────────────────────────
                                 <div class="medit-section-header">
