@@ -25,11 +25,6 @@ pub fn ForgotPasswordPage() -> impl IntoView {
     };
 
     view! {
-        <div class="grid-bg">
-            <div class="grid-lines"></div>
-            <div class="orb orb-1"></div>
-            <div class="orb orb-2"></div>
-        </div>
         <main class="auth-page">
             <header class="auth-header">
                 <A href="/login" attr:class="back-btn">

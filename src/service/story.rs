@@ -5,9 +5,8 @@
 //!   - Enforce rate limit: 1x/hari untuk user biasa, unlimited untuk premium
 //!   - CRUD story & mark viewed
 
+use std::path::Path;
 use std::sync::Arc;
-
-use bytes::Bytes;
 
 use crate::{
     models::{
@@ -79,25 +78,29 @@ impl<R: StoryRepository> StoryService<R> {
 
     // ── Upload story ──────────────────────────────────────────────────────────
 
-    /// Upload story baru.
+    /// Upload story baru dari file yang sudah di-stream ke disk oleh handler.
     ///
-    /// `media_bytes`: raw bytes file.
+    /// `file_path`: path file temp berisi media (dihapus caller setelah selesai).
+    /// `size`: ukuran file (byte) — sudah dibatasi handler saat streaming.
+    /// `header`: byte-byte awal file untuk deteksi magic bytes (tanpa baca ulang).
     /// `slug`: slug event (opsional, dikirim jika story dibuat dari event detail).
     ///
     /// Alur:
     ///   1. Validasi ukuran & tipe file (magic bytes).
     ///   2. Cek rate limit (1/hari untuk free, unlimited untuk premium).
-    ///   3. Upload ke storage.
+    ///   3. Stream file dari disk ke storage (tanpa memuat penuh ke RAM).
     ///   4. Simpan record ke DB.
-    pub async fn upload(
+    pub async fn upload_streamed(
         &self,
         user_id: &str,
-        media_bytes: Bytes,
+        file_path: &Path,
+        size: usize,
+        header: &[u8],
         slug: Option<String>,
         title: Option<String>,
     ) -> AppResult<UploadStoryResponse> {
         // ── 1. Validasi ukuran ────────────────────────────────────────────────
-        if media_bytes.len() > MAX_FILE_SIZE {
+        if size > MAX_FILE_SIZE {
             return Err(AppError::BadRequest(format!(
                 "File terlalu besar, maksimal {}MB",
                 MAX_FILE_SIZE / 1024 / 1024
@@ -105,7 +108,7 @@ impl<R: StoryRepository> StoryService<R> {
         }
 
         // ── 2. Deteksi tipe via magic bytes ───────────────────────────────────
-        let (mime_type, media_kind) = detect_media_mime(&media_bytes).ok_or_else(|| {
+        let (mime_type, media_kind) = detect_media_mime(header).ok_or_else(|| {
             AppError::BadRequest(
                 "Format file tidak didukung. Gunakan JPEG/PNG/WebP/GIF untuk gambar \
                  atau MP4/WebM/MOV untuk video."
@@ -161,7 +164,7 @@ impl<R: StoryRepository> StoryService<R> {
 
         let media_url = self
             .storage
-            .upload_media(media_bytes, folder, mime_type)
+            .upload_media_file(file_path, folder, mime_type)
             .await?;
 
         // ── 6. Simpan ke DB ───────────────────────────────────────────────────

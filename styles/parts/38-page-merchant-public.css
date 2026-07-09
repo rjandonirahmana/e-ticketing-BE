@@ -1,0 +1,158 @@
+/* ── Profil merchant publik (/m/:id) + rating & reviews ─────────────────────
+   Prefix: mp-* (profil), mrv-* (reviews). Entry: tombol penyelenggara di
+   event detail (ed-organizer) & chip penyelenggara kartu explore (exp-mkt-org). */
+
+/* Page: kolom 480px konsisten dengan halaman lain (home/explore/detail).
+   Hero full-bleed di dalam kolom → dibatasi 480 via .mp-page max-width. */
+/* Kolom OPAQUE + terpusat ≤480px → grid global hanya tampak di gutter (spt /lives).
+   border-inline = pembatas tegas antara lebar kolom & area di luar (gutter). */
+.mp-page { min-height: 100vh; width: 100%; max-width: 480px; margin: 0 auto; background: var(--bg-page); border-inline: 1px solid var(--border-soft); position: relative; padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px)); }
+.mp-container { padding: 0 16px; max-width: 480px; margin: 0 auto; }
+
+/* Hero */
+.mp-hero { position: relative; height: 200px; overflow: hidden; background: var(--bg-elevated); }
+.mp-hero img { width: 100%; height: 100%; object-fit: cover; opacity: .9; }
+.mp-hero-grad { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.15) 0%, transparent 35%, var(--bg-page) 100%); }
+
+/* Kepala profil */
+.mp-head { margin: -46px auto 0; padding: 0 16px; position: relative; display: flex; align-items: flex-end; gap: 12px; }
+.mp-avatar-wrap { position: relative; flex: none; }
+.mp-avatar { width: 92px; height: 92px; border-radius: 50%; object-fit: cover; border: 3px solid var(--bg-page); background: var(--bg-elevated); display: block; }
+.mp-avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 36px; font-weight: 800; color: var(--text-on-accent); background: var(--accent-lime); }
+.mp-avatar-badge { position: absolute; right: 2px; bottom: 4px; width: 26px; height: 26px; border-radius: 50%; background: var(--accent-lime); color: var(--text-on-accent); border: 3px solid var(--bg-page); display: flex; align-items: center; justify-content: center; }
+
+.mp-head-actions { margin-left: auto; padding-bottom: 8px; display: flex; align-items: center; gap: 8px; position: relative; }
+.mp-follow-btn { padding: 10px 26px; border-radius: 999px; border: 1px solid transparent; background: var(--accent-blue); color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; transition: opacity .15s, background .15s; }
+.mp-follow-btn:disabled { opacity: .6; }
+.mp-follow-btn[data-on="true"] { background: var(--bg-elevated); color: var(--text-primary); border-color: var(--border); }
+.mp-icon-btn { width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text-primary); display: flex; align-items: center; justify-content: center; cursor: pointer; flex: none; transition: background .15s, border-color .15s; }
+.mp-icon-btn:hover { background: var(--bg-elevated-2); border-color: var(--accent-lime); }
+.mp-share-toast { position: absolute; top: calc(100% + 8px); right: 0; background: var(--text-primary); color: var(--bg-page); font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 8px; white-space: nowrap; z-index: 5; box-shadow: 0 6px 18px rgba(0,0,0,.28); }
+
+.mp-name-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.mp-name { font-size: 25px; font-weight: 800; margin: 0; letter-spacing: -.02em; line-height: 1.15; }
+.mp-verified { color: var(--accent-lime); display: inline-flex; }
+.mp-loc { display: flex; align-items: center; gap: 5px; margin: 6px 0 0; font-size: 13px; color: var(--text-muted); }
+.mp-loc svg { color: var(--accent-lime); flex: none; }
+
+/* Statistik */
+.mp-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 18px 0 6px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 16px; padding: 14px 6px; }
+.mp-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; text-decoration: none; color: inherit; }
+.mp-stat + .mp-stat { border-left: 1px solid var(--border); }
+.mp-stat-num { font-size: 18px; font-weight: 800; }
+.mp-stat-star { color: var(--accent-lime); margin-left: 2px; font-size: 14px; }
+.mp-stat-label { font-size: 10px; letter-spacing: .12em; color: var(--text-muted); }
+.mp-stat-link:hover .mp-stat-num { color: var(--accent-lime); }
+
+/* Tabs */
+/* space-evenly → jarak antar tab & ke tepi kolom sama rata. */
+.mp-tabs { display: flex; justify-content: space-evenly; gap: 0; margin: 14px 0 12px; border-bottom: 1px solid var(--border); }
+.mp-tab { background: none; border: none; padding: 8px 2px 10px; font-size: 12px; letter-spacing: .12em; font-weight: 700; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; text-decoration: none; }
+.mp-tab--on { color: var(--text-primary); border-bottom-color: var(--accent-lime); }
+
+/* Grid event + tentang */
+.mp-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.mp-about-text { color: var(--text-primary); line-height: 1.65; white-space: pre-line; }
+.mp-empty { color: var(--text-muted); font-size: 14px; padding: 18px 0; }
+
+/* ── Carousel geser EVENTS · TENTANG · ULASAN · STORY ───────────────────────
+   Ke-4 panel selalu dirender. Panel AKTIF `position:relative` → dialah yang
+   menentukan tinggi container (tab pendek tak menyisakan ruang kosong dari tab
+   panjang); panel lain `position:absolute` (keluar flow) digeser ±100% via
+   translateX(calc(N% + Dpx)) sehingga tetangga mengintip saat drag & commit-nya
+   meluncur. `touch-action: pan-y` = scroll vertikal native, horizontal ditangani
+   pointer handler (axis-lock). */
+.mp-swipe { position: relative; overflow: hidden; touch-action: pan-y; }
+.mp-panel { position: absolute; top: 0; left: 0; width: 100%; will-change: transform; transition: transform .34s cubic-bezier(.32, .72, 0, 1); }
+.mp-panel--active { position: relative; } /* hanya yang aktif menentukan tinggi */
+.mp-panel--drag { transition: none; }     /* drag mengikuti jari (60fps) */
+
+/* Panel ULASAN in-page (ringkas; form tulis ada di halaman /m/:id/reviews) */
+.mp-reviews { padding-top: 4px; }
+.mp-reviews-all { display: inline-block; margin-top: 14px; font-size: 13px; font-weight: 700; color: var(--accent-lime); text-decoration: none; }
+.mp-reviews-all:hover { text-decoration: underline; }
+
+/* Muat lebih banyak (paginasi EVENTS) */
+.mp-more-wrap { display: flex; justify-content: center; margin: 16px 0 4px; }
+.mp-more-btn { padding: 10px 22px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text-primary); font-size: 12px; letter-spacing: .1em; font-weight: 700; cursor: pointer; transition: background .15s, border-color .15s; }
+.mp-more-btn:hover:not(:disabled) { border-color: var(--accent-lime); background: var(--bg-elevated-2); }
+.mp-more-btn:disabled { opacity: .6; cursor: default; }
+
+/* Panel STORY: grid thumbnail 3 kolom, tap → StoryViewer */
+.mp-stories { padding-top: 8px; }
+.mp-story-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.mp-story-cell { position: relative; aspect-ratio: 9 / 16; border: none; padding: 0; border-radius: 12px; overflow: hidden; cursor: pointer; background: var(--bg-elevated); }
+.mp-story-media { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mp-story-play { position: absolute; right: 6px; bottom: 6px; width: 22px; height: 22px; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; display: flex; align-items: center; justify-content: center; }
+
+/* ── Reviews (/m/:id/reviews) ──────────────────────────────────────────────── */
+.mrv-store { margin: 16px 0 6px; font-size: 12px; letter-spacing: .1em; color: var(--text-muted); text-transform: uppercase; }
+
+.mrv-summary { margin-bottom: 22px; }
+.mrv-big { display: flex; align-items: center; gap: 16px; }
+.mrv-avg { font-size: 64px; font-weight: 900; color: var(--accent-lime); line-height: .9; letter-spacing: -.04em; }
+.mrv-big-side { display: flex; flex-direction: column; gap: 4px; }
+.mrv-big-side .mrv-stars { font-size: 20px; }
+.mrv-outof { font-size: 13px; color: var(--text-muted); }
+.mrv-total { margin: 8px 0 16px; color: var(--text-secondary, var(--text-muted)); font-size: 14px; font-weight: 600; }
+
+.mrv-stars { display: inline-flex; gap: 2px; font-size: 16px; }
+.mrv-star { color: var(--border); }
+.mrv-star--on { color: var(--accent-lime); }
+
+.mrv-dist { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 11px; }
+.mrv-dist-row { display: flex; align-items: center; gap: 12px; }
+.mrv-dist-star { width: 12px; text-align: right; font-size: 13px; font-weight: 700; color: var(--text-muted); }
+.mrv-dist-bar { flex: 1; height: 9px; border-radius: 999px; background: var(--border); overflow: hidden; }
+.mrv-dist-fill { height: 100%; border-radius: 999px; background: var(--accent-lime); transition: width .4s ease; }
+.mrv-dist-cnt { width: 34px; text-align: right; font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* Daftar ulasan */
+.mrv-list-head { margin: 6px 0 10px; }
+.mrv-list { display: flex; flex-direction: column; gap: 10px; }
+.mrv-item { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
+.mrv-item-head { display: flex; align-items: center; gap: 10px; }
+.mrv-item-avatar { width: 38px; height: 38px; border-radius: 50%; background: var(--accent-blue); color: #fff; font-weight: 800; display: flex; align-items: center; justify-content: center; flex: none; }
+.mrv-item-who { display: flex; flex-direction: column; min-width: 0; margin-right: auto; }
+.mrv-item-name { font-weight: 700; font-size: 14px; }
+.mrv-item-date { font-size: 11px; color: var(--text-muted); }
+.mrv-item-text { margin: 10px 0 0; font-size: 14px; line-height: 1.6; color: var(--text-primary); }
+
+/* Form ulasan */
+.mrv-form { margin-top: 22px; }
+.mrv-form-body { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.mrv-pick { display: flex; gap: 6px; }
+.mrv-pick-star { background: none; border: none; font-size: 30px; line-height: 1; color: var(--border); cursor: pointer; padding: 2px; transition: transform .1s; }
+.mrv-pick-star:active { transform: scale(1.2); }
+.mrv-pick-star--on { color: var(--accent-lime); }
+.mrv-form-msg { font-size: 13px; color: var(--text-muted); margin: 0; }
+
+/* ── Daftar follower (/m/:id/followers) ─────────────────────────────────────── */
+.mflw-count-badge { display: inline-flex; align-items: center; padding: 5px 12px; border-radius: 999px; background: var(--bg-elevated); border: 1px solid var(--border); font-size: 13px; font-weight: 800; color: var(--accent-lime); }
+
+.mflw-search { display: flex; align-items: center; gap: 10px; margin: 14px 0 16px; padding: 0 14px; height: 46px; border-radius: 14px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-muted); }
+.mflw-search:focus-within { border-color: var(--accent-lime); }
+.mflw-search svg { flex: none; }
+.mflw-search-input { flex: 1; background: none; border: none; outline: none; color: var(--text-primary); font-size: 15px; }
+.mflw-search-input::placeholder { color: var(--text-muted); }
+
+.mflw-list { display: flex; flex-direction: column; gap: 10px; }
+.mflw-item { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 16px; background: var(--bg-elevated); border: 1px solid var(--border); text-decoration: none; color: inherit; }
+.mflw-item--link { cursor: pointer; transition: border-color .15s, background .15s; }
+.mflw-item--link:hover { border-color: var(--accent-lime); background: var(--bg-elevated-2); }
+.mflw-avatar { width: 52px; height: 52px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 800; color: var(--text-on-accent); background: var(--accent-blue); }
+.mflw-meta { display: flex; flex-direction: column; min-width: 0; margin-right: auto; gap: 3px; }
+.mflw-name { font-weight: 700; font-size: 15px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mflw-sub { font-size: 12px; color: var(--text-muted); }
+.mflw-tag { flex: none; font-size: 10px; font-weight: 800; letter-spacing: .1em; color: var(--accent-lime); border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px; }
+
+/* ── Entry point: penyelenggara di event detail & explore ──────────────────── */
+.ed-organizer { display: flex; align-items: center; gap: 10px; margin: 14px 0 4px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-elevated); text-decoration: none; color: inherit; }
+.ed-organizer:hover { border-color: var(--accent-lime); }
+.ed-org-icon { color: var(--accent-lime); display: inline-flex; flex: none; }
+.ed-org-text { font-weight: 700; font-size: 14px; margin-right: auto; }
+.ed-org-sub { display: block; font-weight: 400; font-size: 12px; color: var(--text-muted); }
+.ed-org-arrow { color: var(--text-muted); }
+
+.exp-mkt-org { display: inline-block; margin-top: 4px; font-size: 10px; letter-spacing: .1em; font-weight: 700; color: var(--accent-lime); cursor: pointer; }
+.exp-mkt-org:hover { text-decoration: underline; }

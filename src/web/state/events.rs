@@ -10,6 +10,8 @@ use crate::web::utils::format_number;
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExploreEvent {
     pub id: String,
+    /// Untuk link profil penyelenggara (/m/{merchant_id}) dari kartu explore.
+    pub merchant_id: String,
     pub slug: String,
     pub title: String,
     pub category: Vec<String>,
@@ -40,6 +42,7 @@ pub(super) fn event_to_explore(e: &Event) -> ExploreEvent {
 
     ExploreEvent {
         id: e.id.clone(),
+        merchant_id: e.merchant_id.clone(),
         slug: e.slug.clone(),
         title: e.name.clone(),
         category: e.category.clone(),

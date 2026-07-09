@@ -35,7 +35,13 @@ pub struct LiveRoom {
     pub event_slug: Option<String>,
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub cmd_tx: mpsc::Sender<SfuCommand>,
+    /// connection_id → info penonton (satu user bisa punya beberapa koneksi/tab).
     subscribers: DashMap<String, ViewerInfo>,
+    /// user_id → jumlah koneksi hidup. Menjaga `viewer_count()` tetap O(1) &
+    /// ter-dedupe tanpa alokasi HashSet tiap panggilan (dipanggil di jalur join
+    /// panas). CATATAN: AtomicUsize naif TIDAK bisa dipakai di sini karena akan
+    /// menghitung ganda user multi-tab; refcount per-user inilah yang benar.
+    unique_viewers: DashMap<String, u32>,
 }
 
 impl LiveRoom {
@@ -54,17 +60,14 @@ impl LiveRoom {
             started_at: chrono::Utc::now(),
             cmd_tx,
             subscribers: DashMap::new(),
+            unique_viewers: DashMap::new(),
         }
     }
 
     /// Jumlah penonton unik (dedupe by user id). Satu user dengan beberapa
-    /// koneksi/tab dihitung sekali.
+    /// koneksi/tab dihitung sekali. O(1): baca panjang peta refcount per-user.
     pub fn viewer_count(&self) -> usize {
-        let mut ids = std::collections::HashSet::new();
-        for e in self.subscribers.iter() {
-            ids.insert(e.value().id.clone());
-        }
-        ids.len()
+        self.unique_viewers.len()
     }
 
     pub fn add_subscriber(&self, id: &str, info: ViewerInfo) {
@@ -72,11 +75,26 @@ impl LiveRoom {
         if info.id == self.merchant_id {
             return;
         }
-        self.subscribers.insert(id.to_string(), info);
+        let user_id = info.id.clone();
+        // Hanya bump refcount user bila ini koneksi BARU (bukan replace key sama).
+        if self.subscribers.insert(id.to_string(), info).is_none() {
+            *self.unique_viewers.entry(user_id).or_insert(0) += 1;
+        }
     }
 
     pub fn remove_subscriber(&self, id: &str) {
-        self.subscribers.remove(id);
+        if let Some((_, info)) = self.subscribers.remove(id) {
+            // Turunkan refcount user; hapus entri saat koneksi terakhir pergi.
+            // Drop ref sebelum remove pada map yang sama → hindari deadlock DashMap.
+            if let Some(mut cnt) = self.unique_viewers.get_mut(&info.id) {
+                if *cnt <= 1 {
+                    drop(cnt);
+                    self.unique_viewers.remove(&info.id);
+                } else {
+                    *cnt -= 1;
+                }
+            }
+        }
     }
 
     /// Daftar penonton unik (dedupe by user id).

@@ -8,7 +8,7 @@ use std::rc::Rc;
 use std::cell::Cell;
 
 use crate::web::app::AuthResource;
-use crate::web::components::{BottomNav, GridBackground};
+use crate::web::components::BottomNav;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ViewerInfo {
@@ -307,7 +307,6 @@ pub fn MerchantLivePage() -> impl IntoView {
     });
 
     view! {
-        <GridBackground />
         <div class="page merchant-live-page" class:is-streaming=move || is_live.get()>
             <header class="mlive-header">
                 <div class="mlive-header-left">

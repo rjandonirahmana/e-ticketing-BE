@@ -7,7 +7,9 @@
 /* ── DESIGN TOKENS ──────────────────────────────────────────────────────────── */
 :root {
     /* Dark theme — base defaults */
-    --bg-base: #080810;
+    /* --bg-base disamakan dengan --bg-page agar SEMUA halaman punya latar yang
+       sama seperti /lives (canvas explore/home/messages & ring avatar ikut). */
+    --bg-base: #0d0d1a;
     --bg-page: #0d0d1a;
     --bg-surface: #0f0f1a;
     --bg-card: #141424;
@@ -127,7 +129,8 @@
 
 /* ── LIGHT THEME OVERRIDES ──────────────────────────────────────────────────── */
 [data-theme="light"] {
-    --bg-base: #ffffff;
+    /* Samakan dengan --bg-page (lihat catatan di :root). */
+    --bg-base: #f3f3fb;
     --bg-page: #f3f3fb;
     --bg-surface: #ffffff;
     --bg-card: #ffffff;

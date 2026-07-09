@@ -65,6 +65,17 @@ const RATE_LIMIT_CLEANUP_INTERVAL: Duration = Duration::from_secs(30);
 
 pub type WsTx = mpsc::Sender<Arc<str>>;
 
+/// Satu sesi WS aktif milik seorang user. `conn_id` membedakan GENERASI koneksi:
+/// reconnect cepat membuat sesi baru untuk user_id yang sama, dan cleanup sesi
+/// LAMA tidak boleh mencabut sesi BARU (lihat `disconnect`). Tanpa pembeda ini,
+/// setiap reconnect menghapus registrasi koneksi penggantinya → user "online"
+/// tapi tak menerima apa pun → klien reconnect lagi → siklus tak berujung
+/// (gejala: status chat "connecting" terus-menerus).
+struct Session {
+    conn_id: u64,
+    tx: WsTx,
+}
+
 // ── Per-user rate limiter (token bucket, lock-free) ────────────────────────────
 
 struct UserBucket {
@@ -165,8 +176,10 @@ impl RateLimitRegistry {
 // ── WsManager ─────────────────────────────────────────────────────────────────
 
 pub struct WsManager {
-    /// user_id → outbound sender
-    sessions: DashMap<Arc<str>, WsTx, RandomState>,
+    /// user_id → sesi aktif (tx + generasi koneksi)
+    sessions: DashMap<Arc<str>, Session, RandomState>,
+    /// Penerbit `conn_id` monoton — pembeda generasi koneksi per user.
+    next_conn_id: AtomicU64,
 
     /// room_id → Set<user_id>
     /// Membuat broadcast O(members) bukan O(total connections)
@@ -195,6 +208,7 @@ impl WsManager {
 
         let mgr = Arc::new(Self {
             sessions: DashMap::with_hasher(RandomState::new()),
+            next_conn_id: AtomicU64::new(0),
             room_members: DashMap::with_hasher(RandomState::new()),
             redis,
             dropped: Arc::new(AtomicU64::new(0)),
@@ -223,39 +237,50 @@ impl WsManager {
         mpsc::Receiver<Arc<str>>,
         CancellationToken,
         tokio::sync::OwnedSemaphorePermit,
+        u64,
     )> {
         let permit = self.conn_limit.clone().try_acquire_owned().ok()?;
         let (tx, rx) = mpsc::channel::<Arc<str>>(CHAN_BUF);
         let conn_token = CancellationToken::new();
         let key: Arc<str> = user_id.into();
+        let conn_id = self.next_conn_id.fetch_add(1, Ordering::Relaxed);
 
-        // Kick existing session (replaced connection)
-        if let Some((_, old_tx)) = self.sessions.remove(&key) {
-            self.active_conns.fetch_sub(1, Ordering::Relaxed);
-            // Pre-serialized error untuk session lama — tidak perlu serialize baru
-            let msg =
-                WsEvent::err(ErrorCode::Replaced, "Session replaced by newer connection").to_json();
-            let _ = old_tx.try_send(msg);
+        // Kick existing session (replaced connection). insert() mengembalikan
+        // sesi lama bila ada — satu operasi map (bukan remove+insert), dan
+        // hitungan aktif tak berubah saat replace (lama keluar, baru masuk).
+        match self.sessions.insert(key, Session { conn_id, tx }) {
+            Some(old) => {
+                // Pre-serialized error untuk session lama — tidak perlu serialize baru
+                let msg = WsEvent::err(ErrorCode::Replaced, "Session replaced by newer connection")
+                    .to_json();
+                let _ = old.tx.try_send(msg);
+            }
+            None => {
+                self.active_conns.fetch_add(1, Ordering::Relaxed);
+            }
         }
-
-        self.sessions.insert(key, tx);
-        self.active_conns.fetch_add(1, Ordering::Relaxed);
-        tracing::debug!(user_id, "WS connected");
-        Some((rx, conn_token, permit))
+        tracing::debug!(user_id, conn_id, "WS connected");
+        Some((rx, conn_token, permit, conn_id))
     }
 
-    pub fn disconnect(&self, user_id: &str) {
-        if self.sessions.remove(user_id).is_some() {
+    pub fn disconnect(&self, user_id: &str, conn_id: u64) {
+        // GUARD GENERASI: hanya cabut bila sesi di map masih milik koneksi INI.
+        // Tanpa guard, cleanup koneksi lama (yang baru digantikan reconnect)
+        // mencabut sesi baru + room membership-nya → koneksi baru jadi "hantu"
+        // (TCP hidup, tak menerima apa pun) → klien reconnect → koneksi itu
+        // pun dibunuh cleanup berikutnya → chat "connecting" tanpa akhir.
+        if self
+            .sessions
+            .remove_if(user_id, |_, s| s.conn_id == conn_id)
+            .is_some()
+        {
             self.active_conns.fetch_sub(1, Ordering::Relaxed);
             // FIX: Bersihkan room_members saat disconnect — mencegah "ghost members"
-            // yang menumpuk di DashMap. Sebelumnya hanya sessions yang di-cleanup,
-            // tapi room_members tetap menyimpan user_id → broadcast_room() terus
-            // mencoba deliver ke user yang sudah offline → deliver_local() gagal
-            // (session tidak ada) → trigger leave_all_rooms() baru, tapi terlambat.
-            // Dengan cleanup di sini, setiap path disconnect (panic, timeout, graceful)
-            // dijamin bersih. O(rooms) per disconnect — acceptable.
+            // yang menumpuk di DashMap. Aman terhadap reconnect karena hanya jalan
+            // bila sesi yang dicabut memang generasi ini (sesi baru me-register
+            // ulang room-nya sendiri saat Hello).
             self.leave_all_rooms(user_id);
-            tracing::debug!(user_id, "WS disconnected");
+            tracing::debug!(user_id, conn_id, "WS disconnected");
         }
     }
 
@@ -428,11 +453,26 @@ impl WsManager {
         // Clone Sender keluar dari DashMap guard sebelum await
         // (tidak boleh hold DashMap ref across await point)
         let tx = match self.sessions.get(user_id) {
-            Some(r) => r.value().clone(),
+            Some(r) => r.value().tx.clone(),
             None => {
                 // Session tidak ada — bersihkan ghost membership
                 self.leave_all_rooms(user_id);
                 return false;
+            }
+        };
+
+        // Evict HANYA bila sesi di map masih channel yang kita pegang —
+        // reconnect bisa saja sudah mengganti sesi selama kita await; sesi
+        // baru tidak boleh ikut tercabut (guard sama dengan `disconnect`).
+        let evict = |reason: &str| {
+            if self
+                .sessions
+                .remove_if(user_id, |_, s| s.tx.same_channel(&tx))
+                .is_some()
+            {
+                self.active_conns.fetch_sub(1, Ordering::Relaxed);
+                self.leave_all_rooms(user_id);
+                tracing::warn!(user_id, reason, "WS session evicted");
             }
         };
 
@@ -444,27 +484,14 @@ impl WsManager {
                 match tokio::time::timeout(Duration::from_millis(50), tx.send(json)).await {
                     Ok(Ok(_)) => return true,
                     _ => {
-                        // Masih gagal setelah retry — evict
-                        drop(tx);
-                        if self.sessions.remove(user_id).is_some() {
-                            self.active_conns.fetch_sub(1, Ordering::Relaxed);
-                        }
                         self.dropped.fetch_add(1, Ordering::Relaxed);
-                        tracing::warn!(
-                            user_id,
-                            "WS channel still full after 50ms retry — evicting session"
-                        );
-                        self.leave_all_rooms(user_id);
+                        evict("channel full after 50ms retry");
                     }
                 }
             }
             Err(mpsc::error::TrySendError::Closed(_)) => {
-                drop(tx);
-                if self.sessions.remove(user_id).is_some() {
-                    self.active_conns.fetch_sub(1, Ordering::Relaxed);
-                }
                 // Lazy eviction — hapus dari semua room saat channel closed
-                self.leave_all_rooms(user_id);
+                evict("channel closed");
             }
         }
         false

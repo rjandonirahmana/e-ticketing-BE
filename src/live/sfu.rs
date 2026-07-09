@@ -172,6 +172,16 @@ pub struct SfuEngine {
     // melayani subscriber" — kalau forwarded tetap 0 saat frames naik, masalah
     // ada di forwarding (mid/codec/writer), bukan di ingest publisher.
     frames_forwarded: u64,
+    // Diagnostik per-kind: pisahkan video vs audio agar "hitam total" bisa
+    // dilokalisasi. `*_seen` = masuk dari publisher; `*_fwd` = berhasil ditulis
+    // ke subscriber. v_seen=0 → publisher tak mengirim video / DTLS gagal ingest.
+    // v_seen>0 tapi v_fwd=0 → forwarding video putus (codec/mid/writer).
+    frames_video: u64,
+    frames_audio: u64,
+    fwd_video: u64,
+    fwd_audio: u64,
+    // Log sekali saat media PERTAMA dari publisher tiba (bukti DTLS/SRTP tuntas).
+    ingest_logged: bool,
     // Saat penonton baru bergabung, minta keyframe ke publisher berkali-kali
     // sampai deadline ini (browser tidak selalu kirim PLI sendiri).
     keyframe_deadline: Option<Instant>,
@@ -204,6 +214,11 @@ impl SfuEngine {
             candidate_addr,
             frames_seen: 0,
             frames_forwarded: 0,
+            frames_video: 0,
+            frames_audio: 0,
+            fwd_video: 0,
+            fwd_audio: 0,
+            ingest_logged: false,
             keyframe_deadline: None,
             last_keyframe: Instant::now(),
         };
@@ -620,13 +635,30 @@ impl SfuEngine {
             // Teruskan dulu, hitung tulisan yang berhasil ke subscriber.
             let mut written = 0u64;
             for (kind, data) in &media_buf {
-                written += self.forward_to_subscribers(*kind, data);
+                // Bukti kuat DTLS/SRTP publisher tuntas: media pertama masuk.
+                if !self.ingest_logged {
+                    self.ingest_logged = true;
+                    tracing::info!(?kind, "SFU: media PERTAMA dari publisher masuk (DTLS/SRTP OK)");
+                }
+                let w = self.forward_to_subscribers(*kind, data);
+                match kind {
+                    MediaKind::Video => {
+                        self.frames_video += 1;
+                        self.fwd_video += w;
+                    }
+                    MediaKind::Audio => {
+                        self.frames_audio += 1;
+                        self.fwd_audio += w;
+                    }
+                }
+                written += w;
             }
             self.frames_forwarded += written;
 
-            // Log sekali tiap ~250 frame. `forwarded` = total tulisan sukses ke
-            // subscriber: kalau ini tetap 0 sementara `frames` naik, forwarding
-            // yang bermasalah (mid/codec/writer), bukan ingest publisher.
+            // Log tiap ~250 frame, dipisah per-kind. Baca cepat:
+            //   v_seen=0            → publisher tak kirim video / DTLS gagal ingest
+            //   v_seen>0 & v_fwd=0  → forwarding video putus (codec/mid/writer)
+            //   v_seen>0 & v_fwd>0  → video sampai ke subscriber (hitam = sisi klien)
             if before / 250 != self.frames_seen / 250 {
                 let subs = self
                     .peers
@@ -634,10 +666,12 @@ impl SfuEngine {
                     .filter(|p| matches!(p.role, PeerRole::Subscriber))
                     .count();
                 tracing::info!(
-                    frames = self.frames_seen,
-                    forwarded = self.frames_forwarded,
+                    v_seen = self.frames_video,
+                    a_seen = self.frames_audio,
+                    v_fwd = self.fwd_video,
+                    a_fwd = self.fwd_audio,
                     subscribers = subs,
-                    "SFU media flowing"
+                    "SFU media flowing (per-kind)"
                 );
             }
         }
@@ -729,7 +763,15 @@ impl SfuEngine {
                     self.remove_peer(sub_id);
                 }
             }
-            tracing::info!(room_id, "Publisher gone — stopping stream");
+            // Sertakan frame yang sempat masuk: v_seen=0 saat publisher gone =
+            // publisher JATUH sebelum satu pun frame video ter-ingest (indikasi
+            // DTLS/SRTP tak pernah tuntas), bukan sekadar penonton yang hitam.
+            tracing::info!(
+                room_id,
+                v_seen = self.frames_video,
+                a_seen = self.frames_audio,
+                "Publisher gone — stopping stream"
+            );
             // BUG FIX #4: Log kegagalan try_send agar room tidak diam-diam
             // tetap terlihat di API jika channel event penuh.
             if let Err(e) = event_tx.try_send(SfuEvent::StreamStopped { room_id: room_id.clone() }) {

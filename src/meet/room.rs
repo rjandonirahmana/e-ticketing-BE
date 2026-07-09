@@ -8,6 +8,10 @@ use dashmap::DashMap;
 use serde::Serialize;
 use tokio::sync::mpsc;
 
+/// Kapasitas buffer saluran keluar per peer. 64 cukup untuk burst SDP/ICE saat
+/// negosiasi; di atas itu = peer benar-benar macet → sinyal di-drop, bukan OOM.
+pub const MEET_CHAN_CAP: usize = 64;
+
 /// Satu peserta yang terhubung ke ruang meet (host atau tamu).
 pub struct Peer {
     pub id: String,
@@ -19,7 +23,11 @@ pub struct Peer {
     pub admitted: bool,
     /// Saluran keluar ke task WebSocket peer ini. Handler WS lain mengirim JSON
     /// (string) ke sini; task pemilik socket meneruskannya ke browser.
-    pub tx: mpsc::UnboundedSender<String>,
+    ///
+    /// BOUNDED (`MEET_CHAN_CAP`): peer lambat (mobile throttled / tab background)
+    /// tak boleh membuat antrean signaling (SDP/ICE) tumbuh tak terbatas → OOM.
+    /// Penuh → sinyal di-drop (`try_send`); peer akan re-negosiasi/ICE-restart.
+    pub tx: mpsc::Sender<String>,
 }
 
 /// Ringkasan peserta untuk dikirim ke klien (roster / daftar admit).
@@ -99,7 +107,7 @@ impl MeetRoom {
     /// socket-nya sudah tutup (`tx` error) — pembersihan ditangani saat WS putus.
     pub fn send_to(&self, peer_id: &str, msg: &str) {
         if let Some(p) = self.peers.get(peer_id) {
-            let _ = p.tx.send(msg.to_string());
+            let _ = p.tx.try_send(msg.to_string());
         }
     }
 
@@ -107,14 +115,14 @@ impl MeetRoom {
     pub fn broadcast_admitted(&self, msg: &str, except: Option<&str>) {
         for p in self.peers.iter() {
             if p.admitted && Some(p.id.as_str()) != except {
-                let _ = p.tx.send(msg.to_string());
+                let _ = p.tx.try_send(msg.to_string());
             }
         }
     }
 
     /// `tx` koneksi host (untuk memberi tahu permintaan join). `None` bila host
     /// belum/sedang tidak terhubung.
-    pub fn host_tx(&self) -> Option<mpsc::UnboundedSender<String>> {
+    pub fn host_tx(&self) -> Option<mpsc::Sender<String>> {
         self.peers
             .iter()
             .find(|p| p.is_host)

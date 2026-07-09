@@ -21,6 +21,10 @@ pub struct Capacity {
     pub recommended_max_ws: usize,
     /// Rekomendasi ukuran pool DB (berbasis jumlah core).
     pub recommended_db_pool: usize,
+    /// Rekomendasi batas upload media serentak (berbasis budget RAM). Handler
+    /// upload memuat file penuh ke RAM, jadi N upload paralel = N × ukuran-file.
+    /// Plafon ini mencegah OOM saat burst upload.
+    pub recommended_upload_concurrency: usize,
 }
 
 /// ~15 KB per koneksi WS (channel buffer + entri DashMap + overhead task).
@@ -36,12 +40,20 @@ pub fn detect() -> Capacity {
     // ~8 koneksi DB per core (OLTP), plafon wajar agar tak melebihi Postgres.
     let recommended_db_pool = ((cpu_cores * 8.0).round() as usize).clamp(8, 64);
 
+    // Upload di-stream ke file temp (RAM per upload hanya ~64 KB chunk, bukan
+    // ukuran file penuh), jadi plafonnya dibatasi paralelisme CPU + I/O disk,
+    // bukan RAM. ~32 slot per core, clamp [16, 128]. Jauh lebih longgar daripada
+    // pendekatan buffer-ke-RAM lama karena tak lagi berisiko OOM.
+    let recommended_upload_concurrency =
+        ((cpu_cores * 32.0).round() as usize).clamp(16, 128);
+
     Capacity {
         cpu_cores,
         ram_bytes,
         source,
         recommended_max_ws,
         recommended_db_pool,
+        recommended_upload_concurrency,
     }
 }
 

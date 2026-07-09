@@ -112,7 +112,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<WsAppState>, claims: Claims
 
     tracing::info!(user_id, role, "WS opened");
 
-    let (mut outbound_rx, conn_cancel, _permit) = match state.ws_mgr.try_connect(&user_id) {
+    let (mut outbound_rx, conn_cancel, _permit, conn_id) = match state.ws_mgr.try_connect(&user_id)
+    {
         Some(v) => v,
         None => {
             tracing::warn!(user_id, "WS rejected: connection limit reached");
@@ -149,7 +150,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<WsAppState>, claims: Claims
         .await
         .is_err()
     {
-        state.ws_mgr.disconnect(&user_id);
+        state.ws_mgr.disconnect(&user_id, conn_id);
         return;
     }
 
@@ -245,7 +246,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<WsAppState>, claims: Claims
     // ── Cleanup ───────────────────────────────────────────────────────────────
     conn_cancel.cancel();
     let _ = write_task.await;
-    state.ws_mgr.disconnect(&user_id);
+    state.ws_mgr.disconnect(&user_id, conn_id);
     tracing::info!(user_id, "WS closed");
 }
 

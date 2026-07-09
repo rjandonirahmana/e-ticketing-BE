@@ -6,18 +6,6 @@ use leptos_router::hooks::use_navigate;
 use crate::web::api::{login_action, register_action};
 use crate::web::hooks::ThemeToggle;
 
-// ── Grid background (inline — no component dependency) ────────────────────────
-#[component]
-fn GridBackground() -> impl IntoView {
-    view! {
-        <div class="grid-bg">
-            <div class="grid-lines"></div>
-            <div class="orb orb-1"></div>
-            <div class="orb orb-2"></div>
-        </div>
-    }
-}
-
 // ── Login Page ─────────────────────────────────────────────────────────────────
 
 #[component]
@@ -59,7 +47,6 @@ pub fn LoginPage() -> impl IntoView {
     view! {
         <Title text="Masuk — PULSE" />
         <Meta name="description" content="Masuk ke akun PULSE kamu untuk beli tiket dan kelola pesananmu." />
-        <GridBackground />
         <main class="auth-page">
             <header class="auth-header animate-fade-up">
                 <span class="kinetic-logo">"KINETIC"</span>
@@ -230,7 +217,6 @@ pub fn RegisterPage() -> impl IntoView {
     view! {
         <Title text="Daftar — PULSE" />
         <Meta name="description" content="Buat akun PULSE gratis dan mulai beli tiket event favoritmu." />
-        <GridBackground />
         <main class="auth-page">
             <header class="auth-header">
                 <A href="/login" attr:class="back-btn">

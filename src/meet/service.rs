@@ -105,7 +105,7 @@ impl MeetService {
         name: &str,
         photo: Option<String>,
         is_host: bool,
-        tx: mpsc::UnboundedSender<String>,
+        tx: mpsc::Sender<String>,
     ) -> bool {
         let Some(room) = self.rooms.get(room_id) else {
             return false;

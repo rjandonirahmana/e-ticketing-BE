@@ -76,6 +76,22 @@ pub struct EventWithVariants {
     pub event_variants: Vec<EventVariant>,
 }
 
+/// Payload varian dari form create/edit event. Dikirim ke server fn sebagai
+/// JSON string karena `crate::models` (tipe request server) tidak ter-compile
+/// di WASM. `id` Some = update varian lama, None = varian baru.
+/// `is_active: Some(false)` = varian lama "dihapus" dari form (dinonaktifkan,
+/// bukan DELETE — tiket terjual bisa masih mereferensikannya).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VariantForm {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub name: String,
+    pub price: f64,
+    pub quota: i32,
+    #[serde(default)]
+    pub is_active: Option<bool>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PaginatedEvents {
     pub data: Vec<Event>,
@@ -83,6 +99,61 @@ pub struct PaginatedEvents {
     pub page: i64,
     pub per_page: i64,
     pub total_pages: i64,
+}
+
+// ── Merchant publik (profil + rating & reviews) ───────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MerchantPublicProfile {
+    pub merchant_id: String,
+    pub store_name: String,
+    pub description: Option<String>,
+    pub logo_url: Option<String>,
+    /// Header/cover kustom merchant (kosong → hero fallback ke cover event terbaru).
+    #[serde(default)]
+    pub header_url: Option<String>,
+    pub verified: bool,
+    pub followers: i64,
+    pub events_count: i64,
+    pub rating_avg: f64,
+    pub rating_count: i64,
+    /// Apakah viewer yang sedang login mem-follow merchant ini.
+    #[serde(default)]
+    pub is_following: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MerchantReviewItem {
+    pub user_name: String,
+    pub rating: i32,
+    pub comment: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Payload halaman reviews: ringkasan + daftar ulasan sekaligus (1 round-trip).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MerchantReviewsData {
+    pub store_name: String,
+    pub avg: f64,
+    pub total: i64,
+    /// dist[0] = bintang 1 … dist[4] = bintang 5.
+    pub dist: [i64; 5],
+    pub items: Vec<MerchantReviewItem>,
+}
+
+/// Satu follower merchant (halaman /m/{id}/followers).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FollowerItem {
+    pub user_id: String,
+    pub name: String,
+    pub role: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MerchantFollowersData {
+    pub total: i64,
+    pub items: Vec<FollowerItem>,
 }
 
 // ── Banners ───────────────────────────────────────────────────────────────────

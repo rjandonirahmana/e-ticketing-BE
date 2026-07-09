@@ -11,10 +11,9 @@ use leptos_router::hooks::use_query_map;
 
 use crate::web::components::story_bars::StoryBar;
 use crate::web::components::story_viewer::StoryViewer;
-use crate::web::components::{BottomNav, EmptyState, EventCardShimmer};
+use crate::web::components::{BottomNav, EmptyState, EventCardPub, EventCardShimmer};
 use crate::web::components::ThemeToggle;
 use crate::web::state::use_events_store;
-use crate::web::utils::format_number;
 
 #[cfg(feature = "hydrate")]
 use leptos::task::spawn_local;
@@ -580,120 +579,7 @@ pub fn ExplorePage() -> impl IntoView {
                                 .into_iter()
                                 .enumerate()
                                 .map(|(i, ev)| {
-                                    let href = format!("/events/{}", ev.slug);
-                                    let loc = if !ev.city.is_empty() {
-                                        ev.city.clone()
-                                    } else {
-                                        ev.venue.clone()
-                                    };
-                                    let cat = ev.category.first().cloned().unwrap_or_default();
-                                    let sold = ev.total_sold.max(0);
-                                    let sold_label = if sold > 0 {
-                                        format!("{} Terjual", format_number(sold as i64))
-                                    } else {
-                                        "Baru".to_string()
-                                    };
-                                    let is_free = ev.price <= 0;
-                                    let price_disp = if is_free {
-                                        "Gratis".to_string()
-                                    } else {
-                                        ev.price_str.clone()
-                                    };
-                                    view! {
-                                        <a
-                                            href=href
-                                            class="exp-mkt-card exp-cascade"
-                                            // Delay cascade relatif CHUNK (bukan index
-                                            // global) + cap 5: tanpa ini kartu hasil
-                                            // load_more (index 20, 21, …) tak terlihat
-                                            // 1,4 dtk+ (opacity 0 menunggu delay) —
-                                            // itulah "transisi shimmer → data lambat".
-                                            style=format!("--i:{}", (i % 20).min(5))
-                                        >
-                                            <div class="exp-mkt-img-wrap">
-                                                <img
-                                                    src=ev.cover.clone()
-                                                    alt=ev.title.clone()
-                                                    class="exp-mkt-img"
-                                                    loading="lazy"
-                                                />
-                                                {ev
-                                                    .is_live
-                                                    .then(|| {
-                                                        view! {
-                                                            <span class="exp-mkt-live">
-                                                                <span class="exp-mkt-live-dot"></span>
-                                                                "LIVE"
-                                                            </span>
-                                                        }
-                                                    })}
-                                            </div>
-                                            <div class="exp-mkt-body">
-                                                {(!cat.is_empty())
-                                                    .then(|| {
-                                                        view! {
-                                                            <span class="exp-mkt-merchant">{cat.clone()}</span>
-                                                        }
-                                                    })} <h3 class="exp-mkt-title">{ev.title.clone()}</h3>
-                                                <div class="exp-mkt-meta">
-                                                    <span class="exp-mkt-meta-row">
-                                                        <svg
-                                                            width="12"
-                                                            height="12"
-                                                            viewBox="0 0 24 24"
-                                                            fill="none"
-                                                            stroke="currentColor"
-                                                            stroke-width="2"
-                                                            stroke-linecap="round"
-                                                            stroke-linejoin="round"
-                                                        >
-                                                            <rect x="3" y="4" width="18" height="18" rx="2" />
-                                                            <line x1="16" y1="2" x2="16" y2="6" />
-                                                            <line x1="8" y1="2" x2="8" y2="6" />
-                                                            <line x1="3" y1="10" x2="21" y2="10" />
-                                                        </svg>
-                                                        {ev.date.clone()}
-                                                    </span>
-                                                    {(!loc.is_empty())
-                                                        .then(|| {
-                                                            view! {
-                                                                <span class="exp-mkt-meta-row">
-                                                                    <svg
-                                                                        width="12"
-                                                                        height="12"
-                                                                        viewBox="0 0 24 24"
-                                                                        fill="none"
-                                                                        stroke="currentColor"
-                                                                        stroke-width="2"
-                                                                        stroke-linecap="round"
-                                                                        stroke-linejoin="round"
-                                                                    >
-                                                                        <path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0118 0z" />
-                                                                        <circle cx="12" cy="10" r="3" />
-                                                                    </svg>
-                                                                    {loc.clone()}
-                                                                </span>
-                                                            }
-                                                        })}
-                                                </div> <div class="exp-mkt-price-block">
-                                                    <span class="exp-mkt-from">"Mulai Dari"</span>
-                                                    <span class="exp-mkt-price">{price_disp}</span>
-                                                </div> <div class="exp-mkt-foot">
-                                                    <svg
-                                                        class="exp-mkt-star"
-                                                        width="13"
-                                                        height="13"
-                                                        viewBox="0 0 24 24"
-                                                        fill="currentColor"
-                                                        stroke="none"
-                                                    >
-                                                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                                                    </svg>
-                                                    <span class="exp-mkt-sold">{sold_label}</span>
-                                                </div>
-                                            </div>
-                                        </a>
-                                    }
+                                    view! { <EventCardPub ev=ev index=i /> }
                                 })
                                 .collect_view();
                             let shims = store
