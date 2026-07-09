@@ -36,6 +36,7 @@ pub async fn get_merchant_public_profile(
         store_name: p.store_name,
         description: p.description,
         logo_url: p.logo_url,
+        header_url: p.header_url,
         verified: p.verified,
         followers: p.followers,
         events_count: p.events_count,
@@ -138,6 +139,22 @@ pub async fn submit_merchant_review(
     state
         .merchant_svc
         .submit_review(&merchant_id, &claims.user_id, rating, &comment)
+        .await
+        .map_err(map_app_error)
+}
+
+/// Apakah viewer (login) berhak menulis ulasan untuk merchant — yaitu punya ≥1
+/// pesanan 'paid'. Anonim → false (form ulasan digate login lebih dulu).
+#[server(CanReviewMerchant, "/api-fn")]
+pub async fn can_review_merchant(merchant_id: String) -> Result<bool, ServerFnError> {
+    let claims = match auth_claims().await {
+        Ok(c) => c,
+        Err(_) => return Ok(false),
+    };
+    let state = app_state().await?;
+    state
+        .merchant_svc
+        .can_review(&merchant_id, &claims.user_id)
         .await
         .map_err(map_app_error)
 }

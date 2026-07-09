@@ -146,6 +146,41 @@ pub fn MerchantPublicPage() -> impl IntoView {
         get_merchant_stories(id).await
     });
 
+    // ── Paginasi EVENTS (append "Muat lebih banyak") ────────────────────────────
+    // `events` resource = halaman 1 (juga sumber hero/kota); halaman berikutnya
+    // diambil terpisah & di-append ke `ev_extra`. Grid render = data page1 + extra.
+    let ev_extra = RwSignal::new(Vec::<crate::web::models::Event>::new());
+    let ev_page = RwSignal::new(1i64);
+    let ev_total_pages = RwSignal::new(1i64);
+    let ev_loading = RwSignal::new(false);
+    // Saat merchant (mid) berganti → resource refetch page 1 → reset akumulasi.
+    Effect::new(move |_| {
+        if let Some(Ok(pe)) = events.get() {
+            ev_total_pages.set(pe.total_pages);
+            ev_extra.set(Vec::new());
+            ev_page.set(1);
+        }
+    });
+    let ev_has_more = move || ev_page.get() < ev_total_pages.get();
+    let load_more_events = move |_| {
+        if ev_loading.get_untracked() {
+            return;
+        }
+        let next = ev_page.get_untracked() + 1;
+        if next > ev_total_pages.get_untracked() {
+            return;
+        }
+        let id = mid();
+        ev_loading.set(true);
+        leptos::task::spawn_local(async move {
+            if let Ok(pe) = get_merchant_public_events(id, Some(next)).await {
+                ev_extra.update(|v| v.extend(pe.data));
+                ev_page.set(next);
+            }
+            ev_loading.set(false);
+        });
+    };
+
     // State follow lokal (optimistic): diisi dari profile saat termuat.
     let following = RwSignal::new(false);
     let followers = RwSignal::new(0i64);
@@ -366,6 +401,8 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                 .to_uppercase()
                                 .to_string();
                             let desc = p.description.clone().unwrap_or_default();
+                            // Header kustom merchant → hero; kosong = fallback cover event terbaru.
+                            let header = p.header_url.clone().unwrap_or_default();
                             let reviews_href = format!("/m/{}/reviews", merchant_id);
                             #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
                             let share_url = format!("/m/{}", merchant_id);
@@ -387,20 +424,27 @@ pub fn MerchantPublicPage() -> impl IntoView {
                             };
                             // Dipakai hanya di jalur wasm (clipboard); no-op di native.
                             view! {
-                                // ── Hero: cover event terbaru sebagai latar ──
+                                // ── Hero: header kustom, fallback cover event terbaru ──
                                 <div class="mp-hero">
-                                    {move || {
-                                        events
-                                            .get()
-                                            .and_then(|r| r.ok())
-                                            .and_then(|pe| {
-                                                pe.data.first().and_then(|e| e.cover_url.clone())
-                                            })
-                                            .filter(|c| !c.is_empty())
-                                            .map(|cover| {
-                                                view! { <img src=cover alt="" loading="lazy" /> }
-                                            })
-                                    }} <div class="mp-hero-grad"></div>
+                                    {
+                                        let header = header.clone();
+                                        move || {
+                                            let custom = (!header.is_empty()).then(|| header.clone());
+                                            custom
+                                                .or_else(|| {
+                                                    events
+                                                        .get()
+                                                        .and_then(|r| r.ok())
+                                                        .and_then(|pe| {
+                                                            pe.data.first().and_then(|e| e.cover_url.clone())
+                                                        })
+                                                        .filter(|c| !c.is_empty())
+                                                })
+                                                .map(|cover| {
+                                                    view! { <img src=cover alt="" loading="lazy" /> }
+                                                })
+                                        }
+                                    } <div class="mp-hero-grad"></div>
                                 </div>
 
                                 // ── Kepala profil ─────────────────────────────
@@ -582,22 +626,47 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                 {move || {
                                                     events
                                                         .get()
-                                                                            .map(|r| match r {
-                                                                                Ok(pe) => {
-                                                                                    view! {
-                                                                                        <EventGrid
-                                                                                            events=pe.data
-                                                                                            empty="Belum ada event aktif."
-                                                                                        />
-                                                                                    }
-                                                                                        .into_any()
-                                                                                }
-                                                                                Err(_) => {
-                                                                                    view! { <p class="mp-empty">"Gagal memuat event."</p> }
-                                                                                        .into_any()
+                                                        .map(|r| match r {
+                                                            Ok(pe) => {
+                                                                // Gabung page-1 + halaman yang sudah di-append.
+                                                                let mut all = pe.data.clone();
+                                                                all.extend(ev_extra.get());
+                                                                view! {
+                                                                    <EventGrid
+                                                                        events=all
+                                                                        empty="Belum ada event aktif."
+                                                                    />
+                                                                    {move || {
+                                                                        ev_has_more()
+                                                                            .then(|| {
+                                                                                view! {
+                                                                                    <div class="mp-more-wrap">
+                                                                                        <button
+                                                                                            class="mp-more-btn"
+                                                                                            disabled=move || ev_loading.get()
+                                                                                            on:click=load_more_events
+                                                                                        >
+                                                                                            {move || {
+                                                                                                if ev_loading.get() {
+                                                                                                    "MEMUAT…"
+                                                                                                } else {
+                                                                                                    "MUAT LEBIH BANYAK"
+                                                                                                }
+                                                                                            }}
+                                                                                        </button>
+                                                                                    </div>
                                                                                 }
                                                                             })
                                                                     }}
+                                                                }
+                                                                    .into_any()
+                                                            }
+                                                            Err(_) => {
+                                                                view! { <p class="mp-empty">"Gagal memuat event."</p> }
+                                                                    .into_any()
+                                                            }
+                                                        })
+                                                }}
                                                 </Suspense>
                                         </div>
                                         <div

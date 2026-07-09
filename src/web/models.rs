@@ -109,6 +109,9 @@ pub struct MerchantPublicProfile {
     pub store_name: String,
     pub description: Option<String>,
     pub logo_url: Option<String>,
+    /// Header/cover kustom merchant (kosong → hero fallback ke cover event terbaru).
+    #[serde(default)]
+    pub header_url: Option<String>,
     pub verified: bool,
     pub followers: i64,
     pub events_count: i64,

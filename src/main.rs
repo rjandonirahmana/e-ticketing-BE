@@ -30,7 +30,7 @@ use e_ticketing::service::telegram::TelegramService;
 use e_ticketing::state::AppState;
 use e_ticketing::utils::error::init_telegram_notifier;
 use e_ticketing::api::rest_router;
-use e_ticketing::web::api::upload::story_upload;
+use e_ticketing::web::api::upload::{merchant_image_upload, story_upload};
 use e_ticketing::web::app::{shell, App};
 use e_ticketing::ws::handler::WsAppState;
 use e_ticketing::ws::routes::chat_router;
@@ -176,6 +176,10 @@ async fn main() -> Result<()> {
     // RAM per-request karena handler membaca file ke memori.
     let upload_router: axum::Router = axum::Router::new()
         .route("/upload/story", axum::routing::post(story_upload))
+        .route(
+            "/upload/merchant-image",
+            axum::routing::post(merchant_image_upload),
+        )
         .layer(axum::extract::DefaultBodyLimit::max(52 * 1024 * 1024))
         .layer(axum::Extension(state.clone()));
 

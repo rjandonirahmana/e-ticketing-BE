@@ -3,10 +3,15 @@
 use leptos::prelude::*;
 use leptos_router::components::A;
 
-use crate::web::api::get_merchant_events;
+use crate::web::api::{
+    get_merchant_events, get_merchant_public_events, get_merchant_public_profile,
+    update_merchant_profile,
+};
 use crate::web::app::AuthResource;
 use crate::web::components::{BottomNav, MerchantEventCardShimmer, ThemeToggle};
 use crate::web::models::{format_date, format_price, Event, PaginatedEvents};
+
+use super::merchant_public::fmt_count;
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
@@ -138,6 +143,9 @@ pub fn MerchantPage() -> impl IntoView {
                     </A>
                 </div>
             </header>
+
+            // ── Preview profil publik + editor (nama/deskripsi/logo/header) ────
+            <MerchantProfileCard />
 
             // ── Stats strip ───────────────────────────────────────────────────
             <div class="mhub-stats-strip">
@@ -524,6 +532,362 @@ fn view_settings() -> impl IntoView {
                     "📱  Aktifkan 2FA  "
                     <span class="mhub-security-badge mhub-security-badge--off">"OFF"</span>
                 </button>
+            </div>
+        </section>
+    }
+}
+
+// ─── Profil merchant: preview publik + editor (nama/deskripsi/logo/header) ──────
+
+/// Unggah gambar (logo/header) ke POST /upload/merchant-image → balas URL.
+#[cfg(target_arch = "wasm32")]
+async fn upload_merchant_image(file: &web_sys::File) -> Result<String, String> {
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
+
+    let form = web_sys::FormData::new().map_err(|e| format!("{:?}", e))?;
+    form.append_with_blob("file", file).map_err(|e| format!("{:?}", e))?;
+
+    let opts = web_sys::RequestInit::new();
+    opts.set_method("POST");
+    opts.set_body(&form);
+
+    let req = web_sys::Request::new_with_str_and_init("/upload/merchant-image", &opts)
+        .map_err(|e| format!("{:?}", e))?;
+    let win = web_sys::window().ok_or_else(|| "no window".to_string())?;
+    let resp_val = JsFuture::from(win.fetch_with_request(&req))
+        .await
+        .map_err(|e| format!("{:?}", e))?;
+    let resp: web_sys::Response = resp_val.unchecked_into();
+    if !resp.ok() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let json = JsFuture::from(resp.json().map_err(|e| format!("{:?}", e))?)
+        .await
+        .map_err(|e| format!("{:?}", e))?;
+    js_sys::Reflect::get(&json, &wasm_bindgen::JsValue::from_str("url"))
+        .ok()
+        .and_then(|v| v.as_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "URL kosong dari server".to_string())
+}
+
+#[component]
+fn MerchantProfileCard() -> impl IntoView {
+    let auth = use_context::<AuthResource>().expect("AuthResource missing");
+    let my_id = move || {
+        auth.get()
+            .and_then(|r| r.ok())
+            .flatten()
+            .map(|u| u.id)
+            .unwrap_or_default()
+    };
+
+    let profile = Resource::new(my_id, |id| async move {
+        if id.is_empty() {
+            return Err(ServerFnError::ServerError("not_ready".into()));
+        }
+        get_merchant_public_profile(id).await
+    });
+    let events = Resource::new(my_id, |id| async move {
+        if id.is_empty() {
+            return Err(ServerFnError::ServerError("not_ready".into()));
+        }
+        get_merchant_public_events(id, Some(1)).await
+    });
+
+    // Editor state (di-seed sekali dari profile).
+    let editing = RwSignal::new(false);
+    let f_name = RwSignal::new(String::new());
+    let f_desc = RwSignal::new(String::new());
+    let logo_url = RwSignal::new(String::new());
+    let header_url = RwSignal::new(String::new());
+    let logo_prev = RwSignal::new(String::new());
+    let header_prev = RwSignal::new(String::new());
+    let uploading = RwSignal::new(false);
+    let saving = RwSignal::new(false);
+    let msg = RwSignal::new(String::new());
+    let seeded = RwSignal::new(false);
+
+    Effect::new(move |_| {
+        if let Some(Ok(p)) = profile.get() {
+            if !seeded.get_untracked() {
+                f_name.set(p.store_name.clone());
+                f_desc.set(p.description.clone().unwrap_or_default());
+                logo_url.set(p.logo_url.clone().unwrap_or_default());
+                header_url.set(p.header_url.clone().unwrap_or_default());
+                seeded.set(true);
+            }
+        }
+    });
+
+    let event_cover = move || {
+        events
+            .get()
+            .and_then(|r| r.ok())
+            .and_then(|pe| pe.data.first().and_then(|e| e.cover_url.clone()))
+            .filter(|c| !c.is_empty())
+    };
+    let city = move || {
+        events
+            .get()
+            .and_then(|r| r.ok())
+            .and_then(|pe| pe.data.first().and_then(|e| e.city.clone()))
+            .filter(|c| !c.is_empty())
+    };
+    let hero_src = move || {
+        let h = if !header_prev.get().is_empty() {
+            header_prev.get()
+        } else {
+            header_url.get()
+        };
+        if !h.is_empty() {
+            Some(h)
+        } else {
+            event_cover()
+        }
+    };
+    let avatar_src = move || {
+        let l = if !logo_prev.get().is_empty() {
+            logo_prev.get()
+        } else {
+            logo_url.get()
+        };
+        (!l.is_empty()).then_some(l)
+    };
+
+    // Pilih file → preview instan + unggah → simpan URL server ke `url_sig`.
+    let make_pick = move |url_sig: RwSignal<String>, prev_sig: RwSignal<String>| {
+        move |ev: leptos::ev::Event| {
+            #[cfg(target_arch = "wasm32")]
+            {
+                use wasm_bindgen::JsCast;
+                let Some(input) = ev
+                    .target()
+                    .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                else {
+                    return;
+                };
+                let Some(file) = input.files().and_then(|f| f.get(0)) else {
+                    return;
+                };
+                if let Ok(obj) = web_sys::Url::create_object_url_with_blob(&file) {
+                    prev_sig.set(obj);
+                }
+                uploading.set(true);
+                msg.set(String::new());
+                leptos::task::spawn_local(async move {
+                    match upload_merchant_image(&file).await {
+                        Ok(u) => url_sig.set(u),
+                        Err(e) => msg.set(format!("Upload gagal: {e}")),
+                    }
+                    uploading.set(false);
+                });
+            }
+            let _ = ev;
+            let _ = (url_sig, prev_sig);
+        }
+    };
+    let on_pick_header = make_pick(header_url, header_prev);
+    let on_pick_logo = make_pick(logo_url, logo_prev);
+
+    let do_save = move |_| {
+        if saving.get_untracked() {
+            return;
+        }
+        let name = f_name.get_untracked().trim().to_string();
+        if name.len() < 2 {
+            msg.set("Nama bisnis minimal 2 karakter.".into());
+            return;
+        }
+        let desc = f_desc.get_untracked();
+        let logo = logo_url.get_untracked();
+        let header = header_url.get_untracked();
+        saving.set(true);
+        msg.set(String::new());
+        leptos::task::spawn_local(async move {
+            match update_merchant_profile(name, desc, logo, header).await {
+                Ok(()) => {
+                    msg.set("Profil tersimpan!".into());
+                    profile.refetch();
+                    editing.set(false);
+                }
+                Err(e) => msg.set(format!("Gagal menyimpan: {e}")),
+            }
+            saving.set(false);
+        });
+    };
+
+    view! {
+        <section class="mhub-profile-card">
+            <div class="mp-hero mhub-phero">
+                {move || { hero_src().map(|src| view! { <img src=src alt="" loading="lazy" /> }) }}
+                <div class="mp-hero-grad"></div>
+                <button
+                    class="mhub-edit-toggle"
+                    on:click=move |_| editing.update(|e| *e = !*e)
+                >
+                    {move || if editing.get() { "Tutup" } else { "Edit Profil" }}
+                </button>
+            </div>
+
+            <div class="mp-head">
+                <div class="mp-avatar-wrap">
+                    {move || match avatar_src() {
+                        Some(src) => view! { <img class="mp-avatar" src=src alt="Logo" /> }.into_any(),
+                        None => {
+                            let initial = f_name
+                                .get()
+                                .chars()
+                                .next()
+                                .unwrap_or('P')
+                                .to_uppercase()
+                                .to_string();
+                            view! { <div class="mp-avatar mp-avatar-fallback">{initial}</div> }
+                                .into_any()
+                        }
+                    }}
+                    {move || {
+                        profile
+                            .get()
+                            .and_then(|r| r.ok())
+                            .map(|p| p.verified)
+                            .unwrap_or(false)
+                            .then(|| {
+                                view! {
+                                    <span class="mp-avatar-badge" title="Terverifikasi">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="3" stroke-linecap="round"
+                                            stroke-linejoin="round">
+                                            <polyline points="20 6 9 17 4 12" />
+                                        </svg>
+                                    </span>
+                                }
+                            })
+                    }}
+                </div>
+            </div>
+
+            <div class="mp-container">
+                <h1 class="mp-name">{move || f_name.get()}</h1>
+                {move || {
+                    city()
+                        .map(|c| {
+                            view! {
+                                <p class="mp-loc">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                        stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                        stroke-linejoin="round">
+                                        <path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0z" />
+                                        <circle cx="12" cy="10" r="3" />
+                                    </svg>
+                                    {c}
+                                </p>
+                            }
+                        })
+                }}
+
+                <div class="mp-stats">
+                    {move || {
+                        let p = profile.get().and_then(|r| r.ok());
+                        let (f, e, r) = p
+                            .map(|p| (p.followers, p.events_count, p.rating_avg))
+                            .unwrap_or((0, 0, 0.0));
+                        view! {
+                            <div class="mp-stat">
+                                <span class="mp-stat-num">{fmt_count(f)}</span>
+                                <span class="mp-stat-label">"FOLLOWERS"</span>
+                            </div>
+                            <div class="mp-stat">
+                                <span class="mp-stat-num">{fmt_count(e)}</span>
+                                <span class="mp-stat-label">"EVENTS"</span>
+                            </div>
+                            <div class="mp-stat">
+                                <span class="mp-stat-num">
+                                    {format!("{:.1}", r)}<span class="mp-stat-star">"★"</span>
+                                </span>
+                                <span class="mp-stat-label">"RATING"</span>
+                            </div>
+                        }
+                    }}
+                </div>
+
+                <Show when=move || editing.get()>
+                    <div class="mhub-edit-form">
+                        <label class="mhub-form-label">"HEADER"</label>
+                        <label class="mhub-upload-tile">
+                            <input type="file" accept="image/*" on:change=on_pick_header />
+                            {move || {
+                                let src = if !header_prev.get().is_empty() {
+                                    header_prev.get()
+                                } else {
+                                    header_url.get()
+                                };
+                                if src.is_empty() {
+                                    view! { <span class="mhub-upload-hint">"+ Unggah header"</span> }
+                                        .into_any()
+                                } else {
+                                    view! { <img class="mhub-upload-prev" src=src alt="" /> }.into_any()
+                                }
+                            }}
+                        </label>
+
+                        <label class="mhub-form-label" style="margin-top:12px">"LOGO"</label>
+                        <label class="mhub-upload-tile mhub-upload-tile--logo">
+                            <input type="file" accept="image/*" on:change=on_pick_logo />
+                            {move || {
+                                let src = if !logo_prev.get().is_empty() {
+                                    logo_prev.get()
+                                } else {
+                                    logo_url.get()
+                                };
+                                if src.is_empty() {
+                                    view! { <span class="mhub-upload-hint">"+ Logo"</span> }.into_any()
+                                } else {
+                                    view! { <img class="mhub-upload-prev" src=src alt="" /> }.into_any()
+                                }
+                            }}
+                        </label>
+
+                        <label class="mhub-form-label" style="margin-top:12px">"NAMA BISNIS"</label>
+                        <input
+                            class="mhub-form-input"
+                            type="text"
+                            prop:value=move || f_name.get()
+                            on:input=move |e| f_name.set(event_target_value(&e))
+                        />
+
+                        <label class="mhub-form-label" style="margin-top:10px">"DESKRIPSI"</label>
+                        <textarea
+                            class="mhub-form-input"
+                            rows="4"
+                            prop:value=move || f_desc.get()
+                            on:input=move |e| f_desc.set(event_target_value(&e))
+                        ></textarea>
+
+                        {move || {
+                            (!msg.get().is_empty())
+                                .then(|| view! { <p class="mhub-form-msg">{msg.get()}</p> })
+                        }}
+
+                        <button
+                            class="mhub-modal-submit"
+                            style="width:100%;margin-top:12px"
+                            disabled=move || saving.get() || uploading.get()
+                            on:click=do_save
+                        >
+                            {move || {
+                                if saving.get() {
+                                    "Menyimpan…"
+                                } else if uploading.get() {
+                                    "Mengunggah…"
+                                } else {
+                                    "Simpan Profil"
+                                }
+                            }}
+                        </button>
+                    </div>
+                </Show>
             </div>
         </section>
     }

@@ -8,6 +8,7 @@ pub struct MerchantDetail {
     pub store_name: String,
     pub description: Option<String>,
     pub logo_url: Option<String>,
+    pub header_url: Option<String>,
     pub verified: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -27,6 +28,7 @@ pub struct UpdateMerchantDetailRequest {
     pub store_name: Option<String>,
     pub description: Option<String>,
     pub logo_url: Option<String>,
+    pub header_url: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -35,6 +37,7 @@ pub struct MerchantDetailResponse {
     pub store_name: String,
     pub description: Option<String>,
     pub logo_url: Option<String>,
+    pub header_url: Option<String>,
     pub verified: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -47,6 +50,7 @@ pub struct MerchantPublicProfile {
     pub store_name: String,
     pub description: Option<String>,
     pub logo_url: Option<String>,
+    pub header_url: Option<String>,
     pub verified: bool,
     pub followers: i64,
     pub events_count: i64,
@@ -83,6 +87,7 @@ impl From<MerchantDetail> for MerchantDetailResponse {
             store_name: m.store_name,
             description: m.description,
             logo_url: m.logo_url,
+            header_url: m.header_url,
             verified: m.verified,
             created_at: m.created_at,
             updated_at: m.updated_at,

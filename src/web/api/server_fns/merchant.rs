@@ -281,3 +281,38 @@ pub async fn update_merchant_event(
         .map_err(map_app_error)?;
     return Ok(());
 }
+
+/// Perbarui profil merchant (nama, deskripsi, logo, header) — sisi merchant hub.
+/// String kosong utk logo/header = "jangan ubah" (pertahankan yang lama); untuk
+/// mengganti, unggah dulu via POST /upload/merchant-image lalu kirim URL-nya.
+#[server(UpdateMerchantProfile, "/api-fn")]
+pub async fn update_merchant_profile(
+    store_name: String,
+    description: String,
+    logo_url: String,
+    header_url: String,
+) -> Result<(), ServerFnError> {
+    use crate::models::merchant::UpdateMerchantDetailRequest;
+    let claims = require_roles(&["merchant", "admin"]).await?;
+    let state = app_state().await?;
+    let store_name = store_name.trim().to_string();
+    if store_name.len() < 2 {
+        return Err(ServerFnError::ServerError(
+            "Nama bisnis minimal 2 karakter.".into(),
+        ));
+    }
+    let req = UpdateMerchantDetailRequest {
+        store_name: Some(store_name),
+        // Deskripsi dikirim apa adanya (boleh dikosongkan).
+        description: Some(description.trim().to_string()),
+        // Kosong → None → pertahankan aset lama (tidak menghapus).
+        logo_url: (!logo_url.is_empty()).then_some(logo_url),
+        header_url: (!header_url.is_empty()).then_some(header_url),
+    };
+    state
+        .merchant_svc
+        .update_profile(&claims.user_id, req)
+        .await
+        .map(|_| ())
+        .map_err(map_app_error)
+}

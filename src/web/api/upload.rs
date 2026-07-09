@@ -167,3 +167,75 @@ pub async fn story_upload(
         "media_url": res.media_url,
     })))
 }
+
+/// Batas gambar profil merchant (logo/header) — jauh lebih kecil dari media story.
+const MAX_MERCHANT_IMAGE_BYTES: usize = 8 * 1024 * 1024;
+
+/// POST /upload/merchant-image — unggah gambar logo/header merchant → RustFS,
+/// balas `{ "url": "…" }`. Khusus role merchant/admin. Gambar kecil → cukup
+/// dibaca ke memori (bukan streaming disk seperti story). URL disimpan terpisah
+/// lewat server fn `update_merchant_profile`.
+pub async fn merchant_image_upload(
+    Extension(state): Extension<Arc<AppState>>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Result<Json<Value>, Response> {
+    let token = cookie_value(&headers, "pulse_token")
+        .ok_or_else(|| err(StatusCode::UNAUTHORIZED, "Tidak terautentikasi"))?;
+    let claims = state
+        .jwt
+        .verify(&token)
+        .map_err(|e| err(StatusCode::UNAUTHORIZED, e.to_string()))?;
+    if claims.role != "merchant" && claims.role != "admin" {
+        return Err(err(StatusCode::FORBIDDEN, "Khusus merchant"));
+    }
+
+    let _permit = state
+        .upload_limit
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| {
+            err(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Server sedang sibuk memproses upload, coba lagi sebentar",
+            )
+        })?;
+
+    let mut data: Option<axum::body::Bytes> = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| err(StatusCode::BAD_REQUEST, format!("Multipart error: {e}")))?
+    {
+        let name = field.name().unwrap_or("").to_string();
+        if name == "file" || name == "image" {
+            let bytes = field
+                .bytes()
+                .await
+                .map_err(|e| err(StatusCode::BAD_REQUEST, format!("Read error: {e}")))?;
+            if bytes.len() > MAX_MERCHANT_IMAGE_BYTES {
+                return Err(err(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    format!(
+                        "Gambar maksimal {}MB",
+                        MAX_MERCHANT_IMAGE_BYTES / 1024 / 1024
+                    ),
+                ));
+            }
+            data = Some(bytes);
+        }
+    }
+
+    let data = data.filter(|b| !b.is_empty()).ok_or_else(|| {
+        err(StatusCode::BAD_REQUEST, "Field 'file' tidak ada dalam request")
+    })?;
+
+    // Content-Type diabaikan storage (validasi magic bytes internal).
+    let url = state
+        .storage
+        .upload_image(data, "merchant", "image")
+        .await
+        .map_err(IntoResponse::into_response)?;
+
+    Ok(Json(json!({ "url": url })))
+}

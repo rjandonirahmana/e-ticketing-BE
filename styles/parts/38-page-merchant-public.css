@@ -4,8 +4,9 @@
 
 /* Page: kolom 480px konsisten dengan halaman lain (home/explore/detail).
    Hero full-bleed di dalam kolom → dibatasi 480 via .mp-page max-width. */
-/* Kolom OPAQUE + terpusat ≤480px → grid global hanya tampak di gutter (spt /lives). */
-.mp-page { min-height: 100vh; width: 100%; max-width: 480px; margin: 0 auto; background: var(--bg-page); position: relative; padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px)); }
+/* Kolom OPAQUE + terpusat ≤480px → grid global hanya tampak di gutter (spt /lives).
+   border-inline = pembatas tegas antara lebar kolom & area di luar (gutter). */
+.mp-page { min-height: 100vh; width: 100%; max-width: 480px; margin: 0 auto; background: var(--bg-page); border-inline: 1px solid var(--border-soft); position: relative; padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px)); }
 .mp-container { padding: 0 16px; max-width: 480px; margin: 0 auto; }
 
 /* Hero */
@@ -44,7 +45,8 @@
 .mp-stat-link:hover .mp-stat-num { color: var(--accent-lime); }
 
 /* Tabs */
-.mp-tabs { display: flex; justify-content: center; gap: 22px; margin: 14px 0 12px; border-bottom: 1px solid var(--border); }
+/* space-evenly → jarak antar tab & ke tepi kolom sama rata. */
+.mp-tabs { display: flex; justify-content: space-evenly; gap: 0; margin: 14px 0 12px; border-bottom: 1px solid var(--border); }
 .mp-tab { background: none; border: none; padding: 8px 2px 10px; font-size: 12px; letter-spacing: .12em; font-weight: 700; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; text-decoration: none; }
 .mp-tab--on { color: var(--text-primary); border-bottom-color: var(--accent-lime); }
 
@@ -69,6 +71,12 @@
 .mp-reviews { padding-top: 4px; }
 .mp-reviews-all { display: inline-block; margin-top: 14px; font-size: 13px; font-weight: 700; color: var(--accent-lime); text-decoration: none; }
 .mp-reviews-all:hover { text-decoration: underline; }
+
+/* Muat lebih banyak (paginasi EVENTS) */
+.mp-more-wrap { display: flex; justify-content: center; margin: 16px 0 4px; }
+.mp-more-btn { padding: 10px 22px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text-primary); font-size: 12px; letter-spacing: .1em; font-weight: 700; cursor: pointer; transition: background .15s, border-color .15s; }
+.mp-more-btn:hover:not(:disabled) { border-color: var(--accent-lime); background: var(--bg-elevated-2); }
+.mp-more-btn:disabled { opacity: .6; cursor: default; }
 
 /* Panel STORY: grid thumbnail 3 kolom, tap → StoryViewer */
 .mp-stories { padding-top: 8px; }

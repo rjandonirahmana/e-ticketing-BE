@@ -15,6 +15,7 @@ static MERCHANT_COLS: &str = r#"
     store_name,
     description,
     logo_url,
+    header_url,
     verified,
     created_at,
     updated_at
@@ -39,7 +40,8 @@ static UPDATE_MERCHANT: &str = r#"
     UPDATE merchant_details
        SET store_name  = COALESCE($2, store_name),
            description = COALESCE($3, description),
-           logo_url    = COALESCE($4, logo_url)
+           logo_url    = COALESCE($4, logo_url),
+           header_url  = COALESCE($5, header_url)
      WHERE user_id = $1
 "#;
 
@@ -61,6 +63,7 @@ pub trait MerchantRepository: Send + Sync {
         store_name: Option<&str>,
         description: Option<&str>,
         logo_url: Option<&str>,
+        header_url: Option<&str>,
     ) -> Result<()>;
 
     // ── Profil publik + rating & follow ──────────────────────────────────────
@@ -81,13 +84,20 @@ pub trait MerchantRepository: Send + Sync {
     ) -> Result<Vec<MerchantReviewItem>>;
 
     /// Simpan/perbarui ulasan user untuk merchant (satu ulasan per user).
+    /// HANYA bila user punya ≥1 order 'paid' dengan merchant ini (order_id ikut
+    /// dicatat). Mengembalikan jumlah baris terpengaruh: 0 = tak memenuhi syarat
+    /// (belum pernah menyelesaikan pesanan) → caller menolak.
     async fn upsert_review(
         &self,
         merchant_id: &str,
         user_id: &str,
         rating: i16,
         comment: &str,
-    ) -> Result<()>;
+    ) -> Result<u64>;
+
+    /// Apakah user pernah menyelesaikan (status 'paid') minimal 1 pesanan dengan
+    /// merchant ini — syarat boleh menulis ulasan (dipakai gating form di UI).
+    async fn has_purchased(&self, merchant_id: &str, user_id: &str) -> Result<bool>;
 
     /// Follow (true) / unfollow (false). Follow hanya berlaku untuk target yang
     /// memang merchant (guard EXISTS di SQL — bukan sekadar percaya input).
@@ -113,6 +123,7 @@ impl PgMerchantRepository {
             store_name: row.try_get("store_name").context("store_name")?,
             description: row.try_get("description").context("description")?,
             logo_url: row.try_get("logo_url").context("logo_url")?,
+            header_url: row.try_get("header_url").context("header_url")?,
             verified: row.try_get("verified").context("verified")?,
             created_at: row.try_get("created_at").context("created_at")?,
             updated_at: row.try_get("updated_at").context("updated_at")?,
@@ -151,12 +162,13 @@ impl MerchantRepository for PgMerchantRepository {
         store_name: Option<&str>,
         description: Option<&str>,
         logo_url: Option<&str>,
+        header_url: Option<&str>,
     ) -> Result<()> {
         let id_vec = id_to_vec(user_id)?;
         exec_drop(
             &self.pool,
             UPDATE_MERCHANT,
-            &[&id_vec, &store_name, &description, &logo_url],
+            &[&id_vec, &store_name, &description, &logo_url, &header_url],
         )
         .await?;
         Ok(())
@@ -170,15 +182,16 @@ impl MerchantRepository for PgMerchantRepository {
             &self.pool,
             r#"
             SELECT
-                md.user_id, md.store_name, md.description, md.logo_url, md.verified,
+                md.user_id, md.store_name, md.description, md.logo_url,
+                md.header_url, md.verified,
                 (SELECT COUNT(*)::BIGINT FROM merchant_follows f
                   WHERE f.merchant_id = md.user_id)                          AS followers,
                 (SELECT COUNT(*)::BIGINT FROM events e
                   WHERE e.merchant_id = md.user_id AND e.status = 'active')  AS events_count,
-                COALESCE((SELECT AVG(r.rating)::FLOAT8 FROM reviews r
-                  WHERE r.merchant_id = md.user_id), 0)                      AS rating_avg,
-                (SELECT COUNT(*)::BIGINT FROM reviews r
-                  WHERE r.merchant_id = md.user_id)                          AS rating_count
+                -- Rating agregat: dibaca langsung dari kolom denormalisasi
+                -- (dijaga trigger reviews_rating_buckets) → tanpa scan `reviews`.
+                md.total_avg_review                                          AS rating_avg,
+                md.total_review                                             AS rating_count
             FROM merchant_details md
             WHERE md.user_id = $1
             "#,
@@ -192,6 +205,7 @@ impl MerchantRepository for PgMerchantRepository {
                 store_name: r.try_get("store_name")?,
                 description: r.try_get("description")?,
                 logo_url: r.try_get("logo_url")?,
+                header_url: r.try_get("header_url")?,
                 verified: r.try_get("verified")?,
                 followers: r.try_get("followers")?,
                 events_count: r.try_get("events_count")?,
@@ -204,36 +218,44 @@ impl MerchantRepository for PgMerchantRepository {
 
     async fn review_summary(&self, merchant_id: &str) -> Result<MerchantReviewSummary> {
         let id_vec = id_to_vec(merchant_id)?;
-        let row = exec_one(
+        // Ringkasan (avg/total/distribusi) dibaca dari kolom denormalisasi
+        // merchant_details — satu row, tanpa agregat scan `reviews`. `reviews`
+        // hanya dipakai list_reviews (tampilan daftar). store_name None → merchant
+        // tidak ada (dipakai server fn untuk membedakan "tidak ditemukan").
+        let row = exec_first(
             &self.pool,
             r#"
-            SELECT
-                (SELECT store_name FROM merchant_details WHERE user_id = $1) AS store_name,
-                COALESCE(AVG(rating)::FLOAT8, 0)              AS avg,
-                COUNT(*)::BIGINT                              AS total,
-                COUNT(*) FILTER (WHERE rating = 1)::BIGINT    AS d1,
-                COUNT(*) FILTER (WHERE rating = 2)::BIGINT    AS d2,
-                COUNT(*) FILTER (WHERE rating = 3)::BIGINT    AS d3,
-                COUNT(*) FILTER (WHERE rating = 4)::BIGINT    AS d4,
-                COUNT(*) FILTER (WHERE rating = 5)::BIGINT    AS d5
-            FROM reviews
-            WHERE merchant_id = $1
+            SELECT store_name,
+                   total_avg_review AS avg,
+                   total_review     AS total,
+                   review_1 AS d1, review_2 AS d2, review_3 AS d3,
+                   review_4 AS d4, review_5 AS d5
+            FROM merchant_details
+            WHERE user_id = $1
             "#,
             &[&id_vec],
         )
         .await?;
-        Ok(MerchantReviewSummary {
-            store_name: row.try_get("store_name")?,
-            avg: row.try_get("avg")?,
-            total: row.try_get("total")?,
-            dist: [
-                row.try_get("d1")?,
-                row.try_get("d2")?,
-                row.try_get("d3")?,
-                row.try_get("d4")?,
-                row.try_get("d5")?,
-            ],
-        })
+        match row {
+            None => Ok(MerchantReviewSummary {
+                store_name: None,
+                avg: 0.0,
+                total: 0,
+                dist: [0; 5],
+            }),
+            Some(r) => Ok(MerchantReviewSummary {
+                store_name: Some(r.try_get("store_name")?),
+                avg: r.try_get("avg")?,
+                total: r.try_get("total")?,
+                dist: [
+                    r.try_get("d1")?,
+                    r.try_get("d2")?,
+                    r.try_get("d3")?,
+                    r.try_get("d4")?,
+                    r.try_get("d5")?,
+                ],
+            }),
+        }
     }
 
     async fn list_reviews(
@@ -277,16 +299,26 @@ impl MerchantRepository for PgMerchantRepository {
         user_id: &str,
         rating: i16,
         comment: &str,
-    ) -> Result<()> {
+    ) -> Result<u64> {
         let mid = id_to_vec(merchant_id)?;
         let uid = id_to_vec(user_id)?;
-        // Guard EXISTS: hanya bisa mengulas user yang memang merchant.
-        exec_drop(
+        // Insert HANYA bila SELECT menemukan order 'paid' user↔merchant
+        // (order_id ikut dicatat, order terbaru dulu). Tak ada order → 0 baris →
+        // caller menolak. order_id tetap saat DO UPDATE (edit rating/komentar).
+        let affected = exec_drop(
             &self.pool,
             r#"
-            INSERT INTO reviews (merchant_id, user_id, rating, comment)
-            SELECT $1, $2, $3, $4
-            WHERE EXISTS (SELECT 1 FROM merchant_details WHERE user_id = $1)
+            INSERT INTO reviews (merchant_id, user_id, rating, comment, order_id)
+            SELECT $1, $2, $3, $4, o.id
+            FROM   orders o
+            JOIN   order_items    oi ON oi.order_id = o.id
+            JOIN   ticket_variants tv ON tv.id = oi.ticket_variant_id
+            JOIN   events         e  ON e.id = tv.event_id
+            WHERE  o.customer_id = $2
+              AND  e.merchant_id = $1
+              AND  o.status = 'paid'
+            ORDER BY o.paid_at DESC NULLS LAST
+            LIMIT 1
             ON CONFLICT (merchant_id, user_id) DO UPDATE
                 SET rating = EXCLUDED.rating,
                     comment = EXCLUDED.comment,
@@ -295,7 +327,30 @@ impl MerchantRepository for PgMerchantRepository {
             &[&mid, &uid, &rating, &comment],
         )
         .await?;
-        Ok(())
+        Ok(affected)
+    }
+
+    async fn has_purchased(&self, merchant_id: &str, user_id: &str) -> Result<bool> {
+        let mid = id_to_vec(merchant_id)?;
+        let uid = id_to_vec(user_id)?;
+        let row = exec_one(
+            &self.pool,
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM   orders o
+                JOIN   order_items    oi ON oi.order_id = o.id
+                JOIN   ticket_variants tv ON tv.id = oi.ticket_variant_id
+                JOIN   events         e  ON e.id = tv.event_id
+                WHERE  o.customer_id = $2
+                  AND  e.merchant_id = $1
+                  AND  o.status = 'paid'
+            ) AS ok
+            "#,
+            &[&mid, &uid],
+        )
+        .await?;
+        Ok(row.try_get("ok")?)
     }
 
     async fn set_follow(&self, merchant_id: &str, follower_id: &str, follow: bool) -> Result<()> {

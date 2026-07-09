@@ -67,6 +67,7 @@ impl MerchantService {
                 req.store_name.as_deref(),
                 req.description.as_deref(),
                 req.logo_url.as_deref(),
+                req.header_url.as_deref(),
             )
             .await?;
         self.get_profile(user_id).await
@@ -119,8 +120,27 @@ impl MerchantService {
         }
         // Batasi panjang komentar — jangan percaya klien.
         let comment: String = comment.trim().chars().take(1000).collect();
-        self.repo
+        let affected = self
+            .repo
             .upsert_review(merchant_id, user_id, rating as i16, &comment)
+            .await
+            .map_err(AppError::Internal)?;
+        // 0 baris = tak ada order 'paid' user↔merchant → belum berhak mengulas.
+        if affected == 0 {
+            return Err(AppError::BadRequest(
+                "Kamu perlu menyelesaikan minimal 1 pesanan dengan penyelenggara ini sebelum menulis ulasan.".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Apakah user berhak menulis ulasan (punya ≥1 pesanan 'paid' dgn merchant).
+    pub async fn can_review(&self, merchant_id: &str, user_id: &str) -> AppResult<bool> {
+        if merchant_id == user_id {
+            return Ok(false);
+        }
+        self.repo
+            .has_purchased(merchant_id, user_id)
             .await
             .map_err(AppError::Internal)
     }

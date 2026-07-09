@@ -8,7 +8,7 @@ use leptos::prelude::*;
 use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
 
-use crate::web::api::{get_reviews, submit_merchant_review};
+use crate::web::api::{can_review_merchant, get_reviews, submit_merchant_review};
 use crate::web::app::AuthResource;
 use crate::web::hooks::ThemeToggle;
 
@@ -118,6 +118,15 @@ pub fn MerchantReviewsPage() -> impl IntoView {
             return Err(ServerFnError::ServerError("not_ready".into()));
         }
         get_reviews(id, Some(1)).await
+    });
+
+    // Kelayakan menulis ulasan: hanya user dengan ≥1 pesanan 'paid' ke merchant.
+    // Server fn membaca identitas dari cookie (di-fetch saat mount, ikut SSR).
+    let can_review = Resource::new(mid, |id| async move {
+        if id.is_empty() {
+            return false;
+        }
+        can_review_merchant(id).await.unwrap_or(false)
     });
 
     // ── Form ulasan ───────────────────────────────────────────────────────────
@@ -298,7 +307,10 @@ pub fn MerchantReviewsPage() -> impl IntoView {
                 <div class="mrv-form">
                     <span class="medit-section-label">"TULIS ULASAN"</span>
                     {move || {
-                        if is_logged_in() {
+                        // Tampilkan form bila login DAN belum diketahui tak-layak
+                        // (Some(false)). Saat masih loading (None) form tampil;
+                        // submit tetap divalidasi server. Some(false) → pesan syarat.
+                        if is_logged_in() && can_review.get() != Some(false) {
                             view! {
                                 <div class="mrv-form-body">
                                     <div class="mrv-pick">
@@ -355,11 +367,18 @@ pub fn MerchantReviewsPage() -> impl IntoView {
                                 </div>
                             }
                                 .into_any()
-                        } else {
+                        } else if !is_logged_in() {
                             view! {
                                 <p class="mp-empty">
                                     <A href="/login">"Masuk"</A>
                                     " untuk menulis ulasan."
+                                </p>
+                            }
+                                .into_any()
+                        } else {
+                            view! {
+                                <p class="mp-empty">
+                                    "Kamu bisa menulis ulasan setelah menyelesaikan (membayar) minimal 1 pesanan dengan penyelenggara ini."
                                 </p>
                             }
                                 .into_any()

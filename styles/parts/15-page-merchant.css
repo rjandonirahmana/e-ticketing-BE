@@ -2237,3 +2237,22 @@
     margin-right: 0;
 }
 
+
+/* ── Merchant Hub: kartu preview profil publik + editor ────────────────────── */
+.mhub-profile-card { position: relative; border-bottom: 1px solid var(--border-soft); margin-bottom: 4px; }
+/* Hero preview (reuse .mp-hero look). Tombol edit di kanan-atas hero. */
+.mhub-phero { border-radius: 0; }
+.mhub-edit-toggle { position: absolute; top: 12px; right: 12px; z-index: 2; padding: 8px 16px; border-radius: 999px; border: 1px solid rgba(255,255,255,.35); background: rgba(0,0,0,.45); color: #fff; font-size: 12px; font-weight: 700; letter-spacing: .04em; cursor: pointer; backdrop-filter: blur(4px); transition: background .15s; }
+.mhub-edit-toggle:hover { background: rgba(0,0,0,.65); }
+
+/* Form editor (muncul saat toggle) */
+.mhub-edit-form { margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; }
+.mhub-form-msg { font-size: 13px; color: var(--accent-lime); margin: 10px 0 0; }
+
+/* Tile upload gambar */
+.mhub-upload-tile { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 16 / 6; border: 1px dashed var(--border); border-radius: 12px; background: var(--bg-elevated); overflow: hidden; cursor: pointer; }
+.mhub-upload-tile:hover { border-color: var(--accent-lime); }
+.mhub-upload-tile--logo { width: 92px; height: 92px; aspect-ratio: 1 / 1; border-radius: 50%; }
+.mhub-upload-tile input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.mhub-upload-prev { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mhub-upload-hint { font-size: 12px; font-weight: 700; letter-spacing: .04em; color: var(--text-muted); }
