@@ -13,6 +13,7 @@ use crate::web::app::{AuthResource, CartContext};
 use crate::web::components::{EventCardPub, LiveStreamViewer, MerchantLivePip};
 use crate::web::hooks::ThemeToggle;
 use crate::web::models::{CartItem, format_date, format_price};
+use crate::web::seo::SeoMeta;
 
 #[component]
 pub fn EventDetailPage() -> impl IntoView {
@@ -454,10 +455,50 @@ pub fn EventDetailPage() -> impl IntoView {
                                     venue_str,
                                     date_str,
                                 );
+                                let seo_path = format!("/events/{}", ev_slug);
+                                let seo_image = cover.clone();
+                                // JSON-LD Event (schema.org) → rich result Google.
+                                let ld_event = crate::web::seo::safe_ld(
+                                    &serde_json::json!({
+                                        "@context": "https://schema.org",
+                                        "@type": "Event",
+                                        "name": ev.name.clone(),
+                                        "description": (!desc.is_empty()).then(|| desc.clone()),
+                                        "startDate": ev.event_date.to_rfc3339(),
+                                        "endDate": ev.end_time.map(|d| d.to_rfc3339()),
+                                        "eventStatus": "https://schema.org/EventScheduled",
+                                        "eventAttendanceMode": "https://schema.org/OfflineEventAttendanceMode",
+                                        "image": ev.cover_url.clone().map(|c| vec![c]),
+                                        "location": {
+                                            "@type": "Place",
+                                            "name": ev.venue.clone(),
+                                            "address": ev.city.clone(),
+                                        },
+                                        "offers": {
+                                            "@type": "Offer",
+                                            "price": ev.display_price,
+                                            "priceCurrency": "IDR",
+                                            "availability": "https://schema.org/InStock",
+                                            "url": crate::web::seo::abs_url(&seo_path),
+                                        },
+                                        "organizer": {
+                                            "@type": "Organization",
+                                            "url": crate::web::seo::abs_url(
+                                                &format!("/m/{}", ev.merchant_id),
+                                            ),
+                                        },
+                                    }),
+                                );
 
                                 view! {
-                                    <Title text=meta_title />
-                                    <Meta name="description" content=meta_desc />
+                                    <SeoMeta
+                                        title=meta_title
+                                        description=meta_desc
+                                        path=seo_path
+                                        image=seo_image
+                                        og_type="article"
+                                    />
+                                    <Script type_="application/ld+json">{ld_event}</Script>
                                     // Overlay live melayang: muncul saat merchant pemilik
                                     // event ini sedang siaran (room SFU benar-benar ada).
                                     <MerchantLivePip room_id=live_room_id.clone() />

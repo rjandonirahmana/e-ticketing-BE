@@ -20,7 +20,9 @@ use crate::web::app::AuthResource;
 use crate::web::components::story_viewer::StoryViewer;
 use crate::web::components::{EventGrid, EventGridShimmer};
 use crate::web::hooks::ThemeToggle;
+use crate::web::seo::SeoMeta;
 use crate::web::state::stories::{use_stories_store, StoryMediaType};
+use leptos_meta::Script;
 
 /// Timestamp milidetik (performance.now) untuk hitung kecepatan swipe (flick).
 /// No-op di server (0.0) — kode ini hanya berjalan di jalur pointer wasm.
@@ -405,6 +407,37 @@ pub fn MerchantPublicPage() -> impl IntoView {
                             let header = p.header_url.clone().unwrap_or_default();
                             let reviews_href = format!("/m/{}/reviews", merchant_id);
                             let followers_href = format!("/m/{}/followers", merchant_id);
+                            // ── SEO: meta + JSON-LD Organization ──
+                            let seo_title = format!("{} — PULSE", store_name);
+                            let seo_desc = if desc.is_empty() {
+                                format!("Profil penyelenggara {store_name} di PULSE.")
+                            } else {
+                                desc.clone()
+                            };
+                            let seo_path = format!("/m/{}", merchant_id);
+                            let seo_image = if !header.is_empty() {
+                                header.clone()
+                            } else {
+                                logo.clone()
+                            };
+                            let ld_org = crate::web::seo::safe_ld(
+                                &serde_json::json!({
+                                    "@context": "https://schema.org",
+                                    "@type": "Organization",
+                                    "name": store_name.clone(),
+                                    "description": (!desc.is_empty()).then(|| desc.clone()),
+                                    "url": crate::web::seo::abs_url(&seo_path),
+                                    "logo": (!logo.is_empty()).then(|| logo.clone()),
+                                    "image": (!seo_image.is_empty()).then(|| seo_image.clone()),
+                                    "aggregateRating": (p.rating_count > 0).then(|| {
+                                        serde_json::json!({
+                                            "@type": "AggregateRating",
+                                            "ratingValue": format!("{:.1}", p.rating_avg),
+                                            "reviewCount": p.rating_count,
+                                        })
+                                    }),
+                                }),
+                            );
                             #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
                             let share_url = format!("/m/{}", merchant_id);
                             let on_share = move |_| {
@@ -425,6 +458,14 @@ pub fn MerchantPublicPage() -> impl IntoView {
                             };
                             // Dipakai hanya di jalur wasm (clipboard); no-op di native.
                             view! {
+                                <SeoMeta
+                                    title=seo_title
+                                    description=seo_desc
+                                    path=seo_path
+                                    image=seo_image
+                                    og_type="profile"
+                                />
+                                <Script type_="application/ld+json">{ld_org}</Script>
                                 // ── Hero: header kustom, fallback cover event terbaru ──
                                 <div class="mp-hero">
                                     {

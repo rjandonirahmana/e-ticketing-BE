@@ -198,10 +198,23 @@ async fn main() -> Result<()> {
     let health_router: axum::Router = axum::Router::new()
         .route("/healthz", axum::routing::get(|| async { "ok" }));
 
+    // ── SEO: robots.txt + sitemap.xml (dinamis dari DB) ──────────────────────
+    let seo_router: axum::Router = axum::Router::new()
+        .route(
+            "/robots.txt",
+            axum::routing::get(e_ticketing::web::api::seo_routes::robots_txt),
+        )
+        .route(
+            "/sitemap.xml",
+            axum::routing::get(e_ticketing::web::api::seo_routes::sitemap_xml),
+        )
+        .layer(axum::Extension(state.clone()));
+
     // ── WebSocket + REST API + CSS assets + SSR ───────────────────────────────
     let app = chat_router(ws_state, state.clone())
         .layer(cors)
         .merge(health_router)
+        .merge(seo_router)
         .merge(e_ticketing::web::assets::router())
         .merge(upload_router)
         .merge(rest_api)
