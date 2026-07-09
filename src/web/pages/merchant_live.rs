@@ -114,6 +114,13 @@ pub fn MerchantLivePage() -> impl IntoView {
     // Menutup WS ini akan secara otomatis menghentikan room di server
     // (live_publish_ws_loop mendeteksi disconnect dan memanggil stop_room).
     let sig_ws: RwSignal<Option<SendWrapper<web_sys::WebSocket>>> = RwSignal::new(None);
+    // Closure `onicecandidate` sesi berjalan — disimpan agar bisa di-DROP saat
+    // stop (setelah detach), bukan `.forget()` yang bocor tiap go-live.
+    // SendWrapper memenuhi bound Send StoredValue (single-thread WASM/no-op native).
+    #[allow(clippy::type_complexity)]
+    let ice_closure: StoredValue<
+        Option<SendWrapper<Closure<dyn FnMut(web_sys::RtcPeerConnectionIceEvent)>>>,
+    > = StoredValue::new(None);
 
     let start_live = Action::new_local(move |_: &()| {
         let is_live = is_live;
@@ -123,6 +130,7 @@ pub fn MerchantLivePage() -> impl IntoView {
         let pc = pc;
         let local_stream = local_stream;
         let sig_ws = sig_ws;
+        let ice_closure = ice_closure;
 
         async move {
             error_msg.set(None);
@@ -155,9 +163,9 @@ pub fn MerchantLivePage() -> impl IntoView {
             local_stream.set(Some(SendWrapper::new(stream.clone())));
             status_text.set("Connecting...".to_string());
 
-            let (peer_connection, signaling_ws) =
+            let (peer_connection, signaling_ws, on_ice) =
                 match create_publisher(&room.room_id, Some(stream)).await {
-                    Ok(pair) => pair,
+                    Ok(triple) => triple,
                     Err(e) => {
                         error_msg.set(Some(e));
                         status_text.set("Connection failed".to_string());
@@ -166,9 +174,11 @@ pub fn MerchantLivePage() -> impl IntoView {
                     }
                 };
 
-            // Simpan kedua handle — PC untuk track/close, WS untuk lifecycle room.
+            // Simpan handle — PC (track/close), WS (lifecycle room), & closure
+            // onicecandidate agar bisa di-DROP saat stop (bukan .forget()/bocor).
             pc.set(Some(SendWrapper::new(peer_connection)));
             sig_ws.set(Some(SendWrapper::new(signaling_ws)));
+            ice_closure.set_value(Some(SendWrapper::new(on_ice)));
             is_live.set(true);
             status_text.set("LIVE".to_string());
         }
@@ -184,16 +194,21 @@ pub fn MerchantLivePage() -> impl IntoView {
         let viewer_count = viewer_count;
         let join_toast = join_toast;
         let seen_ids = seen_ids;
+        let ice_closure = ice_closure;
 
         async move {
             // Hentikan track yang menempel di peer connection (track aktif kamera),
             // lalu tutup koneksi. Tanpa menghentikan track sender, lampu kamera
             // tetap menyala meski PC ditutup (penyebab "kamera tidak berhenti").
             if let Some(conn) = pc.get_untracked() {
+                // Detach onicecandidate SEBELUM menutup & drop closure → cegah
+                // "closure invoked after drop" bila event ICE masih menyusul.
+                conn.set_onicecandidate(None);
                 stop_pc_senders(&conn);
                 let _ = conn.close();
             }
             pc.set(None);
+            ice_closure.set_value(None); // drop closure onicecandidate → memori bebas
 
             if let Some(stream) = local_stream.get_untracked() {
                 stop_all_tracks(&stream);
@@ -232,9 +247,18 @@ pub fn MerchantLivePage() -> impl IntoView {
             return;
         }
         // Ambil sekali segera, lalu tiap 3 detik.
+        // Guard in-flight: lewati tick bila request sebelumnya belum selesai
+        // (jaringan lambat → cegah tumpukan request paralel ke /api/live/rooms).
+        let in_flight: StoredValue<bool> = StoredValue::new(false);
         let fetch = move |rid: String| {
+            if in_flight.get_value() {
+                return;
+            }
+            in_flight.set_value(true);
             wasm_bindgen_futures::spawn_local(async move {
-                if let Ok(room) = api_get_room(&rid).await {
+                let room = api_get_room(&rid).await;
+                in_flight.set_value(false);
+                if let Ok(room) = room {
                     viewer_count.set(room.viewer_count as u32);
 
                     // Deteksi penonton baru → toast "{nama} telah join" 5 detik.
@@ -273,9 +297,11 @@ pub fn MerchantLivePage() -> impl IntoView {
     // (misalnya tekan tombol back atau tutup tab).
     on_cleanup(move || {
         if let Some(conn) = pc.get_untracked() {
+            conn.set_onicecandidate(None);
             stop_pc_senders(&conn);
             let _ = conn.close();
         }
+        ice_closure.set_value(None); // drop closure onicecandidate → memori bebas
         if let Some(stream) = local_stream.get_untracked() {
             stop_all_tracks(&stream);
         }
@@ -473,7 +499,14 @@ async fn get_user_media() -> Result<web_sys::MediaStream, String> {
 async fn create_publisher(
     room_id: &str,
     stream: Option<web_sys::MediaStream>,
-) -> Result<(web_sys::RtcPeerConnection, web_sys::WebSocket), String> {
+) -> Result<
+    (
+        web_sys::RtcPeerConnection,
+        web_sys::WebSocket,
+        Closure<dyn FnMut(web_sys::RtcPeerConnectionIceEvent)>,
+    ),
+    String,
+> {
     let config = web_sys::RtcConfiguration::new();
     config.set_ice_servers(crate::web::rtc::fetch_ice_servers().await.as_ref());
 
@@ -497,66 +530,87 @@ async fn create_publisher(
     let ws = web_sys::WebSocket::new(&ws_url)
         .map_err(|e| format!("WS gagal dibuka: {:?}", e))?;
 
-    // ── onicecandidate: kirim kandidat langsung via WS ────────────────────────
-    {
-        let ws_ref = ws.clone();
-        let on_ice = Closure::<dyn FnMut(web_sys::RtcPeerConnectionIceEvent)>::new(
-            move |event: web_sys::RtcPeerConnectionIceEvent| {
-                if let Some(candidate) = event.candidate() {
-                    let msg = serde_json::json!({
-                        "type": "candidate",
-                        "candidate": candidate.candidate(),
-                        "sdp_mid": candidate.sdp_mid().unwrap_or_default(),
-                        "sdp_mline_index": candidate.sdp_m_line_index().unwrap_or(0),
-                    });
-                    let _ = ws_ref.send_with_str(&msg.to_string());
-                }
-            },
-        );
-        pc.set_onicecandidate(Some(on_ice.as_ref().unchecked_ref()));
-        on_ice.forget();
-    }
+    // ── Closures onice/onmessage/onerror: DIPEGANG (bukan .forget()) agar bisa
+    // di-detach lalu di-drop → tak bocor per sesi go-live. `on_ice` dikembalikan
+    // ke pemanggil (hidup selama sesi); dua closure one-shot dilepas setelah
+    // answer diterima. `DetachGuard` melepas SEMUA callback pada jalur error
+    // SEBELUM closure di-drop di akhir fungsi (cegah "closure invoked after
+    // drop" → panic).
+    let ws_ref = ws.clone();
+    let on_ice = Closure::<dyn FnMut(web_sys::RtcPeerConnectionIceEvent)>::new(
+        move |event: web_sys::RtcPeerConnectionIceEvent| {
+            if let Some(candidate) = event.candidate() {
+                let msg = serde_json::json!({
+                    "type": "candidate",
+                    "candidate": candidate.candidate(),
+                    "sdp_mid": candidate.sdp_mid().unwrap_or_default(),
+                    "sdp_mline_index": candidate.sdp_m_line_index().unwrap_or(0),
+                });
+                let _ = ws_ref.send_with_str(&msg.to_string());
+            }
+        },
+    );
+    pc.set_onicecandidate(Some(on_ice.as_ref().unchecked_ref()));
 
     // ── Channel untuk menerima answer (pola Rc<Cell<Option<Sender>>> — WASM safe) ─
     let (answer_tx, answer_rx) =
         futures::channel::oneshot::channel::<Result<String, String>>();
     let answer_tx = Rc::new(Cell::new(Some(answer_tx)));
 
-    {
+    let on_msg = {
         let tx = answer_tx.clone();
-        let cb = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
-            move |e: web_sys::MessageEvent| {
-                if let Ok(txt) = e.data().dyn_into::<js_sys::JsString>() {
-                    let s: String = txt.into();
-                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) {
-                        let result = if v["type"].as_str() == Some("error") {
-                            Err(v["message"].as_str().unwrap_or("Error dari server").to_string())
-                        } else {
-                            v["sdp"]
-                                .as_str()
-                                .map(String::from)
-                                .ok_or_else(|| "Tidak ada SDP dalam answer".to_string())
-                        };
-                        if let Some(tx) = tx.take() {
-                            let _ = tx.send(result);
-                        }
+        Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |e: web_sys::MessageEvent| {
+            if let Ok(txt) = e.data().dyn_into::<js_sys::JsString>() {
+                let s: String = txt.into();
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) {
+                    let result = if v["type"].as_str() == Some("error") {
+                        Err(v["message"].as_str().unwrap_or("Error dari server").to_string())
+                    } else {
+                        v["sdp"]
+                            .as_str()
+                            .map(String::from)
+                            .ok_or_else(|| "Tidak ada SDP dalam answer".to_string())
+                    };
+                    if let Some(tx) = tx.take() {
+                        let _ = tx.send(result);
                     }
                 }
-            },
-        );
-        ws.set_onmessage(Some(cb.as_ref().unchecked_ref()));
-        cb.forget();
-    }
-    {
+            }
+        })
+    };
+    ws.set_onmessage(Some(on_msg.as_ref().unchecked_ref()));
+
+    let on_err = {
         let tx = answer_tx.clone();
-        let cb = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
+        Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
             if let Some(tx) = tx.take() {
                 let _ = tx.send(Err("WS error".to_string()));
             }
-        });
-        ws.set_onerror(Some(cb.as_ref().unchecked_ref()));
-        cb.forget();
+        })
+    };
+    ws.set_onerror(Some(on_err.as_ref().unchecked_ref()));
+
+    // Guard: bila fungsi keluar lewat error, lepas SEMUA callback dari pc/ws
+    // sebelum closure (on_ice/on_msg/on_err) di-drop di akhir fungsi.
+    struct DetachGuard<'a> {
+        pc: &'a web_sys::RtcPeerConnection,
+        ws: &'a web_sys::WebSocket,
+        armed: bool,
     }
+    impl Drop for DetachGuard<'_> {
+        fn drop(&mut self) {
+            if self.armed {
+                self.pc.set_onicecandidate(None);
+                self.ws.set_onmessage(None);
+                self.ws.set_onerror(None);
+            }
+        }
+    }
+    let mut detach = DetachGuard {
+        pc: &pc,
+        ws: &ws,
+        armed: true,
+    };
 
     // ── Tunggu WS terbuka (maks 5 detik) ─────────────────────────────────────
     {
@@ -621,7 +675,15 @@ async fn create_publisher(
     // ── setRemoteDescription dengan answer SDP ────────────────────────────────
     set_remote_answer(&pc, &answer_sdp).await?;
 
-    Ok((pc, ws))
+    // Sukses: `on_ice` tetap terpasang (dikembalikan → hidup selama sesi). Lepas
+    // HANYA callback one-shot: answer sudah diterima, dan viewer count datang via
+    // HTTP polling /api/live/rooms (bukan onmessage WS ini).
+    detach.armed = false;
+    drop(detach); // akhiri borrow &pc/&ws sebelum pindah kepemilikan
+    ws.set_onmessage(None);
+    ws.set_onerror(None);
+    // on_msg & on_err di-drop di akhir fungsi (sudah detach) — aman.
+    Ok((pc, ws, on_ice))
 }
 
 async fn set_remote_answer(

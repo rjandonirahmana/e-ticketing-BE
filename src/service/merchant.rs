@@ -145,6 +145,50 @@ impl MerchantService {
             .map_err(AppError::Internal)
     }
 
+    /// Profil publik user biasa (halaman /u/{id}). `None` → user tidak ada.
+    pub async fn user_public(
+        &self,
+        user_id: &str,
+    ) -> AppResult<crate::models::merchant::UserPublicProfile> {
+        self.repo
+            .user_public(user_id)
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| AppError::NotFound("User tidak ditemukan".into()))
+    }
+
+    /// Ulasan yang ditulis user + total, paginasi per halaman.
+    pub async fn list_user_reviews(
+        &self,
+        user_id: &str,
+        page: i64,
+        per_page: i64,
+    ) -> AppResult<Vec<crate::models::merchant::UserReviewItem>> {
+        let per_page = per_page.clamp(1, 50);
+        let offset = (page.max(1) - 1) * per_page;
+        self.repo
+            .list_user_reviews(user_id, per_page, offset)
+            .await
+            .map_err(AppError::Internal)
+    }
+
+    /// Cari merchant berdasarkan nama (autocomplete search /explore). Query
+    /// terlalu pendek (<2) → kosong (hindari scan luas untuk 1 huruf).
+    pub async fn search(
+        &self,
+        query: &str,
+        limit: i64,
+    ) -> AppResult<Vec<crate::models::merchant::MerchantSearchItem>> {
+        let q = query.trim();
+        if q.len() < 2 {
+            return Ok(Vec::new());
+        }
+        self.repo
+            .search(q, limit.clamp(1, 20))
+            .await
+            .map_err(AppError::Internal)
+    }
+
     /// Daftar follower merchant + total, paginasi per halaman.
     pub async fn list_followers(
         &self,

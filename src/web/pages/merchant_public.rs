@@ -792,16 +792,19 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                                                                                     .to_uppercase()
                                                                                                                     .to_string();
                                                                                                                 let date = r.created_at.format("%d %b %Y").to_string();
+                                                                                                                let user_href = format!("/u/{}", r.user_id);
                                                                                                                 view! {
                                                                                                                     <div class="mrv-item">
                                                                                                                         <div class="mrv-item-head">
-                                                                                                                            <span class="mrv-item-avatar">{initial}</span>
-                                                                                                                            <div class="mrv-item-who">
+                                                                                                                            <a class="mrv-item-avatar" href=user_href.clone()>
+                                                                                                                                {initial}
+                                                                                                                            </a>
+                                                                                                                            <a class="mrv-item-who mrv-item-who--link" href=user_href>
                                                                                                                                 <span class="mrv-item-name">
                                                                                                                                     {r.user_name.clone()}
                                                                                                                                 </span>
                                                                                                                                 <span class="mrv-item-date">{date}</span>
-                                                                                                                            </div>
+                                                                                                                            </a>
                                                                                                                             <Stars rating=r.rating as f64 />
                                                                                                                         </div>
                                                                                                                         {(!r.comment.is_empty())

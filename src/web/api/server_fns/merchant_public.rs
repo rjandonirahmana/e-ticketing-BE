@@ -119,6 +119,7 @@ pub async fn get_reviews(
         items: items
             .into_iter()
             .map(|i| MerchantReviewItem {
+                user_id: i.user_id,
                 user_name: i.user_name,
                 rating: i.rating,
                 comment: i.comment,
@@ -126,6 +127,71 @@ pub async fn get_reviews(
             })
             .collect(),
     })
+}
+
+/// Profil publik user biasa (/u/{id}) — nama + jumlah following/reviews/stories.
+#[server(GetUserPublic, "/api-fn")]
+pub async fn get_user_public(user_id: String) -> Result<UserPublicProfile, ServerFnError> {
+    let state = app_state().await?;
+    let p = state
+        .merchant_svc
+        .user_public(&user_id)
+        .await
+        .map_err(map_app_error)?;
+    Ok(UserPublicProfile {
+        user_id: p.user_id,
+        name: p.name,
+        following: p.following,
+        reviews: p.reviews,
+        stories: p.stories,
+    })
+}
+
+/// Ulasan yang DITULIS user (ke berbagai merchant). Publik. 20 per halaman.
+#[server(GetUserReviews, "/api-fn")]
+pub async fn get_user_reviews(
+    user_id: String,
+    page: Option<i64>,
+) -> Result<UserReviewsData, ServerFnError> {
+    let state = app_state().await?;
+    let items = state
+        .merchant_svc
+        .list_user_reviews(&user_id, page.unwrap_or(1), 20)
+        .await
+        .map_err(map_app_error)?;
+    Ok(UserReviewsData {
+        total: items.len() as i64,
+        items: items
+            .into_iter()
+            .map(|i| UserReviewItem {
+                merchant_id: i.merchant_id,
+                store_name: i.store_name,
+                rating: i.rating,
+                comment: i.comment,
+                created_at: i.created_at,
+            })
+            .collect(),
+    })
+}
+
+/// Cari merchant berdasarkan nama (autocomplete search /explore). Publik.
+#[server(SearchMerchants, "/api-fn")]
+pub async fn search_merchants(query: String) -> Result<Vec<MerchantSearchItem>, ServerFnError> {
+    let state = app_state().await?;
+    let items = state
+        .merchant_svc
+        .search(&query, 8)
+        .await
+        .map_err(map_app_error)?;
+    Ok(items
+        .into_iter()
+        .map(|m| MerchantSearchItem {
+            merchant_id: m.merchant_id,
+            store_name: m.store_name,
+            logo_url: m.logo_url,
+            verified: m.verified,
+        })
+        .collect())
 }
 
 /// Daftar follower merchant (publik). 30 per halaman, terbaru dulu.

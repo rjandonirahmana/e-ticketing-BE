@@ -72,6 +72,36 @@ pub struct MerchantReviewSummary {
     pub dist: [i64; 5],
 }
 
+/// Profil publik user biasa (halaman /u/{id}) — hanya data yang ada di skema.
+#[derive(Debug, Clone, Serialize)]
+pub struct UserPublicProfile {
+    pub user_id: String,
+    pub name: String,
+    /// Jumlah merchant yang di-follow user ini (merchant_follows.follower_id).
+    pub following: i64,
+    pub reviews: i64,
+    pub stories: i64,
+}
+
+/// Satu ulasan yang DITULIS user (ke merchant) — halaman /u/{id} tab Reviews.
+#[derive(Debug, Clone, Serialize)]
+pub struct UserReviewItem {
+    pub merchant_id: String,
+    pub store_name: String,
+    pub rating: i32,
+    pub comment: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Hasil pencarian merchant (autocomplete search /explore).
+#[derive(Debug, Clone, Serialize)]
+pub struct MerchantSearchItem {
+    pub merchant_id: String,
+    pub store_name: String,
+    pub logo_url: Option<String>,
+    pub verified: bool,
+}
+
 /// Satu follower merchant (untuk halaman daftar follower /m/{id}/followers).
 #[derive(Debug, Clone, Serialize)]
 pub struct MerchantFollower {
@@ -83,6 +113,7 @@ pub struct MerchantFollower {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MerchantReviewItem {
+    pub user_id: String,
     pub user_name: String,
     pub rating: i32,
     pub comment: String,

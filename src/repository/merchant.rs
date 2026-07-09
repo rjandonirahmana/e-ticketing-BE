@@ -7,7 +7,7 @@ use tokio_postgres::Row;
 use super::db::{exec_drop, exec_first, exec_one, exec_rows};
 use crate::models::merchant::{
     MerchantDetail, MerchantFollower, MerchantPublicProfile, MerchantReviewItem,
-    MerchantReviewSummary,
+    MerchantReviewSummary, MerchantSearchItem, UserPublicProfile, UserReviewItem,
 };
 use crate::utils::ulid::{bin_to_ulid, id_to_vec};
 
@@ -116,6 +116,20 @@ pub trait MerchantRepository: Send + Sync {
 
     /// Jumlah follower merchant.
     async fn count_followers(&self, merchant_id: &str) -> Result<i64>;
+
+    /// Cari merchant berdasarkan nama toko (ILIKE), terverifikasi dulu.
+    async fn search(&self, query: &str, limit: i64) -> Result<Vec<MerchantSearchItem>>;
+
+    /// Profil publik user biasa (nama + jumlah following/reviews/stories).
+    async fn user_public(&self, user_id: &str) -> Result<Option<UserPublicProfile>>;
+
+    /// Ulasan yang DITULIS user (join merchant), terbaru dulu, paginasi.
+    async fn list_user_reviews(
+        &self,
+        user_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<UserReviewItem>>;
 }
 
 #[derive(Clone)]
@@ -280,7 +294,8 @@ impl MerchantRepository for PgMerchantRepository {
         let rows = exec_rows(
             &self.pool,
             r#"
-            SELECT COALESCE(u.name, 'Pengguna') AS user_name,
+            SELECT r.user_id                     AS uid,
+                   COALESCE(u.name, 'Pengguna') AS user_name,
                    r.rating::INT4               AS rating,
                    r.comment,
                    r.created_at
@@ -295,8 +310,76 @@ impl MerchantRepository for PgMerchantRepository {
         .await?;
         rows.iter()
             .map(|r| {
+                let uid: Vec<u8> = r.try_get("uid")?;
                 Ok(MerchantReviewItem {
+                    user_id: bin_to_ulid(uid)?,
                     user_name: r.try_get("user_name")?,
+                    rating: r.try_get("rating")?,
+                    comment: r.try_get("comment")?,
+                    created_at: r.try_get("created_at")?,
+                })
+            })
+            .collect()
+    }
+
+    async fn user_public(&self, user_id: &str) -> Result<Option<UserPublicProfile>> {
+        let uid = id_to_vec(user_id)?;
+        let row = exec_first(
+            &self.pool,
+            r#"
+            SELECT
+                u.name,
+                (SELECT COUNT(*)::BIGINT FROM merchant_follows f
+                  WHERE f.follower_id = u.id)             AS following,
+                (SELECT COUNT(*)::BIGINT FROM reviews r
+                  WHERE r.user_id = u.id)                 AS reviews,
+                (SELECT COUNT(*)::BIGINT FROM stories s
+                  WHERE s.user_id = u.id)                 AS stories
+            FROM users u
+            WHERE u.id = $1
+            "#,
+            &[&uid],
+        )
+        .await?;
+        row.map(|r| {
+            Ok(UserPublicProfile {
+                user_id: user_id.to_string(),
+                name: r.try_get("name")?,
+                following: r.try_get("following")?,
+                reviews: r.try_get("reviews")?,
+                stories: r.try_get("stories")?,
+            })
+        })
+        .transpose()
+    }
+
+    async fn list_user_reviews(
+        &self,
+        user_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<UserReviewItem>> {
+        let uid = id_to_vec(user_id)?;
+        let rows = exec_rows(
+            &self.pool,
+            r#"
+            SELECT r.merchant_id, md.store_name, r.rating::INT4 AS rating,
+                   r.comment, r.created_at
+            FROM   reviews r
+            JOIN   merchant_details md ON md.user_id = r.merchant_id
+            WHERE  r.user_id = $1
+            ORDER BY r.created_at DESC
+            LIMIT $2 OFFSET $3
+            "#,
+            &[&uid, &limit, &offset],
+        )
+        .await?;
+        rows.iter()
+            .map(|r| {
+                let mid: Vec<u8> = r.try_get("merchant_id")?;
+                Ok(UserReviewItem {
+                    merchant_id: bin_to_ulid(mid)?,
+                    store_name: r.try_get("store_name")?,
                     rating: r.try_get("rating")?,
                     comment: r.try_get("comment")?,
                     created_at: r.try_get("created_at")?,
@@ -445,5 +528,37 @@ impl MerchantRepository for PgMerchantRepository {
         )
         .await?;
         Ok(row.try_get("c")?)
+    }
+
+    async fn search(&self, query: &str, limit: i64) -> Result<Vec<MerchantSearchItem>> {
+        // Escape wildcard ILIKE agar input user literal (bukan pola).
+        let escaped = query
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let pattern = format!("%{escaped}%");
+        let rows = exec_rows(
+            &self.pool,
+            r#"
+            SELECT user_id, store_name, logo_url, verified
+            FROM   merchant_details
+            WHERE  store_name ILIKE $1
+            ORDER BY verified DESC, store_name ASC
+            LIMIT $2
+            "#,
+            &[&pattern, &limit],
+        )
+        .await?;
+        rows.iter()
+            .map(|r| {
+                let id_bytes: Vec<u8> = r.try_get("user_id")?;
+                Ok(MerchantSearchItem {
+                    merchant_id: bin_to_ulid(id_bytes)?,
+                    store_name: r.try_get("store_name")?,
+                    logo_url: r.try_get("logo_url")?,
+                    verified: r.try_get("verified")?,
+                })
+            })
+            .collect()
     }
 }
