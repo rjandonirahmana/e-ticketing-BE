@@ -55,8 +55,13 @@ pub struct MerchantPublicProfile {
 }
 
 /// Ringkasan rating (halaman reviews): rata-rata, total, distribusi per bintang.
+///
+/// `store_name` ikut di sini agar halaman reviews cukup satu round-trip untuk
+/// header + ringkasan (DB di VPS — tiap round-trip berbiaya latensi jaringan).
+/// `None` = merchant tidak ada → server_fn membalas NotFound.
 #[derive(Debug, Clone, Serialize)]
 pub struct MerchantReviewSummary {
+    pub store_name: Option<String>,
     pub avg: f64,
     pub total: i64,
     /// dist[0] = jumlah bintang 1 … dist[4] = jumlah bintang 5.

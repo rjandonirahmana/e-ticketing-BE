@@ -122,11 +122,6 @@ pub fn VerifyOtpPage() -> impl IntoView {
     let masked = Memo::new(move |_| mask_phone(&phone.get()));
 
     view! {
-        <div class="grid-bg">
-            <div class="grid-lines"></div>
-            <div class="orb orb-1"></div>
-            <div class="orb orb-2"></div>
-        </div>
         <main class="auth-page verify-page">
             <header class="auth-header verify-header">
                 <A href="/register" attr:class="back-btn">

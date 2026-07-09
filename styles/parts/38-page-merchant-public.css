@@ -2,29 +2,40 @@
    Prefix: mp-* (profil), mrv-* (reviews). Entry: tombol penyelenggara di
    event detail (ed-organizer) & chip penyelenggara kartu explore (exp-mkt-org). */
 
-.mp-page { min-height: 100vh; padding-bottom: 90px; }
-.mp-container { padding: 0 16px; max-width: 640px; margin: 0 auto; }
+/* Page: kolom 480px konsisten dengan halaman lain (home/explore/detail).
+   Hero full-bleed di dalam kolom → dibatasi 480 via .mp-page max-width. */
+/* Kolom OPAQUE + terpusat ≤480px → grid global hanya tampak di gutter (spt /lives). */
+.mp-page { min-height: 100vh; width: 100%; max-width: 480px; margin: 0 auto; background: var(--bg-page); position: relative; padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px)); }
+.mp-container { padding: 0 16px; max-width: 480px; margin: 0 auto; }
 
 /* Hero */
-.mp-hero { position: relative; height: 190px; overflow: hidden; background: var(--bg-elevated); }
-.mp-hero img { width: 100%; height: 100%; object-fit: cover; opacity: .85; }
-.mp-hero-grad { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 25%, var(--bg) 100%); }
+.mp-hero { position: relative; height: 200px; overflow: hidden; background: var(--bg-elevated); }
+.mp-hero img { width: 100%; height: 100%; object-fit: cover; opacity: .9; }
+.mp-hero-grad { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.15) 0%, transparent 35%, var(--bg-page) 100%); }
 
 /* Kepala profil */
-.mp-head { max-width: 640px; margin: -44px auto 0; padding: 0 16px; position: relative; display: flex; align-items: flex-end; gap: 12px; }
-.mp-avatar { width: 88px; height: 88px; border-radius: 50%; object-fit: cover; border: 3px solid var(--bg); background: var(--bg-elevated); flex: none; }
-.mp-avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: 800; color: var(--text-on-accent); background: var(--accent-lime); }
-.mp-head-actions { margin-left: auto; padding-bottom: 6px; }
-.mp-follow-btn { padding: 10px 24px; border-radius: 999px; border: 1px solid transparent; background: var(--accent-blue); color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; transition: opacity .15s; }
+.mp-head { margin: -46px auto 0; padding: 0 16px; position: relative; display: flex; align-items: flex-end; gap: 12px; }
+.mp-avatar-wrap { position: relative; flex: none; }
+.mp-avatar { width: 92px; height: 92px; border-radius: 50%; object-fit: cover; border: 3px solid var(--bg-page); background: var(--bg-elevated); display: block; }
+.mp-avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 36px; font-weight: 800; color: var(--text-on-accent); background: var(--accent-lime); }
+.mp-avatar-badge { position: absolute; right: 2px; bottom: 4px; width: 26px; height: 26px; border-radius: 50%; background: var(--accent-lime); color: var(--text-on-accent); border: 3px solid var(--bg-page); display: flex; align-items: center; justify-content: center; }
+
+.mp-head-actions { margin-left: auto; padding-bottom: 8px; display: flex; align-items: center; gap: 8px; position: relative; }
+.mp-follow-btn { padding: 10px 26px; border-radius: 999px; border: 1px solid transparent; background: var(--accent-blue); color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; transition: opacity .15s, background .15s; }
 .mp-follow-btn:disabled { opacity: .6; }
 .mp-follow-btn[data-on="true"] { background: var(--bg-elevated); color: var(--text-primary); border-color: var(--border); }
+.mp-icon-btn { width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text-primary); display: flex; align-items: center; justify-content: center; cursor: pointer; flex: none; transition: background .15s, border-color .15s; }
+.mp-icon-btn:hover { background: var(--bg-elevated-2); border-color: var(--accent-lime); }
+.mp-share-toast { position: absolute; top: calc(100% + 8px); right: 0; background: var(--text-primary); color: var(--bg-page); font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 8px; white-space: nowrap; z-index: 5; box-shadow: 0 6px 18px rgba(0,0,0,.28); }
 
-.mp-name-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
-.mp-name { font-size: 24px; font-weight: 800; margin: 0; letter-spacing: -.02em; }
+.mp-name-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.mp-name { font-size: 25px; font-weight: 800; margin: 0; letter-spacing: -.02em; line-height: 1.15; }
 .mp-verified { color: var(--accent-lime); display: inline-flex; }
+.mp-loc { display: flex; align-items: center; gap: 5px; margin: 6px 0 0; font-size: 13px; color: var(--text-muted); }
+.mp-loc svg { color: var(--accent-lime); flex: none; }
 
 /* Statistik */
-.mp-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 16px 0 6px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 14px; padding: 12px 6px; }
+.mp-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 18px 0 6px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 16px; padding: 14px 6px; }
 .mp-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; text-decoration: none; color: inherit; }
 .mp-stat + .mp-stat { border-left: 1px solid var(--border); }
 .mp-stat-num { font-size: 18px; font-weight: 800; }
@@ -43,24 +54,26 @@
 .mp-empty { color: var(--text-muted); font-size: 14px; padding: 18px 0; }
 
 /* ── Reviews (/m/:id/reviews) ──────────────────────────────────────────────── */
-.mrv-store { margin: 14px 0 4px; font-size: 13px; letter-spacing: .08em; color: var(--text-muted); text-transform: uppercase; }
+.mrv-store { margin: 16px 0 6px; font-size: 12px; letter-spacing: .1em; color: var(--text-muted); text-transform: uppercase; }
 
-.mrv-summary { margin-bottom: 18px; }
-.mrv-big { display: flex; align-items: center; gap: 14px; }
-.mrv-avg { font-size: 56px; font-weight: 900; color: var(--accent-lime); line-height: 1; letter-spacing: -.03em; }
-.mrv-big-side { display: flex; flex-direction: column; gap: 2px; }
+.mrv-summary { margin-bottom: 22px; }
+.mrv-big { display: flex; align-items: center; gap: 16px; }
+.mrv-avg { font-size: 64px; font-weight: 900; color: var(--accent-lime); line-height: .9; letter-spacing: -.04em; }
+.mrv-big-side { display: flex; flex-direction: column; gap: 4px; }
+.mrv-big-side .mrv-stars { font-size: 20px; }
 .mrv-outof { font-size: 13px; color: var(--text-muted); }
-.mrv-total { margin: 6px 0 14px; color: var(--text-muted); font-size: 14px; }
+.mrv-total { margin: 8px 0 16px; color: var(--text-secondary, var(--text-muted)); font-size: 14px; font-weight: 600; }
 
 .mrv-stars { display: inline-flex; gap: 2px; font-size: 16px; }
 .mrv-star { color: var(--border); }
 .mrv-star--on { color: var(--accent-lime); }
 
-.mrv-dist { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
-.mrv-dist-row { display: flex; align-items: center; gap: 10px; }
-.mrv-dist-star { width: 12px; text-align: right; font-size: 12px; color: var(--text-muted); }
-.mrv-dist-bar { flex: 1; height: 8px; border-radius: 999px; background: var(--border); overflow: hidden; }
-.mrv-dist-fill { height: 100%; border-radius: 999px; background: var(--accent-lime); }
+.mrv-dist { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 11px; }
+.mrv-dist-row { display: flex; align-items: center; gap: 12px; }
+.mrv-dist-star { width: 12px; text-align: right; font-size: 13px; font-weight: 700; color: var(--text-muted); }
+.mrv-dist-bar { flex: 1; height: 9px; border-radius: 999px; background: var(--border); overflow: hidden; }
+.mrv-dist-fill { height: 100%; border-radius: 999px; background: var(--accent-lime); transition: width .4s ease; }
+.mrv-dist-cnt { width: 34px; text-align: right; font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* Daftar ulasan */
 .mrv-list-head { margin: 6px 0 10px; }

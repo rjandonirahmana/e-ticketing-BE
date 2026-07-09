@@ -2241,3 +2241,12 @@ button:focus-visible {
     color: var(--text-primary);
 }
 
+
+/* ── EventGrid (komponen daftar event reusable) ─────────────────────────────
+   <EventGrid/> memakai kontainer .exp-mkt-grid + kartu .exp-mkt-card (styling di
+   09-page-explore.css) — SATU desain kartu dipakai Explore, Event Detail, /m/:id. */
+.event-grid-empty {
+    color: var(--text-muted);
+    font-size: 14px;
+    padding: 18px 0;
+}

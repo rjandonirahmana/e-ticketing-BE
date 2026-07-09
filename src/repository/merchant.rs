@@ -208,6 +208,7 @@ impl MerchantRepository for PgMerchantRepository {
             &self.pool,
             r#"
             SELECT
+                (SELECT store_name FROM merchant_details WHERE user_id = $1) AS store_name,
                 COALESCE(AVG(rating)::FLOAT8, 0)              AS avg,
                 COUNT(*)::BIGINT                              AS total,
                 COUNT(*) FILTER (WHERE rating = 1)::BIGINT    AS d1,
@@ -222,6 +223,7 @@ impl MerchantRepository for PgMerchantRepository {
         )
         .await?;
         Ok(MerchantReviewSummary {
+            store_name: row.try_get("store_name")?,
             avg: row.try_get("avg")?,
             total: row.try_get("total")?,
             dist: [

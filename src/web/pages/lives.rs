@@ -10,7 +10,7 @@ use leptos::prelude::*;
 use leptos_router::components::A;
 use serde::Deserialize;
 
-use crate::web::components::{BottomNav, GridBackground, LiveStreamViewer};
+use crate::web::components::{BottomNav, LiveStreamViewer};
 
 #[derive(Debug, Clone, Deserialize)]
 struct RoomInfo {
@@ -226,7 +226,6 @@ pub fn LivesPage() -> impl IntoView {
             } else {
                 // ── DAFTAR MERCHANT YANG LIVE ────────────────────────────────
                 view! {
-                    <GridBackground />
                     <div class="page lives-page">
                         <header class="lives-header">
                             <A href="/explore" attr:class="lives-back" attr:aria-label="Kembali">

@@ -10,7 +10,7 @@ use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::web::api::{get_event_detail, get_events};
 use crate::web::app::{AuthResource, CartContext};
-use crate::web::components::{EventCard, LiveStreamViewer, MerchantLivePip};
+use crate::web::components::{EventCardPub, LiveStreamViewer, MerchantLivePip};
 use crate::web::hooks::ThemeToggle;
 use crate::web::models::{CartItem, format_date, format_price};
 
@@ -898,33 +898,10 @@ pub fn EventDetailPage() -> impl IntoView {
                                                         .into_iter()
                                                         .filter(|e| e.slug != cur)
                                                         .map(|e| {
-                                                            let href = format!("/events/{}", e.slug);
-                                                            let city = e.city.clone().unwrap_or_default();
-                                                            let vn = e.venue.clone().unwrap_or_default();
-                                                            let venue = if city.is_empty() {
-                                                                vn
-                                                            } else if vn.is_empty() {
-                                                                city
-                                                            } else {
-                                                                format!("{vn} • {city}")
-                                                            };
-                                                            let cat = e
-                                                                .category
-                                                                .first()
-                                                                .cloned()
-                                                                .unwrap_or_else(|| e.status.clone());
-                                                            view! {
-                                                                <EventCard
-                                                                    href=href
-                                                                    img=e.cover_url.clone().unwrap_or_default()
-                                                                    alt=e.name.clone()
-                                                                    badge=cat
-                                                                    title=e.name.clone()
-                                                                    date=crate::web::models::format_date(&e.event_date)
-                                                                    venue=venue
-                                                                    price=crate::web::models::format_price(e.display_price)
-                                                                />
-                                                            }
+                                                            let ev = crate::web::state::events::event_to_explore_pub(
+                                                                &e,
+                                                            );
+                                                            view! { <EventCardPub ev=ev /> }
                                                         })
                                                         .collect_view();
                                                     let shims = loading
@@ -942,7 +919,12 @@ pub fn EventDetailPage() -> impl IntoView {
                                                                 })
                                                                 .collect_view()
                                                         });
-                                                    view! { <div class="ed-more-grid">{cards}{shims}</div> }
+                                                    view! {
+                                                        <div class="exp-mkt-grid ed-more-grid">
+                                                            {cards}
+                                                            {shims}
+                                                        </div>
+                                                    }
                                                         .into_any()
                                                 }}
                                             </section>

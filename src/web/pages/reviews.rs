@@ -10,7 +10,6 @@ use leptos_router::hooks::use_params_map;
 
 use crate::web::api::{get_reviews, submit_merchant_review};
 use crate::web::app::AuthResource;
-use crate::web::components::BottomNav;
 use crate::web::hooks::ThemeToggle;
 
 /// Baris bintang statis (untuk ringkasan & item ulasan).
@@ -29,6 +28,80 @@ fn Stars(#[prop(into)] rating: f64) -> impl IntoView {
                 })
                 .collect_view()}
         </span>
+    }
+}
+
+/// Skeleton halaman reviews: ringkasan (angka + bintang + distribusi) & daftar.
+#[component]
+fn ReviewsShimmer() -> impl IntoView {
+    view! {
+        <div class="shimmer-bg" style="width:120px;height:12px;border-radius:5px;margin:16px 0 6px;"></div>
+        <div class="mrv-summary">
+            <div class="mrv-big">
+                <div class="shimmer-bg" style="width:92px;height:64px;border-radius:14px;"></div>
+                <div class="mrv-big-side">
+                    <div class="shimmer-bg" style="width:116px;height:20px;border-radius:6px;"></div>
+                    <div
+                        class="shimmer-bg"
+                        style="width:56px;height:13px;border-radius:5px;margin-top:8px;"
+                    ></div>
+                </div>
+            </div>
+            <div
+                class="shimmer-bg"
+                style="width:96px;height:14px;border-radius:6px;margin:14px 0 16px;"
+            ></div>
+            <div class="mrv-dist">
+                {(0..5)
+                    .map(|_| {
+                        view! {
+                            <div class="mrv-dist-row">
+                                <span
+                                    class="shimmer-bg"
+                                    style="width:10px;height:12px;border-radius:3px;"
+                                ></span>
+                                <div class="shimmer-bg" style="flex:1;height:9px;border-radius:999px;"></div>
+                                <span
+                                    class="shimmer-bg"
+                                    style="width:28px;height:12px;border-radius:3px;"
+                                ></span>
+                            </div>
+                        }
+                    })
+                    .collect_view()}
+            </div>
+        </div>
+        <div class="shimmer-bg" style="width:130px;height:12px;border-radius:5px;margin:6px 0 10px;"></div>
+        <div class="mrv-list">
+            {(0..3)
+                .map(|_| {
+                    view! {
+                        <div class="mrv-item">
+                            <div class="mrv-item-head">
+                                <span
+                                    class="shimmer-bg"
+                                    style="width:38px;height:38px;border-radius:50%;flex:none;"
+                                ></span>
+                                <div class="mrv-item-who" style="gap:6px;">
+                                    <span
+                                        class="shimmer-bg"
+                                        style="width:100px;height:13px;border-radius:5px;"
+                                    ></span>
+                                    <span
+                                        class="shimmer-bg"
+                                        style="width:64px;height:10px;border-radius:4px;"
+                                    ></span>
+                                </div>
+                            </div>
+                            <div
+                                class="shimmer-bg"
+                                style="width:100%;height:34px;border-radius:8px;margin-top:10px;"
+                            ></div>
+                        </div>
+                    }
+                })
+                .collect_view()}
+        </div>
     }
 }
 
@@ -105,32 +178,13 @@ pub fn MerchantReviewsPage() -> impl IntoView {
 
             <div class="mp-container">
                 <Suspense fallback=|| {
-                    view! {
-                        <div
-                            class="shimmer-bg"
-                            style="width:100%;height:180px;border-radius:16px;margin-top:12px;"
-                        ></div>
-                    }
+                    view! { <ReviewsShimmer /> }
                 }>
                     {move || {
                         match reviews.get() {
-                            None => {
-                                view! {
-                                    <div
-                                        class="shimmer-bg"
-                                        style="width:100%;height:180px;border-radius:16px;margin-top:12px;"
-                                    ></div>
-                                }
-                                    .into_any()
-                            }
+                            None => view! { <ReviewsShimmer /> }.into_any(),
                             Some(Err(e)) if e.to_string().contains("not_ready") => {
-                                view! {
-                                    <div
-                                        class="shimmer-bg"
-                                        style="width:100%;height:180px;border-radius:16px;margin-top:12px;"
-                                    ></div>
-                                }
-                                    .into_any()
+                                view! { <ReviewsShimmer /> }.into_any()
                             }
                             Some(Err(_)) => {
                                 view! {
@@ -175,6 +229,9 @@ pub fn MerchantReviewsPage() -> impl IntoView {
                                                                     )
                                                                 ></div>
                                                             </div>
+                                                            <span class="mrv-dist-cnt">
+                                                                {super::merchant_public::fmt_count(cnt)}
+                                                            </span>
                                                         </div>
                                                     }
                                                 })
@@ -310,8 +367,6 @@ pub fn MerchantReviewsPage() -> impl IntoView {
                     }}
                 </div>
             </div>
-
-            <BottomNav />
         </div>
     }
 }

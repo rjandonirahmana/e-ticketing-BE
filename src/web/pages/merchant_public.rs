@@ -13,7 +13,7 @@ use crate::web::api::{
     get_merchant_public_events, get_merchant_public_profile, set_follow_merchant,
 };
 use crate::web::app::AuthResource;
-use crate::web::components::{BottomNav, EventCard, EventCardShimmer};
+use crate::web::components::{EventGrid, EventGridShimmer};
 use crate::web::hooks::ThemeToggle;
 
 /// 12500 → "12.5k", 999 → "999".
@@ -27,21 +27,53 @@ pub(crate) fn fmt_count(n: i64) -> String {
     }
 }
 
-fn fmt_price(p: f64) -> String {
-    let n = p as i64;
-    if n <= 0 {
-        return "Gratis".into();
+/// Skeleton profil merchant (hero + avatar + nama + statistik) selama loading.
+#[component]
+fn MerchantProfileShimmer() -> impl IntoView {
+    view! {
+        <div class="mp-hero shimmer-bg"></div>
+        <div class="mp-head">
+            <div class="mp-avatar-wrap">
+                <div class="mp-avatar shimmer-bg"></div>
+            </div>
+            <div class="mp-head-actions">
+                <div
+                    class="shimmer-bg"
+                    style="width:112px;height:42px;border-radius:999px;"
+                ></div>
+                <div class="shimmer-bg" style="width:42px;height:42px;border-radius:50%;"></div>
+            </div>
+        </div>
+        <div class="mp-container">
+            <div
+                class="shimmer-bg"
+                style="width:62%;height:26px;border-radius:8px;margin-top:14px;"
+            ></div>
+            <div
+                class="shimmer-bg"
+                style="width:38%;height:14px;border-radius:6px;margin-top:10px;"
+            ></div>
+            <div class="mp-stats">
+                {(0..3)
+                    .map(|_| {
+                        view! {
+                            <div class="mp-stat">
+                                <span
+                                    class="shimmer-bg"
+                                    style="width:44px;height:18px;border-radius:6px;"
+                                ></span>
+                                <span
+                                    class="shimmer-bg"
+                                    style="width:52px;height:9px;border-radius:4px;margin-top:6px;"
+                                ></span>
+                            </div>
+                        }
+                    })
+                    .collect_view()}
+            </div>
+            <EventGridShimmer count=4 />
+        </div>
     }
-    // Pemisah ribuan sederhana: 1250000 → "Rp1.250.000".
-    let s = n.to_string();
-    let mut out = String::with_capacity(s.len() + s.len() / 3);
-    for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
-            out.push('.');
-        }
-        out.push(c);
-    }
-    format!("Rp{out}")
 }
 
 #[component]
@@ -77,6 +109,9 @@ pub fn MerchantPublicPage() -> impl IntoView {
             }
         }
     });
+
+    // Feedback "tautan disalin" untuk tombol share.
+    let share_ok = RwSignal::new(false);
 
     let follow_busy = RwSignal::new(false);
     let on_follow = move |_| {
@@ -137,13 +172,13 @@ pub fn MerchantPublicPage() -> impl IntoView {
             </header>
 
             <Suspense fallback=|| {
-                view! { <div class="mp-hero shimmer-bg"></div> }
+                view! { <MerchantProfileShimmer /> }
             }>
                 {move || {
                     match profile.get() {
-                        None => view! { <div class="mp-hero shimmer-bg"></div> }.into_any(),
+                        None => view! { <MerchantProfileShimmer /> }.into_any(),
                         Some(Err(e)) if e.to_string().contains("not_ready") => {
-                            view! { <div class="mp-hero shimmer-bg"></div> }.into_any()
+                            view! { <MerchantProfileShimmer /> }.into_any()
                         }
                         Some(Err(_)) => {
                             view! {
@@ -160,7 +195,9 @@ pub fn MerchantPublicPage() -> impl IntoView {
                         }
                         Some(Ok(p)) => {
                             let merchant_id = p.merchant_id.clone();
+                            let store_name = p.store_name.clone();
                             let logo = p.logo_url.clone().unwrap_or_default();
+                            let verified = p.verified;
                             let initial = p
                                 .store_name
                                 .chars()
@@ -170,6 +207,24 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                 .to_string();
                             let desc = p.description.clone().unwrap_or_default();
                             let reviews_href = format!("/m/{}/reviews", merchant_id);
+                            // Dipakai hanya di jalur wasm (clipboard); no-op di native.
+                            #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
+                            let share_url = format!("/m/{}", merchant_id);
+                            let on_share = move |_| {
+                                #[cfg(target_arch = "wasm32")]
+                                if let Some(w) = web_sys::window() {
+                                    let origin = w.location().origin().unwrap_or_default();
+                                    let full = format!("{origin}{share_url}");
+                                    let _ = w.navigator().clipboard().write_text(&full);
+                                }
+                                share_ok.set(true);
+                                #[cfg(target_arch = "wasm32")]
+                                gloo_timers::callback::Timeout::new(
+                                        1600,
+                                        move || share_ok.set(false),
+                                    )
+                                    .forget();
+                            };
                             view! {
                                 // ── Hero: cover event terbaru sebagai latar ──
                                 <div class="mp-hero">
@@ -189,17 +244,39 @@ pub fn MerchantPublicPage() -> impl IntoView {
 
                                 // ── Kepala profil ─────────────────────────────
                                 <div class="mp-head">
-                                    {if logo.is_empty() {
-                                        view! {
-                                            <div class="mp-avatar mp-avatar-fallback">{initial}</div>
-                                        }
-                                            .into_any()
-                                    } else {
-                                        view! {
-                                            <img class="mp-avatar" src=logo alt="Logo merchant" />
-                                        }
-                                            .into_any()
-                                    }} <div class="mp-head-actions">
+                                    <div class="mp-avatar-wrap">
+                                        {if logo.is_empty() {
+                                            view! {
+                                                <div class="mp-avatar mp-avatar-fallback">{initial}</div>
+                                            }
+                                                .into_any()
+                                        } else {
+                                            view! {
+                                                <img class="mp-avatar" src=logo alt="Logo merchant" />
+                                            }
+                                                .into_any()
+                                        }}
+                                        {verified
+                                            .then(|| {
+                                                view! {
+                                                    <span class="mp-avatar-badge" title="Terverifikasi">
+                                                        <svg
+                                                            width="14"
+                                                            height="14"
+                                                            viewBox="0 0 24 24"
+                                                            fill="none"
+                                                            stroke="currentColor"
+                                                            stroke-width="3"
+                                                            stroke-linecap="round"
+                                                            stroke-linejoin="round"
+                                                        >
+                                                            <polyline points="20 6 9 17 4 12" />
+                                                        </svg>
+                                                    </span>
+                                                }
+                                            })}
+                                    </div>
+                                    <div class="mp-head-actions">
                                         <button
                                             class="mp-follow-btn"
                                             data-on=move || following.get().to_string()
@@ -210,33 +287,73 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                 if following.get() { "Mengikuti" } else { "Follow" }
                                             }}
                                         </button>
+                                        <button
+                                            class="mp-icon-btn"
+                                            on:click=on_share
+                                            aria-label="Bagikan"
+                                        >
+                                            <svg
+                                                width="18"
+                                                height="18"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                stroke-width="2"
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                            >
+                                                <circle cx="18" cy="5" r="3" />
+                                                <circle cx="6" cy="12" r="3" />
+                                                <circle cx="18" cy="19" r="3" />
+                                                <line x1="8.6" y1="13.5" x2="15.4" y2="17.5" />
+                                                <line x1="15.4" y1="6.5" x2="8.6" y2="10.5" />
+                                            </svg>
+                                        </button>
+                                        {move || {
+                                            share_ok
+                                                .get()
+                                                .then(|| {
+                                                    view! { <span class="mp-share-toast">"Tautan disalin"</span> }
+                                                })
+                                        }}
                                     </div>
                                 </div>
 
                                 <div class="mp-container">
                                     <div class="mp-name-row">
-                                        <h1 class="mp-name">{p.store_name.clone()}</h1>
-                                        {p
-                                            .verified
-                                            .then(|| {
+                                        <h1 class="mp-name">{store_name.clone()}</h1>
+                                    </div>
+
+                                    // ── Lokasi (kota event terbaru) ───────────
+                                    {move || {
+                                        events
+                                            .get()
+                                            .and_then(|r| r.ok())
+                                            .and_then(|pe| {
+                                                pe.data.first().and_then(|e| e.city.clone())
+                                            })
+                                            .filter(|c| !c.is_empty())
+                                            .map(|city| {
                                                 view! {
-                                                    <span class="mp-verified" title="Terverifikasi">
+                                                    <p class="mp-loc">
                                                         <svg
-                                                            width="16"
-                                                            height="16"
+                                                            width="14"
+                                                            height="14"
                                                             viewBox="0 0 24 24"
                                                             fill="none"
                                                             stroke="currentColor"
-                                                            stroke-width="2.5"
+                                                            stroke-width="2"
                                                             stroke-linecap="round"
+                                                            stroke-linejoin="round"
                                                         >
-                                                            <path d="M9 12l2 2 4-4" />
-                                                            <circle cx="12" cy="12" r="9" />
+                                                            <path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0z" />
+                                                            <circle cx="12" cy="10" r="3" />
                                                         </svg>
-                                                    </span>
+                                                        {city}
+                                                    </p>
                                                 }
-                                            })}
-                                    </div>
+                                            })
+                                    }}
 
                                     // ── Statistik ─────────────────────────────
                                     <div class="mp-stats">
@@ -286,43 +403,18 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                         if tab.get() == 0 {
                                             view! {
                                                 <Suspense fallback=|| {
-                                                    view! {
-                                                        <div class="mp-grid">
-                                                            <EventCardShimmer />
-                                                            <EventCardShimmer />
-                                                        </div>
-                                                    }
+                                                    view! { <EventGridShimmer count=4 /> }
                                                 }>
                                                     {move || {
                                                         events
                                                             .get()
                                                             .map(|r| match r {
-                                                                Ok(pe) if pe.data.is_empty() => {
-                                                                    view! { <p class="mp-empty">"Belum ada event aktif."</p> }
-                                                                        .into_any()
-                                                                }
                                                                 Ok(pe) => {
                                                                     view! {
-                                                                        <div class="mp-grid">
-                                                                            {pe
-                                                                                .data
-                                                                                .iter()
-                                                                                .map(|e| {
-                                                                                    let badge = e.category.first().cloned().unwrap_or_default();
-                                                                                    view! {
-                                                                                        <EventCard
-                                                                                            href=format!("/events/{}", e.slug)
-                                                                                            img=e.cover_url.clone().unwrap_or_default()
-                                                                                            alt=e.name.clone()
-                                                                                            badge=badge
-                                                                                            title=e.name.clone()
-                                                                                            venue=e.venue.clone().unwrap_or_default()
-                                                                                            price=format!("Mulai {}", fmt_price(e.display_price))
-                                                                                        />
-                                                                                    }
-                                                                                })
-                                                                                .collect_view()}
-                                                                        </div>
+                                                                        <EventGrid
+                                                                            events=pe.data
+                                                                            empty="Belum ada event aktif."
+                                                                        />
                                                                     }
                                                                         .into_any()
                                                                 }
@@ -359,8 +451,6 @@ pub fn MerchantPublicPage() -> impl IntoView {
                     }
                 }}
             </Suspense>
-
-            <BottomNav />
         </div>
     }
 }

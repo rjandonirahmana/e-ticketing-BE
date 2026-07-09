@@ -5,7 +5,7 @@ use leptos_router::components::A;
 
 use crate::web::api::get_merchant_events;
 use crate::web::app::AuthResource;
-use crate::web::components::{BottomNav, GridBackground, MerchantEventCardShimmer, ThemeToggle};
+use crate::web::components::{BottomNav, MerchantEventCardShimmer, ThemeToggle};
 use crate::web::models::{format_date, format_price, Event, PaginatedEvents};
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
@@ -86,7 +86,6 @@ pub fn MerchantPage() -> impl IntoView {
     };
 
     view! {
-        <GridBackground />
         <div class="page merchant-page mhub-mobile">
 
             // ── Header ────────────────────────────────────────────────────────

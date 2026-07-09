@@ -13,6 +13,7 @@ use leptos_router::{
     path,
 };
 
+use crate::web::components::GridBackground;
 use crate::web::pages::*;
 
 use super::guards::{AdminGuard, AuthGuard, MerchantGuard};
@@ -50,6 +51,10 @@ pub fn App() -> impl IntoView {
 
         <Router>
             <ScrollToTop />
+            // Latar grid global di belakang SEMUA halaman (fixed, z-index 0).
+            // Kolom halaman OPAQUE + ≤480px terpusat → grid hanya terlihat di
+            // gutter kiri/kanan pada layar lebar (persis /lives & /login).
+            <GridBackground />
             <main>
                 <ErrorBoundary fallback=|_| {
                     view! {

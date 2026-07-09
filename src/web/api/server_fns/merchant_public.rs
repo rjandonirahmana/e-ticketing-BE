@@ -13,21 +13,23 @@ pub async fn get_merchant_public_profile(
     merchant_id: String,
 ) -> Result<MerchantPublicProfile, ServerFnError> {
     let state = app_state().await?;
-    let p = state
-        .merchant_svc
-        .public_profile(&merchant_id)
-        .await
-        .map_err(map_app_error)?;
 
-    // Status follow viewer: best-effort — viewer anonim sah (false).
-    let is_following = match auth_claims().await {
-        Ok(c) => state
-            .merchant_svc
-            .is_following(&merchant_id, &c.user_id)
-            .await
-            .unwrap_or(false),
-        Err(_) => false,
-    };
+    // user_id viewer (JWT cookie, tanpa DB) — untuk status follow.
+    let viewer = auth_claims().await.ok().map(|c| c.user_id);
+
+    // Profil + status follow jalan paralel: satu latensi round-trip. Follow
+    // best-effort (anonim / gagal = false), jadi jangan gagalkan seluruh profil.
+    let (profile, follow_res) = futures::join!(
+        state.merchant_svc.public_profile(&merchant_id),
+        async {
+            match &viewer {
+                Some(uid) => state.merchant_svc.is_following(&merchant_id, uid).await,
+                None => Ok(false),
+            }
+        },
+    );
+    let p = profile.map_err(map_app_error)?;
+    let is_following = follow_res.unwrap_or(false);
 
     Ok(MerchantPublicProfile {
         merchant_id: p.merchant_id,
@@ -73,25 +75,25 @@ pub async fn get_reviews(
     page: Option<i64>,
 ) -> Result<MerchantReviewsData, ServerFnError> {
     let state = app_state().await?;
-    // store_name ikut dikirim agar header halaman reviews tak butuh fetch kedua.
-    let profile = state
-        .merchant_svc
-        .public_profile(&merchant_id)
-        .await
-        .map_err(map_app_error)?;
-    let summary = state
-        .merchant_svc
-        .review_summary(&merchant_id)
-        .await
-        .map_err(map_app_error)?;
-    let items = state
-        .merchant_svc
-        .list_reviews(&merchant_id, page.unwrap_or(1), 20)
-        .await
-        .map_err(map_app_error)?;
+    // Ringkasan (store_name + rating) & daftar ulasan jalan paralel — satu
+    // latensi round-trip, bukan tiga. store_name ikut di summary sehingga header
+    // tak butuh fetch profil lengkap (yang berat: 4 sub-query followers/events/…).
+    let (summary, items) = futures::try_join!(
+        state.merchant_svc.review_summary(&merchant_id),
+        state
+            .merchant_svc
+            .list_reviews(&merchant_id, page.unwrap_or(1), 20),
+    )
+    .map_err(map_app_error)?;
+
+    // store_name None → merchant tidak ada.
+    let store_name = match summary.store_name {
+        Some(n) => n,
+        None => return Err(ServerFnError::ServerError("Merchant tidak ditemukan".into())),
+    };
 
     Ok(MerchantReviewsData {
-        store_name: profile.store_name,
+        store_name,
         avg: summary.avg,
         total: summary.total,
         dist: summary.dist,

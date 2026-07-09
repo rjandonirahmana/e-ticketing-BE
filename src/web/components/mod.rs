@@ -13,8 +13,9 @@ pub mod variant_editor;
 pub mod story_viewer;
 
 pub use cards::{
-    EventCard, EventCardShimmer, MerchantEventCardShimmer, MerchantRowShimmer, MessageRowShimmer,
-    OrderCardShimmer, TicketCardShimmer,
+    EventCard, EventCardPub, EventCardShimmer, EventGrid, EventGridShimmer,
+    MerchantEventCardShimmer, MerchantRowShimmer, MessageRowShimmer, OrderCardShimmer,
+    TicketCardShimmer,
 };
 pub use common::{EmptyState, ErrorBanner, GridBackground, KineticInput};
 pub use live_stream::LiveStreamViewer;
