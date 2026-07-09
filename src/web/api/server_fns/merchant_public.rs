@@ -69,6 +69,24 @@ pub async fn get_merchant_public_events(
     Ok(srv_paginated_events_to_web(result))
 }
 
+/// Story milik merchant (profil publik /m/{id}). `merchant_id` == `user_id`
+/// pemilik merchant (lihat `merchant_details.user_id`), sehingga story merchant
+/// = story user tersebut. Satu grup berisi story aktif + arsip, terbaru dulu.
+/// Publik (tak butuh login) untuk MELIHAT daftar; membuka viewer digate login
+/// di client — konsisten dengan StoryBar.
+#[server(GetMerchantStories, "/api-fn")]
+pub async fn get_merchant_stories(
+    merchant_id: String,
+) -> Result<Vec<crate::web::state::stories::StoryGroup>, ServerFnError> {
+    let state = app_state().await?;
+    let groups = state
+        .story_svc
+        .list_my_group(&merchant_id)
+        .await
+        .map_err(map_app_error)?;
+    Ok(srv_story_groups_to_web(groups))
+}
+
 #[server(GetMerchantReviews, "/api-fn")]
 pub async fn get_reviews(
     merchant_id: String,

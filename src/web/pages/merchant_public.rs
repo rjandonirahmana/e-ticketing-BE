@@ -1,20 +1,42 @@
 //! merchant_public.rs — Profil merchant publik (/m/:id), sisi user.
 //!
 //! Hero cover (dari event terbaru), avatar/logo, tombol Follow, statistik
-//! (followers / events / rating → klik rating ke halaman reviews), tab
-//! EVENTS | TENTANG. Entry point: tombol penyelenggara di event detail &
-//! chip penyelenggara di kartu explore.
+//! (followers / events / rating → klik rating ke halaman reviews), dan panel
+//! yang bisa DIGESER (swipe horizontal / klik tab): EVENTS · TENTANG · ULASAN ·
+//! STORY. Story merchant = story user pemilik (buka viewer via StoryViewer).
+//! Entry point: tombol penyelenggara di event detail & chip penyelenggara di
+//! kartu explore.
 
+use leptos::html::Div;
 use leptos::prelude::*;
 use leptos_router::components::A;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::web::api::{
-    get_merchant_public_events, get_merchant_public_profile, set_follow_merchant,
+    get_merchant_public_events, get_merchant_public_profile, get_merchant_stories, get_reviews,
+    set_follow_merchant,
 };
 use crate::web::app::AuthResource;
+use crate::web::components::story_viewer::StoryViewer;
 use crate::web::components::{EventGrid, EventGridShimmer};
 use crate::web::hooks::ThemeToggle;
+use crate::web::state::stories::{use_stories_store, StoryMediaType};
+
+/// Timestamp milidetik (performance.now) untuk hitung kecepatan swipe (flick).
+/// No-op di server (0.0) — kode ini hanya berjalan di jalur pointer wasm.
+fn now_ms() -> f64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()
+            .and_then(|w| w.performance())
+            .map(|p| p.now())
+            .unwrap_or(0.0)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        0.0
+    }
+}
 
 /// 12500 → "12.5k", 999 → "999".
 pub(crate) fn fmt_count(n: i64) -> String {
@@ -24,6 +46,25 @@ pub(crate) fn fmt_count(n: i64) -> String {
         format!("{:.1}k", n as f64 / 1_000.0)
     } else {
         n.to_string()
+    }
+}
+
+/// Baris bintang statis untuk panel ulasan in-page (mirror dari reviews.rs).
+#[component]
+fn Stars(#[prop(into)] rating: f64) -> impl IntoView {
+    view! {
+        <span class="mrv-stars" aria-label=format!("{rating:.1} dari 5")>
+            {(1..=5)
+                .map(|i| {
+                    let cls = if (i as f64) <= rating + 0.25 {
+                        "mrv-star mrv-star--on"
+                    } else {
+                        "mrv-star"
+                    };
+                    view! { <span class=cls>"★"</span> }
+                })
+                .collect_view()}
+        </span>
     }
 }
 
@@ -37,10 +78,7 @@ fn MerchantProfileShimmer() -> impl IntoView {
                 <div class="mp-avatar shimmer-bg"></div>
             </div>
             <div class="mp-head-actions">
-                <div
-                    class="shimmer-bg"
-                    style="width:112px;height:42px;border-radius:999px;"
-                ></div>
+                <div class="shimmer-bg" style="width:112px;height:42px;border-radius:999px;"></div>
                 <div class="shimmer-bg" style="width:42px;height:42px;border-radius:50%;"></div>
             </div>
         </div>
@@ -95,6 +133,18 @@ pub fn MerchantPublicPage() -> impl IntoView {
         }
         get_merchant_public_events(id, Some(1)).await
     });
+    let reviews = Resource::new(mid, |id| async move {
+        if id.is_empty() {
+            return Err(ServerFnError::ServerError("not_ready".into()));
+        }
+        get_reviews(id, Some(1)).await
+    });
+    let stories = Resource::new(mid, |id| async move {
+        if id.is_empty() {
+            return Err(ServerFnError::ServerError("not_ready".into()));
+        }
+        get_merchant_stories(id).await
+    });
 
     // State follow lokal (optimistic): diisi dari profile saat termuat.
     let following = RwSignal::new(false);
@@ -146,8 +196,118 @@ pub fn MerchantPublicPage() -> impl IntoView {
         });
     };
 
-    // Tab aktif: 0 = EVENTS, 1 = TENTANG.
+    // Tab aktif: 0 = EVENTS, 1 = TENTANG, 2 = ULASAN, 3 = STORY.
+    // Panel bisa "digeser" (swipe horizontal) antar-tab, atau lewat klik tab.
+    const TAB_COUNT: usize = 4;
     let tab = RwSignal::new(0usize);
+
+    // ── Swipe antar-panel (carousel: 4 panel selalu dirender) ───────────────────
+    // Panel AKTIF `position:relative` → dialah yang menentukan tinggi container;
+    // panel lain `position:absolute` (keluar flow) digeser ±100% via
+    // translateX(calc(N% + Dpx)) sehingga tetangga "mengintip" saat drag dan
+    // commit-nya meluncur mulus — tanpa perlu mengukur lebar/tinggi.
+    // Ambang 45px ATAU flick (kecepatan) untuk memindah tab; sumbu dikunci pada
+    // gerak pertama agar tak membajak scroll vertikal (didukung touch-action:pan-y).
+    const SWIPE_PX: f64 = 45.0; // ambang jarak
+    const SWIPE_VEL: f64 = 0.4; // ambang kecepatan px/ms (flick)
+    let swipe_ref = NodeRef::<Div>::new();
+    let drag_start = RwSignal::new(None::<(f64, f64)>);
+    let drag_dx = RwSignal::new(0f64);
+    let dragging = RwSignal::new(false);
+    // 0 = belum terkunci, 1 = horizontal, 2 = vertikal.
+    let drag_axis = RwSignal::new(0i8);
+    let drag_t0 = RwSignal::new(0f64);
+
+    let on_pointer_down = move |ev: leptos::ev::PointerEvent| {
+        drag_start.set(Some((ev.client_x() as f64, ev.client_y() as f64)));
+        drag_axis.set(0);
+        drag_dx.set(0.0);
+        drag_t0.set(now_ms());
+    };
+    let on_pointer_move = move |ev: leptos::ev::PointerEvent| {
+        let Some((sx, sy)) = drag_start.get_untracked() else {
+            return;
+        };
+        let dx = ev.client_x() as f64 - sx;
+        let dy = ev.client_y() as f64 - sy;
+        if drag_axis.get_untracked() == 0 {
+            if dx.abs() > 8.0 || dy.abs() > 8.0 {
+                if dx.abs() > dy.abs() {
+                    drag_axis.set(1);
+                    dragging.set(true);
+                    if let Some(el) = swipe_ref.get_untracked() {
+                        let _ = el.set_pointer_capture(ev.pointer_id());
+                    }
+                } else {
+                    drag_axis.set(2);
+                }
+            }
+        }
+        if drag_axis.get_untracked() == 1 {
+            let t = tab.get_untracked();
+            // Tahanan di tepi (tak ada panel sebelum 0 / sesudah terakhir).
+            let d = if (t == 0 && dx > 0.0) || (t == TAB_COUNT - 1 && dx < 0.0) {
+                dx * 0.35
+            } else {
+                dx
+            };
+            drag_dx.set(d);
+        }
+    };
+    let on_pointer_up = move |ev: leptos::ev::PointerEvent| {
+        let was_h = drag_axis.get_untracked() == 1;
+        drag_start.set(None);
+        drag_axis.set(0);
+        if was_h {
+            if let Some(el) = swipe_ref.get_untracked() {
+                if el.has_pointer_capture(ev.pointer_id()) {
+                    let _ = el.release_pointer_capture(ev.pointer_id());
+                }
+            }
+            let d = drag_dx.get_untracked();
+            let dt = (now_ms() - drag_t0.get_untracked()).max(1.0);
+            let vel = d / dt; // px/ms, bertanda (negatif = geser kiri)
+            let t = tab.get_untracked();
+            // Pindah bila lewat ambang jarak ATAU flick cepat.
+            let go_next = d <= -SWIPE_PX || vel <= -SWIPE_VEL;
+            let go_prev = d >= SWIPE_PX || vel >= SWIPE_VEL;
+            if go_next && t < TAB_COUNT - 1 {
+                tab.set(t + 1);
+            } else if go_prev && t > 0 {
+                tab.set(t - 1);
+            }
+        }
+        dragging.set(false);
+        drag_dx.set(0.0);
+    };
+
+    // Transform per panel: posisi dasar (i - tab)*100% + geseran drag (px).
+    // calc() mencampur % (lebar panel) + px → tak perlu ukur lebar container.
+    let panel_tf = move |i: usize| {
+        let base = (i as f64 - tab.get() as f64) * 100.0;
+        let dx = if dragging.get() { drag_dx.get() } else { 0.0 };
+        format!("transform:translateX(calc({base}% + {dx}px))")
+    };
+
+    // Buka viewer story merchant pada indeks tertentu (login required).
+    let ctx = use_stories_store();
+    let navigate = use_navigate();
+    let open_story = {
+        let navigate = navigate.clone();
+        move |list: Vec<crate::web::state::stories::StoryGroup>, idx: usize| {
+            let logged_in = auth
+                .get_untracked()
+                .and_then(|r| r.ok())
+                .flatten()
+                .is_some();
+            if !logged_in {
+                navigate("/login", Default::default());
+                return;
+            }
+            ctx.groups.set(list);
+            ctx.open_at(0, idx);
+        }
+    };
 
     view! {
         <div class="mp-page">
@@ -207,7 +367,6 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                 .to_string();
                             let desc = p.description.clone().unwrap_or_default();
                             let reviews_href = format!("/m/{}/reviews", merchant_id);
-                            // Dipakai hanya di jalur wasm (clipboard); no-op di native.
                             #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
                             let share_url = format!("/m/{}", merchant_id);
                             let on_share = move |_| {
@@ -218,13 +377,15 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                     let _ = w.navigator().clipboard().write_text(&full);
                                 }
                                 share_ok.set(true);
-                                #[cfg(target_arch = "wasm32")]
-                                gloo_timers::callback::Timeout::new(
-                                        1600,
-                                        move || share_ok.set(false),
-                                    )
-                                    .forget();
+                                // set_timeout (leptos) pakai Closure::once_into_js →
+                                // callback dibebaskan setelah fire (TIDAK bocor spt
+                                // gloo Timeout::forget()); no-op di server.
+                                set_timeout(
+                                    move || share_ok.set(false),
+                                    std::time::Duration::from_millis(1600),
+                                );
                             };
+                            // Dipakai hanya di jalur wasm (clipboard); no-op di native.
                             view! {
                                 // ── Hero: cover event terbaru sebagai latar ──
                                 <div class="mp-hero">
@@ -313,7 +474,9 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                             share_ok
                                                 .get()
                                                 .then(|| {
-                                                    view! { <span class="mp-share-toast">"Tautan disalin"</span> }
+                                                    view! {
+                                                        <span class="mp-share-toast">"Tautan disalin"</span>
+                                                    }
                                                 })
                                         }}
                                     </div>
@@ -377,73 +540,292 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                     </div>
 
                                     // ── Tabs ──────────────────────────────────
+                                    // Klik ATAU geser (swipe) panel di bawah untuk
+                                    // berpindah antar: EVENTS · TENTANG · ULASAN · STORY.
                                     <div class="mp-tabs">
-                                        <button
-                                            class=move || {
-                                                if tab.get() == 0 { "mp-tab mp-tab--on" } else { "mp-tab" }
-                                            }
-                                            on:click=move |_| tab.set(0)
-                                        >
-                                            "EVENTS"
-                                        </button>
-                                        <button
-                                            class=move || {
-                                                if tab.get() == 1 { "mp-tab mp-tab--on" } else { "mp-tab" }
-                                            }
-                                            on:click=move |_| tab.set(1)
-                                        >
-                                            "TENTANG"
-                                        </button>
-                                        <a class="mp-tab" href=reviews_href>
-                                            "ULASAN"
-                                        </a>
+                                        {["EVENTS", "TENTANG", "ULASAN", "STORY"]
+                                            .into_iter()
+                                            .enumerate()
+                                            .map(|(i, label)| {
+                                                view! {
+                                                    <button
+                                                        class=move || {
+                                                            if tab.get() == i { "mp-tab mp-tab--on" } else { "mp-tab" }
+                                                        }
+                                                        on:click=move |_| tab.set(i)
+                                                    >
+                                                        {label}
+                                                    </button>
+                                                }
+                                            })
+                                            .collect_view()}
                                     </div>
 
-                                    {move || {
-                                        if tab.get() == 0 {
-                                            view! {
-                                                <Suspense fallback=|| {
-                                                    view! { <EventGridShimmer count=4 /> }
-                                                }>
-                                                    {move || {
-                                                        events
-                                                            .get()
-                                                            .map(|r| match r {
-                                                                Ok(pe) => {
-                                                                    view! {
-                                                                        <EventGrid
-                                                                            events=pe.data
-                                                                            empty="Belum ada event aktif."
-                                                                        />
-                                                                    }
-                                                                        .into_any()
-                                                                }
-                                                                Err(_) => {
-                                                                    view! { <p class="mp-empty">"Gagal memuat event."</p> }
-                                                                        .into_any()
-                                                                }
-                                                            })
-                                                    }}
+                                    // ── Panel yang bisa digeser ───────────────
+                                    <div
+                                        class="mp-swipe"
+                                        node_ref=swipe_ref
+                                        on:pointerdown=on_pointer_down
+                                        on:pointermove=on_pointer_move
+                                        on:pointerup=on_pointer_up
+                                        on:pointercancel=on_pointer_up
+                                    >
+                                        <div
+                                            class="mp-panel"
+                                            class:mp-panel--active=move || tab.get() == 0
+                                            class:mp-panel--drag=move || dragging.get()
+                                            style=move || panel_tf(0)
+                                        >
+                                            <Suspense fallback=|| {
+                                                view! { <EventGridShimmer count=4 /> }
+                                            }>
+                                                {move || {
+                                                    events
+                                                        .get()
+                                                                            .map(|r| match r {
+                                                                                Ok(pe) => {
+                                                                                    view! {
+                                                                                        <EventGrid
+                                                                                            events=pe.data
+                                                                                            empty="Belum ada event aktif."
+                                                                                        />
+                                                                                    }
+                                                                                        .into_any()
+                                                                                }
+                                                                                Err(_) => {
+                                                                                    view! { <p class="mp-empty">"Gagal memuat event."</p> }
+                                                                                        .into_any()
+                                                                                }
+                                                                            })
+                                                                    }}
                                                 </Suspense>
+                                        </div>
+                                        <div
+                                            class="mp-panel"
+                                            class:mp-panel--active=move || tab.get() == 1
+                                            class:mp-panel--drag=move || dragging.get()
+                                            style=move || panel_tf(1)
+                                        >
+                                            {
+                                                let d = desc.clone();
+                                                view! {
+                                                    <div class="mp-about">
+                                                                    {if d.is_empty() {
+                                                                        view! {
+                                                                            <p class="mp-empty">
+                                                                                "Merchant belum menulis deskripsi."
+                                                                            </p>
+                                                                        }
+                                                                            .into_any()
+                                                                    } else {
+                                                                        view! { <p class="mp-about-text">{d}</p> }.into_any()
+                                                                    }}
+                                                    </div>
+                                                }
                                             }
-                                                .into_any()
-                                        } else {
-                                            let d = desc.clone();
-                                            view! {
-                                                <div class="mp-about">
-                                                    {if d.is_empty() {
-                                                        view! {
-                                                            <p class="mp-empty">"Merchant belum menulis deskripsi."</p>
-                                                        }
-                                                            .into_any()
-                                                    } else {
-                                                        view! { <p class="mp-about-text">{d}</p> }.into_any()
-                                                    }}
-                                                </div>
+                                        </div>
+                                        <div
+                                            class="mp-panel"
+                                            class:mp-panel--active=move || tab.get() == 2
+                                            class:mp-panel--drag=move || dragging.get()
+                                            style=move || panel_tf(2)
+                                        >
+                                            {
+                                                let reviews_href = reviews_href.clone();
+                                                view! {
+                                                    <div class="mp-reviews">
+                                                                    <Suspense fallback=|| {
+                                                                        view! { <p class="mp-empty">"Memuat ulasan…"</p> }
+                                                                    }>
+                                                                        {
+                                                                            let reviews_href = reviews_href.clone();
+                                                                            move || {
+                                                                                let reviews_href = reviews_href.clone();
+                                                                                reviews
+                                                                                    .get()
+                                                                                    .map(|r| match r {
+                                                                                        Ok(d) => {
+                                                                                            let total = d.total.max(0);
+                                                                                            if total == 0 && d.items.is_empty() {
+                                                                                                view! {
+                                                                                                    <p class="mp-empty">
+                                                                                                        "Belum ada ulasan. "
+                                                                                                        <a class="mp-reviews-all" href=reviews_href.clone()>
+                                                                                                            "Jadilah yang pertama →"
+                                                                                                        </a>
+                                                                                                    </p>
+                                                                                                }
+                                                                                                    .into_any()
+                                                                                            } else {
+                                                                                                view! {
+                                                                                                    <div class="mrv-big">
+                                                                                                        <span class="mrv-avg">{format!("{:.1}", d.avg)}</span>
+                                                                                                        <div class="mrv-big-side">
+                                                                                                            <Stars rating=d.avg />
+                                                                                                            <span class="mrv-outof">
+                                                                                                                {fmt_count(total)} " ulasan"
+                                                                                                            </span>
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                    <div class="mrv-list" style="margin-top:14px;">
+                                                                                                        {d
+                                                                                                            .items
+                                                                                                            .iter()
+                                                                                                            .take(5)
+                                                                                                            .map(|r| {
+                                                                                                                let initial: String = r
+                                                                                                                    .user_name
+                                                                                                                    .chars()
+                                                                                                                    .next()
+                                                                                                                    .unwrap_or('P')
+                                                                                                                    .to_uppercase()
+                                                                                                                    .to_string();
+                                                                                                                let date = r.created_at.format("%d %b %Y").to_string();
+                                                                                                                view! {
+                                                                                                                    <div class="mrv-item">
+                                                                                                                        <div class="mrv-item-head">
+                                                                                                                            <span class="mrv-item-avatar">{initial}</span>
+                                                                                                                            <div class="mrv-item-who">
+                                                                                                                                <span class="mrv-item-name">
+                                                                                                                                    {r.user_name.clone()}
+                                                                                                                                </span>
+                                                                                                                                <span class="mrv-item-date">{date}</span>
+                                                                                                                            </div>
+                                                                                                                            <Stars rating=r.rating as f64 />
+                                                                                                                        </div>
+                                                                                                                        {(!r.comment.is_empty())
+                                                                                                                            .then(|| {
+                                                                                                                                view! {
+                                                                                                                                    <p class="mrv-item-text">{r.comment.clone()}</p>
+                                                                                                                                }
+                                                                                                                            })}
+                                                                                                                    </div>
+                                                                                                                }
+                                                                                                            })
+                                                                                                            .collect_view()}
+                                                                                                    </div>
+                                                                                                    <a
+                                                                                                        class="mp-reviews-all"
+                                                                                                        href=reviews_href.clone()
+                                                                                                    >
+                                                                                                        "Lihat semua & tulis ulasan →"
+                                                                                                    </a>
+                                                                                                }
+                                                                                                    .into_any()
+                                                                                            }
+                                                                                        }
+                                                                                        Err(_) => {
+                                                                                            view! { <p class="mp-empty">"Gagal memuat ulasan."</p> }
+                                                                                                .into_any()
+                                                                                        }
+                                                                                    })
+                                                                            }
+                                                                        }
+                                                                    </Suspense>
+                                                    </div>
+                                                }
                                             }
-                                                .into_any()
-                                        }
-                                    }}
+                                        </div>
+                                        <div
+                                            class="mp-panel"
+                                            class:mp-panel--active=move || tab.get() == 3
+                                            class:mp-panel--drag=move || dragging.get()
+                                            style=move || panel_tf(3)
+                                        >
+                                            {
+                                                let open_story = open_story.clone();
+                                                view! {
+                                                    <div class="mp-stories">
+                                                                    <Suspense fallback=|| {
+                                                                        view! { <p class="mp-empty">"Memuat story…"</p> }
+                                                                    }>
+                                                                        {
+                                                                            let open_story = open_story.clone();
+                                                                            move || {
+                                                                                let open_story = open_story.clone();
+                                                                                stories
+                                                                                    .get()
+                                                                                    .map(|r| match r {
+                                                                                        Ok(list) => {
+                                                                                            let items = list
+                                                                                                .first()
+                                                                                                .map(|g| g.stories.clone())
+                                                                                                .unwrap_or_default();
+                                                                                            if items.is_empty() {
+                                                                                                view! {
+                                                                                                    <p class="mp-empty">"Merchant belum punya story."</p>
+                                                                                                }
+                                                                                                    .into_any()
+                                                                                            } else {
+                                                                                                view! {
+                                                                                                    <div class="mp-story-grid">
+                                                                                                        {items
+                                                                                                            .iter()
+                                                                                                            .enumerate()
+                                                                                                            .map(|(i, s)| {
+                                                                                                                let is_video = s.media_type == StoryMediaType::Video;
+                                                                                                                let media = s.media_url.clone();
+                                                                                                                let list_c = list.clone();
+                                                                                                                let open_story = open_story.clone();
+                                                                                                                view! {
+                                                                                                                    <button
+                                                                                                                        class="mp-story-cell"
+                                                                                                                        on:click=move |_| open_story(list_c.clone(), i)
+                                                                                                                    >
+                                                                                                                        {if is_video {
+                                                                                                                            view! {
+                                                                                                                                <video
+                                                                                                                                    class="mp-story-media"
+                                                                                                                                    src=media.clone()
+                                                                                                                                    muted=true
+                                                                                                                                    playsinline=true
+                                                                                                                                    preload="metadata"
+                                                                                                                                ></video>
+                                                                                                                                <span class="mp-story-play">
+                                                                                                                                    <svg
+                                                                                                                                        width="12"
+                                                                                                                                        height="12"
+                                                                                                                                        viewBox="0 0 24 24"
+                                                                                                                                        fill="currentColor"
+                                                                                                                                    >
+                                                                                                                                        <polygon points="5 3 19 12 5 21 5 3" />
+                                                                                                                                    </svg>
+                                                                                                                                </span>
+                                                                                                                            }
+                                                                                                                                .into_any()
+                                                                                                                        } else {
+                                                                                                                            view! {
+                                                                                                                                <img
+                                                                                                                                    class="mp-story-media"
+                                                                                                                                    src=media.clone()
+                                                                                                                                    alt=""
+                                                                                                                                    loading="lazy"
+                                                                                                                                />
+                                                                                                                            }
+                                                                                                                                .into_any()
+                                                                                                                        }}
+                                                                                                                    </button>
+                                                                                                                }
+                                                                                                            })
+                                                                                                            .collect_view()}
+                                                                                                    </div>
+                                                                                                }
+                                                                                                    .into_any()
+                                                                                            }
+                                                                                        }
+                                                                                        Err(_) => {
+                                                                                            view! { <p class="mp-empty">"Gagal memuat story."</p> }
+                                                                                                .into_any()
+                                                                                        }
+                                                                                    })
+                                                                            }
+                                                                        }
+                                                                    </Suspense>
+                                                    </div>
+                                                }
+                                            }
+                                        </div>
+                                    </div>
                                 </div>
                             }
                                 .into_any()
@@ -451,6 +833,9 @@ pub fn MerchantPublicPage() -> impl IntoView {
                     }
                 }}
             </Suspense>
+
+            // Viewer fullscreen story merchant (overlay global; buka via panel STORY).
+            <StoryViewer />
         </div>
     }
 }
