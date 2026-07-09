@@ -127,6 +127,25 @@
 .mrv-pick-star--on { color: var(--accent-lime); }
 .mrv-form-msg { font-size: 13px; color: var(--text-muted); margin: 0; }
 
+/* ── Daftar follower (/m/:id/followers) ─────────────────────────────────────── */
+.mflw-count-badge { display: inline-flex; align-items: center; padding: 5px 12px; border-radius: 999px; background: var(--bg-elevated); border: 1px solid var(--border); font-size: 13px; font-weight: 800; color: var(--accent-lime); }
+
+.mflw-search { display: flex; align-items: center; gap: 10px; margin: 14px 0 16px; padding: 0 14px; height: 46px; border-radius: 14px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-muted); }
+.mflw-search:focus-within { border-color: var(--accent-lime); }
+.mflw-search svg { flex: none; }
+.mflw-search-input { flex: 1; background: none; border: none; outline: none; color: var(--text-primary); font-size: 15px; }
+.mflw-search-input::placeholder { color: var(--text-muted); }
+
+.mflw-list { display: flex; flex-direction: column; gap: 10px; }
+.mflw-item { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 16px; background: var(--bg-elevated); border: 1px solid var(--border); text-decoration: none; color: inherit; }
+.mflw-item--link { cursor: pointer; transition: border-color .15s, background .15s; }
+.mflw-item--link:hover { border-color: var(--accent-lime); background: var(--bg-elevated-2); }
+.mflw-avatar { width: 52px; height: 52px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 800; color: var(--text-on-accent); background: var(--accent-blue); }
+.mflw-meta { display: flex; flex-direction: column; min-width: 0; margin-right: auto; gap: 3px; }
+.mflw-name { font-weight: 700; font-size: 15px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mflw-sub { font-size: 12px; color: var(--text-muted); }
+.mflw-tag { flex: none; font-size: 10px; font-weight: 800; letter-spacing: .1em; color: var(--accent-lime); border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px; }
+
 /* ── Entry point: penyelenggara di event detail & explore ──────────────────── */
 .ed-organizer { display: flex; align-items: center; gap: 10px; margin: 14px 0 4px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-elevated); text-decoration: none; color: inherit; }
 .ed-organizer:hover { border-color: var(--accent-lime); }

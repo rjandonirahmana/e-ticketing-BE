@@ -145,6 +145,28 @@ impl MerchantService {
             .map_err(AppError::Internal)
     }
 
+    /// Daftar follower merchant + total, paginasi per halaman.
+    pub async fn list_followers(
+        &self,
+        merchant_id: &str,
+        page: i64,
+        per_page: i64,
+    ) -> AppResult<(i64, Vec<crate::models::merchant::MerchantFollower>)> {
+        let per_page = per_page.clamp(1, 50);
+        let offset = (page.max(1) - 1) * per_page;
+        let total = self
+            .repo
+            .count_followers(merchant_id)
+            .await
+            .map_err(AppError::Internal)?;
+        let items = self
+            .repo
+            .list_followers(merchant_id, per_page, offset)
+            .await
+            .map_err(AppError::Internal)?;
+        Ok((total, items))
+    }
+
     pub async fn set_follow(
         &self,
         merchant_id: &str,

@@ -72,6 +72,15 @@ pub struct MerchantReviewSummary {
     pub dist: [i64; 5],
 }
 
+/// Satu follower merchant (untuk halaman daftar follower /m/{id}/followers).
+#[derive(Debug, Clone, Serialize)]
+pub struct MerchantFollower {
+    pub user_id: String,
+    pub name: String,
+    pub role: String,
+    pub created_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct MerchantReviewItem {
     pub user_name: String,

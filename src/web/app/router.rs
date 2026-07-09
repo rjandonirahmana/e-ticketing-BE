@@ -90,6 +90,7 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/events/:slug") view=EventDetailPage />
                         <Route path=path!("/m/:id") view=MerchantPublicPage />
                         <Route path=path!("/m/:id/reviews") view=MerchantReviewsPage />
+                        <Route path=path!("/m/:id/followers") view=MerchantFollowersPage />
                         // Arsip publik semua story (View All di Explore).
                         <Route path=path!("/stories") view=StoriesArchivePage />
                         <Route path=path!("/pulse-landing") view=PulseLandingPage />

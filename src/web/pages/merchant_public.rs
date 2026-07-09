@@ -404,6 +404,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                             // Header kustom merchant → hero; kosong = fallback cover event terbaru.
                             let header = p.header_url.clone().unwrap_or_default();
                             let reviews_href = format!("/m/{}/reviews", merchant_id);
+                            let followers_href = format!("/m/{}/followers", merchant_id);
                             #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
                             let share_url = format!("/m/{}", merchant_id);
                             let on_share = move |_| {
@@ -564,12 +565,12 @@ pub fn MerchantPublicPage() -> impl IntoView {
 
                                     // ── Statistik ─────────────────────────────
                                     <div class="mp-stats">
-                                        <div class="mp-stat">
+                                        <a class="mp-stat mp-stat-link" href=followers_href>
                                             <span class="mp-stat-num">
                                                 {move || fmt_count(followers.get())}
                                             </span>
                                             <span class="mp-stat-label">"FOLLOWERS"</span>
-                                        </div>
+                                        </a>
                                         <div class="mp-stat">
                                             <span class="mp-stat-num">{fmt_count(p.events_count)}</span>
                                             <span class="mp-stat-label">"EVENTS"</span>

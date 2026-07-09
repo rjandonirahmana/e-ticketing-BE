@@ -793,11 +793,12 @@ fn MerchantProfileCard() -> impl IntoView {
                         let (f, e, r) = p
                             .map(|p| (p.followers, p.events_count, p.rating_avg))
                             .unwrap_or((0, 0, 0.0));
+                        let followers_href = format!("/m/{}/followers", my_id());
                         view! {
-                            <div class="mp-stat">
+                            <a class="mp-stat mp-stat-link" href=followers_href>
                                 <span class="mp-stat-num">{fmt_count(f)}</span>
                                 <span class="mp-stat-label">"FOLLOWERS"</span>
-                            </div>
+                            </a>
                             <div class="mp-stat">
                                 <span class="mp-stat-num">{fmt_count(e)}</span>
                                 <span class="mp-stat-label">"EVENTS"</span>

@@ -6,7 +6,8 @@ use tokio_postgres::Row;
 
 use super::db::{exec_drop, exec_first, exec_one, exec_rows};
 use crate::models::merchant::{
-    MerchantDetail, MerchantPublicProfile, MerchantReviewItem, MerchantReviewSummary,
+    MerchantDetail, MerchantFollower, MerchantPublicProfile, MerchantReviewItem,
+    MerchantReviewSummary,
 };
 use crate::utils::ulid::{bin_to_ulid, id_to_vec};
 
@@ -104,6 +105,17 @@ pub trait MerchantRepository: Send + Sync {
     async fn set_follow(&self, merchant_id: &str, follower_id: &str, follow: bool) -> Result<()>;
 
     async fn is_following(&self, merchant_id: &str, follower_id: &str) -> Result<bool>;
+
+    /// Daftar follower merchant (user), terbaru dulu. Paginasi limit/offset.
+    async fn list_followers(
+        &self,
+        merchant_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<MerchantFollower>>;
+
+    /// Jumlah follower merchant.
+    async fn count_followers(&self, merchant_id: &str) -> Result<i64>;
 }
 
 #[derive(Clone)]
@@ -389,5 +401,49 @@ impl MerchantRepository for PgMerchantRepository {
         )
         .await?;
         Ok(row.is_some())
+    }
+
+    async fn list_followers(
+        &self,
+        merchant_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<MerchantFollower>> {
+        let mid = id_to_vec(merchant_id)?;
+        let rows = exec_rows(
+            &self.pool,
+            r#"
+            SELECT u.id AS uid, u.name, u.role, f.created_at
+            FROM   merchant_follows f
+            JOIN   users u ON u.id = f.follower_id
+            WHERE  f.merchant_id = $1
+            ORDER BY f.created_at DESC
+            LIMIT $2 OFFSET $3
+            "#,
+            &[&mid, &limit, &offset],
+        )
+        .await?;
+        rows.iter()
+            .map(|r| {
+                let uid: Vec<u8> = r.try_get("uid")?;
+                Ok(MerchantFollower {
+                    user_id: bin_to_ulid(uid)?,
+                    name: r.try_get("name")?,
+                    role: r.try_get("role")?,
+                    created_at: r.try_get("created_at")?,
+                })
+            })
+            .collect()
+    }
+
+    async fn count_followers(&self, merchant_id: &str) -> Result<i64> {
+        let mid = id_to_vec(merchant_id)?;
+        let row = exec_one(
+            &self.pool,
+            "SELECT COUNT(*)::BIGINT AS c FROM merchant_follows WHERE merchant_id = $1",
+            &[&mid],
+        )
+        .await?;
+        Ok(row.try_get("c")?)
     }
 }

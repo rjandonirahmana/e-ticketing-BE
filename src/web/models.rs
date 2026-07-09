@@ -141,6 +141,21 @@ pub struct MerchantReviewsData {
     pub items: Vec<MerchantReviewItem>,
 }
 
+/// Satu follower merchant (halaman /m/{id}/followers).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FollowerItem {
+    pub user_id: String,
+    pub name: String,
+    pub role: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MerchantFollowersData {
+    pub total: i64,
+    pub items: Vec<FollowerItem>,
+}
+
 // ── Banners ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

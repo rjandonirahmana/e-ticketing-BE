@@ -128,6 +128,32 @@ pub async fn get_reviews(
     })
 }
 
+/// Daftar follower merchant (publik). 30 per halaman, terbaru dulu.
+#[server(GetMerchantFollowers, "/api-fn")]
+pub async fn get_merchant_followers(
+    merchant_id: String,
+    page: Option<i64>,
+) -> Result<MerchantFollowersData, ServerFnError> {
+    let state = app_state().await?;
+    let (total, items) = state
+        .merchant_svc
+        .list_followers(&merchant_id, page.unwrap_or(1), 30)
+        .await
+        .map_err(map_app_error)?;
+    Ok(MerchantFollowersData {
+        total,
+        items: items
+            .into_iter()
+            .map(|f| FollowerItem {
+                user_id: f.user_id,
+                name: f.name,
+                role: f.role,
+                created_at: f.created_at,
+            })
+            .collect(),
+    })
+}
+
 #[server(SubmitMerchantReview, "/api-fn")]
 pub async fn submit_merchant_review(
     merchant_id: String,
