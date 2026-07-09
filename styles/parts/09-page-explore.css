@@ -1100,6 +1100,66 @@
 }
 
 /* Count bar */
+/* Bagian "Penyelenggara" (merchant) di hasil pencarian — baris scroll horizontal */
+.exp-sovl-merchants {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 6px 16px 2px;
+    flex-shrink: 0;
+}
+.exp-merch-row {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+}
+.exp-merch-row::-webkit-scrollbar { display: none; }
+.exp-merch-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+    max-width: 220px;
+    padding: 6px 12px 6px 6px;
+    border-radius: 999px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    text-decoration: none;
+    color: var(--text-primary);
+    transition: border-color .15s, background .15s;
+}
+.exp-merch-item:hover { border-color: var(--accent-lime); background: var(--bg-elevated-2); }
+.exp-merch-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.exp-merch-avatar--fb {
+    font-weight: 800;
+    font-size: 15px;
+    color: var(--text-on-accent);
+    background: var(--accent-blue);
+}
+.exp-merch-name {
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.exp-merch-verified { color: var(--accent-lime); font-size: 12px; flex: none; }
+
 .exp-sovl-count-bar {
     display: flex;
     align-items: center;

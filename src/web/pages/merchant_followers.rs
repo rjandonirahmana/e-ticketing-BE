@@ -210,27 +210,26 @@ pub fn MerchantFollowersPage() -> impl IntoView {
                                                 } else {
                                                     format!("Mengikuti sejak {}", fmt_date(&f.created_at))
                                                 };
-                                                let inner = view! {
-                                                    <div class="mflw-avatar">{initial}</div>
-                                                    <div class="mflw-meta">
-                                                        <span class="mflw-name">{f.name.clone()}</span>
-                                                        <span class="mflw-sub">{sub}</span>
-                                                    </div>
-                                                    {is_merchant
-                                                        .then(|| {
-                                                            view! { <span class="mflw-tag">"LIHAT"</span> }
-                                                        })}
-                                                };
-                                                if is_merchant {
-                                                    view! {
-                                                        <a class="mflw-item mflw-item--link" href=format!("/m/{}", f.user_id)>
-                                                            {inner}
-                                                        </a>
-                                                    }
-                                                        .into_any()
-                                                } else {
-                                                    view! { <div class="mflw-item">{inner}</div> }.into_any()
+                                                // Semua baris → profil user /u/{id}
+                                                // (story + ulasan). Tag MERCHANT untuk
+                                                // yang berperan penyelenggara.
+                                                view! {
+                                                    <a
+                                                        class="mflw-item mflw-item--link"
+                                                        href=format!("/u/{}", f.user_id)
+                                                    >
+                                                        <div class="mflw-avatar">{initial}</div>
+                                                        <div class="mflw-meta">
+                                                            <span class="mflw-name">{f.name.clone()}</span>
+                                                            <span class="mflw-sub">{sub}</span>
+                                                        </div>
+                                                        {is_merchant
+                                                            .then(|| {
+                                                                view! { <span class="mflw-tag">"MERCHANT"</span> }
+                                                            })}
+                                                    </a>
                                                 }
+                                                    .into_any()
                                             })
                                             .collect_view()}
                                     </div>

@@ -35,6 +35,7 @@ pub mod subscription;
 pub mod subscription_checkout;
 pub mod ticket_detail;
 pub mod tickets;
+pub mod user_public;
 pub mod venue_location;
 pub mod verify_otp;
 
@@ -75,5 +76,6 @@ pub use subscription::SubscriptionPage;
 pub use subscription_checkout::SubscriptionCheckoutPage;
 pub use ticket_detail::TicketDetailPage;
 pub use tickets::TicketsPage;
+pub use user_public::UserPublicPage;
 pub use venue_location::VenueLocationPage;
 pub use verify_otp::VerifyOtpPage;

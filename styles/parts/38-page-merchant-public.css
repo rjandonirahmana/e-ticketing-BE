@@ -62,7 +62,12 @@
    translateX(calc(N% + Dpx)) sehingga tetangga mengintip saat drag & commit-nya
    meluncur. `touch-action: pan-y` = scroll vertikal native, horizontal ditangani
    pointer handler (axis-lock). */
-.mp-swipe { position: relative; overflow: hidden; touch-action: pan-y; }
+/* min-height = area swipe minimal: tanpa ini, tab berkonten pendek (mis. "Belum
+   ada ulasan") menciutkan container ke tinggi konten → area kosong di bawahnya
+   BUKAN bagian .mp-swipe sehingga pointerdown tak tertangkap (tak bisa digeser).
+   Handler pointer hanya ada di .mp-swipe, jadi container harus selalu punya
+   "strip" yang bisa ditarik. Konten tinggi tetap melebihi floor ini (tak dibatasi). */
+.mp-swipe { position: relative; overflow: hidden; touch-action: pan-y; min-height: 340px; }
 .mp-panel { position: absolute; top: 0; left: 0; width: 100%; will-change: transform; transition: transform .34s cubic-bezier(.32, .72, 0, 1); }
 .mp-panel--active { position: relative; } /* hanya yang aktif menentukan tinggi */
 .mp-panel--drag { transition: none; }     /* drag mengikuti jari (60fps) */
@@ -126,6 +131,20 @@
 .mrv-pick-star:active { transform: scale(1.2); }
 .mrv-pick-star--on { color: var(--accent-lime); }
 .mrv-form-msg { font-size: 13px; color: var(--text-muted); margin: 0; }
+
+/* ── Profil publik user (/u/:id) ────────────────────────────────────────────── */
+.up-head { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 22px 16px 4px; }
+.up-avatar { width: 96px; height: 96px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 40px; font-weight: 800; color: var(--text-on-accent); background: var(--accent-blue); border: 3px solid var(--accent-lime); }
+.up-name { font-size: 24px; font-weight: 800; margin: 14px 0 0; letter-spacing: -.02em; }
+
+/* Ulasan yang ditulis user = kartu yang bisa diklik ke /m/{merchant} */
+.up-review-link { display: block; text-decoration: none; color: inherit; transition: border-color .15s, background .15s; }
+.up-review-link:hover { border-color: var(--accent-lime); background: var(--bg-elevated-2); }
+
+/* Avatar & nama penulis ulasan → tautan ke /u/{id} */
+a.mrv-item-avatar { text-decoration: none; cursor: pointer; }
+.mrv-item-who--link { text-decoration: none; color: inherit; cursor: pointer; }
+.mrv-item-who--link:hover .mrv-item-name { color: var(--accent-lime); }
 
 /* ── Daftar follower (/m/:id/followers) ─────────────────────────────────────── */
 .mflw-count-badge { display: inline-flex; align-items: center; padding: 5px 12px; border-radius: 999px; background: var(--bg-elevated); border: 1px solid var(--border); font-size: 13px; font-weight: 800; color: var(--accent-lime); }

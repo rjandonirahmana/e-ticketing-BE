@@ -44,6 +44,34 @@ pub fn SearchOverlay(
         })
     });
 
+    // ── Pencarian merchant (server-side, di-debounce 250 ms) ────────────────────
+    // Event dicari client-side dari store; merchant tidak dimuat, jadi query ke
+    // server. Debounce agar tak menembak tiap ketik. Effect hanya jalan di client.
+    let merch_query = RwSignal::new(String::new());
+    let debounce_gen = StoredValue::new(0u32);
+    Effect::new(move |_| {
+        let q = query.get();
+        let gen = debounce_gen.get_value().wrapping_add(1);
+        debounce_gen.set_value(gen);
+        set_timeout(
+            move || {
+                if debounce_gen.get_value() == gen {
+                    merch_query.set(q.clone());
+                }
+            },
+            std::time::Duration::from_millis(250),
+        );
+    });
+    let merchants = Resource::new(
+        move || merch_query.get(),
+        |q| async move {
+            if q.trim().len() < 2 {
+                return Vec::new();
+            }
+            crate::web::api::search_merchants(q).await.unwrap_or_default()
+        },
+    );
+
     let close_c = on_close.clone();
 
     view! {
@@ -147,6 +175,72 @@ pub fn SearchOverlay(
                         })
                 }}
             </div>
+
+            // ── Penyelenggara (merchant) yang cocok ──────────────────────────
+            {move || {
+                let list = merchants.get().unwrap_or_default();
+                (!list.is_empty())
+                    .then(|| {
+                        view! {
+                            <div class="exp-sovl-merchants">
+                                <span class="exp-results-eyebrow">"Penyelenggara"</span>
+                                <div class="exp-merch-row">
+                                    {list
+                                        .into_iter()
+                                        .map(|m| {
+                                            let initial: String = m
+                                                .store_name
+                                                .chars()
+                                                .next()
+                                                .unwrap_or('P')
+                                                .to_uppercase()
+                                                .to_string();
+                                            let logo = m.logo_url.clone().unwrap_or_default();
+                                            let href = format!("/m/{}", m.merchant_id);
+                                            view! {
+                                                <a class="exp-merch-item" href=href>
+                                                    {if logo.is_empty() {
+                                                        view! {
+                                                            <span class="exp-merch-avatar exp-merch-avatar--fb">
+                                                                {initial}
+                                                            </span>
+                                                        }
+                                                            .into_any()
+                                                    } else {
+                                                        view! {
+                                                            <img
+                                                                class="exp-merch-avatar"
+                                                                src=logo
+                                                                alt=""
+                                                                loading="lazy"
+                                                            />
+                                                        }
+                                                            .into_any()
+                                                    }}
+                                                    <span class="exp-merch-name">
+                                                        {m.store_name.clone()}
+                                                        {m
+                                                            .verified
+                                                            .then(|| {
+                                                                view! {
+                                                                    <span
+                                                                        class="exp-merch-verified"
+                                                                        title="Terverifikasi"
+                                                                    >
+                                                                        "✓"
+                                                                    </span>
+                                                                }
+                                                            })}
+                                                    </span>
+                                                </a>
+                                            }
+                                        })
+                                        .collect_view()}
+                                </div>
+                            </div>
+                        }
+                    })
+            }}
 
             <div class="exp-sovl-count-bar">
                 <span class="exp-results-eyebrow">"Hasil Pencarian"</span>

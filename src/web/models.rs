@@ -124,10 +124,38 @@ pub struct MerchantPublicProfile {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MerchantReviewItem {
+    #[serde(default)]
+    pub user_id: String,
     pub user_name: String,
     pub rating: i32,
     pub comment: String,
     pub created_at: DateTime<Utc>,
+}
+
+/// Profil publik user biasa (halaman /u/{id}).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserPublicProfile {
+    pub user_id: String,
+    pub name: String,
+    pub following: i64,
+    pub reviews: i64,
+    pub stories: i64,
+}
+
+/// Satu ulasan yang ditulis user (ke merchant) — /u/{id} tab Reviews.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserReviewItem {
+    pub merchant_id: String,
+    pub store_name: String,
+    pub rating: i32,
+    pub comment: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserReviewsData {
+    pub total: i64,
+    pub items: Vec<UserReviewItem>,
 }
 
 /// Payload halaman reviews: ringkasan + daftar ulasan sekaligus (1 round-trip).
@@ -139,6 +167,15 @@ pub struct MerchantReviewsData {
     /// dist[0] = bintang 1 … dist[4] = bintang 5.
     pub dist: [i64; 5],
     pub items: Vec<MerchantReviewItem>,
+}
+
+/// Hasil pencarian merchant (autocomplete di /explore).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MerchantSearchItem {
+    pub merchant_id: String,
+    pub store_name: String,
+    pub logo_url: Option<String>,
+    pub verified: bool,
 }
 
 /// Satu follower merchant (halaman /m/{id}/followers).
