@@ -94,7 +94,8 @@ RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
 # ── Runtime ───────────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
 
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+# curl: dipakai HEALTHCHECK di bawah (hit /healthz). ca-certificates: TLS keluar.
+RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -109,5 +110,11 @@ EXPOSE 3000
 
 ENV LEPTOS_SITE_ROOT=target/site
 ENV LEPTOS_ENV=PROD
+
+# Liveness untuk Docker/compose & uptime monitor. /healthz murah (tanpa query DB),
+# jadi tak ikut "unhealthy" saat DB sibuk. start-period 20s memberi waktu startup
+# (migrasi/koneksi DB+Redis) sebelum healthcheck mulai dihitung.
+HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=3 \
+    CMD curl -fsS http://localhost:3000/healthz || exit 1
 
 CMD ["./e-ticketing"]

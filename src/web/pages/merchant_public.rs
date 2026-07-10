@@ -26,7 +26,8 @@ use leptos_meta::Script;
 
 /// Timestamp milidetik (performance.now) untuk hitung kecepatan swipe (flick).
 /// No-op di server (0.0) — kode ini hanya berjalan di jalur pointer wasm.
-fn now_ms() -> f64 {
+/// `pub(crate)`: dipakai ulang oleh swipe panel di `user_public.rs`.
+pub(crate) fn now_ms() -> f64 {
     #[cfg(target_arch = "wasm32")]
     {
         web_sys::window()
@@ -407,6 +408,10 @@ pub fn MerchantPublicPage() -> impl IntoView {
                             let header = p.header_url.clone().unwrap_or_default();
                             let reviews_href = format!("/m/{}/reviews", merchant_id);
                             let followers_href = format!("/m/{}/followers", merchant_id);
+                            // Detail profil USER di balik merchant ini (merchant_id ==
+                            // user_id). Tombol di header → /u/{id}: story + ulasan yang
+                            // ditulis, sisi "orang"-nya, terpisah dari sisi toko.
+                            let user_href = format!("/u/{}", merchant_id);
                             // ── SEO: meta + JSON-LD Organization ──
                             let seo_title = format!("{} — PULSE", store_name);
                             let seo_desc = if desc.is_empty() {
@@ -534,6 +539,26 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                 if following.get() { "Mengikuti" } else { "Follow" }
                                             }}
                                         </button>
+                                        <a
+                                            class="mp-icon-btn"
+                                            href=user_href
+                                            aria-label="Lihat profil user"
+                                            title="Profil user"
+                                        >
+                                            <svg
+                                                width="18"
+                                                height="18"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                stroke-width="2"
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                            >
+                                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                                                <circle cx="12" cy="7" r="4" />
+                                            </svg>
+                                        </a>
                                         <button
                                             class="mp-icon-btn"
                                             on:click=on_share
