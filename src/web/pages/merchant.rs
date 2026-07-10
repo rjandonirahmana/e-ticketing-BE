@@ -9,7 +9,7 @@ use crate::web::api::{
 };
 use crate::web::app::AuthResource;
 use crate::web::components::{BottomNav, MerchantEventCardShimmer, ThemeToggle};
-use crate::web::models::{format_date, format_price, Event, PaginatedEvents};
+use crate::web::models::{format_date, format_price, Event, MerchantPublicProfile, PaginatedEvents};
 
 use super::merchant_public::fmt_count;
 
@@ -587,7 +587,32 @@ fn MerchantProfileCard() -> impl IntoView {
         if id.is_empty() {
             return Err(ServerFnError::ServerError("not_ready".into()));
         }
-        get_merchant_public_profile(id).await
+        // Dashboard ini adalah profil merchant SENDIRI. Merchant yang baru
+        // di-upgrade tapi belum membuat toko belum punya row `merchant_details`,
+        // sehingga `get_merchant_public_profile` balas NotFound → dulu render
+        // sebagai 500 dan kartu profil mati (tak bisa isi & simpan toko). Untuk
+        // pemilik sendiri, perlakukan "belum ada" sebagai profil KOSONG yang bisa
+        // diedit — bukan error. (Halaman publik /m/{id} tetap menampilkan
+        // "merchant tidak ditemukan" karena tak melewati jalur ini.)
+        // `Ok::<_, ServerFnError>` mem-pin tipe error agar inferensi Resource
+        // tetap konkret (tanpa ini `profile` kehilangan `Copy` → cascade error).
+        get_merchant_public_profile(id.clone())
+            .await
+            .or_else(|_| {
+                Ok::<_, ServerFnError>(MerchantPublicProfile {
+                    merchant_id: id,
+                    store_name: String::new(),
+                    description: None,
+                    logo_url: None,
+                    header_url: None,
+                    verified: false,
+                    followers: 0,
+                    events_count: 0,
+                    rating_avg: 0.0,
+                    rating_count: 0,
+                    is_following: false,
+                })
+            })
     });
     let events = Resource::new(my_id, |id| async move {
         if id.is_empty() {

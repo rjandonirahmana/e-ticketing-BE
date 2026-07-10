@@ -108,6 +108,10 @@ pub struct MerchantFollower {
     pub user_id: String,
     pub name: String,
     pub role: String,
+    /// True bila user ini PUNYA baris `merchant_details` (toko publik yang bisa
+    /// dibuka di /m/{id}). `role == "merchant"` saja TIDAK cukup: user bisa
+    /// berperan merchant tapi belum membuat toko → /m/{id} akan "tidak ditemukan".
+    pub has_store: bool,
     pub created_at: DateTime<Utc>,
 }
 

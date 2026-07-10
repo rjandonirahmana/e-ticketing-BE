@@ -5,6 +5,7 @@
 //! username/avatar/bio), jadi avatar = inisial. Diakses dari daftar follower
 //! (/m/:id/followers) dan dari penulis ulasan (/m/:id/reviews + panel ULASAN).
 
+use leptos::html::Div;
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
 
@@ -15,7 +16,7 @@ use crate::web::hooks::ThemeToggle;
 use crate::web::state::stories::StoryMediaType;
 use crate::web::state::stories::use_stories_store;
 
-use super::merchant_public::fmt_count;
+use super::merchant_public::{fmt_count, now_ms};
 
 /// Baris bintang statis (ulasan).
 #[component]
@@ -61,8 +62,92 @@ pub fn UserPublicPage() -> impl IntoView {
         get_user_reviews(id, Some(1)).await
     });
 
-    // 0 = Pulses (story), 1 = Reviews.
+    // 0 = Pulses (story), 1 = Reviews. Panel bisa "digeser" (swipe horizontal)
+    // antar-tab atau lewat klik tab — mekanisme sama dengan profil merchant.
+    const TAB_COUNT: usize = 2;
     let tab = RwSignal::new(0usize);
+
+    // ── Swipe antar-panel (carousel: kedua panel selalu dirender) ───────────────
+    // Panel aktif `position:relative` (menentukan tinggi), lainnya `absolute`
+    // digeser ±100% via translateX(calc(N% + Dpx)). Ambang 45px ATAU flick;
+    // sumbu dikunci di gerak pertama agar tak membajak scroll vertikal.
+    const SWIPE_PX: f64 = 45.0;
+    const SWIPE_VEL: f64 = 0.4;
+    let swipe_ref = NodeRef::<Div>::new();
+    let drag_start = RwSignal::new(None::<(f64, f64)>);
+    let drag_dx = RwSignal::new(0f64);
+    let dragging = RwSignal::new(false);
+    let drag_axis = RwSignal::new(0i8); // 0 belum, 1 horizontal, 2 vertikal
+    let drag_t0 = RwSignal::new(0f64);
+
+    let on_pointer_down = move |ev: leptos::ev::PointerEvent| {
+        drag_start.set(Some((ev.client_x() as f64, ev.client_y() as f64)));
+        drag_axis.set(0);
+        drag_dx.set(0.0);
+        drag_t0.set(now_ms());
+    };
+    let on_pointer_move = move |ev: leptos::ev::PointerEvent| {
+        let Some((sx, sy)) = drag_start.get_untracked() else {
+            return;
+        };
+        let dx = ev.client_x() as f64 - sx;
+        let dy = ev.client_y() as f64 - sy;
+        if drag_axis.get_untracked() == 0 {
+            if dx.abs() > 8.0 || dy.abs() > 8.0 {
+                if dx.abs() > dy.abs() {
+                    drag_axis.set(1);
+                    dragging.set(true);
+                    if let Some(el) = swipe_ref.get_untracked() {
+                        let _ = el.set_pointer_capture(ev.pointer_id());
+                    }
+                } else {
+                    drag_axis.set(2);
+                }
+            }
+        }
+        if drag_axis.get_untracked() == 1 {
+            let t = tab.get_untracked();
+            // Tahanan di tepi (tak ada panel sebelum 0 / sesudah terakhir).
+            let d = if (t == 0 && dx > 0.0) || (t == TAB_COUNT - 1 && dx < 0.0) {
+                dx * 0.35
+            } else {
+                dx
+            };
+            drag_dx.set(d);
+        }
+    };
+    let on_pointer_up = move |ev: leptos::ev::PointerEvent| {
+        let was_h = drag_axis.get_untracked() == 1;
+        drag_start.set(None);
+        drag_axis.set(0);
+        if was_h {
+            if let Some(el) = swipe_ref.get_untracked() {
+                if el.has_pointer_capture(ev.pointer_id()) {
+                    let _ = el.release_pointer_capture(ev.pointer_id());
+                }
+            }
+            let d = drag_dx.get_untracked();
+            let dt = (now_ms() - drag_t0.get_untracked()).max(1.0);
+            let vel = d / dt; // px/ms, bertanda (negatif = geser kiri)
+            let t = tab.get_untracked();
+            let go_next = d <= -SWIPE_PX || vel <= -SWIPE_VEL;
+            let go_prev = d >= SWIPE_PX || vel >= SWIPE_VEL;
+            if go_next && t < TAB_COUNT - 1 {
+                tab.set(t + 1);
+            } else if go_prev && t > 0 {
+                tab.set(t - 1);
+            }
+        }
+        dragging.set(false);
+        drag_dx.set(0.0);
+    };
+
+    // Transform per panel: (i - tab)*100% + geseran drag (px).
+    let panel_tf = move |i: usize| {
+        let base = (i as f64 - tab.get() as f64) * 100.0;
+        let dx = if dragging.get() { drag_dx.get() } else { 0.0 };
+        format!("transform:translateX(calc({base}% + {dx}px))")
+    };
 
     // Buka viewer story user (login required — konsisten StoryBar).
     let ctx = use_stories_store();
@@ -200,12 +285,23 @@ pub fn UserPublicPage() -> impl IntoView {
                                             .collect_view()}
                                     </div>
 
-                                    {move || {
-                                        if tab.get() == 0 {
-                                            let open_story = open_story.clone();
+                                    // ── Panel yang bisa digeser (swipe) ───────
+                                    <div
+                                        class="mp-swipe"
+                                        node_ref=swipe_ref
+                                        on:pointerdown=on_pointer_down
+                                        on:pointermove=on_pointer_move
+                                        on:pointerup=on_pointer_up
+                                        on:pointercancel=on_pointer_up
+                                    >
+                                        <div
+                                            class="mp-panel"
+                                            class:mp-panel--active=move || tab.get() == 0
+                                            class:mp-panel--drag=move || dragging.get()
+                                            style=move || panel_tf(0)
+                                        >
                                             // ── Pulses (story) ──────────────
-                                            view! {
-                                                <div class="mp-stories">
+                                            <div class="mp-stories">
                                                     <Suspense fallback=|| {
                                                         view! { <p class="mp-empty">"Memuat story…"</p> }
                                                     }>
@@ -290,12 +386,15 @@ pub fn UserPublicPage() -> impl IntoView {
                                                         }
                                                     </Suspense>
                                                 </div>
-                                            }
-                                                .into_any()
-                                        } else {
+                                        </div>
+                                        <div
+                                            class="mp-panel"
+                                            class:mp-panel--active=move || tab.get() == 1
+                                            class:mp-panel--drag=move || dragging.get()
+                                            style=move || panel_tf(1)
+                                        >
                                             // ── Ulasan yang ditulis user ────
-                                            view! {
-                                                <div class="mp-reviews">
+                                            <div class="mp-reviews">
                                                     <Suspense fallback=|| {
                                                         view! { <p class="mp-empty">"Memuat ulasan…"</p> }
                                                     }>
@@ -354,10 +453,8 @@ pub fn UserPublicPage() -> impl IntoView {
                                                         }}
                                                     </Suspense>
                                                 </div>
-                                            }
-                                                .into_any()
-                                        }
-                                    }}
+                                        </div>
+                                    </div>
                                 </div>
                             }
                                 .into_any()

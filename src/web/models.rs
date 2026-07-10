@@ -184,6 +184,10 @@ pub struct FollowerItem {
     pub user_id: String,
     pub name: String,
     pub role: String,
+    /// Punya toko publik (/m/{id}). Menentukan tujuan tautan baris follower:
+    /// true → profil merchant /m/{id}, false → profil user /u/{id}.
+    #[serde(default)]
+    pub has_store: bool,
     pub created_at: DateTime<Utc>,
 }
 

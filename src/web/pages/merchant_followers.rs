@@ -204,19 +204,32 @@ pub fn MerchantFollowersPage() -> impl IntoView {
                                                     .unwrap_or('P')
                                                     .to_uppercase()
                                                     .to_string();
-                                                let is_merchant = f.role == "merchant";
+                                                // Pakai has_store (punya toko publik),
+                                                // BUKAN role: user berperan merchant tapi
+                                                // belum bikin toko tak punya /m/{id} →
+                                                // diperlakukan sebagai user biasa (link /u/,
+                                                // tanpa badge) agar tak "merchant tidak
+                                                // ditemukan".
+                                                let is_merchant = f.has_store;
                                                 let sub = if is_merchant {
                                                     format!("Penyelenggara · {}", fmt_date(&f.created_at))
                                                 } else {
                                                     format!("Mengikuti sejak {}", fmt_date(&f.created_at))
                                                 };
-                                                // Semua baris → profil user /u/{id}
-                                                // (story + ulasan). Tag MERCHANT untuk
+                                                // Rute berbasis role: follower yang
+                                                // merchant → profil merchant /m/{id}
+                                                // (merchant_id == user_id); selain itu →
+                                                // profil user /u/{id}. Tag MERCHANT untuk
                                                 // yang berperan penyelenggara.
+                                                let profile_href = if is_merchant {
+                                                    format!("/m/{}", f.user_id)
+                                                } else {
+                                                    format!("/u/{}", f.user_id)
+                                                };
                                                 view! {
                                                     <a
                                                         class="mflw-item mflw-item--link"
-                                                        href=format!("/u/{}", f.user_id)
+                                                        href=profile_href
                                                     >
                                                         <div class="mflw-avatar">{initial}</div>
                                                         <div class="mflw-meta">

@@ -214,6 +214,7 @@ pub async fn get_merchant_followers(
                 user_id: f.user_id,
                 name: f.name,
                 role: f.role,
+                has_store: f.has_store,
                 created_at: f.created_at,
             })
             .collect(),
