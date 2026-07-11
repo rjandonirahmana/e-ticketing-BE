@@ -13,9 +13,10 @@ impl PgEventRepository {
     ) -> Result<Vec<Event>> {
         let owned = EventFilterOwned::from_filter(f)?;
         let mut sql = format!(
-            "SELECT {cols} FROM events e {lateral} WHERE 1 = 1",
+            "SELECT {cols} FROM events e {lateral} {mjoin} WHERE 1 = 1",
             cols = EVENT_COLS,
             lateral = VARIANT_STATS_LATERAL,
+            mjoin = super::helpers::MERCHANT_JOIN,
         );
         let mut refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = Vec::with_capacity(6);
         let mut idx = 1usize;

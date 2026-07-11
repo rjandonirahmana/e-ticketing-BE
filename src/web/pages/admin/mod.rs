@@ -157,7 +157,7 @@ pub fn AdminPage() -> impl IntoView {
                             <polyline points="20 17 20 20 17 20"/>
                             <rect x="8" y="8" width="8" height="8" rx="1"/>
                         </svg>
-                        "SCAN"
+                        <span class="mhub-btn-label">"SCAN"</span>
                     </A>
                     <ThemeToggle />
                     <A href="/notifications" attr:class="mhub-bell-btn" attr:aria-label="Notifikasi">

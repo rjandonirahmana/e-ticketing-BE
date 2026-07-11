@@ -12,10 +12,7 @@ use leptos::prelude::*;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_params_map};
 
-use crate::web::api::{
-    get_merchant_public_events, get_merchant_public_profile, get_merchant_stories, get_reviews,
-    set_follow_merchant,
-};
+use crate::web::api::{get_merchant_public_events, get_merchant_public_page, set_follow_merchant};
 use crate::web::app::AuthResource;
 use crate::web::components::story_viewer::StoryViewer;
 use crate::web::components::{EventGrid, EventGridShimmer};
@@ -124,30 +121,20 @@ pub fn MerchantPublicPage() -> impl IntoView {
 
     let auth = use_context::<AuthResource>().expect("AuthResource missing");
 
-    let profile = Resource::new(mid, |id| async move {
+    // SATU resource untuk seluruh halaman (profil + events + ulasan + story):
+    // 1 round-trip HTTP dari klien, server join semua query paralel — dulu 4
+    // POST /api-fn terpisah. Derived signal di bawah mempertahankan bentuk
+    // `.get() -> Option<Result<T>>` yang sama sehingga view tak perlu berubah.
+    let page_data = Resource::new(mid, |id| async move {
         if id.is_empty() {
             return Err(ServerFnError::ServerError("not_ready".into()));
         }
-        get_merchant_public_profile(id).await
+        get_merchant_public_page(id).await
     });
-    let events = Resource::new(mid, |id| async move {
-        if id.is_empty() {
-            return Err(ServerFnError::ServerError("not_ready".into()));
-        }
-        get_merchant_public_events(id, Some(1)).await
-    });
-    let reviews = Resource::new(mid, |id| async move {
-        if id.is_empty() {
-            return Err(ServerFnError::ServerError("not_ready".into()));
-        }
-        get_reviews(id, Some(1)).await
-    });
-    let stories = Resource::new(mid, |id| async move {
-        if id.is_empty() {
-            return Err(ServerFnError::ServerError("not_ready".into()));
-        }
-        get_merchant_stories(id).await
-    });
+    let profile = Signal::derive(move || page_data.get().map(|r| r.map(|d| d.profile)));
+    let events = Signal::derive(move || page_data.get().map(|r| r.map(|d| d.events)));
+    let reviews = Signal::derive(move || page_data.get().map(|r| r.map(|d| d.reviews)));
+    let stories = Signal::derive(move || page_data.get().map(|r| r.map(|d| d.stories)));
 
     // ── Paginasi EVENTS (append "Muat lebih banyak") ────────────────────────────
     // `events` resource = halaman 1 (juga sumber hero/kota); halaman berikutnya
@@ -165,7 +152,10 @@ pub fn MerchantPublicPage() -> impl IntoView {
         }
     });
     let ev_has_more = move || ev_page.get() < ev_total_pages.get();
-    let load_more_events = move |_| {
+    // Tanpa argumen agar bisa dipanggil dari tombol DAN listener scroll (infinite
+    // scroll ala /explore). Guard loading/total_pages → aman dipanggil berkali-
+    // kali per event scroll tanpa fetch ganda.
+    let do_load_more = move || {
         if ev_loading.get_untracked() {
             return;
         }
@@ -183,6 +173,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
             ev_loading.set(false);
         });
     };
+    let load_more_events = move |_| do_load_more();
 
     // State follow lokal (optimistic): diisi dari profile saat termuat.
     let following = RwSignal::new(false);
@@ -238,6 +229,55 @@ pub fn MerchantPublicPage() -> impl IntoView {
     // Panel bisa "digeser" (swipe horizontal) antar-tab, atau lewat klik tab.
     const TAB_COUNT: usize = 4;
     let tab = RwSignal::new(0usize);
+
+    // Infinite scroll ala /explore: listener "scroll" window, prefetch mulai
+    // ~2.5 layar sebelum ujung dokumen. HANYA saat tab EVENTS aktif — scroll di
+    // panel lain (ulasan/story) tak boleh memicu fetch events tersembunyi.
+    // Closure DIPEGANG + di-remove & drop saat unmount (bukan .forget()).
+    #[cfg(feature = "hydrate")]
+    {
+        use send_wrapper::SendWrapper;
+        use wasm_bindgen::closure::Closure;
+        use wasm_bindgen::JsCast;
+
+        let scroll_cb: StoredValue<Option<SendWrapper<Closure<dyn Fn()>>>> =
+            StoredValue::new(None);
+        Effect::new(move |_| {
+            let cb = Closure::<dyn Fn()>::new(move || {
+                if tab.get_untracked() != 0 {
+                    return;
+                }
+                let Some(win) = web_sys::window() else { return };
+                let inner_h = win.inner_height().ok().and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let scroll_y = win.scroll_y().unwrap_or(0.0);
+                let doc_h = win
+                    .document()
+                    .and_then(|d| d.document_element())
+                    .map(|e| e.scroll_height() as f64)
+                    .unwrap_or(0.0);
+                let threshold = (inner_h * 2.5).max(1200.0);
+                if doc_h - (scroll_y + inner_h) < threshold {
+                    do_load_more();
+                }
+            });
+            if let Some(win) = web_sys::window() {
+                let _ = win
+                    .add_event_listener_with_callback("scroll", cb.as_ref().unchecked_ref());
+            }
+            scroll_cb.set_value(Some(SendWrapper::new(cb)));
+        });
+        on_cleanup(move || {
+            if let Some(Some(cb)) = scroll_cb.try_update_value(|o| o.take()) {
+                if let Some(win) = web_sys::window() {
+                    let _ = win.remove_event_listener_with_callback(
+                        "scroll",
+                        cb.as_ref().unchecked_ref(),
+                    );
+                }
+                drop(cb);
+            }
+        });
+    }
 
     // ── Swipe antar-panel (carousel: 4 panel selalu dirender) ───────────────────
     // Panel AKTIF `position:relative` → dialah yang menentukan tinggi container;
@@ -488,7 +528,17 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                         .filter(|c| !c.is_empty())
                                                 })
                                                 .map(|cover| {
-                                                    view! { <img src=cover alt="" loading="lazy" /> }
+                                                    // Hero = kandidat LCP: WAJIB eager + prioritas
+                                                    // tinggi (lazy menunda paint elemen terbesar).
+                                                    // CLS aman: .mp-hero fixed height 200px di CSS.
+                                                    view! {
+                                                        <img
+                                                            src=cover
+                                                            alt=""
+                                                            loading="eager"
+                                                            fetchpriority="high"
+                                                        />
+                                                    }
                                                 })
                                         }
                                     } <div class="mp-hero-grad"></div>

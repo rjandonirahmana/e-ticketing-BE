@@ -30,7 +30,9 @@ pub(super) fn new_peer_connection(ctx: &Ctx, peer_id: &str) -> Option<web_sys::R
     }
 
     // Kirim kandidat ICE lokal ke peer lewat relay server.
-    {
+    // Closure DIPEGANG (bukan `.forget()`) → disimpan di `ctx.pc_closures` dan
+    // di-drop saat peer keluar / teardown, jadi mesh tak bocor tiap join.
+    let ice_cb = {
         let ctx2 = ctx.clone();
         let pid = peer_id.to_string();
         let cb = Closure::<dyn FnMut(web_sys::RtcPeerConnectionIceEvent)>::new(
@@ -49,12 +51,12 @@ pub(super) fn new_peer_connection(ctx: &Ctx, peer_id: &str) -> Option<web_sys::R
             },
         );
         pc.set_onicecandidate(Some(cb.as_ref().unchecked_ref()));
-        cb.forget();
-    }
+        cb
+    };
 
     // Terima media remote → pasang ke tile, lalu terapkan status terakhir yang
     // mungkin sudah diterima sebelum media tiba.
-    {
+    let track_cb = {
         let tiles = ctx.tiles;
         let pid = peer_id.to_string();
         let nm = ctx.name_of(peer_id);
@@ -70,10 +72,13 @@ pub(super) fn new_peer_connection(ctx: &Ctx, peer_id: &str) -> Option<web_sys::R
             }
         });
         pc.set_ontrack(Some(cb.as_ref().unchecked_ref()));
-        cb.forget();
-    }
+        cb
+    };
 
     ctx.pcs.borrow_mut().insert(peer_id.to_string(), pc.clone());
+    ctx.pc_closures
+        .borrow_mut()
+        .insert(peer_id.to_string(), (ice_cb, track_cb));
     Some(pc)
 }
 

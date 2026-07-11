@@ -28,6 +28,10 @@ pub struct Event {
     pub status: String,
     pub total_sold: i32,
     pub total_quota: i32,
+    /// Nama toko penyelenggara — ditampilkan di kartu explore & event detail
+    /// menggantikan label generik "Penyelenggara".
+    #[serde(default)]
+    pub merchant_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,6 +76,9 @@ pub struct EventWithVariants {
     pub display_price: f64,
     pub total_sold: i32,
     pub total_quota: i32,
+    /// Nama toko penyelenggara (label organizer + bottom sheet info merchant).
+    #[serde(default)]
+    pub merchant_name: Option<String>,
     #[serde(default)]
     pub event_variants: Vec<EventVariant>,
 }
@@ -158,6 +165,17 @@ pub struct UserReviewsData {
     pub items: Vec<UserReviewItem>,
 }
 
+/// Payload lengkap halaman /m/{id}: profil + events page-1 + ulasan + story
+/// dalam SATU server fn (`get_merchant_public_page`) — 1 round-trip HTTP dari
+/// klien alih-alih 4, dan server men-join semua query secara paralel.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MerchantPublicPageData {
+    pub profile: MerchantPublicProfile,
+    pub events: PaginatedEvents,
+    pub reviews: MerchantReviewsData,
+    pub stories: Vec<crate::web::state::stories::StoryGroup>,
+}
+
 /// Payload halaman reviews: ringkasan + daftar ulasan sekaligus (1 round-trip).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MerchantReviewsData {
@@ -183,11 +201,9 @@ pub struct MerchantSearchItem {
 pub struct FollowerItem {
     pub user_id: String,
     pub name: String,
+    /// role='merchant' ⟺ punya /m/{id} (dijamin trigger migrasi 016). Menentukan
+    /// tujuan tautan: "merchant" → /m/{id}, selain itu → /u/{id}.
     pub role: String,
-    /// Punya toko publik (/m/{id}). Menentukan tujuan tautan baris follower:
-    /// true → profil merchant /m/{id}, false → profil user /u/{id}.
-    #[serde(default)]
-    pub has_store: bool,
     pub created_at: DateTime<Utc>,
 }
 

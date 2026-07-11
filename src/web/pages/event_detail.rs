@@ -7,8 +7,9 @@ use leptos::prelude::*;
 use leptos_meta::*;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_params_map};
+use crate::web::models::MerchantPublicProfile;
 
-use crate::web::api::{get_event_detail, get_events};
+use crate::web::api::{get_event_detail, get_events, get_merchant_public_profile};
 use crate::web::app::{AuthResource, CartContext};
 use crate::web::components::{EventCardPub, LiveStreamViewer, MerchantLivePip};
 use crate::web::hooks::ThemeToggle;
@@ -159,6 +160,40 @@ pub fn EventDetailPage() -> impl IntoView {
     let auth     = use_context::<AuthResource>().expect("AuthResource missing");
     let cart_ctx = use_context::<CartContext>().expect("CartContext not provided");
 
+    // ── Bottom sheets ─────────────────────────────────────────────────────────
+    // Info merchant (klik penyelenggara → sheet dulu, BUKAN langsung /m/{id})
+    // dan pilihan tiket (varian). Panel selalu dirender agar transisi CSS
+    // slide-up/fade berjalan (lihat styles/parts/39-event-sheets.css).
+    let merchant_sheet = RwSignal::new(false);
+    let tickets_sheet = RwSignal::new(false);
+    let sheet_merchant_id = RwSignal::new(String::new());
+    // Profil merchant di-fetch SAAT sheet dibuka (on-demand, sekali per id).
+    // SENGAJA bukan `Resource`: resource yang dibaca di dalam <Suspense> besar
+    // halaman membuat SELURUH halaman suspend (shimmer ulang — terlihat seperti
+    // refresh) tiap fetch berjalan. Signal + spawn_local di luar mekanisme
+    // Suspense → hanya isi sheet yang menampilkan "Memuat…".
+    let sheet_profile: RwSignal<Option<Result<MerchantPublicProfile, String>>> =
+        RwSignal::new(None);
+    let sheet_loaded_id = RwSignal::new(String::new());
+    Effect::new(move |_| {
+        if !merchant_sheet.get() {
+            return;
+        }
+        let id = sheet_merchant_id.get();
+        // Sekali per merchant: buka-tutup sheet tak refetch profil yang sama.
+        if id.is_empty() || sheet_loaded_id.get_untracked() == id {
+            return;
+        }
+        sheet_loaded_id.set(id.clone());
+        sheet_profile.set(None);
+        leptos::task::spawn_local(async move {
+            let res = get_merchant_public_profile(id)
+                .await
+                .map_err(|e| e.to_string());
+            sheet_profile.set(Some(res));
+        });
+    });
+
     let is_logged_in = move || auth.get().and_then(|r| r.ok()).flatten().is_some();
 
     let shimmer = move || view! {
@@ -178,7 +213,7 @@ pub fn EventDetailPage() -> impl IntoView {
                 .map(|_| {
                     view! {
                         <div style="display:flex;justify-content:space-between;align-items:center;
-                         padding:14px 0;border-bottom:1px solid var(--border-soft)">
+                        padding:14px 0;border-bottom:1px solid var(--border-soft)">
                             <div style="display:flex;flex-direction:column;gap:8px">
                                 <div class="shim" style="height:16px;width:130px"></div>
                                 <div class="shim" style="height:12px;width:80px"></div>
@@ -226,10 +261,10 @@ pub fn EventDetailPage() -> impl IntoView {
                                         <div style="width:36px"></div>
                                     </header>
                                     <div style="display:flex;flex-direction:column;align-items:center;
-                                     justify-content:center;min-height:60vh;padding:20px;text-align:center">
+                                    justify-content:center;min-height:60vh;padding:20px;text-align:center">
                                         <div style="font-size:3rem;margin-bottom:12px">"🔍"</div>
                                         <h2 style="font-size:1.1rem;font-weight:700;text-transform:uppercase;
-                                         letter-spacing:.06em;margin-bottom:8px">
+                                        letter-spacing:.06em;margin-bottom:8px">
                                             "EVENT TIDAK DITEMUKAN"
                                         </h2>
                                         <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:20px">
@@ -264,6 +299,12 @@ pub fn EventDetailPage() -> impl IntoView {
                                 let is_live = ev.status.eq_ignore_ascii_case("live");
                                 let live_room_id = format!("live_{}", ev.merchant_id);
                                 let organizer_href = format!("/m/{}", ev.merchant_id);
+                                let organizer_name = ev
+                                    .merchant_name
+                                    .clone()
+                                    .filter(|n| !n.is_empty())
+                                    .unwrap_or_else(|| "Penyelenggara".to_string());
+                                let sheet_mid = ev.merchant_id.clone();
                                 let sold_count = ev.total_sold.max(0);
                                 let quota = ev.total_quota.max(0);
                                 let remaining = (quota - sold_count).max(0);
@@ -309,6 +350,7 @@ pub fn EventDetailPage() -> impl IntoView {
                                         _nav_story(&format!("/story?{}", qs), Default::default());
                                     }
                                 };
+                                let variant_count = variants.len();
                                 let tiers_view = variants
                                     .into_iter()
                                     .map(|v| {
@@ -377,6 +419,8 @@ pub fn EventDetailPage() -> impl IntoView {
                                             let q = cart_ctx.get_qty(&vid_plus);
                                             cart_ctx.update_qty(&vid_plus, q + 1);
                                         };
+                                        // Nama toko penyelenggara (fallback label lama bila
+                                        // event lama belum punya nama ter-join).
 
                                         // Live streaming: badge + embedded viewer hanya tampil saat
                                         // event berstatus "live". room_id mengikuti format SFU.
@@ -457,9 +501,9 @@ pub fn EventDetailPage() -> impl IntoView {
                                 );
                                 let seo_path = format!("/events/{}", ev_slug);
                                 let seo_image = cover.clone();
-                                // JSON-LD Event (schema.org) → rich result Google.
                                 let ld_event = crate::web::seo::safe_ld(
-                                    &serde_json::json!({
+                                    &serde_json::json!(
+                                        {
                                         "@context": "https://schema.org",
                                         "@type": "Event",
                                         "name": ev.name.clone(),
@@ -487,9 +531,9 @@ pub fn EventDetailPage() -> impl IntoView {
                                                 &format!("/m/{}", ev.merchant_id),
                                             ),
                                         },
-                                    }),
+                                    }
+                                    ),
                                 );
-
                                 view! {
                                     <SeoMeta
                                         title=meta_title
@@ -767,7 +811,18 @@ pub fn EventDetailPage() -> impl IntoView {
 
                                             // Penyelenggara → profil merchant publik (/m/{id}):
                                             // rating, follower, dan semua event si penyelenggara.
-                                            <a href=organizer_href.clone() class="ed-organizer">
+                                            // Klik → bottom sheet info merchant dulu
+                                            // (logo/header/rating), BUKAN langsung /m/{id}.
+                                            <button
+                                                class="ed-organizer"
+                                                on:click={
+                                                    let mid = sheet_mid.clone();
+                                                    move |_| {
+                                                        sheet_merchant_id.set(mid.clone());
+                                                        merchant_sheet.set(true);
+                                                    }
+                                                }
+                                            >
                                                 <span class="ed-org-icon">
                                                     <svg
                                                         width="18"
@@ -785,7 +840,7 @@ pub fn EventDetailPage() -> impl IntoView {
                                                     </svg>
                                                 </span>
                                                 <span class="ed-org-text">
-                                                    "Penyelenggara"
+                                                    {organizer_name.clone()}
                                                     <span class="ed-org-sub">
                                                         "Lihat profil, rating & event lainnya"
                                                     </span>
@@ -803,7 +858,7 @@ pub fn EventDetailPage() -> impl IntoView {
                                                         <polyline points="9 18 15 12 9 6" />
                                                     </svg>
                                                 </span>
-                                            </a>
+                                            </button>
 
                                             // Live stream (tampil saat event sedang live)
                                             {is_live
@@ -855,7 +910,8 @@ pub fn EventDetailPage() -> impl IntoView {
                                                     }
                                                 })}
 
-                                            // Select Tickets
+                                            // Select Tickets — varian dipindah ke bottom
+                                            // sheet; di body cukup tombol pemicu.
                                             <div class="ed-tickets-header">
                                                 <span class="ed-tickets-title">"Select Tickets"</span>
                                                 <span class="ed-tickets-avail">
@@ -863,7 +919,34 @@ pub fn EventDetailPage() -> impl IntoView {
                                                 </span>
                                             </div>
                                             <section class="section ed-mobile-tiers">
-                                                {tiers_view}
+                                                <button
+                                                    class="ed-tickets-trigger"
+                                                    on:click=move |_| tickets_sheet.set(true)
+                                                >
+                                                    <span class="ed-tickets-trigger-text">
+                                                        "Pilih Tiket"
+                                                        <span class="ed-tickets-trigger-sub">
+                                                            {format!(
+                                                                "{} varian · mulai {}",
+                                                                variant_count,
+                                                                format_price(base_price),
+                                                            )}
+                                                        </span>
+                                                    </span>
+                                                    <span class="ed-tickets-trigger-arrow">
+                                                        <svg
+                                                            width="16"
+                                                            height="16"
+                                                            viewBox="0 0 24 24"
+                                                            fill="none"
+                                                            stroke="currentColor"
+                                                            stroke-width="2.5"
+                                                            stroke-linecap="round"
+                                                        >
+                                                            <polyline points="6 9 12 15 18 9" />
+                                                        </svg>
+                                                    </span>
+                                                </button>
                                             </section>
 
                                             // Venue
@@ -1048,6 +1131,159 @@ pub fn EventDetailPage() -> impl IntoView {
                                                     .into_any()
                                             }
                                         }}
+                                    </div>
+
+                                    // ── Bottom sheet: pilih tiket (varian) ────
+                                    <div
+                                        class="edsheet"
+                                        class:edsheet--open=move || tickets_sheet.get()
+                                    >
+                                        <div
+                                            class="edsheet-backdrop"
+                                            on:click=move |_| tickets_sheet.set(false)
+                                        ></div>
+                                        <div class="edsheet-panel">
+                                            <div class="edsheet-grip"></div>
+                                            <div class="edsheet-head">
+                                                <span class="edsheet-title">"Pilih Tiket"</span>
+                                                <button
+                                                    class="edsheet-close"
+                                                    aria-label="Tutup"
+                                                    on:click=move |_| tickets_sheet.set(false)
+                                                >
+                                                    "\u{2715}"
+                                                </button>
+                                            </div>
+                                            <div class="edsheet-body">{tiers_view}</div>
+                                        </div>
+                                    </div>
+
+                                    // ── Bottom sheet: info merchant ───────────
+                                    <div
+                                        class="edsheet"
+                                        class:edsheet--open=move || merchant_sheet.get()
+                                    >
+                                        <div
+                                            class="edsheet-backdrop"
+                                            on:click=move |_| merchant_sheet.set(false)
+                                        ></div>
+                                        <div class="edsheet-panel">
+                                            <div class="edsheet-grip"></div>
+                                            <div class="edsheet-head">
+                                                <span class="edsheet-title">"Penyelenggara"</span>
+                                                <button
+                                                    class="edsheet-close"
+                                                    aria-label="Tutup"
+                                                    on:click=move |_| merchant_sheet.set(false)
+                                                >
+                                                    "\u{2715}"
+                                                </button>
+                                            </div>
+                                            <div class="edsheet-body">
+                                                {move || {
+                                                    match sheet_profile.get() {
+                                                        Some(Ok(p)) => {
+                                                            let header = p.header_url.clone().unwrap_or_default();
+                                                            let logo = p.logo_url.clone().unwrap_or_default();
+                                                            let initial: String = p
+                                                                .store_name
+                                                                .chars()
+                                                                .next()
+                                                                .unwrap_or('P')
+                                                                .to_uppercase()
+                                                                .to_string();
+                                                            let desc = p.description.clone().unwrap_or_default();
+                                                            view! {
+                                                                <div class="edsheet-mch">
+                                                                    <div class="edsheet-mch-hero">
+                                                                        {(!header.is_empty())
+                                                                            .then(|| {
+                                                                                view! {
+                                                                                    <img src=header alt="" loading="lazy" />
+                                                                                }
+                                                                            })}
+                                                                    </div>
+                                                                    <div class="edsheet-mch-head">
+                                                                        {if logo.is_empty() {
+                                                                            view! {
+                                                                                <span class="edsheet-mch-avatar edsheet-mch-avatar--fallback">
+                                                                                    {initial}
+                                                                                </span>
+                                                                            }
+                                                                                .into_any()
+                                                                        } else {
+                                                                            view! {
+                                                                                <img
+                                                                                    class="edsheet-mch-avatar"
+                                                                                    src=logo
+                                                                                    alt="Logo merchant"
+                                                                                />
+                                                                            }
+                                                                                .into_any()
+                                                                        }}
+                                                                        <span class="edsheet-mch-name">
+                                                                            {p.store_name.clone()}
+                                                                            {p.verified
+                                                                                .then(|| {
+                                                                                    view! {
+                                                                                        <span
+                                                                                            class="edsheet-mch-verified"
+                                                                                            title="Terverifikasi"
+                                                                                        >
+                                                                                            "\u{2713}"
+                                                                                        </span>
+                                                                                    }
+                                                                                })}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div class="edsheet-mch-stats">
+                                                                        <span>
+                                                                            <b>{crate::web::pages::merchant_public::fmt_count(p.followers)}</b>
+                                                                            " Followers"
+                                                                        </span>
+                                                                        <span>
+                                                                            <b>{p.events_count}</b>
+                                                                            " Events"
+                                                                        </span>
+                                                                        <span>
+                                                                            <b>{format!("{:.1}", p.rating_avg)}</b>
+                                                                            " \u{2605} ("
+                                                                            {p.rating_count}
+                                                                            ")"
+                                                                        </span>
+                                                                    </div>
+                                                                    {(!desc.is_empty())
+                                                                        .then(|| {
+                                                                            view! { <p class="edsheet-mch-desc">{desc.clone()}</p> }
+                                                                        })}
+                                                                    <A
+                                                                        href=organizer_href.clone()
+                                                                        attr:class="edsheet-mch-cta"
+                                                                    >
+                                                                        "Kunjungi Profil"
+                                                                    </A>
+                                                                </div>
+                                                            }
+                                                                .into_any()
+                                                        }
+                                                        Some(Err(e)) if !e.to_string().contains("not_ready") => {
+                                                            view! {
+                                                                <p class="edsheet-mch-loading">
+                                                                    "Gagal memuat info merchant."
+                                                                </p>
+                                                            }
+                                                                .into_any()
+                                                        }
+                                                        _ => {
+                                                            view! {
+                                                                <p class="edsheet-mch-loading">"Memuat\u{2026}"</p>
+                                                            }
+                                                                .into_any()
+                                                        }
+                                                    }
+                                                }}
+                                            </div>
+                                        </div>
                                     </div>
                                 }
                                     .into_any()

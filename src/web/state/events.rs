@@ -12,6 +12,8 @@ pub struct ExploreEvent {
     pub id: String,
     /// Untuk link profil penyelenggara (/m/{merchant_id}) dari kartu explore.
     pub merchant_id: String,
+    /// Nama toko penyelenggara (chip kartu; kosong → fallback "PENYELENGGARA").
+    pub merchant_name: String,
     pub slug: String,
     pub title: String,
     pub category: Vec<String>,
@@ -43,6 +45,7 @@ pub(super) fn event_to_explore(e: &Event) -> ExploreEvent {
     ExploreEvent {
         id: e.id.clone(),
         merchant_id: e.merchant_id.clone(),
+        merchant_name: e.merchant_name.clone().unwrap_or_default(),
         slug: e.slug.clone(),
         title: e.name.clone(),
         category: e.category.clone(),

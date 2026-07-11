@@ -46,6 +46,102 @@ pub async fn get_merchant_public_profile(
     })
 }
 
+/// SEMUA data halaman /m/{id} dalam satu panggilan: profil + events page-1 +
+/// ulasan (ringkasan + 20 pertama) + story. Satu round-trip HTTP dari klien
+/// (bukan 4 POST /api-fn terpisah) dan satu `futures::join!` di server —
+/// memanggil LAPISAN SERVICE langsung, bukan server-fn lain (server-fn yang
+/// memanggil server-fn menambah overhead ekstraksi context per panggilan).
+/// Profil = penentu halaman (gagal → error); events/ulasan/story best-effort
+/// (gagal → kosong) agar satu bagian sekunder tak menjatuhkan seluruh halaman.
+#[server(GetMerchantPublicPage, "/api-fn")]
+pub async fn get_merchant_public_page(
+    merchant_id: String,
+) -> Result<MerchantPublicPageData, ServerFnError> {
+    use crate::models::events::EventListQuery;
+    let state = app_state().await?;
+    let viewer = auth_claims().await.ok().map(|c| c.user_id);
+
+    let q = EventListQuery {
+        page: Some(1),
+        per_page: Some(12),
+        city: None,
+        category: None,
+        search: None,
+        // Publik: hanya event aktif — jangan bocorkan draft/cancelled merchant.
+        status: Some("active".into()),
+    };
+
+    let (profile_res, follow_res, events_res, summary_res, items_res, stories_res) = futures::join!(
+        state.merchant_svc.public_profile(&merchant_id),
+        async {
+            match &viewer {
+                Some(uid) => state.merchant_svc.is_following(&merchant_id, uid).await,
+                None => Ok(false),
+            }
+        },
+        state.event_svc.list(q, Some(&merchant_id)),
+        state.merchant_svc.review_summary(&merchant_id),
+        state.merchant_svc.list_reviews(&merchant_id, 1, 20),
+        state.story_svc.list_my_group(&merchant_id),
+    );
+
+    let p = profile_res.map_err(map_app_error)?;
+    let profile = MerchantPublicProfile {
+        merchant_id: p.merchant_id,
+        store_name: p.store_name,
+        description: p.description,
+        logo_url: p.logo_url,
+        header_url: p.header_url,
+        verified: p.verified,
+        followers: p.followers,
+        events_count: p.events_count,
+        rating_avg: p.rating_avg,
+        rating_count: p.rating_count,
+        is_following: follow_res.unwrap_or(false),
+    };
+
+    let events = events_res
+        .map(srv_paginated_events_to_web)
+        .unwrap_or_default();
+
+    let reviews = match (summary_res, items_res) {
+        (Ok(summary), Ok(items)) => MerchantReviewsData {
+            store_name: summary
+                .store_name
+                .unwrap_or_else(|| profile.store_name.clone()),
+            avg: summary.avg,
+            total: summary.total,
+            dist: summary.dist,
+            items: items
+                .into_iter()
+                .map(|i| MerchantReviewItem {
+                    user_id: i.user_id,
+                    user_name: i.user_name,
+                    rating: i.rating,
+                    comment: i.comment,
+                    created_at: i.created_at,
+                })
+                .collect(),
+        },
+        _ => MerchantReviewsData {
+            store_name: profile.store_name.clone(),
+            avg: 0.0,
+            total: 0,
+            dist: [0; 5],
+            items: Vec::new(),
+        },
+    };
+
+    let stories = stories_res.map(srv_story_groups_to_web).unwrap_or_default();
+
+    Ok(MerchantPublicPageData {
+        profile,
+        events,
+        reviews,
+        stories,
+    })
+}
+
 #[server(GetMerchantPublicEvents, "/api-fn")]
 pub async fn get_merchant_public_events(
     merchant_id: String,
@@ -214,7 +310,6 @@ pub async fn get_merchant_followers(
                 user_id: f.user_id,
                 name: f.name,
                 role: f.role,
-                has_store: f.has_store,
                 created_at: f.created_at,
             })
             .collect(),

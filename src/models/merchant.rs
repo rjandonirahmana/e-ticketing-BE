@@ -107,11 +107,9 @@ pub struct MerchantSearchItem {
 pub struct MerchantFollower {
     pub user_id: String,
     pub name: String,
+    /// role='merchant' ⟺ punya merchant_details (dijamin trigger migrasi 016),
+    /// jadi cukup role untuk memutuskan tautan /m/ vs /u/ di daftar follower.
     pub role: String,
-    /// True bila user ini PUNYA baris `merchant_details` (toko publik yang bisa
-    /// dibuka di /m/{id}). `role == "merchant"` saja TIDAK cukup: user bisa
-    /// berperan merchant tapi belum membuat toko → /m/{id} akan "tidak ditemukan".
-    pub has_store: bool,
     pub created_at: DateTime<Utc>,
 }
 

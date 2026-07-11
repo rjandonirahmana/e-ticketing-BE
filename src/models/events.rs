@@ -72,6 +72,9 @@ pub struct Event {
     pub updated_at: DateTime<Utc>,
     pub total_sold: i32,
     pub total_quota: i32,
+    /// Nama toko penyelenggara (JOIN merchant_details.store_name). None hanya
+    /// pada jalur tanpa join (INSERT RETURNING).
+    pub merchant_name: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -106,6 +109,8 @@ pub struct EventWithVariants {
     pub display_price: f64,
     pub total_sold: i32,
     pub total_quota: i32,
+    /// Nama toko penyelenggara (JOIN merchant_details.store_name).
+    pub merchant_name: Option<String>,
     pub event_variants: Vec<crate::models::event_variants::EventVariantResponse>,
 }
 

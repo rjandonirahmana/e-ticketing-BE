@@ -1,0 +1,219 @@
+/* ===== Bottom sheets event detail (tiket & info merchant) ====================
+   Panel SELALU dirender (bukan conditional) supaya transisi CSS berjalan dua
+   arah: backdrop fade + panel slide-up dengan easing spring-ish. Buka/tutup
+   dikontrol class `edsheet--open` dari signal Leptos. */
+
+.edsheet {
+    position: fixed;
+    inset: 0;
+    z-index: 120;
+    pointer-events: none; /* saat tertutup, jangan halangi halaman */
+}
+.edsheet-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    opacity: 0;
+    transition: opacity 0.28s ease;
+}
+.edsheet-panel {
+    position: absolute;
+    left: 50%;
+    right: auto;
+    bottom: 0;
+    
+    /* WIDTH: 100% tapi di-clamp ke max-width page */
+    width: 100%;
+    max-width: 480px;      /* ← SAMA DENGAN .page */
+    
+    /* CLOSED: translateX(-50%) center + translateY(100%) hidden */
+    transform: translateX(-50%) translateY(100%);
+    
+    /* Spring easing */
+    transition: transform 0.38s cubic-bezier(0.32, 0.72, 0, 1);
+    max-height: 82vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.35);
+    /* Spring-ish: cepat di awal, mendarat halus — sama dengan easing swipe. */
+    padding-bottom: env(safe-area-inset-bottom, 0);
+}
+.edsheet--open { pointer-events: auto; }
+.edsheet--open .edsheet-backdrop { opacity: 1; }
+.edsheet--open .edsheet-panel {
+    transform: translateX(-50%) translateY(0);
+}
+
+/* Grip bar ala native sheet. */
+.edsheet-grip {
+    width: 40px;
+    height: 4px;
+    border-radius: 100px;
+    background: var(--border);
+    margin: 10px auto 2px;
+    flex: none;
+}
+.edsheet-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 18px 12px;
+    border-bottom: 1px solid var(--border-soft);
+    flex: none;
+}
+.edsheet-title {
+    font-family: var(--font-display);
+    font-size: 18px;
+    letter-spacing: 0.5px;
+    color: var(--text-primary);
+}
+.edsheet-close {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+.edsheet-body {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 14px 16px 22px;
+}
+
+/* Isi sheet muncul dengan stagger halus saat sheet terbuka. */
+.edsheet--open .edsheet-body > * {
+    animation: edsheet-rise 0.42s cubic-bezier(0.32, 0.72, 0, 1) backwards;
+}
+.edsheet--open .edsheet-body > *:nth-child(2) { animation-delay: 0.05s; }
+.edsheet--open .edsheet-body > *:nth-child(3) { animation-delay: 0.1s; }
+.edsheet--open .edsheet-body > *:nth-child(4) { animation-delay: 0.15s; }
+@keyframes edsheet-rise {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Tombol pemicu "Pilih Tiket" di body halaman ─────────────────────────── */
+.ed-tickets-trigger {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.15s, background 0.15s;
+}
+.ed-tickets-trigger:hover { border-color: var(--accent-lime); }
+.ed-tickets-trigger-text {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-weight: 700;
+    font-size: 15px;
+}
+.ed-tickets-trigger-sub {
+    font-weight: 500;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+.ed-tickets-trigger-arrow { color: var(--text-secondary); flex: none; }
+
+/* ── Kartu info merchant di dalam sheet ──────────────────────────────────── */
+.edsheet-mch { display: flex; flex-direction: column; gap: 12px; }
+.edsheet-mch-hero {
+    height: 120px;
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--bg-card);
+}
+.edsheet-mch-hero img { width: 100%; height: 100%; object-fit: cover; }
+.edsheet-mch-head { display: flex; align-items: center; gap: 12px; }
+.edsheet-mch-avatar {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--border);
+    flex: none;
+}
+.edsheet-mch-avatar--fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-violet));
+    color: #fff;
+    font-weight: 800;
+    font-size: 20px;
+}
+.edsheet-mch-name {
+    font-family: var(--font-display);
+    font-size: 19px;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.edsheet-mch-verified {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--accent-lime);
+    color: var(--text-on-accent);
+    font-size: 11px;
+    font-weight: 800;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+}
+.edsheet-mch-stats {
+    display: flex;
+    gap: 16px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+.edsheet-mch-stats b { color: var(--text-primary); }
+.edsheet-mch-desc {
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+    margin: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.edsheet-mch-cta {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 13px;
+    border-radius: 100px;
+    background: var(--accent-lime);
+    color: var(--text-on-accent);
+    font-weight: 800;
+    font-size: 14px;
+    letter-spacing: 0.04em;
+    text-decoration: none;
+    margin-top: 2px;
+}
+.edsheet-mch-loading {
+    text-align: center;
+    color: var(--text-secondary);
+    padding: 28px 0;
+}

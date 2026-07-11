@@ -200,6 +200,8 @@ impl PgEventRepository {
             updated_at: row.try_get("updated_at").context("updated_at")?,
             total_sold: row.try_get("total_sold").unwrap_or(0),
             total_quota: row.try_get("total_quota").unwrap_or(0),
+            // Toleran: kolom hanya ada pada query ber-MERCHANT_JOIN.
+            merchant_name: row.try_get("merchant_name").ok().flatten(),
         })
     }
 
@@ -243,6 +245,9 @@ impl PgEventRepository {
             updated_at: row.try_get("updated_at").context("updated_at")?,
             total_sold: 0,
             total_quota: 0,
+            // Toleran: None pada INSERT RETURNING (tanpa join) — tak dipakai di
+            // jalur itu (dashboard merchant sendiri).
+            merchant_name: row.try_get("merchant_name").ok().flatten(),
         })
     }
 

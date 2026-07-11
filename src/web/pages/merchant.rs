@@ -9,7 +9,7 @@ use crate::web::api::{
 };
 use crate::web::app::AuthResource;
 use crate::web::components::{BottomNav, MerchantEventCardShimmer, ThemeToggle};
-use crate::web::models::{format_date, format_price, Event, MerchantPublicProfile, PaginatedEvents};
+use crate::web::models::{format_date, format_price, Event, PaginatedEvents};
 
 use super::merchant_public::fmt_count;
 
@@ -111,7 +111,7 @@ pub fn MerchantPage() -> impl IntoView {
                              stroke="currentColor" stroke-width="2" stroke-linecap="round">
                             <polygon points="5 3 19 12 5 21 5 3"/>
                         </svg>
-                        "LIVE"
+                        <span class="mhub-btn-label">"LIVE"</span>
                     </A>
                     <A href="/meet/host" attr:class="mhub-meet-btn" attr:aria-label="Mulai Meet">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
@@ -119,7 +119,7 @@ pub fn MerchantPage() -> impl IntoView {
                             <polygon points="23 7 16 12 23 17 23 7"/>
                             <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
                         </svg>
-                        "MEET"
+                        <span class="mhub-btn-label">"MEET"</span>
                     </A>
                     <A href="/scan" attr:class="mhub-scan-btn" attr:aria-label="Scan Tiket">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
@@ -130,7 +130,7 @@ pub fn MerchantPage() -> impl IntoView {
                             <polyline points="20 17 20 20 17 20"/>
                             <rect x="8" y="8" width="8" height="8" rx="1"/>
                         </svg>
-                        "SCAN"
+                        <span class="mhub-btn-label">"SCAN"</span>
                     </A>
                     <ThemeToggle />
                     <A href="/notifications" attr:class="mhub-bell-btn" attr:aria-label="Notifikasi">
@@ -587,32 +587,9 @@ fn MerchantProfileCard() -> impl IntoView {
         if id.is_empty() {
             return Err(ServerFnError::ServerError("not_ready".into()));
         }
-        // Dashboard ini adalah profil merchant SENDIRI. Merchant yang baru
-        // di-upgrade tapi belum membuat toko belum punya row `merchant_details`,
-        // sehingga `get_merchant_public_profile` balas NotFound → dulu render
-        // sebagai 500 dan kartu profil mati (tak bisa isi & simpan toko). Untuk
-        // pemilik sendiri, perlakukan "belum ada" sebagai profil KOSONG yang bisa
-        // diedit — bukan error. (Halaman publik /m/{id} tetap menampilkan
-        // "merchant tidak ditemukan" karena tak melewati jalur ini.)
-        // `Ok::<_, ServerFnError>` mem-pin tipe error agar inferensi Resource
-        // tetap konkret (tanpa ini `profile` kehilangan `Copy` → cascade error).
-        get_merchant_public_profile(id.clone())
-            .await
-            .or_else(|_| {
-                Ok::<_, ServerFnError>(MerchantPublicProfile {
-                    merchant_id: id,
-                    store_name: String::new(),
-                    description: None,
-                    logo_url: None,
-                    header_url: None,
-                    verified: false,
-                    followers: 0,
-                    events_count: 0,
-                    rating_avg: 0.0,
-                    rating_count: 0,
-                    is_following: false,
-                })
-            })
+        // Merchant SELALU punya merchant_details (dijamin trigger migrasi 016),
+        // jadi profil sendiri tak pernah NotFound → tak perlu fallback kosong.
+        get_merchant_public_profile(id).await
     });
     let events = Resource::new(my_id, |id| async move {
         if id.is_empty() {

@@ -496,10 +496,9 @@ impl MerchantRepository for PgMerchantRepository {
         let rows = exec_rows(
             &self.pool,
             r#"
-            SELECT u.id AS uid, u.name, u.role, f.created_at,
-                   EXISTS (
-                       SELECT 1 FROM merchant_details md WHERE md.user_id = u.id
-                   ) AS has_store
+            -- role='merchant' ⟺ punya merchant_details (dijamin trigger
+            -- users_ensure_merchant_details, migrasi 016) → tak perlu EXISTS.
+            SELECT u.id AS uid, u.name, u.role, f.created_at
             FROM   merchant_follows f
             JOIN   users u ON u.id = f.follower_id
             WHERE  f.merchant_id = $1
@@ -516,7 +515,6 @@ impl MerchantRepository for PgMerchantRepository {
                     user_id: bin_to_ulid(uid)?,
                     name: r.try_get("name")?,
                     role: r.try_get("role")?,
-                    has_store: r.try_get("has_store")?,
                     created_at: r.try_get("created_at")?,
                 })
             })
