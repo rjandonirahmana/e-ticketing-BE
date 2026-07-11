@@ -506,6 +506,43 @@ pub fn MerchantPublicPage() -> impl IntoView {
                             // user_id). Tombol di header → /u/{id}: story + ulasan yang
                             // ditulis, sisi "orang"-nya, terpisah dari sisi toko.
                             let user_href = format!("/u/{}", merchant_id);
+                            // Buat STORY berisi kartu profil merchant ini (share toko).
+                            // Konvensi slug "m/{id}" → viewer tap-through ke /m/{id}.
+                            // Pola sama dengan share_to_story di event detail:
+                            // UrlSearchParams (wasm) agar nama/URL ter-encode aman.
+                            #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
+                            let story_mid = merchant_id.clone();
+                            #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
+                            let story_name = store_name.clone();
+                            #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
+                            let story_cover = logo.clone(); // avatar kartu story
+                            #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
+                            let story_header = header.clone(); // header image kartu story
+                            #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
+                            let story_stats = (p.followers, p.events_count, p.rating_avg);
+                            let nav_story = navigate.clone();
+                            let on_share_story = move |_: leptos::ev::MouseEvent| {
+                                #[cfg(target_arch = "wasm32")]
+                                {
+                                    let params = web_sys::UrlSearchParams::new()
+                                        .expect("UrlSearchParams");
+                                    params.append("merchant", "1");
+                                    params.append("event_slug", &format!("m/{story_mid}"));
+                                    params.append("event_title", &story_name);
+                                    params.append("event_cover", &story_cover);
+                                    params.append("merchant_header", &story_header);
+                                    params.append("verified", if verified { "1" } else { "0" });
+                                    params.append("followers", &story_stats.0.to_string());
+                                    params.append("events_count", &story_stats.1.to_string());
+                                    params.append("rating", &format!("{:.1}", story_stats.2));
+                                    nav_story(
+                                        &format!("/story?{}", params.to_string()),
+                                        Default::default(),
+                                    );
+                                }
+                                #[cfg(not(target_arch = "wasm32"))]
+                                let _ = &nav_story;
+                            };
                             // ── SEO: meta + JSON-LD Organization ──
                             let seo_title = format!("{} — PULSE", store_name);
                             let seo_desc = if desc.is_empty() {
@@ -642,6 +679,26 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                             {move || {
                                                 if following.get() { "Mengikuti" } else { "Follow" }
                                             }}
+                                        </button>
+                                        <button
+                                            class="mp-icon-btn"
+                                            on:click=on_share_story
+                                            aria-label="Bagikan sebagai story"
+                                            title="Buat story toko ini"
+                                        >
+                                            <svg
+                                                width="18"
+                                                height="18"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                stroke-width="2"
+                                                stroke-linecap="round"
+                                            >
+                                                <circle cx="12" cy="12" r="9" />
+                                                <line x1="12" y1="8" x2="12" y2="16" />
+                                                <line x1="8" y1="12" x2="16" y2="12" />
+                                            </svg>
                                         </button>
                                         <a
                                             class="mp-icon-btn"

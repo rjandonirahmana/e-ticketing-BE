@@ -9,6 +9,7 @@ use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use crate::web::api::{get_event_detail, get_events};
 use crate::web::app::{AuthResource, CartContext};
+use crate::web::components::story_viewer::StoryViewer;
 use crate::web::components::{EventCardPub, LiveStreamViewer, MerchantLivePip};
 use crate::web::hooks::ThemeToggle;
 use crate::web::models::{CartItem, format_date, format_price};
@@ -164,6 +165,42 @@ pub fn EventDetailPage() -> impl IntoView {
     // slide-up/fade berjalan (lihat styles/parts/39-event-sheets.css).
     let merchant_sheet = RwSignal::new(false);
     let tickets_sheet = RwSignal::new(false);
+
+    // ── Story penyelenggara (lingkaran ala story-bar explore) ────────────────
+    // Fetch ringan saat detail termuat; lingkaran hanya tampil bila merchant
+    // punya story aktif (termasuk story ulasan). Klik → buka StoryViewer yang
+    // di-mount halaman ini (pola sama dengan /profile & /m/{id}).
+    let mch_stories: RwSignal<Vec<crate::web::state::stories::StoryGroup>> =
+        RwSignal::new(Vec::new());
+    let stories_ctx = crate::web::state::stories::use_stories_store();
+    #[cfg(feature = "hydrate")]
+    Effect::new(move |_| {
+        let Some(Ok(ev)) = event_res.get() else { return };
+        let mid = ev.merchant_id.clone();
+        leptos::task::spawn_local(async move {
+            if let Ok(groups) = crate::web::api::get_merchant_stories(mid).await {
+                mch_stories.set(groups);
+            }
+        });
+    });
+    let open_merchant_stories = move |_| {
+        let logged_in = auth
+            .get_untracked()
+            .and_then(|r| r.ok())
+            .flatten()
+            .is_some();
+        if !logged_in {
+            if let Some(win) = web_sys::window() {
+                let _ = win.location().assign("/login");
+            }
+            return;
+        }
+        let list = mch_stories.get_untracked();
+        if !list.is_empty() {
+            stories_ctx.groups.set(list);
+            stories_ctx.open_at(0, 0);
+        }
+    };
     // Info merchant TIDAK di-fetch terpisah: sudah ikut payload detail event
     // (`ev.merchant`, JOIN + agregat satu query di server) — sheet render
     // langsung dari data yang ada, tanpa fetch kedua & tanpa loading state.
@@ -787,6 +824,59 @@ pub fn EventDetailPage() -> impl IntoView {
 
                                             // Penyelenggara → profil merchant publik (/m/{id}):
                                             // rating, follower, dan semua event si penyelenggara.
+                                            // Lingkaran story penyelenggara (ala story-bar
+                                            // explore) — tampil hanya bila ada story aktif
+                                            // (termasuk story ulasan). Klik → StoryViewer.
+                                            {
+                                                let ring_name = organizer_name.clone();
+                                                let ring_logo = sheet_merchant
+                                                    .as_ref()
+                                                    .and_then(|m| m.logo_url.clone())
+                                                    .unwrap_or_default();
+                                                move || {
+                                                    let ring_name = ring_name.clone();
+                                                    let ring_logo = ring_logo.clone();
+                                                    (!mch_stories.get().is_empty()).then(move || {
+                                                        let initial: String = ring_name
+                                                            .chars()
+                                                            .next()
+                                                            .unwrap_or('P')
+                                                            .to_uppercase()
+                                                            .to_string();
+                                                        view! {
+                                                            <button
+                                                                class="ed-story-ring"
+                                                                on:click=open_merchant_stories
+                                                                aria-label="Lihat story penyelenggara"
+                                                            >
+                                                                <span class="ed-story-ring-circle">
+                                                                    {if ring_logo.is_empty() {
+                                                                        view! {
+                                                                            <span class="ed-story-ring-fallback">
+                                                                                {initial}
+                                                                            </span>
+                                                                        }
+                                                                            .into_any()
+                                                                    } else {
+                                                                        view! {
+                                                                            <img
+                                                                                src=ring_logo.clone()
+                                                                                alt=""
+                                                                                loading="lazy"
+                                                                            />
+                                                                        }
+                                                                            .into_any()
+                                                                    }}
+                                                                </span>
+                                                                <span class="ed-story-ring-label">
+                                                                    "Story " {ring_name.clone()}
+                                                                </span>
+                                                            </button>
+                                                        }
+                                                    })
+                                                }
+                                            }
+
                                             // Klik → bottom sheet info merchant dulu
                                             // (logo/header/rating), BUKAN langsung /m/{id}.
                                             <button
@@ -1294,6 +1384,9 @@ pub fn EventDetailPage() -> impl IntoView {
                     })
                 }}
             </Suspense>
+
+            // Viewer fullscreen story penyelenggara (dibuka via lingkaran story).
+            <StoryViewer />
         </div>
     }
 }

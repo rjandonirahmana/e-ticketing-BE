@@ -19,6 +19,7 @@ use super::canvas::{
     cover_factor, create_export_canvas, css_filter_string, export_ext,
     export_mime, export_story_canvas, get_dpr, gradient_colors,
     load_img_to_canvas, preload_fonts, render_event_card_to_canvas,
+    render_merchant_card_to_canvas,
     render_overlays_to_canvas, trigger_download_blob,
 };
 #[cfg(target_arch = "wasm32")]
@@ -160,6 +161,32 @@ pub fn StoryPage() -> impl IntoView {
     // (jadi tidak pernah di-persist sebagai event link) — hanya tampil di kartu canvas.
     let prefill_is_ticket = move || query.with(|q| q.get("is_ticket").unwrap_or_default()) == "1";
     let prefill_ticket_ref = move || query.with(|q| q.get("ticket_ref").unwrap_or_default());
+    // Merchant-share mode (dari /m/{id} atau halaman ulasan): kartu profil toko
+    // (bukan kartu event). event_slug memakai konvensi "m/{merchant_id}" —
+    // viewer menerjemahkannya ke /m/{id}. event_cover = logo/header (boleh kosong
+    // → renderer fallback gradient + inisial). review_* opsional (share ulasan).
+    let prefill_is_merchant = move || query.with(|q| q.get("merchant").unwrap_or_default()) == "1";
+    let prefill_verified = move || query.with(|q| q.get("verified").unwrap_or_default()) == "1";
+    // Bingkai profil toko: header image + statistik (FOLLOWERS/EVENTS/RATING).
+    let prefill_mch_header =
+        move || query.with(|q| q.get("merchant_header").unwrap_or_default());
+    let prefill_followers = move || {
+        query.with(|q| q.get("followers").unwrap_or_default()).parse::<i64>().unwrap_or(0)
+    };
+    let prefill_events_count = move || {
+        query.with(|q| q.get("events_count").unwrap_or_default()).parse::<i64>().unwrap_or(0)
+    };
+    let prefill_rating = move || {
+        query.with(|q| q.get("rating").unwrap_or_default()).parse::<f64>().unwrap_or(0.0)
+    };
+    let prefill_review_rating = move || {
+        query.with(|q| q.get("review_rating").unwrap_or_default())
+            .parse::<u8>()
+            .ok()
+            .filter(|r| (1..=5).contains(r))
+    };
+    let prefill_review_comment =
+        move || query.with(|q| q.get("review_comment").unwrap_or_default());
 
     let has_event_prefill = Memo::new(move |_| !prefill_slug().is_empty() || prefill_is_ticket());
     let user_overrode_prefill = RwSignal::new(false);
@@ -185,7 +212,10 @@ pub fn StoryPage() -> impl IntoView {
         let desc      = prefill_desc();
         let is_ticket = prefill_is_ticket();
         let ticket_ref = prefill_ticket_ref();
-        if (slug.is_empty() && !is_ticket) || cover.is_empty() { return; }
+        // Mode merchant: cover (logo) boleh kosong — renderer punya fallback.
+        if (slug.is_empty() && !is_ticket) || (cover.is_empty() && !prefill_is_merchant()) {
+            return;
+        }
 
         let from_create = query.with(|q| q.get("from_create").unwrap_or_default()) == "1";
         if from_create && slug == "draft" {
@@ -447,17 +477,33 @@ pub fn StoryPage() -> impl IntoView {
             let venue       = prefill_venue();
             let price       = prefill_price();
             let is_ticket_d = prefill_is_ticket();
+            let is_merchant_d = prefill_is_merchant();
+            let verified_d = prefill_verified();
+            let review_d = prefill_review_rating()
+                .map(|r| (r, prefill_review_comment()));
+            let mch_header_d = prefill_mch_header();
+            let followers_d = prefill_followers();
+            let events_count_d = prefill_events_count();
+            let rating_d = prefill_rating();
             sedang_mengunduh.set(true);
             let navigate_sv2 = navigate_sv;
             spawn_local(async move {
                 if let Err(e) = preload_fonts().await { web_sys::console::warn_1(&format!("font: {:?}", e).into()); }
                 let dpr = get_dpr();
                 let Some((canvas, ctx, cw, ch)) = create_export_canvas(dpr) else { sedang_mengunduh.set(false); return; };
-                if let Err(e) = render_event_card_to_canvas(
-                    &ctx, cw, ch, &cover, &bg_m, &bg_c, &ev_filter,
-                    &title, &date, &venue, &price, is_ticket_d,
-                ).await {
-                    web_sys::console::warn_1(&format!("event card render: {}", e).into());
+                let render_res = if is_merchant_d {
+                    render_merchant_card_to_canvas(
+                        &ctx, cw, ch, &cover, &mch_header_d, &bg_m, &bg_c, &title,
+                        verified_d, followers_d, events_count_d, rating_d, review_d,
+                    ).await
+                } else {
+                    render_event_card_to_canvas(
+                        &ctx, cw, ch, &cover, &bg_m, &bg_c, &ev_filter,
+                        &title, &date, &venue, &price, is_ticket_d,
+                    ).await
+                };
+                if let Err(e) = render_res {
+                    web_sys::console::warn_1(&format!("story card render: {}", e).into());
                     ctx.set_fill_style_str("#0d0d18");
                     ctx.fill_rect(0.0, 0.0, cw, ch);
                 }
@@ -590,7 +636,17 @@ pub fn StoryPage() -> impl IntoView {
             let venue        = prefill_venue();
             let price        = prefill_price();
             let is_ticket_u  = prefill_is_ticket();
-            if cover.is_empty() { error_unggah.set(Some("Cover event tidak tersedia di URL.".into())); return; }
+            let is_merchant_u = prefill_is_merchant();
+            let verified_u = prefill_verified();
+            let review_u = prefill_review_rating().map(|r| (r, prefill_review_comment()));
+            let mch_header_u = prefill_mch_header();
+            let followers_u = prefill_followers();
+            let events_count_u = prefill_events_count();
+            let rating_u = prefill_rating();
+            if cover.is_empty() && !is_merchant_u {
+                error_unggah.set(Some("Cover event tidak tersedia di URL.".into()));
+                return;
+            }
             sedang_mengunggah.set(true);
             store_ctx.uploading.set(true);
             error_unggah.set(None);
@@ -601,11 +657,19 @@ pub fn StoryPage() -> impl IntoView {
                 if let Err(e) = preload_fonts().await { web_sys::console::warn_1(&format!("font: {:?}", e).into()); }
                 let dpr = get_dpr();
                 let Some((canvas, render_ctx, cw, ch)) = create_export_canvas(dpr) else { ctx.uploading.set(false); return; };
-                if let Err(e) = render_event_card_to_canvas(
-                    &render_ctx, cw, ch, &cover, &ev_bg_mode, &ev_bg_color, &ev_filter,
-                    &title, &date, &venue, &price, is_ticket_u,
-                ).await {
-                    web_sys::console::warn_1(&format!("event card render: {}", e).into());
+                let render_res = if is_merchant_u {
+                    render_merchant_card_to_canvas(
+                        &render_ctx, cw, ch, &cover, &mch_header_u, &ev_bg_mode, &ev_bg_color,
+                        &title, verified_u, followers_u, events_count_u, rating_u, review_u,
+                    ).await
+                } else {
+                    render_event_card_to_canvas(
+                        &render_ctx, cw, ch, &cover, &ev_bg_mode, &ev_bg_color, &ev_filter,
+                        &title, &date, &venue, &price, is_ticket_u,
+                    ).await
+                };
+                if let Err(e) = render_res {
+                    web_sys::console::warn_1(&format!("story card render: {}", e).into());
                 }
                 let (dom_w, dom_h) = web_sys::window().and_then(|w| w.document())
                     .and_then(|d| d.query_selector(".sc-canvas-frame").ok().flatten())

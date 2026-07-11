@@ -260,12 +260,14 @@ pub fn MerchantReviewsPage() -> impl IntoView {
                                         }
                                             .into_any()
                                     } else {
+                                        let share_store = d.store_name.clone();
                                         view! {
                                             <div class="mrv-list">
                                                 {d
                                                     .items
                                                     .iter()
                                                     .map(|r| {
+                                                        let share_store = share_store.clone();
                                                         let initial: String = r
                                                             .user_name
                                                             .chars()
@@ -286,6 +288,61 @@ pub fn MerchantReviewsPage() -> impl IntoView {
                                                                         <span class="mrv-item-date">{date}</span>
                                                                     </a>
                                                                     <Stars rating=r.rating as f64 />
+                                                                    // Bagikan ulasan ini sebagai STORY
+                                                                    // (kartu rating + kutipan, tap-through
+                                                                    // ke /m/{id} via konvensi slug "m/…").
+                                                                    <button
+                                                                        class="mrv-share-btn"
+                                                                        aria-label="Bagikan ulasan sebagai story"
+                                                                        title="Jadikan story"
+                                                                        on:click={
+                                                                            let rating = r.rating;
+                                                                            let comment = r.comment.clone();
+                                                                            let store = share_store.clone();
+                                                                            move |_| {
+                                                                                #[cfg(target_arch = "wasm32")]
+                                                                                {
+                                                                                    let params = web_sys::UrlSearchParams::new()
+                                                                                        .expect("UrlSearchParams");
+                                                                                    params.append("merchant", "1");
+                                                                                    params.append(
+                                                                                        "event_slug",
+                                                                                        &format!("m/{}", mid()),
+                                                                                    );
+                                                                                    params.append("event_title", &store);
+                                                                                    params.append("event_cover", "");
+                                                                                    params.append(
+                                                                                        "review_rating",
+                                                                                        &rating.to_string(),
+                                                                                    );
+                                                                                    params.append("review_comment", &comment);
+                                                                                    if let Some(win) = web_sys::window() {
+                                                                                        let _ = win.location().assign(
+                                                                                            &format!("/story?{}", params.to_string()),
+                                                                                        );
+                                                                                    }
+                                                                                }
+                                                                                #[cfg(not(target_arch = "wasm32"))]
+                                                                                {
+                                                                                    let _ = (&rating, &comment, &store);
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    >
+                                                                        <svg
+                                                                            width="15"
+                                                                            height="15"
+                                                                            viewBox="0 0 24 24"
+                                                                            fill="none"
+                                                                            stroke="currentColor"
+                                                                            stroke-width="2"
+                                                                            stroke-linecap="round"
+                                                                        >
+                                                                            <circle cx="12" cy="12" r="9" />
+                                                                            <line x1="12" y1="8" x2="12" y2="16" />
+                                                                            <line x1="8" y1="12" x2="16" y2="12" />
+                                                                        </svg>
+                                                                    </button>
                                                                 </div>
                                                                 {(!r.comment.is_empty())
                                                                     .then(|| {

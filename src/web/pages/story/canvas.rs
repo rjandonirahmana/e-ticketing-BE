@@ -817,3 +817,332 @@ pub(super) fn export_story_canvas(
         guard_sig.set(false);
     });
 }
+
+// ─── Kartu MERCHANT / REVIEW untuk story ─────────────────────────────────────
+//
+// Bingkai KHUSUS profil toko (bukan bingkai event): meniru halaman /m/{id} —
+// header image di atas (fade ke gelap), avatar logo bulat overlap dengan badge
+// centang lime, nama toko, lalu baris statistik FOLLOWERS · EVENTS · RATING
+// dalam kartu rounded (mode share-toko) ATAU blok bintang+kutipan (mode
+// share-ulasan). Background story = blur header (fallback logo → gradient).
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn render_merchant_card_to_canvas(
+    ctx: &CanvasRenderingContext2d,
+    cw: f64,
+    ch: f64,
+    logo_url: &str,
+    header_url: &str,
+    bg_mode: &str,
+    bg_color: &str,
+    name: &str,
+    verified: bool,
+    followers: i64,
+    events_count: i64,
+    rating: f64,
+    review: Option<(u8, String)>, // (rating 1..=5, komentar) — mode ulasan
+) -> Result<(), String> {
+    let logo_img = if logo_url.is_empty() {
+        None
+    } else {
+        load_cover_img(logo_url).await.ok()
+    };
+    let header_img = if header_url.is_empty() {
+        None
+    } else {
+        load_cover_img(header_url).await.ok()
+    };
+
+    // ── Background story: blur header → blur logo → solid/gradient ──────────
+    let bg_img = header_img.as_ref().or(logo_img.as_ref());
+    match (bg_mode, bg_img) {
+        ("blur", Some(img)) => {
+            let (iw, ih) = (img.natural_width() as f64, img.natural_height() as f64);
+            ctx.set_filter("blur(30px) brightness(0.4)");
+            draw_img_cover(ctx, img, iw, ih, cw, ch, 1.0)?;
+            ctx.set_filter("none");
+        }
+        ("solid", _) => {
+            ctx.set_fill_style_str(bg_color);
+            ctx.fill_rect(0.0, 0.0, cw, ch);
+        }
+        (key, _) => {
+            if let Some((cs, ce)) = gradient_colors(key) {
+                if let Ok(g) = ctx
+                    .create_linear_gradient(0.0, 0.0, 0.0, ch)
+                    .dyn_into::<web_sys::CanvasGradient>()
+                {
+                    let _ = g.add_color_stop(0.0, cs);
+                    let _ = g.add_color_stop(1.0, ce);
+                    let _ = ctx.set_fill_style_canvas_gradient(&g);
+                    ctx.fill_rect(0.0, 0.0, cw, ch);
+                }
+            } else {
+                ctx.set_fill_style_str("#0d0d18");
+                ctx.fill_rect(0.0, 0.0, cw, ch);
+            }
+        }
+    }
+
+    // ── Layout (proporsional cw=1080) ────────────────────────────────────────
+    let mx = cw * 0.07;
+    let card_x = mx;
+    let card_w = cw - 2.0 * mx;
+    let corner_r = cw * 0.03;
+    let pad = cw * 0.045;
+    let hero_h = card_w * 0.52; // area header image
+    let avatar_r = cw * 0.075;
+    let name_fs = cw * 0.048;
+    let stat_num_fs = cw * 0.042;
+    let stat_lbl_fs = cw * 0.017;
+    let star_fs = cw * 0.05;
+    let quote_fs = cw * 0.028;
+    let pill_fs = cw * 0.024;
+    let pill_h = pill_fs * 2.3;
+
+    // Blok bawah: stats (share toko) ATAU bintang+kutipan (share ulasan).
+    let quote_lines: Vec<String> = match &review {
+        Some((_, comment)) if !comment.trim().is_empty() => {
+            ctx.set_font(&format!("italic {quote_fs}px \"Space Mono\", monospace"));
+            let quoted = format!("\u{201C}{}\u{201D}", comment.trim());
+            let mut ls = wrap_text(ctx, &quoted, card_w - 2.0 * pad);
+            ls.truncate(4);
+            ls
+        }
+        _ => Vec::new(),
+    };
+    let quote_line_h = quote_fs * 1.5;
+    let stats_h = stat_num_fs + 10.0 + stat_lbl_fs + pad * 1.1;
+    let bottom_h = if review.is_some() {
+        star_fs * 1.2 + 14.0 + quote_lines.len() as f64 * quote_line_h + 12.0
+    } else {
+        stats_h
+    };
+    // Tinggi body di bawah hero: ruang avatar overlap + nama + blok bawah + CTA.
+    let body_h = avatar_r          // bagian avatar yang menjorok ke body
+        + 18.0
+        + name_fs * 1.2
+        + 22.0
+        + bottom_h
+        + 20.0
+        + pill_h
+        + pad;
+    let card_h = hero_h + body_h;
+    let card_y = ((ch - card_h) * 0.40).max(cw * 0.05);
+
+    // ── Kartu dasar ──────────────────────────────────────────────────────────
+    ctx.set_shadow_color("rgba(0,0,0,0.65)");
+    ctx.set_shadow_blur(cw * 0.055);
+    ctx.set_shadow_offset_y(cw * 0.018);
+    ctx.set_fill_style_str("#0d0d18");
+    round_rect_path(ctx, card_x, card_y, card_w, card_h, corner_r);
+    ctx.fill();
+    ctx.set_shadow_color("transparent");
+    ctx.set_shadow_blur(0.0);
+    ctx.set_shadow_offset_y(0.0);
+
+    // ── Header image (clip sudut atas) + fade ke gelap ───────────────────────
+    ctx.save();
+    round_rect_path(ctx, card_x, card_y, card_w, card_h, corner_r);
+    ctx.clip();
+    if let Some(img) = &header_img {
+        let (iw, ih) = (img.natural_width() as f64, img.natural_height() as f64);
+        // cover ke area hero
+        let f = cover_factor(iw, ih, card_w, hero_h);
+        let (dw, dh) = (iw * f, ih * f);
+        let _ = ctx.draw_image_with_html_image_element_and_dw_and_dh(
+            img,
+            card_x + (card_w - dw) / 2.0,
+            card_y + (hero_h - dh) / 2.0,
+            dw,
+            dh,
+        );
+    } else if let Ok(g) = ctx
+        .create_linear_gradient(card_x, card_y, card_x + card_w, card_y + hero_h)
+        .dyn_into::<web_sys::CanvasGradient>()
+    {
+        let _ = g.add_color_stop(0.0, "#1c2340");
+        let _ = g.add_color_stop(1.0, "#3b2a63");
+        let _ = ctx.set_fill_style_canvas_gradient(&g);
+        ctx.fill_rect(card_x, card_y, card_w, hero_h);
+    }
+    // Fade bawah hero → menyatu dengan body gelap (seperti halaman profil).
+    if let Ok(g) = ctx
+        .create_linear_gradient(0.0, card_y + hero_h * 0.55, 0.0, card_y + hero_h)
+        .dyn_into::<web_sys::CanvasGradient>()
+    {
+        let _ = g.add_color_stop(0.0, "rgba(13,13,24,0)");
+        let _ = g.add_color_stop(1.0, "rgba(13,13,24,1)");
+        let _ = ctx.set_fill_style_canvas_gradient(&g);
+        ctx.fill_rect(card_x, card_y + hero_h * 0.5, card_w, hero_h * 0.5 + 2.0);
+    }
+    ctx.restore();
+
+    // ── Avatar logo bulat overlap (kiri) + badge centang lime ───────────────
+    let av_cx = card_x + pad + avatar_r;
+    let av_cy = card_y + hero_h - avatar_r * 0.35;
+    ctx.save();
+    ctx.begin_path();
+    let _ = ctx.arc(av_cx, av_cy, avatar_r, 0.0, std::f64::consts::TAU);
+    ctx.clip();
+    if let Some(img) = &logo_img {
+        let (iw, ih) = (img.natural_width() as f64, img.natural_height() as f64);
+        let f = cover_factor(iw, ih, avatar_r * 2.0, avatar_r * 2.0);
+        let (dw, dh) = (iw * f, ih * f);
+        let _ = ctx.draw_image_with_html_image_element_and_dw_and_dh(
+            img,
+            av_cx - dw / 2.0,
+            av_cy - dh / 2.0,
+            dw,
+            dh,
+        );
+    } else {
+        if let Ok(g) = ctx
+            .create_linear_gradient(
+                av_cx - avatar_r,
+                av_cy - avatar_r,
+                av_cx + avatar_r,
+                av_cy + avatar_r,
+            )
+            .dyn_into::<web_sys::CanvasGradient>()
+        {
+            let _ = g.add_color_stop(0.0, "#4f7cff");
+            let _ = g.add_color_stop(1.0, "#8b5cf6");
+            let _ = ctx.set_fill_style_canvas_gradient(&g);
+            ctx.fill_rect(av_cx - avatar_r, av_cy - avatar_r, avatar_r * 2.0, avatar_r * 2.0);
+        }
+        ctx.set_fill_style_str("#ffffff");
+        ctx.set_font(&format!(
+            "bold {}px \"Bebas Neue\", \"Arial Black\", sans-serif",
+            avatar_r
+        ));
+        ctx.set_text_align("center");
+        ctx.set_text_baseline("middle");
+        let initial: String = name.chars().next().unwrap_or('P').to_uppercase().collect();
+        let _ = ctx.fill_text(&initial, av_cx, av_cy + avatar_r * 0.06);
+    }
+    ctx.restore();
+    // Ring avatar.
+    ctx.begin_path();
+    let _ = ctx.arc(av_cx, av_cy, avatar_r + 2.0, 0.0, std::f64::consts::TAU);
+    ctx.set_stroke_style_str("#0d0d18");
+    ctx.set_line_width(6.0);
+    ctx.stroke();
+    // Badge centang lime di kanan-bawah avatar (seperti halaman profil).
+    if verified {
+        let b_r = avatar_r * 0.30;
+        let b_cx = av_cx + avatar_r * 0.72;
+        let b_cy = av_cy + avatar_r * 0.72;
+        ctx.begin_path();
+        let _ = ctx.arc(b_cx, b_cy, b_r, 0.0, std::f64::consts::TAU);
+        ctx.set_fill_style_str("#c8f04a");
+        ctx.fill();
+        ctx.set_fill_style_str("#101010");
+        ctx.set_font(&format!("bold {}px sans-serif", b_r * 1.2));
+        ctx.set_text_align("center");
+        ctx.set_text_baseline("middle");
+        let _ = ctx.fill_text("\u{2713}", b_cx, b_cy + 1.0);
+    }
+
+    // ── Nama toko (kiri, uppercase display) ──────────────────────────────────
+    let mut y = av_cy + avatar_r + 18.0 + name_fs;
+    ctx.set_text_align("left");
+    ctx.set_text_baseline("alphabetic");
+    ctx.set_fill_style_str("#ffffff");
+    ctx.set_font(&format!(
+        "bold {name_fs}px \"Bebas Neue\", \"Arial Black\", sans-serif"
+    ));
+    let _ = ctx.fill_text(&name.to_uppercase(), card_x + pad, y);
+
+    // ── Blok bawah: stats ATAU review ────────────────────────────────────────
+    y += 22.0;
+    if let Some((r_stars, _)) = &review {
+        // Bintang + kutipan (tengah).
+        ctx.set_text_align("center");
+        let cx = card_x + card_w / 2.0;
+        y += star_fs;
+        let stars: String = (1..=5)
+            .map(|i| if i <= *r_stars { '\u{2605}' } else { '\u{2606}' })
+            .collect();
+        ctx.set_fill_style_str("#f5c518");
+        ctx.set_font(&format!("{star_fs}px sans-serif"));
+        let _ = ctx.fill_text(&stars, cx, y);
+        y += 14.0;
+        ctx.set_fill_style_str("rgba(255,255,255,0.85)");
+        ctx.set_font(&format!("italic {quote_fs}px \"Space Mono\", monospace"));
+        for line in &quote_lines {
+            y += quote_line_h;
+            let _ = ctx.fill_text(line, cx, y);
+        }
+        y += 12.0;
+    } else {
+        // Kartu stats rounded (lebih terang) dengan 3 kolom + divider.
+        let s_x = card_x + pad;
+        let s_w = card_w - 2.0 * pad;
+        let s_h = stats_h;
+        ctx.set_fill_style_str("#1b1b2a");
+        round_rect_path(ctx, s_x, y, s_w, s_h, cw * 0.022);
+        ctx.fill();
+        let col_w = s_w / 3.0;
+        let num_y = y + pad * 0.55 + stat_num_fs;
+        let lbl_y = num_y + 10.0 + stat_lbl_fs;
+        let vals = [
+            (crate::web::pages::merchant_public::fmt_count(followers), "FOLLOWERS", false),
+            (crate::web::pages::merchant_public::fmt_count(events_count), "EVENTS", false),
+            (format!("{rating:.1}"), "RATING", true),
+        ];
+        ctx.set_text_align("center");
+        for (i, (num, lbl, is_rating)) in vals.iter().enumerate() {
+            let cx_col = s_x + col_w * (i as f64 + 0.5);
+            ctx.set_fill_style_str("#ffffff");
+            ctx.set_font(&format!("bold {stat_num_fs}px \"Space Mono\", monospace"));
+            if *is_rating {
+                // "4.8 ★" — bintang kecil lime setelah angka.
+                let num_w = ctx.measure_text(num).map(|m| m.width()).unwrap_or(0.0);
+                let _ = ctx.fill_text(num, cx_col - stat_num_fs * 0.3, num_y);
+                ctx.set_fill_style_str("#c8f04a");
+                ctx.set_font(&format!("{}px sans-serif", stat_num_fs * 0.65));
+                let _ = ctx.fill_text(
+                    "\u{2605}",
+                    cx_col - stat_num_fs * 0.3 + num_w / 2.0 + stat_num_fs * 0.42,
+                    num_y - stat_num_fs * 0.08,
+                );
+            } else {
+                let _ = ctx.fill_text(num, cx_col, num_y);
+            }
+            ctx.set_fill_style_str("rgba(255,255,255,0.45)");
+            ctx.set_font(&format!("{stat_lbl_fs}px \"Space Mono\", monospace"));
+            // Letter-spacing manual: sisip spasi tipis antar huruf label.
+            let spaced: String = lbl.chars().flat_map(|c| [c, '\u{2009}']).collect();
+            let _ = ctx.fill_text(spaced.trim_end(), cx_col, lbl_y);
+            // Divider antar kolom.
+            if i > 0 {
+                ctx.set_stroke_style_str("rgba(255,255,255,0.10)");
+                ctx.set_line_width(2.0);
+                ctx.begin_path();
+                ctx.move_to(s_x + col_w * i as f64, y + s_h * 0.22);
+                ctx.line_to(s_x + col_w * i as f64, y + s_h * 0.78);
+                ctx.stroke();
+            }
+        }
+        y += s_h;
+    }
+
+    // ── Pill CTA ─────────────────────────────────────────────────────────────
+    let pill_text = "KUNJUNGI PROFIL \u{2197}";
+    ctx.set_font(&format!("bold {pill_fs}px \"Space Mono\", monospace"));
+    let tw = ctx.measure_text(pill_text).map(|m| m.width()).unwrap_or(200.0);
+    let pill_w = tw + pill_fs * 2.4;
+    let cx = card_x + card_w / 2.0;
+    let pill_x = cx - pill_w / 2.0;
+    let pill_y = y + 20.0;
+    ctx.set_fill_style_str("#c8f04a");
+    round_rect_path(ctx, pill_x, pill_y, pill_w, pill_h, pill_h / 2.0);
+    ctx.fill();
+    ctx.set_fill_style_str("#101010");
+    ctx.set_text_align("center");
+    ctx.set_text_baseline("middle");
+    let _ = ctx.fill_text(pill_text, cx, pill_y + pill_h / 2.0 + 1.0);
+    ctx.set_text_baseline("alphabetic");
+
+    Ok(())
+}
