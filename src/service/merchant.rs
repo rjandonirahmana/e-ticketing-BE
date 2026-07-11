@@ -189,6 +189,17 @@ impl MerchantService {
             .map_err(AppError::Internal)
     }
 
+    /// Merchant acak — isi awal overlay pencarian sebelum user mengetik.
+    pub async fn random(
+        &self,
+        limit: i64,
+    ) -> AppResult<Vec<crate::models::merchant::MerchantSearchItem>> {
+        self.repo
+            .random(limit.clamp(1, 20))
+            .await
+            .map_err(AppError::Internal)
+    }
+
     /// Daftar follower merchant + total, paginasi per halaman.
     pub async fn list_followers(
         &self,

@@ -200,6 +200,10 @@ impl PgEventRepository {
             updated_at: row.try_get("updated_at").context("updated_at")?,
             total_sold: row.try_get("total_sold").unwrap_or(0),
             total_quota: row.try_get("total_quota").unwrap_or(0),
+            // Toleran: kolom hanya ada pada query ber-MERCHANT_JOIN.
+            merchant_name: row.try_get("merchant_name").ok().flatten(),
+            // List tidak menyertakan MERCHANT_INFO_COLS (mahal per baris).
+            merchant: None,
         })
     }
 
@@ -243,6 +247,27 @@ impl PgEventRepository {
             updated_at: row.try_get("updated_at").context("updated_at")?,
             total_sold: 0,
             total_quota: 0,
+            // Toleran: None pada INSERT RETURNING (tanpa join) — tak dipakai di
+            // jalur itu (dashboard merchant sendiri).
+            merchant_name: row.try_get("merchant_name").ok().flatten(),
+            merchant: Self::row_to_merchant_summary(row),
+        })
+    }
+
+    /// Ringkasan merchant dari MERCHANT_INFO_COLS — toleran: None bila kolom
+    /// tak ada di query (INSERT RETURNING) sehingga mapper tetap dipakai semua
+    /// jalur. `merchant_verified` dijadikan kolom penanda keberadaan blok.
+    fn row_to_merchant_summary(row: &Row) -> Option<crate::models::events::MerchantSummary> {
+        let verified: bool = row.try_get("merchant_verified").ok()?;
+        Some(crate::models::events::MerchantSummary {
+            logo_url: row.try_get("merchant_logo").ok().flatten(),
+            header_url: row.try_get("merchant_header").ok().flatten(),
+            description: row.try_get("merchant_desc").ok().flatten(),
+            verified,
+            followers: row.try_get("merchant_followers").unwrap_or(0),
+            events_count: row.try_get("merchant_events_count").unwrap_or(0),
+            rating_avg: row.try_get("merchant_rating_avg").unwrap_or(0.0),
+            rating_count: row.try_get("merchant_rating_count").unwrap_or(0),
         })
     }
 

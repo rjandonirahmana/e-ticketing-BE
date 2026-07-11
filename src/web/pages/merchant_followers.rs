@@ -204,13 +204,9 @@ pub fn MerchantFollowersPage() -> impl IntoView {
                                                     .unwrap_or('P')
                                                     .to_uppercase()
                                                     .to_string();
-                                                // Pakai has_store (punya toko publik),
-                                                // BUKAN role: user berperan merchant tapi
-                                                // belum bikin toko tak punya /m/{id} →
-                                                // diperlakukan sebagai user biasa (link /u/,
-                                                // tanpa badge) agar tak "merchant tidak
-                                                // ditemukan".
-                                                let is_merchant = f.has_store;
+                                                // role='merchant' ⟺ punya /m/{id} (dijamin
+                                                // trigger migrasi 016), jadi cukup cek role.
+                                                let is_merchant = f.role == "merchant";
                                                 let sub = if is_merchant {
                                                     format!("Penyelenggara · {}", fmt_date(&f.created_at))
                                                 } else {

@@ -55,18 +55,52 @@ pub fn SearchOverlay(
         debounce_gen.set_value(gen);
         set_timeout(
             move || {
-                if debounce_gen.get_value() == gen {
-                    merch_query.set(q.clone());
+                if debounce_gen.get_value() != gen {
+                    return;
+                }
+                merch_query.set(q.clone());
+
+                // ── Rekam PENCARIAN sebagai sinyal minat ("Untuk Kamu") ────
+                // Kategori diambil dari event yang cocok dengan kata kunci
+                // (client-side, dari store yang sama dengan hasil tampil):
+                //  - anonim  → localStorage (behavior::record_view)
+                //  - login   → server (record_affinity, buffer batch)
+                // Dijalankan di debounce settle (bukan tiap ketik).
+                let ql = q.trim().to_lowercase();
+                if ql.len() >= 2 {
+                    let mut cats: Vec<String> = store.items.with_untracked(|events| {
+                        events
+                            .iter()
+                            .filter(|e| {
+                                e.title.to_lowercase().contains(&ql)
+                                    || e.city.to_lowercase().contains(&ql)
+                                    || e.venue.to_lowercase().contains(&ql)
+                            })
+                            .flat_map(|e| e.category.iter().cloned())
+                            .collect()
+                    });
+                    cats.sort();
+                    cats.dedup();
+                    cats.truncate(3);
+                    if !cats.is_empty() {
+                        crate::web::behavior::record_view(&cats);
+                        leptos::task::spawn_local(async move {
+                            let _ = crate::web::api::record_affinity(cats, None).await;
+                        });
+                    }
                 }
             },
             std::time::Duration::from_millis(250),
         );
     });
+    // q kosong → merchant ACAK (discovery sebelum mengetik); ada q → cari nama.
     let merchants = Resource::new(
         move || merch_query.get(),
         |q| async move {
             if q.trim().len() < 2 {
-                return Vec::new();
+                return crate::web::api::get_random_merchants(8)
+                    .await
+                    .unwrap_or_default();
             }
             crate::web::api::search_merchants(q).await.unwrap_or_default()
         },
@@ -183,7 +217,15 @@ pub fn SearchOverlay(
                     .then(|| {
                         view! {
                             <div class="exp-sovl-merchants">
-                                <span class="exp-results-eyebrow">"Penyelenggara"</span>
+                                <span class="exp-results-eyebrow">
+                                    {move || {
+                                        if query.get().trim().len() < 2 {
+                                            "Penyelenggara untukmu"
+                                        } else {
+                                            "Penyelenggara"
+                                        }
+                                    }}
+                                </span>
                                 <div class="exp-merch-row">
                                     {list
                                         .into_iter()

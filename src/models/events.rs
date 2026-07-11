@@ -72,6 +72,28 @@ pub struct Event {
     pub updated_at: DateTime<Utc>,
     pub total_sold: i32,
     pub total_quota: i32,
+    /// Nama toko penyelenggara (JOIN merchant_details.store_name). None hanya
+    /// pada jalur tanpa join (INSERT RETURNING).
+    pub merchant_name: Option<String>,
+    /// Ringkasan profil penyelenggara untuk bottom sheet di event detail.
+    /// HANYA terisi pada query detail (by slug/id dengan MERCHANT_INFO_COLS) —
+    /// list & INSERT RETURNING tak membayar subquery agregatnya (None).
+    #[serde(default)]
+    pub merchant: Option<MerchantSummary>,
+}
+
+/// Ringkasan profil merchant yang di-embed di detail event: satu round-trip
+/// (JOIN + subquery agregat) — sheet penyelenggara tak perlu fetch kedua.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MerchantSummary {
+    pub logo_url: Option<String>,
+    pub header_url: Option<String>,
+    pub description: Option<String>,
+    pub verified: bool,
+    pub followers: i64,
+    pub events_count: i64,
+    pub rating_avg: f64,
+    pub rating_count: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -106,6 +128,10 @@ pub struct EventWithVariants {
     pub display_price: f64,
     pub total_sold: i32,
     pub total_quota: i32,
+    /// Nama toko penyelenggara (JOIN merchant_details.store_name).
+    pub merchant_name: Option<String>,
+    /// Ringkasan profil penyelenggara (bottom sheet event detail).
+    pub merchant: Option<MerchantSummary>,
     pub event_variants: Vec<crate::models::event_variants::EventVariantResponse>,
 }
 

@@ -125,6 +125,12 @@ pub fn EventCardPub(ev: ExploreEvent, #[prop(default = 0)] index: usize) -> impl
         ev.price_str.clone()
     };
     let org_href = format!("/m/{}", ev.merchant_id);
+    // Nama toko penyelenggara di chip; event lama tanpa nama → fallback generik.
+    let org_label = if ev.merchant_name.is_empty() {
+        "PENYELENGGARA \u{2192}".to_string()
+    } else {
+        format!("{} \u{2192}", ev.merchant_name)
+    };
     view! {
         <a
             href=href
@@ -171,7 +177,7 @@ pub fn EventCardPub(ev: ExploreEvent, #[prop(default = 0)] index: usize) -> impl
                         }
                     }
                 >
-                    "PENYELENGGARA \u{2192}"
+                    {org_label}
                 </span>
                 <div class="exp-mkt-meta">
                     <span class="exp-mkt-meta-row">

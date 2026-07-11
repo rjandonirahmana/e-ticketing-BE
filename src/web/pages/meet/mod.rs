@@ -86,21 +86,12 @@ fn origin() -> String {
     String::new()
 }
 
+/// Minta izin kamera/mic via sumber tunggal `rtc::request_camera_mic`. Error
+/// dikembalikan sebagai pesan actionable + panduan izin (lihat `MediaError`).
 async fn get_user_media() -> Result<web_sys::MediaStream, String> {
-    let window = web_sys::window().ok_or("No window")?;
-    let constraints = web_sys::MediaStreamConstraints::new();
-    constraints.set_audio(&JsValue::TRUE);
-    constraints.set_video(&JsValue::TRUE);
-    let promise = window
-        .navigator()
-        .media_devices()
-        .map_err(|_| "MediaDevices tidak didukung".to_string())?
-        .get_user_media_with_constraints(&constraints)
-        .map_err(|_| "getUserMedia gagal".to_string())?;
-    let val = wasm_bindgen_futures::JsFuture::from(promise)
+    crate::web::rtc::request_camera_mic()
         .await
-        .map_err(|e| format!("Akses kamera/mic ditolak: {e:?}"))?;
-    Ok(web_sys::MediaStream::from(val))
+        .map_err(|e| e.user_message())
 }
 
 async fn get_display_media() -> Result<web_sys::MediaStream, String> {
@@ -134,6 +125,9 @@ fn stop_share(
         let tracks = s.get_tracks();
         for i in 0..tracks.length() {
             let t: web_sys::MediaStreamTrack = tracks.get(i).unchecked_into();
+            // Lepas onended agar tak memicu stop_share lagi (dan agar closure yang
+            // dipegang bisa aman di-drop saat digantikan / unmount).
+            t.set_onended(None);
             t.stop();
         }
     }
@@ -167,10 +161,32 @@ async fn api_create_room() -> Result<String, String> {
 /// State bersama yang dibawa ke dalam closure WS & fungsi signaling. Field-nya
 /// privat di modul `meet` tapi dapat diakses submodul ([`signaling`], [`webrtc`])
 /// karena submodul adalah keturunan modul ini.
+/// Dua closure JS milik satu peer connection (onicecandidate + ontrack).
+/// DIPEGANG di `Ctx::pc_closures` (bukan `.forget()`) supaya di mesh N-orang tak
+/// bocor tiap peer join/leave — di-drop saat peer keluar atau meet berakhir.
+type PeerClosures = (
+    Closure<dyn FnMut(web_sys::RtcPeerConnectionIceEvent)>,
+    Closure<dyn FnMut(web_sys::RtcTrackEvent)>,
+);
+
+/// Closure WebSocket signaling (onmessage, onopen, onerror). Dipegang di
+/// `Ctx::ws_closures` (bukan `.forget()`) → satu set per sesi meet, di-drop saat
+/// teardown alih-alih bocor tiap kali join room.
+type WsClosures = (
+    Closure<dyn FnMut(web_sys::MessageEvent)>,
+    Closure<dyn FnMut(web_sys::Event)>,
+    Closure<dyn FnMut(web_sys::Event)>,
+);
+
 #[derive(Clone)]
 struct Ctx {
     ws: Rc<RefCell<Option<web_sys::WebSocket>>>,
     pcs: Rc<RefCell<HashMap<String, web_sys::RtcPeerConnection>>>,
+    /// Closure per-peer (onicecandidate, ontrack) — dipegang agar bisa di-drop
+    /// saat peer keluar / teardown. Kunci = peer_id, sinkron dengan `pcs`.
+    pc_closures: Rc<RefCell<HashMap<String, PeerClosures>>>,
+    /// Closure WebSocket signaling — dipegang untuk sesi ini, di-drop saat teardown.
+    ws_closures: Rc<RefCell<Option<WsClosures>>>,
     names: Rc<RefCell<HashMap<String, String>>>,
     /// Status mic/kamera terakhir tiap peer remote (untuk dipasang ke tile yang
     /// mungkin dibuat setelah pesan state tiba).
@@ -249,6 +265,13 @@ pub fn MeetPage() -> impl IntoView {
     let sharing = RwSignal::new(false);
     let screen_store: StoredValue<Option<send_wrapper::SendWrapper<web_sys::MediaStream>>> =
         StoredValue::new(None);
+    // onended track screen ("Stop sharing" bawaan browser) — DIPEGANG (bukan
+    // `.forget()`). Di-drop saat share berikutnya menggantikan atau saat page
+    // unmount (StoredValue). TIDAK di-drop dari dalam stop_share karena closure
+    // bisa sedang mengeksekusi stop_share → drop-saat-jalan = panic.
+    let screen_onended: StoredValue<
+        Option<send_wrapper::SendWrapper<Closure<dyn FnMut(web_sys::Event)>>>,
+    > = StoredValue::new(None);
 
     let local_sig: RwSignal<Option<send_wrapper::SendWrapper<web_sys::MediaStream>>> =
         RwSignal::new(None);
@@ -258,6 +281,8 @@ pub fn MeetPage() -> impl IntoView {
     let ctx = Ctx {
         ws: Rc::new(RefCell::new(None)),
         pcs: Rc::new(RefCell::new(HashMap::new())),
+        pc_closures: Rc::new(RefCell::new(HashMap::new())),
+        ws_closures: Rc::new(RefCell::new(None)),
         names: Rc::new(RefCell::new(HashMap::new())),
         states: Rc::new(RefCell::new(HashMap::new())),
         pending_ice: Rc::new(RefCell::new(HashMap::new())),
@@ -393,7 +418,8 @@ pub fn MeetPage() -> impl IntoView {
                     stop_share(&c2, sharing, local_sig, screen_store, cam);
                 });
                 strack.set_onended(Some(cb.as_ref().unchecked_ref()));
-                cb.forget();
+                // Pegang (replace grup lama → drop). Bukan `.forget()`.
+                screen_onended.set_value(Some(send_wrapper::SendWrapper::new(cb)));
             }
             screen_store.set_value(Some(send_wrapper::SendWrapper::new(screen)));
             sharing.set(true);
@@ -761,7 +787,20 @@ pub fn MeetPage() -> impl IntoView {
                     <div class="meet-center">
                         <p class="meet-result-icon">"⚠️"</p>
                         <p>{move || error_msg.get().unwrap_or_else(|| "Terjadi kesalahan".into())}</p>
-                        <A href="/" attr:class="meet-btn">"Kembali"</A>
+                        <div class="meet-error-actions">
+                            // "Coba Lagi": minta ulang izin kamera/mic (setelah user
+                            // mengizinkan di address bar) tanpa perlu reload halaman.
+                            <button
+                                class="meet-btn"
+                                on:click=move |_| {
+                                    error_msg.set(None);
+                                    preview.dispatch(());
+                                }
+                            >
+                                "Coba Lagi"
+                            </button>
+                            <A href="/" attr:class="meet-btn meet-btn--ghost">"Kembali"</A>
+                        </div>
                     </div>
                 }.into_any(),
                 _ => view! {}.into_any(),
@@ -769,3 +808,13 @@ pub fn MeetPage() -> impl IntoView {
         </div>
     }
 }
+
+
+
+
+
+
+
+
+
+

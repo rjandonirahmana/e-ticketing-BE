@@ -151,8 +151,10 @@ pub fn MerchantLivePage() -> impl IntoView {
             let stream = match get_user_media().await {
                 Ok(s) => s,
                 Err(e) => {
-                    error_msg.set(Some(format!("Camera access denied: {e}")));
-                    status_text.set("Camera access denied".to_string());
+                    // `e` sudah pesan actionable (mis. cara mengizinkan). Tombol
+                    // "Go Live" tetap bisa ditekan lagi sebagai "Coba Lagi".
+                    error_msg.set(Some(e));
+                    status_text.set("Izin kamera/mikrofon diperlukan".to_string());
                     let _ = api_stop_room(&room.room_id).await;
                     return;
                 }
@@ -460,30 +462,12 @@ pub fn MerchantLivePage() -> impl IntoView {
     }
 }
 
+/// Minta izin kamera/mic via sumber tunggal `rtc::request_camera_mic`. Error
+/// dikembalikan sebagai pesan siap-tampil + panduan izin (lihat `MediaError`).
 async fn get_user_media() -> Result<web_sys::MediaStream, String> {
-    let window = web_sys::window().ok_or("No window")?;
-    let navigator = window.navigator();
-
-    let constraints = web_sys::MediaStreamConstraints::new();
-    let video_constraints = web_sys::MediaTrackConstraints::new();
-
-    video_constraints.set_width(&wasm_bindgen::JsValue::from_f64(1280.0));
-    video_constraints.set_height(&wasm_bindgen::JsValue::from_f64(720.0));
-
-    constraints.set_audio(&wasm_bindgen::JsValue::TRUE);
-    constraints.set_video(&video_constraints.into());
-
-    let promise = navigator
-        .media_devices()
-        .map_err(|_| "MediaDevices not supported".to_string())?
-        .get_user_media_with_constraints(&constraints)
-        .map_err(|_| "getUserMedia failed".to_string())?;
-
-    let js_val = wasm_bindgen_futures::JsFuture::from(promise)
+    crate::web::rtc::request_camera_mic()
         .await
-        .map_err(|e| format!("Camera access denied: {:?}", e))?;
-
-    Ok(web_sys::MediaStream::from(js_val))
+        .map_err(|e| e.user_message())
 }
 
 /// Buat RTCPeerConnection sebagai publisher via WS signaling.

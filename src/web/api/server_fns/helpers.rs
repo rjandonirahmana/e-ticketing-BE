@@ -95,6 +95,7 @@ pub(super) fn srv_event_to_web(e: crate::models::events::Event) -> crate::web::m
         status: e.status,
         total_sold: e.total_sold,
         total_quota: e.total_quota,
+        merchant_name: e.merchant_name,
     }
 }
 
@@ -142,6 +143,17 @@ pub(super) fn srv_event_with_variants_to_web(
         display_price: e.display_price,
         total_sold: e.total_sold,
         total_quota: e.total_quota,
+        merchant_name: e.merchant_name,
+        merchant: e.merchant.map(|m| crate::web::models::EventMerchantInfo {
+            logo_url: m.logo_url,
+            header_url: m.header_url,
+            description: m.description,
+            verified: m.verified,
+            followers: m.followers,
+            events_count: m.events_count,
+            rating_avg: m.rating_avg,
+            rating_count: m.rating_count,
+        }),
         event_variants: e.event_variants.into_iter().map(srv_event_variant_to_web).collect(),
     }
 }

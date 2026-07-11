@@ -157,7 +157,7 @@ pub fn AdminPage() -> impl IntoView {
                             <polyline points="20 17 20 20 17 20"/>
                             <rect x="8" y="8" width="8" height="8" rx="1"/>
                         </svg>
-                        "SCAN"
+                        <span class="mhub-btn-label">"SCAN"</span>
                     </A>
                     <ThemeToggle />
                     <A href="/notifications" attr:class="mhub-bell-btn" attr:aria-label="Notifikasi">
@@ -270,7 +270,9 @@ pub fn AdminPage() -> impl IntoView {
                     match active_page.get() {
                         AdminTab::Review    => view_review(pending_events, all_events, toast).into_any(),
                         AdminTab::Events    => view_all_events(evs_all).into_any(),
-                        AdminTab::Banners   => view_banners(banners_list).into_any(),
+                        AdminTab::Banners   => {
+                            view_banners(banners_list, move || banners_res.refetch()).into_any()
+                        }
                         AdminTab::Analytics => view_analytics_admin(evs_all, stats_opt).into_any(),
                         AdminTab::Finance   => view_finance_admin(evs_all).into_any(),
                         AdminTab::Settings  => view_settings_admin().into_any(),

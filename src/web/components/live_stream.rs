@@ -6,6 +6,17 @@ use wasm_bindgen::closure::Closure;
 use std::rc::Rc;
 use std::cell::Cell;
 
+/// Semua wasm-bindgen `Closure` milik satu sesi tontonan. DIPEGANG (bukan
+/// `.forget()`) supaya bisa di-DROP saat disconnect/unmount → tak bocor tiap
+/// kali penonton membuka stream. Penting di feed `/lives` yang bisa membuka
+/// banyak kartu berturut-turut. Cerminan pola publisher di `merchant_live.rs`.
+struct ViewerRtcClosures {
+    _on_track: Closure<dyn FnMut(web_sys::RtcTrackEvent)>,
+    _on_msg: Closure<dyn FnMut(web_sys::MessageEvent)>,
+    _on_err: Closure<dyn FnMut(web_sys::Event)>,
+    _on_ice: Closure<dyn FnMut(web_sys::RtcPeerConnectionIceEvent)>,
+}
+
 // Hanya field yang dipakai UI viewer; field lain di respons diabaikan serde.
 #[derive(Debug, Clone, Deserialize)]
 struct RoomInfo {
@@ -91,6 +102,10 @@ pub fn LiveStreamViewer(
     // Menutup WS ini secara otomatis memanggil remove_subscriber di server —
     // tidak perlu lagi HTTP DELETE /subscribe/{id} saat keluar.
     let sig_ws: RwSignal<Option<SendWrapper<web_sys::WebSocket>>> = RwSignal::new(None);
+    // Penampung closure RTC/WS sesi ini — dipegang agar bisa di-drop saat
+    // disconnect/unmount (bukan `.forget()` yang bocor permanen). SendWrapper
+    // memenuhi bound Send StoredValue (single-thread WASM; no-op native).
+    let rtc_closures: StoredValue<Option<SendWrapper<ViewerRtcClosures>>> = StoredValue::new(None);
 
     // ── Polling viewer count ──────────────────────────────────────────────
     Effect::new(move |_| {
@@ -126,6 +141,7 @@ pub fn LiveStreamViewer(
         // video_ref tidak dipakai di sini: srcObject + play() dipasang oleh
         // Effect reaktif level-komponen saat `remote_stream` berubah.
         let sig_ws = sig_ws;
+        let rtc_closures = rtc_closures;
         let profile = auth.user.get_untracked();
 
         async move {
@@ -192,7 +208,7 @@ pub fn LiveStreamViewer(
                 })
             };
             peer_connection.set_ontrack(Some(on_track.as_ref().unchecked_ref()));
-            on_track.forget();
+            // JANGAN forget: on_track dipegang & disimpan di rtc_closures (bawah).
 
             // ── Buka WS signaling SEBELUM createOffer ────────────────────────
             // Alasannya: setLocalDescription memulai ICE gathering. Kandidat ICE
@@ -219,7 +235,7 @@ pub fn LiveStreamViewer(
             >();
             let answer_tx = Rc::new(Cell::new(Some(answer_tx)));
 
-            {
+            let on_msg = {
                 let tx = answer_tx.clone();
                 let cb = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
                     move |e: web_sys::MessageEvent| {
@@ -248,9 +264,9 @@ pub fn LiveStreamViewer(
                     },
                 );
                 ws.set_onmessage(Some(cb.as_ref().unchecked_ref()));
-                cb.forget();
-            }
-            {
+                cb
+            };
+            let on_err = {
                 let tx = answer_tx.clone();
                 let cb = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
                     if let Some(tx) = tx.take() {
@@ -258,15 +274,15 @@ pub fn LiveStreamViewer(
                     }
                 });
                 ws.set_onerror(Some(cb.as_ref().unchecked_ref()));
-                cb.forget();
-            }
+                cb
+            };
 
             // ── onicecandidate: kirim kandidat langsung via WS (trickle ICE) ─
             // Tidak lagi menunggu ICE gathering selesai (wait_ice_gathering_complete
             // dihapus). Ini mempersingkat setup koneksi 300–500 ms.
-            {
+            let on_ice = {
                 let ws_ref = ws.clone();
-                let on_ice = Closure::<dyn FnMut(web_sys::RtcPeerConnectionIceEvent)>::new(
+                let cb = Closure::<dyn FnMut(web_sys::RtcPeerConnectionIceEvent)>::new(
                     move |event: web_sys::RtcPeerConnectionIceEvent| {
                         if let Some(candidate) = event.candidate() {
                             let msg = serde_json::json!({
@@ -279,9 +295,9 @@ pub fn LiveStreamViewer(
                         }
                     },
                 );
-                peer_connection.set_onicecandidate(Some(on_ice.as_ref().unchecked_ref()));
-                on_ice.forget();
-            }
+                peer_connection.set_onicecandidate(Some(cb.as_ref().unchecked_ref()));
+                cb
+            };
 
             // ── Tunggu WS terbuka (maks 5 detik) ─────────────────────────────
             {
@@ -412,6 +428,14 @@ pub fn LiveStreamViewer(
                 return;
             }
 
+            // Pegang keempat closure selama sesi. Set_value me-REPLACE grup lama
+            // (bila reconnect) → closure sesi sebelumnya otomatis di-drop.
+            rtc_closures.set_value(Some(SendWrapper::new(ViewerRtcClosures {
+                _on_track: on_track,
+                _on_msg: on_msg,
+                _on_err: on_err,
+                _on_ice: on_ice,
+            })));
             pc.set(Some(SendWrapper::new(peer_connection)));
             is_playing.set(true);
         }
@@ -430,18 +454,27 @@ pub fn LiveStreamViewer(
         let pc = pc;
         let is_playing = is_playing;
         let sig_ws = sig_ws;
+        let rtc_closures = rtc_closures;
 
         async move {
             if let Some(conn) = pc.get_untracked() {
+                // Lepas handler SEBELUM drop closure (cegah "closure invoked
+                // after drop"); close() juga menghentikan event lanjutan.
+                conn.set_ontrack(None);
+                conn.set_onicecandidate(None);
                 let _ = conn.close();
             }
             pc.set(None);
             // Tutup WS → server memanggil remove_subscriber secara otomatis.
             // Tidak perlu lagi HTTP DELETE /subscribe/{id}.
             if let Some(ws) = sig_ws.get_untracked() {
+                ws.set_onmessage(None);
+                ws.set_onerror(None);
                 let _ = ws.close();
             }
             sig_ws.set(None);
+            // Drop keempat closure sesi ini → tak bocor.
+            rtc_closures.set_value(None);
             is_playing.set(false);
             is_muted.set(true);
         }
@@ -449,14 +482,20 @@ pub fn LiveStreamViewer(
 
     on_cleanup(move || {
         if let Some(conn) = pc.get_untracked() {
+            conn.set_ontrack(None);
+            conn.set_onicecandidate(None);
             let _ = conn.close();
         }
         // Menutup WS secara otomatis memanggil remove_subscriber di server
         // (live_subscribe_ws_loop mendeteksi disconnect dan memanggil remove_subscriber).
         // Ini menangani: navigasi keluar, tutup tab, refresh saat masih menonton.
         if let Some(ws) = sig_ws.get_untracked() {
+            ws.set_onmessage(None);
+            ws.set_onerror(None);
             let _ = ws.close();
         }
+        // Drop closure RTC/WS → tak bocor saat komponen unmount.
+        rtc_closures.set_value(None);
     });
 
     // ── Reactive srcObject Effect ────────────────────────────────────────────

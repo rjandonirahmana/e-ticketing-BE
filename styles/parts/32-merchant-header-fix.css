@@ -1,6 +1,46 @@
-/* ===== merchant header fix (override agar judul tak wrap) ===== */
-.mhub-header { flex-wrap: wrap; gap: 10px; }
-.mhub-header-left { flex-shrink: 0; }
-.mhub-header-right { flex-wrap: wrap; justify-content: flex-end; }
-.mhub-header-title { white-space: nowrap; }
+/* ===== Header Merchant Hub / Pusat Admin — penempatan icon ===================
+   Masalah lama: 3 pill (LIVE/MEET/SCAN) padding & gap tak konsisten (tinggi
+   pill beda → icon terlihat tak sejajar), .mhub-scan-btn tanpa flex-shrink
+   (memendek duluan), dan di layar sempit flex-wrap membuat tombol turun baris
+   berantakan. Fix: samakan metrik semua pill, kunci SATU baris (tanpa wrap),
+   dan di ≤520px label teks disembunyikan → pill jadi lingkaran 38px yang
+   seragam dengan ThemeToggle & tombol lonceng. */
 
+.mhub-header { gap: 10px; }
+.mhub-header-left { flex-shrink: 0; min-width: 0; }
+.mhub-header-right { flex-shrink: 0; }
+.mhub-header-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Metrik seragam untuk ketiga pill: tinggi, padding, gap, dan baseline sama. */
+.mhub-live-btn,
+.mhub-meet-btn,
+.mhub-scan-btn {
+    height: 34px;
+    padding: 0 12px;
+    gap: 6px;
+    line-height: 1;
+    flex-shrink: 0;
+    justify-content: center;
+}
+/* SVG di dalam pill/tombol bulat jangan ikut menyusut. */
+.mhub-header-right svg { flex-shrink: 0; }
+
+/* Layar sempit (Android umum): sembunyikan label → icon-only, lingkaran 38px
+   seragam dengan .theme-toggle / .mhub-bell-btn — semua muat satu baris. */
+@media (max-width: 520px) {
+    .mhub-btn-label { display: none; }
+    .mhub-live-btn,
+    .mhub-meet-btn,
+    .mhub-scan-btn {
+        width: 38px;
+        height: 38px;
+        padding: 0;
+        border-radius: 50%;
+    }
+    .mhub-header-title { font-size: 18px; }
+    .mhub-header-right { gap: 6px; }
+}

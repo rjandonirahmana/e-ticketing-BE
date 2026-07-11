@@ -232,6 +232,8 @@ impl EventService {
             display_price: event.display_price,
             total_sold: event.total_sold,
             total_quota: event.total_quota,
+            merchant_name: event.merchant_name,
+            merchant: event.merchant,
             event_variants: variants.into_iter().map(Into::into).collect(),
         }
     }

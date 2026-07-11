@@ -130,7 +130,32 @@ pub(super) static EVENT_COLS: &str = r#"
     e.updated_at,
     e.category,
     COALESCE(vs.total_sold,  0)      AS total_sold,
-    COALESCE(vs.total_quota, 0)      AS total_quota
+    COALESCE(vs.total_quota, 0)      AS total_quota,
+    md.store_name                    AS merchant_name
+"#;
+
+/// JOIN nama toko penyelenggara (ditampilkan di kartu explore & event detail
+/// menggantikan label generik "Penyelenggara"). Setiap query yang memakai
+/// EVENT_COLS / EVENT_COLS_NO_AGG WAJIB menyertakan join ini. INSERT RETURNING
+/// tidak bisa join → mapper membaca merchant_name secara toleran (ok().flatten()).
+pub(super) static MERCHANT_JOIN: &str =
+    " LEFT JOIN merchant_details md ON md.user_id = e.merchant_id ";
+
+/// Ringkasan profil merchant untuk bottom sheet event detail — HANYA disertakan
+/// di query DETAIL (by slug/id). Jangan tambahkan ke list: subquery followers/
+/// events_count per baris membuat list mahal. Rating dari kolom denormalisasi
+/// (migrasi 014) → tanpa scan `reviews`.
+pub(super) static MERCHANT_INFO_COLS: &str = r#"
+    md.logo_url                          AS merchant_logo,
+    md.header_url                        AS merchant_header,
+    md.description                       AS merchant_desc,
+    COALESCE(md.verified, FALSE)         AS merchant_verified,
+    COALESCE(md.total_avg_review, 0)     AS merchant_rating_avg,
+    COALESCE(md.total_review, 0)         AS merchant_rating_count,
+    (SELECT COUNT(*)::BIGINT FROM merchant_follows f
+      WHERE f.merchant_id = e.merchant_id)                            AS merchant_followers,
+    (SELECT COUNT(*)::BIGINT FROM events e2
+      WHERE e2.merchant_id = e.merchant_id AND e2.status = 'active')  AS merchant_events_count
 "#;
 
 pub(super) static EVENT_COLS_NO_AGG: &str = r#"
@@ -151,7 +176,8 @@ pub(super) static EVENT_COLS_NO_AGG: &str = r#"
     e.status,
     e.created_at,
     e.updated_at,
-    e.category
+    e.category,
+    md.store_name AS merchant_name
 "#;
 
 pub(super) static VARIANTS_JSONB_AGG: &str = r#"
@@ -192,25 +218,30 @@ pub(super) static ADMIN_UPDATE_EVENT_STATUS: &str = r#"
 
 pub(super) static FIND_EVENT_BY_ID: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {cols} FROM events e {lateral} WHERE e.id = $1",
+        "SELECT {cols} FROM events e {lateral} {mjoin} WHERE e.id = $1",
         cols = EVENT_COLS,
         lateral = VARIANT_STATS_LATERAL,
+        mjoin = MERCHANT_JOIN,
     )
 });
 
 pub(super) static FIND_EVENT_WITH_VARIANTS_BY_SLUG: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {cols}, {agg} FROM events e WHERE e.slug = $1",
+        "SELECT {cols}, {minfo}, {agg} FROM events e {mjoin} WHERE e.slug = $1",
         cols = EVENT_COLS_NO_AGG,
+        minfo = MERCHANT_INFO_COLS,
         agg = VARIANTS_JSONB_AGG,
+        mjoin = MERCHANT_JOIN,
     )
 });
 
 pub(super) static FIND_EVENT_WITH_VARIANTS_BY_ID: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {cols}, {agg} FROM events e WHERE e.id = $1",
+        "SELECT {cols}, {minfo}, {agg} FROM events e {mjoin} WHERE e.id = $1",
         cols = EVENT_COLS_NO_AGG,
+        minfo = MERCHANT_INFO_COLS,
         agg = VARIANTS_JSONB_AGG,
+        mjoin = MERCHANT_JOIN,
     )
 });
 

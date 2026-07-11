@@ -99,8 +99,13 @@ pub(super) async fn handle_msg(ctx: &Ctx, raw: &str) {
             if let Some(id) = v.get("peer_id").and_then(|x| x.as_str()) {
                 remove_tile(id);
                 if let Some(pc) = ctx.pcs.borrow_mut().remove(id) {
+                    // Lepas handler sebelum drop closure (di baris berikut);
+                    // close() menghentikan event lanjutan.
+                    pc.set_onicecandidate(None);
+                    pc.set_ontrack(None);
                     pc.close();
                 }
+                ctx.pc_closures.borrow_mut().remove(id); // drop closure peer ini
                 ctx.names.borrow_mut().remove(id);
                 ctx.states.borrow_mut().remove(id);
                 ctx.remote_ready.borrow_mut().remove(id);
@@ -217,7 +222,7 @@ pub(super) async fn connect(ctx: Ctx, room_id: String, as_host: bool, name: Stri
     // sebelum offer/answer selesai setRemoteDescription → addIceCandidate gagal
     // → peer tak pernah terhubung. Pemrosesan berurutan menjamin offer→answer→
     // candidate sesuai urutan tiba.
-    {
+    let on_msg = {
         let (tx, mut rx) = futures::channel::mpsc::unbounded::<String>();
         let cb = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |e: web_sys::MessageEvent| {
             if let Ok(txt) = e.data().dyn_into::<js_sys::JsString>() {
@@ -225,7 +230,6 @@ pub(super) async fn connect(ctx: Ctx, room_id: String, as_host: bool, name: Stri
             }
         });
         ws.set_onmessage(Some(cb.as_ref().unchecked_ref()));
-        cb.forget();
 
         let ctx2 = ctx.clone();
         wasm_bindgen_futures::spawn_local(async move {
@@ -241,35 +245,42 @@ pub(super) async fn connect(ctx: Ctx, room_id: String, as_host: bool, name: Stri
                 }
             }
         });
-    }
+        cb
+    };
     // onopen → kirim join.
-    {
+    let on_open = {
         let ws_ref = ws.clone();
         let join = json!({ "type": "join", "as_host": as_host, "name": name });
         let cb = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
             let _ = ws_ref.send_with_str(&join.to_string());
         });
         ws.set_onopen(Some(cb.as_ref().unchecked_ref()));
-        cb.forget();
-    }
+        cb
+    };
     // onerror.
-    {
+    let on_err = {
         let ctx2 = ctx.clone();
         let cb = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
             ctx2.error_msg.set(Some("Koneksi signaling terputus".to_string()));
         });
         ws.set_onerror(Some(cb.as_ref().unchecked_ref()));
-        cb.forget();
-    }
+        cb
+    };
 
+    // Pegang ketiga closure WS untuk sesi ini → di-drop saat teardown.
+    *ctx.ws_closures.borrow_mut() = Some((on_msg, on_open, on_err));
     *ctx.ws.borrow_mut() = Some(ws);
 }
 
 /// Hentikan semua: tutup PC, stop track kamera/mic, tutup WS.
 pub(super) fn teardown(ctx: &Ctx) {
     for (_, pc) in ctx.pcs.borrow_mut().drain() {
+        pc.set_onicecandidate(None);
+        pc.set_ontrack(None);
         pc.close();
     }
+    // Drop semua closure per-peer (onicecandidate/ontrack) → tak bocor.
+    ctx.pc_closures.borrow_mut().clear();
     let stream = ctx.local.borrow().clone();
     if let Some(stream) = stream {
         let tracks = stream.get_tracks();
@@ -280,6 +291,13 @@ pub(super) fn teardown(ctx: &Ctx) {
     }
     let ws = ctx.ws.borrow().clone();
     if let Some(ws) = ws {
+        // Lepas handler sebelum drop closure di bawah; close() menghentikan event.
+        ws.set_onmessage(None);
+        ws.set_onopen(None);
+        ws.set_onerror(None);
         let _ = ws.close();
     }
+    *ctx.ws.borrow_mut() = None;
+    // Drop closure WS signaling (onmessage/onopen/onerror) → tak bocor.
+    *ctx.ws_closures.borrow_mut() = None;
 }
