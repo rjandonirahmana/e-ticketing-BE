@@ -16,7 +16,9 @@ use crate::web::hooks::ThemeToggle;
 use crate::web::state::stories::StoryMediaType;
 use crate::web::state::stories::use_stories_store;
 
-use super::merchant_public::{fmt_count, now_ms};
+use super::merchant_public::{
+    fmt_count, now_ms, MerchantProfileShimmer, ReviewListShimmer, StoryGridShimmer,
+};
 
 /// Baris bintang statis (ulasan).
 #[component]
@@ -201,29 +203,13 @@ pub fn UserPublicPage() -> impl IntoView {
             </header>
 
             <Suspense fallback=|| {
-                view! {
-                    <p class="mp-empty" style="text-align:center">
-                        "Memuat profil…"
-                    </p>
-                }
+                view! { <MerchantProfileShimmer /> }
             }>
                 {move || {
                     match profile.get() {
-                        None => {
-                            view! {
-                                <p class="mp-empty" style="text-align:center">
-                                    "Memuat…"
-                                </p>
-                            }
-                                .into_any()
-                        }
+                        None => view! { <MerchantProfileShimmer /> }.into_any(),
                         Some(Err(e)) if e.to_string().contains("not_ready") => {
-                            view! {
-                                <p class="mp-empty" style="text-align:center">
-                                    "Memuat…"
-                                </p>
-                            }
-                                .into_any()
+                            view! { <MerchantProfileShimmer /> }.into_any()
                         }
                         Some(Err(_)) => {
                             view! {
@@ -303,7 +289,7 @@ pub fn UserPublicPage() -> impl IntoView {
                                             // ── Pulses (story) ──────────────
                                             <div class="mp-stories">
                                                     <Suspense fallback=|| {
-                                                        view! { <p class="mp-empty">"Memuat story…"</p> }
+                                                        view! { <StoryGridShimmer /> }
                                                     }>
                                                         {
                                                             let open_story = open_story.clone();
@@ -396,7 +382,7 @@ pub fn UserPublicPage() -> impl IntoView {
                                             // ── Ulasan yang ditulis user ────
                                             <div class="mp-reviews">
                                                     <Suspense fallback=|| {
-                                                        view! { <p class="mp-empty">"Memuat ulasan…"</p> }
+                                                        view! { <ReviewListShimmer /> }
                                                     }>
                                                         {move || {
                                                             reviews

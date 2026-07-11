@@ -96,13 +96,6 @@ pub fn MerchantPage() -> impl IntoView {
             // ── Header ────────────────────────────────────────────────────────
             <header class="mhub-header">
                 <div class="mhub-header-left">
-                    <div class="mhub-header-avatar">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                             stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
-                            <circle cx="12" cy="7" r="4"/>
-                        </svg>
-                    </div>
                     <span class="mhub-header-title">"Merchant Hub"</span>
                 </div>
                 <div class="mhub-header-right">
@@ -540,8 +533,10 @@ fn view_settings() -> impl IntoView {
 // ─── Profil merchant: preview publik + editor (nama/deskripsi/logo/header) ──────
 
 /// Unggah gambar (logo/header) ke POST /upload/merchant-image → balas URL.
+/// `pub(crate)`: dipakai ulang admin (tab Spanduk) untuk unggah gambar banner —
+/// endpoint menerima role merchant DAN admin.
 #[cfg(target_arch = "wasm32")]
-async fn upload_merchant_image(file: &web_sys::File) -> Result<String, String> {
+pub(crate) async fn upload_merchant_image(file: &web_sys::File) -> Result<String, String> {
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
 

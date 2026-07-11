@@ -120,6 +120,10 @@ pub trait MerchantRepository: Send + Sync {
     /// Cari merchant berdasarkan nama toko (ILIKE), terverifikasi dulu.
     async fn search(&self, query: &str, limit: i64) -> Result<Vec<MerchantSearchItem>>;
 
+    /// Merchant acak (overlay pencarian sebelum user mengetik). ORDER BY
+    /// random() aman: merchant_details berukuran kecil (satu baris per toko).
+    async fn random(&self, limit: i64) -> Result<Vec<MerchantSearchItem>>;
+
     /// Profil publik user biasa (nama + jumlah following/reviews/stories).
     async fn user_public(&self, user_id: &str) -> Result<Option<UserPublicProfile>>;
 
@@ -549,6 +553,32 @@ impl MerchantRepository for PgMerchantRepository {
             LIMIT $2
             "#,
             &[&pattern, &limit],
+        )
+        .await?;
+        rows.iter()
+            .map(|r| {
+                let id_bytes: Vec<u8> = r.try_get("user_id")?;
+                Ok(MerchantSearchItem {
+                    merchant_id: bin_to_ulid(id_bytes)?,
+                    store_name: r.try_get("store_name")?,
+                    logo_url: r.try_get("logo_url")?,
+                    verified: r.try_get("verified")?,
+                })
+            })
+            .collect()
+    }
+
+    async fn random(&self, limit: i64) -> Result<Vec<MerchantSearchItem>> {
+        let rows = exec_rows(
+            &self.pool,
+            r#"
+            SELECT user_id, store_name, logo_url, verified
+            FROM   merchant_details
+            WHERE  store_name <> ''
+            ORDER BY random()
+            LIMIT $1
+            "#,
+            &[&limit],
         )
         .await?;
         rows.iter()

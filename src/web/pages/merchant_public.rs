@@ -68,9 +68,63 @@ fn Stars(#[prop(into)] rating: f64) -> impl IntoView {
     }
 }
 
+/// Skeleton grid story 9:16 (dipakai panel STORY di /m/{id} dan /u/{id}).
+#[component]
+pub(crate) fn StoryGridShimmer() -> impl IntoView {
+    view! {
+        <div class="mp-story-grid">
+            {(0..6)
+                .map(|_| {
+                    view! {
+                        <div
+                            class="shimmer-bg"
+                            style="aspect-ratio:9/16;border-radius:10px;"
+                        ></div>
+                    }
+                })
+                .collect_view()}
+        </div>
+    }
+}
+
+/// Skeleton daftar ulasan (avatar-nama + dua baris teks) selama loading.
+#[component]
+pub(crate) fn ReviewListShimmer() -> impl IntoView {
+    view! {
+        <div class="mrv-list">
+            {(0..3)
+                .map(|_| {
+                    view! {
+                        <div style="display:flex;flex-direction:column;gap:9px;padding:14px 0;border-bottom:1px solid var(--border-soft)">
+                            <div style="display:flex;align-items:center;gap:10px">
+                                <div
+                                    class="shimmer-bg"
+                                    style="width:34px;height:34px;border-radius:50%;flex:none"
+                                ></div>
+                                <div
+                                    class="shimmer-bg"
+                                    style="width:38%;height:13px;border-radius:6px;"
+                                ></div>
+                            </div>
+                            <div
+                                class="shimmer-bg"
+                                style="width:92%;height:12px;border-radius:6px;"
+                            ></div>
+                            <div
+                                class="shimmer-bg"
+                                style="width:64%;height:12px;border-radius:6px;"
+                            ></div>
+                        </div>
+                    }
+                })
+                .collect_view()}
+        </div>
+    }
+}
+
 /// Skeleton profil merchant (hero + avatar + nama + statistik) selama loading.
 #[component]
-fn MerchantProfileShimmer() -> impl IntoView {
+pub(crate) fn MerchantProfileShimmer() -> impl IntoView {
     view! {
         <div class="mp-hero shimmer-bg"></div>
         <div class="mp-head">
@@ -821,7 +875,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                 view! {
                                                     <div class="mp-reviews">
                                                                     <Suspense fallback=|| {
-                                                                        view! { <p class="mp-empty">"Memuat ulasan…"</p> }
+                                                                        view! { <ReviewListShimmer /> }
                                                                     }>
                                                                         {
                                                                             let reviews_href = reviews_href.clone();
@@ -926,7 +980,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                 view! {
                                                     <div class="mp-stories">
                                                                     <Suspense fallback=|| {
-                                                                        view! { <p class="mp-empty">"Memuat story…"</p> }
+                                                                        view! { <StoryGridShimmer /> }
                                                                     }>
                                                                         {
                                                                             let open_story = open_story.clone();

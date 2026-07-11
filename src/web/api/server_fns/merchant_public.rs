@@ -270,6 +270,27 @@ pub async fn get_user_reviews(
     })
 }
 
+/// Merchant acak — ditampilkan di overlay pencarian SEBELUM user mengetik
+/// (discovery). Publik.
+#[server(GetRandomMerchants, "/api-fn")]
+pub async fn get_random_merchants(limit: i64) -> Result<Vec<MerchantSearchItem>, ServerFnError> {
+    let state = app_state().await?;
+    let items = state
+        .merchant_svc
+        .random(limit)
+        .await
+        .map_err(map_app_error)?;
+    Ok(items
+        .into_iter()
+        .map(|m| MerchantSearchItem {
+            merchant_id: m.merchant_id,
+            store_name: m.store_name,
+            logo_url: m.logo_url,
+            verified: m.verified,
+        })
+        .collect())
+}
+
 /// Cari merchant berdasarkan nama (autocomplete search /explore). Publik.
 #[server(SearchMerchants, "/api-fn")]
 pub async fn search_merchants(query: String) -> Result<Vec<MerchantSearchItem>, ServerFnError> {

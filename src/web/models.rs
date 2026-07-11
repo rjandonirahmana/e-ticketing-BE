@@ -79,8 +79,26 @@ pub struct EventWithVariants {
     /// Nama toko penyelenggara (label organizer + bottom sheet info merchant).
     #[serde(default)]
     pub merchant_name: Option<String>,
+    /// Ringkasan profil penyelenggara — ikut payload detail event (1 query,
+    /// JOIN + agregat di server) sehingga bottom sheet TIDAK fetch kedua.
+    #[serde(default)]
+    pub merchant: Option<EventMerchantInfo>,
     #[serde(default)]
     pub event_variants: Vec<EventVariant>,
+}
+
+/// Ringkasan merchant yang di-embed di detail event (isi bottom sheet
+/// penyelenggara). Nama toko ada di `EventWithVariants::merchant_name`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventMerchantInfo {
+    pub logo_url: Option<String>,
+    pub header_url: Option<String>,
+    pub description: Option<String>,
+    pub verified: bool,
+    pub followers: i64,
+    pub events_count: i64,
+    pub rating_avg: f64,
+    pub rating_count: i64,
 }
 
 /// Payload varian dari form create/edit event. Dikirim ke server fn sebagai

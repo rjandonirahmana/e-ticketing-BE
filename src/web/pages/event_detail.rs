@@ -7,9 +7,7 @@ use leptos::prelude::*;
 use leptos_meta::*;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_params_map};
-use crate::web::models::MerchantPublicProfile;
-
-use crate::web::api::{get_event_detail, get_events, get_merchant_public_profile};
+use crate::web::api::{get_event_detail, get_events};
 use crate::web::app::{AuthResource, CartContext};
 use crate::web::components::{EventCardPub, LiveStreamViewer, MerchantLivePip};
 use crate::web::hooks::ThemeToggle;
@@ -166,33 +164,9 @@ pub fn EventDetailPage() -> impl IntoView {
     // slide-up/fade berjalan (lihat styles/parts/39-event-sheets.css).
     let merchant_sheet = RwSignal::new(false);
     let tickets_sheet = RwSignal::new(false);
-    let sheet_merchant_id = RwSignal::new(String::new());
-    // Profil merchant di-fetch SAAT sheet dibuka (on-demand, sekali per id).
-    // SENGAJA bukan `Resource`: resource yang dibaca di dalam <Suspense> besar
-    // halaman membuat SELURUH halaman suspend (shimmer ulang — terlihat seperti
-    // refresh) tiap fetch berjalan. Signal + spawn_local di luar mekanisme
-    // Suspense → hanya isi sheet yang menampilkan "Memuat…".
-    let sheet_profile: RwSignal<Option<Result<MerchantPublicProfile, String>>> =
-        RwSignal::new(None);
-    let sheet_loaded_id = RwSignal::new(String::new());
-    Effect::new(move |_| {
-        if !merchant_sheet.get() {
-            return;
-        }
-        let id = sheet_merchant_id.get();
-        // Sekali per merchant: buka-tutup sheet tak refetch profil yang sama.
-        if id.is_empty() || sheet_loaded_id.get_untracked() == id {
-            return;
-        }
-        sheet_loaded_id.set(id.clone());
-        sheet_profile.set(None);
-        leptos::task::spawn_local(async move {
-            let res = get_merchant_public_profile(id)
-                .await
-                .map_err(|e| e.to_string());
-            sheet_profile.set(Some(res));
-        });
-    });
+    // Info merchant TIDAK di-fetch terpisah: sudah ikut payload detail event
+    // (`ev.merchant`, JOIN + agregat satu query di server) — sheet render
+    // langsung dari data yang ada, tanpa fetch kedua & tanpa loading state.
 
     let is_logged_in = move || auth.get().and_then(|r| r.ok()).flatten().is_some();
 
@@ -304,7 +278,9 @@ pub fn EventDetailPage() -> impl IntoView {
                                     .clone()
                                     .filter(|n| !n.is_empty())
                                     .unwrap_or_else(|| "Penyelenggara".to_string());
-                                let sheet_mid = ev.merchant_id.clone();
+                                // Ringkasan merchant untuk bottom sheet — sudah ikut
+                                // payload detail (1 query di server, tanpa fetch kedua).
+                                let sheet_merchant = ev.merchant.clone();
                                 let sold_count = ev.total_sold.max(0);
                                 let quota = ev.total_quota.max(0);
                                 let remaining = (quota - sold_count).max(0);
@@ -815,13 +791,7 @@ pub fn EventDetailPage() -> impl IntoView {
                                             // (logo/header/rating), BUKAN langsung /m/{id}.
                                             <button
                                                 class="ed-organizer"
-                                                on:click={
-                                                    let mid = sheet_mid.clone();
-                                                    move |_| {
-                                                        sheet_merchant_id.set(mid.clone());
-                                                        merchant_sheet.set(true);
-                                                    }
-                                                }
+                                                on:click=move |_| merchant_sheet.set(true)
                                             >
                                                 <span class="ed-org-icon">
                                                     <svg
@@ -1099,27 +1069,17 @@ pub fn EventDetailPage() -> impl IntoView {
                                             }}
                                         </div>
                                         {move || {
-                                            let ti: i32 = cart_ctx
-                                                .items
-                                                .with(|v| {
-                                                    v.iter()
-                                                        .filter(|i| i.event_id == ev_id_btn)
-                                                        .map(|i| i.quantity)
-                                                        .sum()
-                                                });
+                                            // Secure Tickets → buka sheet pilih varian dulu
+                                            // (bukan langsung /cart); lanjut ke keranjang
+                                            // lewat CTA di dalam sheet.
                                             if is_logged_in() {
                                                 view! {
-                                                    <A
-                                                        href="/cart"
-                                                        attr:class=if ti == 0 {
-                                                            "ed-secure-btn ed-secure-btn--disabled"
-                                                        } else {
-                                                            "ed-secure-btn"
-                                                        }
-                                                        attr:aria-disabled=if ti == 0 { "true" } else { "false" }
+                                                    <button
+                                                        class="ed-secure-btn"
+                                                        on:click=move |_| tickets_sheet.set(true)
                                                     >
                                                         "Secure Tickets"
-                                                    </A>
+                                                    </button>
                                                 }
                                                     .into_any()
                                             } else {
@@ -1155,6 +1115,37 @@ pub fn EventDetailPage() -> impl IntoView {
                                                 </button>
                                             </div>
                                             <div class="edsheet-body">{tiers_view}</div>
+                                            // CTA lanjut ke keranjang — flow: Secure
+                                            // Tickets → pilih varian di sheet → /cart.
+                                            <div class="edsheet-foot">
+                                                {move || {
+                                                    let ti: i32 = cart_ctx
+                                                        .items
+                                                        .with(|v| {
+                                                            v.iter()
+                                                                .filter(|i| i.event_id == ev_id_btn)
+                                                                .map(|i| i.quantity)
+                                                                .sum()
+                                                        });
+                                                    if ti > 0 {
+                                                        view! {
+                                                            <A href="/cart" attr:class="edsheet-mch-cta">
+                                                                {format!(
+                                                                    "Lanjut ke Keranjang ({ti} tiket)",
+                                                                )}
+                                                            </A>
+                                                        }
+                                                            .into_any()
+                                                    } else {
+                                                        view! {
+                                                            <span class="edsheet-mch-cta edsheet-cta--disabled">
+                                                                "Pilih tiket dulu"
+                                                            </span>
+                                                        }
+                                                            .into_any()
+                                                    }
+                                                }}
+                                            </div>
                                         </div>
                                     </div>
 
@@ -1180,108 +1171,119 @@ pub fn EventDetailPage() -> impl IntoView {
                                                 </button>
                                             </div>
                                             <div class="edsheet-body">
-                                                {move || {
-                                                    match sheet_profile.get() {
-                                                        Some(Ok(p)) => {
-                                                            let header = p.header_url.clone().unwrap_or_default();
-                                                            let logo = p.logo_url.clone().unwrap_or_default();
-                                                            let initial: String = p
-                                                                .store_name
-                                                                .chars()
-                                                                .next()
-                                                                .unwrap_or('P')
-                                                                .to_uppercase()
-                                                                .to_string();
-                                                            let desc = p.description.clone().unwrap_or_default();
-                                                            view! {
-                                                                <div class="edsheet-mch">
-                                                                    <div class="edsheet-mch-hero">
-                                                                        {(!header.is_empty())
-                                                                            .then(|| {
-                                                                                view! {
-                                                                                    <img src=header alt="" loading="lazy" />
-                                                                                }
-                                                                            })}
-                                                                    </div>
-                                                                    <div class="edsheet-mch-head">
-                                                                        {if logo.is_empty() {
+                                                {
+                                                    // Data sudah di tangan (ikut payload event) —
+                                                    // render statis, tanpa loading state.
+                                                    let header = sheet_merchant
+                                                        .as_ref()
+                                                        .and_then(|m| m.header_url.clone())
+                                                        .unwrap_or_default();
+                                                    let logo = sheet_merchant
+                                                        .as_ref()
+                                                        .and_then(|m| m.logo_url.clone())
+                                                        .unwrap_or_default();
+                                                    let desc = sheet_merchant
+                                                        .as_ref()
+                                                        .and_then(|m| m.description.clone())
+                                                        .unwrap_or_default();
+                                                    let verified = sheet_merchant
+                                                        .as_ref()
+                                                        .map(|m| m.verified)
+                                                        .unwrap_or(false);
+                                                    let followers = sheet_merchant
+                                                        .as_ref()
+                                                        .map(|m| m.followers)
+                                                        .unwrap_or(0);
+                                                    let events_count = sheet_merchant
+                                                        .as_ref()
+                                                        .map(|m| m.events_count)
+                                                        .unwrap_or(0);
+                                                    let rating_avg = sheet_merchant
+                                                        .as_ref()
+                                                        .map(|m| m.rating_avg)
+                                                        .unwrap_or(0.0);
+                                                    let rating_count = sheet_merchant
+                                                        .as_ref()
+                                                        .map(|m| m.rating_count)
+                                                        .unwrap_or(0);
+                                                    let initial: String = organizer_name
+                                                        .chars()
+                                                        .next()
+                                                        .unwrap_or('P')
+                                                        .to_uppercase()
+                                                        .to_string();
+                                                    view! {
+                                                        <div class="edsheet-mch">
+                                                            {(!header.is_empty())
+                                                                .then(|| {
+                                                                    view! {
+                                                                        <div class="edsheet-mch-hero">
+                                                                            <img src=header.clone() alt="" loading="lazy" />
+                                                                        </div>
+                                                                    }
+                                                                })}
+                                                            <div class="edsheet-mch-head">
+                                                                {if logo.is_empty() {
+                                                                    view! {
+                                                                        <span class="edsheet-mch-avatar edsheet-mch-avatar--fallback">
+                                                                            {initial}
+                                                                        </span>
+                                                                    }
+                                                                        .into_any()
+                                                                } else {
+                                                                    view! {
+                                                                        <img
+                                                                            class="edsheet-mch-avatar"
+                                                                            src=logo.clone()
+                                                                            alt="Logo merchant"
+                                                                        />
+                                                                    }
+                                                                        .into_any()
+                                                                }}
+                                                                <span class="edsheet-mch-name">
+                                                                    {organizer_name.clone()}
+                                                                    {verified
+                                                                        .then(|| {
                                                                             view! {
-                                                                                <span class="edsheet-mch-avatar edsheet-mch-avatar--fallback">
-                                                                                    {initial}
+                                                                                <span
+                                                                                    class="edsheet-mch-verified"
+                                                                                    title="Terverifikasi"
+                                                                                >
+                                                                                    "\u{2713}"
                                                                                 </span>
                                                                             }
-                                                                                .into_any()
-                                                                        } else {
-                                                                            view! {
-                                                                                <img
-                                                                                    class="edsheet-mch-avatar"
-                                                                                    src=logo
-                                                                                    alt="Logo merchant"
-                                                                                />
-                                                                            }
-                                                                                .into_any()
-                                                                        }}
-                                                                        <span class="edsheet-mch-name">
-                                                                            {p.store_name.clone()}
-                                                                            {p.verified
-                                                                                .then(|| {
-                                                                                    view! {
-                                                                                        <span
-                                                                                            class="edsheet-mch-verified"
-                                                                                            title="Terverifikasi"
-                                                                                        >
-                                                                                            "\u{2713}"
-                                                                                        </span>
-                                                                                    }
-                                                                                })}
-                                                                        </span>
-                                                                    </div>
-                                                                    <div class="edsheet-mch-stats">
-                                                                        <span>
-                                                                            <b>{crate::web::pages::merchant_public::fmt_count(p.followers)}</b>
-                                                                            " Followers"
-                                                                        </span>
-                                                                        <span>
-                                                                            <b>{p.events_count}</b>
-                                                                            " Events"
-                                                                        </span>
-                                                                        <span>
-                                                                            <b>{format!("{:.1}", p.rating_avg)}</b>
-                                                                            " \u{2605} ("
-                                                                            {p.rating_count}
-                                                                            ")"
-                                                                        </span>
-                                                                    </div>
-                                                                    {(!desc.is_empty())
-                                                                        .then(|| {
-                                                                            view! { <p class="edsheet-mch-desc">{desc.clone()}</p> }
                                                                         })}
-                                                                    <A
-                                                                        href=organizer_href.clone()
-                                                                        attr:class="edsheet-mch-cta"
-                                                                    >
-                                                                        "Kunjungi Profil"
-                                                                    </A>
-                                                                </div>
-                                                            }
-                                                                .into_any()
-                                                        }
-                                                        Some(Err(e)) if !e.to_string().contains("not_ready") => {
-                                                            view! {
-                                                                <p class="edsheet-mch-loading">
-                                                                    "Gagal memuat info merchant."
-                                                                </p>
-                                                            }
-                                                                .into_any()
-                                                        }
-                                                        _ => {
-                                                            view! {
-                                                                <p class="edsheet-mch-loading">"Memuat\u{2026}"</p>
-                                                            }
-                                                                .into_any()
-                                                        }
+                                                                </span>
+                                                            </div>
+                                                            <div class="edsheet-mch-stats">
+                                                                <span>
+                                                                    <b>{crate::web::pages::merchant_public::fmt_count(followers)}</b>
+                                                                    " Followers"
+                                                                </span>
+                                                                <span>
+                                                                    <b>{events_count}</b>
+                                                                    " Events"
+                                                                </span>
+                                                                <span>
+                                                                    <b>{format!("{rating_avg:.1}")}</b>
+                                                                    " \u{2605} ("
+                                                                    {rating_count}
+                                                                    ")"
+                                                                </span>
+                                                            </div>
+                                                            {(!desc.is_empty())
+                                                                .then(|| {
+                                                                    view! { <p class="edsheet-mch-desc">{desc.clone()}</p> }
+                                                                })}
+                                                            <A
+                                                                href=organizer_href.clone()
+                                                                attr:class="edsheet-mch-cta"
+                                                            >
+                                                                "Kunjungi Profil"
+                                                            </A>
+                                                        </div>
                                                     }
-                                                }}
+                                                }
                                             </div>
                                         </div>
                                     </div>

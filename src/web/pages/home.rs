@@ -106,9 +106,27 @@ pub fn HomePage() -> impl IntoView {
 
                 <Suspense fallback=|| {
                     view! {
-                        <div class="loading">
-                            <div class="loading__spinner" />
-                            <span>"Memuat event..."</span>
+                        <div class="events-grid">
+                            {(0..4)
+                                .map(|_| {
+                                    view! {
+                                        <div style="display:flex;flex-direction:column;gap:8px">
+                                            <div
+                                                class="shimmer-bg"
+                                                style="width:100%;aspect-ratio:16/10;border-radius:12px;"
+                                            ></div>
+                                            <div
+                                                class="shimmer-bg"
+                                                style="width:82%;height:14px;border-radius:6px;"
+                                            ></div>
+                                            <div
+                                                class="shimmer-bg"
+                                                style="width:52%;height:12px;border-radius:6px;"
+                                            ></div>
+                                        </div>
+                                    }
+                                })
+                                .collect_view()}
                         </div>
                     }
                 }>

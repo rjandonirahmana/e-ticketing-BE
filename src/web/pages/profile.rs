@@ -281,7 +281,15 @@ pub fn ProfilePage() -> impl IntoView {
                                             <span class="menu-section-label">"STORY SAYA"</span>
                                             <Suspense fallback=|| {
                                                 view! {
-                                                    <div class="my-stories-hint">"Memuat story…"</div>
+                                                    <div class="my-stories-grid">
+                                                        {(0..4)
+                                                            .map(|_| {
+                                                                view! {
+                                                                    <div class="my-story-cell shimmer-bg"></div>
+                                                                }
+                                                            })
+                                                            .collect_view()}
+                                                    </div>
                                                 }
                                             }>
                                                 {move || {
@@ -380,12 +388,22 @@ pub fn ProfilePage() -> impl IntoView {
                                                                 <div class="my-stories-hint">
                                                                     "Belum ada story. Story yang kamu buat akan muncul di sini."
                                                                 </div>
-                                                            },
+                                                            }
+                                                                .into_any(),
                                                         ),
                                                         None => Either::Left(
                                                             view! {
-                                                                <div class="my-stories-hint">"Memuat story…"</div>
-                                                            },
+                                                                <div class="my-stories-grid">
+                                                                    {(0..4)
+                                                                        .map(|_| {
+                                                                            view! {
+                                                                                <div class="my-story-cell shimmer-bg"></div>
+                                                                            }
+                                                                        })
+                                                                        .collect_view()}
+                                                                </div>
+                                                            }
+                                                                .into_any(),
                                                         ),
                                                     }
                                                 }}
