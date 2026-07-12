@@ -2048,6 +2048,162 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   MERCHANT CARD PREVIEW  (share toko → pratinjau kartu profil, mirip /m/{id})
+   Bentuk bingkai = halaman merchant public: hero + avatar overlap + nama +
+   container FOLLOWERS/EVENTS/RATING + CTA. Ukuran pakai container-query (cqw)
+   relatif lebar kartu agar proporsional di frame 9:16.
+   ═══════════════════════════════════════════════════════════════════════ */
+.sc-mch-preview-frame {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #0d0d18;
+    transition: background 0.28s ease;
+}
+.sc-mch-card {
+    position: absolute;
+    left: 6%;
+    right: 6%;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+    background: #0d0d18;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 5cqw;
+    overflow: hidden;
+    container-type: inline-size;
+    box-shadow: 0 28px 80px rgba(0, 0, 0, 0.70), 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.sc-mch-hero {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: linear-gradient(120deg, #1c2340, #3b2a63);
+    overflow: hidden;
+}
+.sc-mch-hero-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.92;
+}
+.sc-mch-hero-fade {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(13, 13, 24, 0) 45%, rgba(13, 13, 24, 1) 100%);
+}
+.sc-mch-body {
+    position: relative;
+    padding: 0 6cqw 6cqw;
+    margin-top: -9cqw;
+}
+.sc-mch-avatar-wrap {
+    position: relative;
+    width: 20cqw;
+    height: 20cqw;
+}
+.sc-mch-avatar {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 0.9cqw solid #0d0d18;
+    background: #1e1e30;
+    display: block;
+}
+.sc-mch-avatar--fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Bebas Neue", "Arial Black", sans-serif;
+    font-weight: 800;
+    font-size: 10cqw;
+    color: #080810;
+    background: #c8ff5e;
+}
+.sc-mch-badge {
+    position: absolute;
+    right: 2%;
+    bottom: 6%;
+    width: 6cqw;
+    height: 6cqw;
+    border-radius: 50%;
+    background: #c8ff5e;
+    color: #0d0d18;
+    border: 0.7cqw solid #0d0d18;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 3.4cqw;
+    font-weight: 900;
+}
+.sc-mch-name {
+    margin: 3cqw 0 0;
+    font-family: "Bebas Neue", "Arial Black", sans-serif;
+    font-weight: 800;
+    font-size: 9cqw;
+    line-height: 1;
+    color: #ffffff;
+    letter-spacing: 0.01em;
+    word-break: break-word;
+}
+.sc-mch-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    margin-top: 4cqw;
+    background: #1b1b2a;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 4cqw;
+    padding: 3.6cqw 1cqw;
+}
+.sc-mch-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1cqw;
+}
+.sc-mch-stat + .sc-mch-stat {
+    border-left: 1px solid rgba(255, 255, 255, 0.10);
+}
+.sc-mch-stat-num {
+    font-family: "Space Mono", monospace;
+    font-size: 5.4cqw;
+    font-weight: 700;
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6cqw;
+    line-height: 1;
+}
+.sc-mch-stat-star {
+    color: #c8ff5e;
+    font-size: 3.6cqw;
+}
+.sc-mch-stat-label {
+    font-family: "Space Mono", monospace;
+    font-size: 2.5cqw;
+    letter-spacing: 0.14em;
+    color: rgba(255, 255, 255, 0.45);
+}
+.sc-mch-cta {
+    margin: 5cqw auto 0;
+    width: max-content;
+    font-family: "Space Mono", monospace;
+    font-weight: 700;
+    font-size: 3.4cqw;
+    letter-spacing: 0.08em;
+    color: #0d0d18;
+    background: #c8ff5e;
+    padding: 2.6cqw 5.5cqw;
+    border-radius: 999px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    EVENT CARD PREVIEW
    ═══════════════════════════════════════════════════════════════════════ */
 .sc-event-preview-frame {

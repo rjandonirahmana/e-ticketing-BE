@@ -53,16 +53,35 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                 // Synchronous/blocking — eksekusi sebelum CSS apapun di-parse.
                 <script nonce=use_nonce() inner_html=r#"(function(){try{var t=localStorage.getItem('kinetic.theme');var th=(t==='light'||t==='dark')?t:'dark';document.documentElement.setAttribute('data-theme',th);window.__setThemeColor=function(x){var m=document.querySelector('meta[name=theme-color]');if(m)m.setAttribute('content',x==='light'?'#ffffff':'#050814');};window.__setThemeColor(th);}catch(e){}})();"# />
 
-                // ── CSS: single cached external file ────────────────────────
-                // Render-blocking <link rel="stylesheet"> in <head> keeps the
-                // same zero-FOUC guarantee as inline CSS (browser pauses paint
-                // until the file arrives). Benefit over inline: after the first
-                // visit the browser caches the file for 24 h — every subsequent
-                // load costs 0 CSS bytes, making the HTML response ~120 KB
-                // smaller. The preload hint starts the fetch during HTML parsing,
-                // before the stylesheet link is reached, minimising block time.
+                // ── Fix FOUC #1b: Critical CSS inline ────────────────────────
+                // Cukup untuk cat pertama SEBELUM app.css turun: token latar +
+                // skeleton shimmer. Tanpa ini, karena app.css di-load non-blocking
+                // (di bawah), cat pertama pada kunjungan dingin/jaringan lambat
+                // bisa PUTIH KOSONG (blank) — bukan shimmer, karena .shimmer-bg
+                // sendiri ada di dalam app.css. Nilai token WAJIB identik dgn
+                // 00-tokens.css agar tak ada pergeseran warna saat app.css apply.
+                <style nonce=use_nonce() inner_html=r#"
+                :root{--bg-page:#0d0d1a;--bg-elevated:#1e1e30;--bg-card-hover:#1a1a2e;--border-soft:rgba(255,255,255,.06);--text-primary:#f0f0f8;--font-body:"Space Mono",monospace}
+                [data-theme="light"]{--bg-page:#f3f3fb;--bg-elevated:#e2e2f0;--bg-card-hover:#ebebf5;--border-soft:rgba(0,0,20,.06);--text-primary:#0c0c1a}
+                *{box-sizing:border-box}
+                html,body{margin:0;padding:0;background:var(--bg-page);color:var(--text-primary);font-family:var(--font-body),monospace;min-height:100vh}
+                @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+                .shimmer-bg{background:linear-gradient(90deg,var(--bg-elevated) 25%,var(--bg-card-hover) 50%,var(--bg-elevated) 75%);background-size:200% 100%;animation:shimmer 1.6s ease-in-out infinite;border-radius:8px}
+                "# />
+
+                // ── CSS: single cached external file, NON-render-blocking ────
+                // app.css di-load async (media=print → flip ke all saat onload)
+                // supaya cat pertama TIDAK menunggu CSS turun (penyebab blank di
+                // jaringan lambat). Skeleton di atas sudah menjamin no-FOUC untuk
+                // above-the-fold; app.css menyusul (biasanya puluhan ms) untuk
+                // seluruh gaya. Preload menjaga fetch prioritas tinggi; <noscript>
+                // fallback untuk klien tanpa JS. Cache 24 h tetap berlaku.
                 <link rel="preload" href="/styles/app.css" attr:as="style" />
-                <link rel="stylesheet" href="/styles/app.css" />
+                <link rel="stylesheet" href="/styles/app.css" attr:media="print" id="pulse-appcss" />
+                <noscript>
+                    <link rel="stylesheet" href="/styles/app.css" />
+                </noscript>
+                <script nonce=use_nonce() inner_html=r#"(function(){var l=document.getElementById('pulse-appcss');if(!l)return;var s=function(){l.media='all';};if(l.sheet){s();}else{l.addEventListener('load',s);setTimeout(s,4000);}})();"# />
 
                 // ── Fonts ────────────────────────────────────────────────────
                 <link rel="preconnect" href="https://fonts.googleapis.com" />

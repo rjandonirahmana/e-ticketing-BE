@@ -20,7 +20,19 @@ pub async fn get_merchant_public_profile(
     // Profil + status follow jalan paralel: satu latensi round-trip. Follow
     // best-effort (anonim / gagal = false), jadi jangan gagalkan seluruh profil.
     let (profile, follow_res) = futures::join!(
-        state.merchant_svc.public_profile(&merchant_id),
+        // Cache 60 s (viewer-invariant) — sama seperti get_merchant_public_page.
+        async {
+            if let Some(p) = state.pub_cache.merchant_profile.get(&merchant_id).await {
+                return Ok(p);
+            }
+            let p = state.merchant_svc.public_profile(&merchant_id).await?;
+            state
+                .pub_cache
+                .merchant_profile
+                .insert(merchant_id.clone(), p.clone())
+                .await;
+            Ok::<_, crate::utils::error::AppError>(p)
+        },
         async {
             match &viewer {
                 Some(uid) => state.merchant_svc.is_following(&merchant_id, uid).await,
@@ -72,7 +84,20 @@ pub async fn get_merchant_public_page(
     };
 
     let (profile_res, follow_res, events_res, summary_res, items_res, stories_res) = futures::join!(
-        state.merchant_svc.public_profile(&merchant_id),
+        // Profil = sub-query terberat; cache 60 s (viewer-invariant). Hit cache →
+        // 0 query DB untuk bagian ini, penting saat banyak user buka /m/{id}.
+        async {
+            if let Some(p) = state.pub_cache.merchant_profile.get(&merchant_id).await {
+                return Ok(p);
+            }
+            let p = state.merchant_svc.public_profile(&merchant_id).await?;
+            state
+                .pub_cache
+                .merchant_profile
+                .insert(merchant_id.clone(), p.clone())
+                .await;
+            Ok::<_, crate::utils::error::AppError>(p)
+        },
         async {
             match &viewer {
                 Some(uid) => state.merchant_svc.is_following(&merchant_id, uid).await,

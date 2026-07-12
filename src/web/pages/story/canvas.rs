@@ -944,7 +944,11 @@ pub(super) async fn render_merchant_card_to_canvas(
     ctx.save();
     round_rect_path(ctx, card_x, card_y, card_w, card_h, corner_r);
     ctx.clip();
-    if let Some(img) = &header_img {
+    // Hero pakai header; bila kosong FALLBACK ke logo — samakan dgn pratinjau
+    // (.sc-mch-hero yang jatuh ke logo saat header kosong). Gradient hanya bila
+    // header DAN logo dua-duanya tak ada.
+    let hero_img = header_img.as_ref().or(logo_img.as_ref());
+    if let Some(img) = hero_img {
         let (iw, ih) = (img.natural_width() as f64, img.natural_height() as f64);
         // cover ke area hero
         let f = cover_factor(iw, ih, card_w, hero_h);

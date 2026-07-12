@@ -45,6 +45,11 @@ pub struct PublicCache {
     pub events: Cache<String, crate::web::models::PaginatedEvents>,
     /// Key: event slug. 60 s TTL — event detail jarang berubah.
     pub event_detail: Cache<String, crate::web::models::EventWithVariants>,
+    /// Key: merchant_id. Profil publik /m/{id} — sub-query TERBERAT di halaman
+    /// (followers + events_count + rating agg). Viewer-invariant (is_following
+    /// dihitung terpisah per-viewer), jadi aman di-cache. 60 s TTL — konsisten
+    /// dgn event_detail; follower/rating boleh stale sesaat saat traffic tinggi.
+    pub merchant_profile: Cache<String, crate::models::merchant::MerchantPublicProfile>,
     /// Respons JSON REST publik (/api/events*, /api/banners) yang SUDAH
     /// terserialisasi, sebagai `Bytes` (clone murah, langsung jadi body).
     /// Tanpa ini setiap request REST = query DB + serialisasi ulang.
@@ -67,6 +72,10 @@ impl PublicCache {
                 .time_to_live(Duration::from_secs(30))
                 .build(),
             event_detail: Cache::builder()
+                .max_capacity(512)
+                .time_to_live(Duration::from_secs(60))
+                .build(),
+            merchant_profile: Cache::builder()
                 .max_capacity(512)
                 .time_to_live(Duration::from_secs(60))
                 .build(),

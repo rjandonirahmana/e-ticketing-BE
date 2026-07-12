@@ -638,17 +638,55 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                 // ── Kepala profil ─────────────────────────────
                                 <div class="mp-head">
                                     <div class="mp-avatar-wrap">
-                                        {if logo.is_empty() {
-                                            view! {
-                                                <div class="mp-avatar mp-avatar-fallback">{initial}</div>
+                                        {
+                                            // Bingkai story pada avatar — SAMA seperti event
+                                            // detail (.ed-story-ring): gradient ring + klik buka
+                                            // StoryViewer. Muncul HANYA bila merchant punya story
+                                            // aktif; kalau tidak, avatar polos (tanpa cincin).
+                                            let logo = logo.clone();
+                                            let initial = initial.clone();
+                                            let open_story = open_story.clone();
+                                            move || {
+                                                let logo = logo.clone();
+                                                let initial = initial.clone();
+                                                let avatar = if logo.is_empty() {
+                                                    view! {
+                                                        <div class="mp-avatar mp-avatar-fallback">
+                                                            {initial}
+                                                        </div>
+                                                    }
+                                                        .into_any()
+                                                } else {
+                                                    view! {
+                                                        <img class="mp-avatar" src=logo alt="Logo merchant" />
+                                                    }
+                                                        .into_any()
+                                                };
+                                                // Grup story merchant (grup 0) bila ada isinya.
+                                                let list = stories
+                                                    .get()
+                                                    .and_then(|r| r.ok())
+                                                    .filter(|l| {
+                                                        l.first().map(|g| !g.stories.is_empty()).unwrap_or(false)
+                                                    });
+                                                match list {
+                                                    Some(list) => {
+                                                        let open_story = open_story.clone();
+                                                        view! {
+                                                            <button
+                                                                class="mp-avatar-ring"
+                                                                on:click=move |_| open_story(list.clone(), 0)
+                                                                aria-label="Lihat story penyelenggara"
+                                                            >
+                                                                {avatar}
+                                                            </button>
+                                                        }
+                                                            .into_any()
+                                                    }
+                                                    None => avatar,
+                                                }
                                             }
-                                                .into_any()
-                                        } else {
-                                            view! {
-                                                <img class="mp-avatar" src=logo alt="Logo merchant" />
-                                            }
-                                                .into_any()
-                                        }}
+                                        }
                                         {verified
                                             .then(|| {
                                                 view! {

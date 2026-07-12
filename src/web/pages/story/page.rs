@@ -760,7 +760,13 @@ pub fn StoryPage() -> impl IntoView {
     };
 
     let tutup_panel = move |ev: leptos::ev::KeyboardEvent| { if ev.key() == "Escape" { alat_aktif.set(Alat::None); } };
-    let can_share = Memo::new(move |_| { let is_event_mode = has_event_prefill.get() && !user_overrode_prefill.get(); !is_event_mode || cover_img_ready.get() });
+    let can_share = Memo::new(move |_| {
+        // Mode merchant tak digate cover_img_ready — kartu punya fallback & canvas
+        // memuat gambarnya sendiri; header kosong tak boleh menghalangi share.
+        let is_merchant_mode = prefill_is_merchant() && !user_overrode_prefill.get();
+        let is_event_mode = has_event_prefill.get() && !user_overrode_prefill.get() && !is_merchant_mode;
+        !is_event_mode || cover_img_ready.get()
+    });
 
     let on_swipe_start = move |ev: leptos::ev::TouchEvent| {
         if let Some(t) = ev.touches().get(0) { swipe_start_y.set_value(t.client_y() as f64); swipe_start_x.set_value(t.client_x() as f64); swipe_active.set_value(true); }
@@ -898,9 +904,83 @@ pub fn StoryPage() -> impl IntoView {
 
                         <div node_ref=media_layer_ref class="sc-layer-media">
                             {move || url_pratinjau.get().map(|url| {
-                                let is_event = has_event_prefill.get() && !user_overrode_prefill.get();
+                                // Mode merchant (share toko) memakai konvensi slug "m/{id}"
+                                // sehingga has_event_prefill juga true — WAJIB dicek lebih
+                                // dulu agar pratinjau memakai kartu MERCHANT (hero+avatar+
+                                // container FOLLOWERS/EVENTS/RATING, mirip halaman /m/{id}),
+                                // bukan kartu event.
+                                let is_merchant = prefill_is_merchant() && !user_overrode_prefill.get();
+                                let is_event = has_event_prefill.get() && !user_overrode_prefill.get() && !is_merchant;
                                 let is_blob  = url.starts_with("blob:");
-                                if is_event {
+                                if is_merchant {
+                                    let initial: String = prefill_title().chars().next()
+                                        .unwrap_or('P').to_uppercase().collect();
+                                    view! {
+                                        <div class="sc-mch-preview-frame"
+                                            style=move || {
+                                                let mode = bg_mode.get();
+                                                if mode == "blur" { String::new() }
+                                                else if mode == "solid" { format!("background-color:{};", bg_solid_color.get()) }
+                                                else if let Some(css) = BG_GRADIENTS.iter().find(|(k,_,_,_)| *k == mode.as_str()).map(|(_,c,_,_)| *c) { format!("background:{};", css) }
+                                                else { "background-color:#0d0d18;".to_string() }
+                                            }>
+                                            <Show when=move || bg_mode.get() == "blur">
+                                                <img
+                                                    src=move || { let h = prefill_mch_header(); if h.is_empty() { prefill_cover() } else { h } }
+                                                    class="sc-event-bg-img" alt=""
+                                                    on:load=move |_| cover_img_ready.set(true) />
+                                                <div class="sc-event-dark-overlay" />
+                                            </Show>
+                                            <div class="sc-mch-card">
+                                                <div class="sc-mch-hero">
+                                                    {move || {
+                                                        let h = prefill_mch_header();
+                                                        let src = if h.is_empty() { prefill_cover() } else { h };
+                                                        (!src.is_empty()).then(|| view! {
+                                                            <img src=src class="sc-mch-hero-img" alt=""
+                                                                on:load=move |_| cover_img_ready.set(true) />
+                                                        })
+                                                    }}
+                                                    <div class="sc-mch-hero-fade" />
+                                                </div>
+                                                <div class="sc-mch-body">
+                                                    <div class="sc-mch-avatar-wrap">
+                                                        {move || {
+                                                            let logo = prefill_cover();
+                                                            if logo.is_empty() {
+                                                                view! { <div class="sc-mch-avatar sc-mch-avatar--fallback">{initial.clone()}</div> }.into_any()
+                                                            } else {
+                                                                view! { <img class="sc-mch-avatar" src=logo alt="" /> }.into_any()
+                                                            }
+                                                        }}
+                                                        <Show when=move || prefill_verified()>
+                                                            <span class="sc-mch-badge" aria-hidden="true">"✓"</span>
+                                                        </Show>
+                                                    </div>
+                                                    <h2 class="sc-mch-name">{move || prefill_title().to_uppercase()}</h2>
+                                                    <div class="sc-mch-stats">
+                                                        <div class="sc-mch-stat">
+                                                            <span class="sc-mch-stat-num">{move || crate::web::pages::merchant_public::fmt_count(prefill_followers())}</span>
+                                                            <span class="sc-mch-stat-label">"FOLLOWERS"</span>
+                                                        </div>
+                                                        <div class="sc-mch-stat">
+                                                            <span class="sc-mch-stat-num">{move || crate::web::pages::merchant_public::fmt_count(prefill_events_count())}</span>
+                                                            <span class="sc-mch-stat-label">"EVENTS"</span>
+                                                        </div>
+                                                        <div class="sc-mch-stat">
+                                                            <span class="sc-mch-stat-num">
+                                                                {move || format!("{:.1}", prefill_rating())}
+                                                                <span class="sc-mch-stat-star">"★"</span>
+                                                            </span>
+                                                            <span class="sc-mch-stat-label">"RATING"</span>
+                                                        </div>
+                                                    </div>
+                                                    <div class="sc-mch-cta">"KUNJUNGI PROFIL ↗"</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }.into_any()
+                                } else if is_event {
                                     let url_sv = StoredValue::new(url.clone());
                                     view! {
                                         <div class="sc-event-preview-frame"

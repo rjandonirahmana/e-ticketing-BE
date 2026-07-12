@@ -4,6 +4,7 @@ use leptos_router::components::A;
 use leptos_router::hooks::use_navigate;
 
 use crate::web::api::{login_action, register_action};
+use crate::web::app::AuthResource;
 use crate::web::hooks::ThemeToggle;
 
 // ── Login Page ─────────────────────────────────────────────────────────────────
@@ -17,6 +18,11 @@ pub fn LoginPage() -> impl IntoView {
     let pass_focused = RwSignal::new(false);
     let phone_focused = RwSignal::new(false);
 
+    // Auth resource global + navigate: pakai navigasi SPA setelah login (bukan
+    // full reload) supaya cepat — lihat catatan di on_submit.
+    let auth = use_context::<AuthResource>();
+    let navigate = use_navigate();
+
     let on_submit = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
         let ph = phone.get();
@@ -28,13 +34,21 @@ pub fn LoginPage() -> impl IntoView {
         loading.set(true);
         error.set(None);
 
+        let navigate = navigate.clone();
         leptos::task::spawn_local(async move {
             match login_action(ph, pw).await {
                 Ok(_user) => {
-                    #[cfg(target_arch = "wasm32")]
-                    if let Some(win) = web_sys::window() {
-                        let _ = win.location().replace("/explore");
+                    // Cookie sesi sudah di-set oleh respons server-fn. Daripada
+                    // full reload (`location.replace`) yang me-re-SSR /explore
+                    // (halaman TERBERAT) + re-download & re-hydrate WASM — jauh
+                    // lebih lambat — kita:
+                    //   1) refetch auth resource → app langsung tahu user login,
+                    //   2) navigasi SPA ke /explore (WASM sudah hydrate, render
+                    //      di klien). Terasa instan.
+                    if let Some(auth) = auth {
+                        auth.refetch();
                     }
+                    navigate("/explore", Default::default());
                 }
                 Err(e) => {
                     error.set(Some(e.to_string()));

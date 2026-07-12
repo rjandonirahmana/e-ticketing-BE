@@ -19,6 +19,10 @@
 .mp-avatar-wrap { position: relative; flex: none; }
 .mp-avatar { width: 92px; height: 92px; border-radius: 50%; object-fit: cover; border: 3px solid var(--bg-page); background: var(--bg-elevated); display: block; }
 .mp-avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 36px; font-weight: 800; color: var(--text-on-accent); background: var(--accent-lime); }
+/* Bingkai story pada avatar — identik dgn .ed-story-ring-circle di event detail
+   (gradient lime→blue→violet). Muncul hanya bila merchant punya story aktif;
+   .mp-avatar tetap punya border bg-page sebagai pemisah cincin↔logo. */
+.mp-avatar-ring { display: block; padding: 3px; border: none; border-radius: 50%; background: linear-gradient(45deg, var(--accent-lime), var(--accent-blue), var(--accent-violet)); cursor: pointer; line-height: 0; -webkit-tap-highlight-color: transparent; }
 .mp-avatar-badge { position: absolute; right: 2px; bottom: 4px; width: 26px; height: 26px; border-radius: 50%; background: var(--accent-lime); color: var(--text-on-accent); border: 3px solid var(--bg-page); display: flex; align-items: center; justify-content: center; }
 
 .mp-head-actions { margin-left: auto; padding-bottom: 8px; display: flex; align-items: center; gap: 8px; position: relative; }
