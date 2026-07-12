@@ -99,6 +99,32 @@ impl EventsCtx {
         self.load_cat(String::new());
     }
 
+    /// True begitu store sudah "aktif" di klien — yaitu page-1 sudah di-seed dari
+    /// resource SSR ATAU sebuah fetch sudah dimulai (fetch_gen naik dari 0).
+    /// Reaktif (melacak `fetch_gen`). Dipakai ExplorePage: sebelum aktif, feed
+    /// dirender dari resource SSR (HTML awal berisi kartu, bukan shimmer); setelah
+    /// aktif, feed beralih membaca store (mendukung filter + append halaman).
+    pub fn is_active(&self) -> bool {
+        self.fetch_gen.get() > 0
+    }
+
+    /// Seed halaman PERTAMA dari resource SSR (dipanggil sekali pasca-hydration)
+    /// supaya store mengambil alih TANPA refetch — datanya sudah tertanam di HTML
+    /// yang di-SSR. Menghindari "lambat saat pertama diakses": tanpa ini feed baru
+    /// terisi setelah bundle WASM diunduh+hydrate lalu memicu fetch tersendiri.
+    pub fn seed_first(&self, res: &crate::web::models::PaginatedEvents, category: String) {
+        self.cur_cat.set(category);
+        self.page.set(1);
+        self.has_more.set(res.page < res.total_pages);
+        self.total.set(res.total);
+        self.items
+            .set(res.data.iter().map(event_to_explore).collect());
+        self.error.set(String::new());
+        self.loading.set(false);
+        // Tandai aktif (fetch_gen 0→1) → feed ExplorePage beralih baca store.
+        self.fetch_gen.update(|g| *g = g.wrapping_add(1));
+    }
+
     /// Muat halaman PERTAMA untuk kategori (reset daftar).
     pub fn load_cat(&self, category: String) {
         if is_server() {
