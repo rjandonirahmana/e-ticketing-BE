@@ -39,10 +39,53 @@ pub fn ExplorePage() -> impl IntoView {
 
     let store = use_events_store();
 
-    Effect::new(move |_| {
+    // ── SSR page-1: render kartu event LANGSUNG di HTML awal ────────────────────
+    // AKAR "lambat saat pertama diakses": landing (/) dulu hanya mengirim shimmer;
+    // event baru terisi SETELAH bundle WASM (besar) diunduh → hydrate → memicu
+    // fetch. Resource blocking ini dieksekusi di SERVER (ikut di HTML awal) dan
+    // nilainya di-serialize ke klien, sehingga:
+    //   • kunjungan pertama langsung melihat kartu (bukan menunggu WASM),
+    //   • hydration cocok byte-for-byte (tak ada refetch, tak ada flash).
+    // Di-key sekali oleh kategori AWAL (dari URL); pergantian kategori setelah itu
+    // ditangani store di klien, jadi resource ini tak refetch berulang.
+    let initial_cat_val = active_cat.get_untracked();
+    let ssr_first = Resource::new_blocking(
+        || (),
+        move |_| {
+            let cat = initial_cat_val.clone();
+            async move {
+                let cat_opt = if cat == "All" || cat.is_empty() {
+                    None
+                } else {
+                    Some(cat)
+                };
+                crate::web::api::get_events(
+                    Some(1),
+                    None,
+                    cat_opt,
+                    None,
+                    Some(crate::web::state::events::PAGE_SIZE),
+                )
+                .await
+            }
+        },
+    );
+
+    Effect::new(move |prev: Option<String>| {
         let cat = active_cat.get();
-        leptos::logging::log!("[ExplorePage] Effect fired: cat={:?}", cat);
-        store.load_cat(cat);
+        match prev {
+            // Run pertama (pasca-hydration): page-1 sudah ada di HTML dari resource
+            // SSR → seed store dari situ, JANGAN refetch (hindari round-trip &
+            // flash shimmer). Fallback fetch hanya bila resource entah kenapa kosong.
+            None => match ssr_first.get() {
+                Some(Ok(res)) => store.seed_first(&res, cat.clone()),
+                _ => store.load_cat(cat.clone()),
+            },
+            // Kategori benar-benar berganti → fetch page-1 kategori baru.
+            Some(prev_cat) if prev_cat != cat => store.load_cat(cat.clone()),
+            _ => {}
+        }
+        cat
     });
 
     // ── Banner slider (tabel `banners`, dikelola admin) ───────────────────────
@@ -205,6 +248,52 @@ pub fn ExplorePage() -> impl IntoView {
                 .cloned()
                 .collect::<Vec<_>>()
         })
+    });
+
+    // Sumber data feed: resource SSR sampai store aktif di klien, lalu store.
+    // Semua reaktif — beralih otomatis begitu `seed_first`/`load_cat` menaikkan
+    // fetch_gen. Query pencarian kosong saat SSR/paint pertama, jadi `filtered`
+    // == item store → peralihan mulus tanpa perubahan tampilan.
+    let feed_loading = Signal::derive(move || {
+        if store.is_active() {
+            store.loading.get()
+        } else {
+            ssr_first.get().is_none()
+        }
+    });
+    let feed_error = Signal::derive(move || {
+        if store.is_active() {
+            store.error.get()
+        } else {
+            match ssr_first.get() {
+                Some(Err(e)) => e.to_string(),
+                _ => String::new(),
+            }
+        }
+    });
+    let feed_list = Signal::derive(move || {
+        if store.is_active() {
+            filtered.get()
+        } else {
+            match ssr_first.get() {
+                Some(Ok(res)) => res
+                    .data
+                    .iter()
+                    .map(crate::web::state::events::event_to_explore_pub)
+                    .collect::<Vec<_>>(),
+                _ => Vec::new(),
+            }
+        }
+    });
+    let feed_total = Signal::derive(move || {
+        if store.is_active() {
+            store.total.get()
+        } else {
+            match ssr_first.get() {
+                Some(Ok(res)) => res.total,
+                _ => 0,
+            }
+        }
     });
 
     let close_c = StoredValue::new(close_overlay);
@@ -591,7 +680,7 @@ pub fn ExplorePage() -> impl IntoView {
                         // (filter lokal), tampilkan jumlah hasil filter itu.
                         {move || {
                             if query.get().trim().is_empty() {
-                                store.total.get().max(0)
+                                feed_total.get().max(0)
                             } else {
                                 filtered.with(|f| f.len()) as i64
                             }
@@ -627,8 +716,23 @@ pub fn ExplorePage() -> impl IntoView {
             </div>
 
             <div class="exp-feed">
+                <Suspense fallback=move || {
+                    let shims = (0..6)
+                        .map(|i| {
+                            view! {
+                                <div
+                                    class="exp-shimmer-wrap"
+                                    style=format!("animation-delay:{}ms", i * 60)
+                                >
+                                    <EventCardShimmer />
+                                </div>
+                            }
+                        })
+                        .collect_view();
+                    view! { <div class="exp-mkt-grid">{shims}</div> }
+                }>
                 {move || {
-                    if store.loading.get() {
+                    if feed_loading.get() {
                         let shims = (0..6)
                             .map(|i| {
                                 view! {
@@ -642,7 +746,7 @@ pub fn ExplorePage() -> impl IntoView {
                             })
                             .collect_view();
                         view! { <div class="exp-mkt-grid">{shims}</div> }.into_any()
-                    } else if !store.error.with(|e| e.is_empty()) {
+                    } else if !feed_error.with(|e| e.is_empty()) {
                         view! {
                             <div class="exp-empty">
                                 <EmptyState
@@ -660,7 +764,7 @@ pub fn ExplorePage() -> impl IntoView {
                         }
                             .into_any()
                     } else {
-                        let list = filtered.get();
+                        let list = feed_list.get();
                         if list.is_empty() {
                             view! {
                                 <div class="exp-empty">
@@ -708,6 +812,7 @@ pub fn ExplorePage() -> impl IntoView {
                         }
                     }
                 }}
+                </Suspense>
             </div>
 
             <div class="exp-genre-section">
