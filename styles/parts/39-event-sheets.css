@@ -247,3 +247,63 @@ button.ed-organizer {
     color: var(--text-muted);
     cursor: not-allowed;
 }
+
+/* ── Lingkaran story penyelenggara di event detail (ala story-bar) ────────── */
+.ed-story-ring {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 14px 0 0;
+    padding: 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font: inherit;
+    color: var(--text-primary);
+}
+.ed-story-ring-circle {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    padding: 3px;
+    background: linear-gradient(45deg, var(--accent-lime), var(--accent-blue), var(--accent-violet));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+}
+.ed-story-ring-circle img,
+.ed-story-ring-fallback {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--bg-page);
+}
+.ed-story-ring-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-violet));
+    color: #fff;
+    font-weight: 800;
+    font-size: 20px;
+}
+.ed-story-ring-label { font-size: 13px; font-weight: 700; }
+
+/* Tombol share ulasan → story (halaman /m/{id}/reviews) */
+.mrv-share-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex: none;
+    margin-left: 8px;
+}
+.mrv-share-btn:hover { color: var(--accent-lime); border-color: var(--accent-lime); }

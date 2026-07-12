@@ -19,6 +19,7 @@ use super::canvas::{
     cover_factor, create_export_canvas, css_filter_string, export_ext,
     export_mime, export_story_canvas, get_dpr, gradient_colors,
     load_img_to_canvas, preload_fonts, render_event_card_to_canvas,
+    render_merchant_card_to_canvas,
     render_overlays_to_canvas, trigger_download_blob,
 };
 #[cfg(target_arch = "wasm32")]
@@ -160,6 +161,32 @@ pub fn StoryPage() -> impl IntoView {
     // (jadi tidak pernah di-persist sebagai event link) — hanya tampil di kartu canvas.
     let prefill_is_ticket = move || query.with(|q| q.get("is_ticket").unwrap_or_default()) == "1";
     let prefill_ticket_ref = move || query.with(|q| q.get("ticket_ref").unwrap_or_default());
+    // Merchant-share mode (dari /m/{id} atau halaman ulasan): kartu profil toko
+    // (bukan kartu event). event_slug memakai konvensi "m/{merchant_id}" —
+    // viewer menerjemahkannya ke /m/{id}. event_cover = logo/header (boleh kosong
+    // → renderer fallback gradient + inisial). review_* opsional (share ulasan).
+    let prefill_is_merchant = move || query.with(|q| q.get("merchant").unwrap_or_default()) == "1";
+    let prefill_verified = move || query.with(|q| q.get("verified").unwrap_or_default()) == "1";
+    // Bingkai profil toko: header image + statistik (FOLLOWERS/EVENTS/RATING).
+    let prefill_mch_header =
+        move || query.with(|q| q.get("merchant_header").unwrap_or_default());
+    let prefill_followers = move || {
+        query.with(|q| q.get("followers").unwrap_or_default()).parse::<i64>().unwrap_or(0)
+    };
+    let prefill_events_count = move || {
+        query.with(|q| q.get("events_count").unwrap_or_default()).parse::<i64>().unwrap_or(0)
+    };
+    let prefill_rating = move || {
+        query.with(|q| q.get("rating").unwrap_or_default()).parse::<f64>().unwrap_or(0.0)
+    };
+    let prefill_review_rating = move || {
+        query.with(|q| q.get("review_rating").unwrap_or_default())
+            .parse::<u8>()
+            .ok()
+            .filter(|r| (1..=5).contains(r))
+    };
+    let prefill_review_comment =
+        move || query.with(|q| q.get("review_comment").unwrap_or_default());
 
     let has_event_prefill = Memo::new(move |_| !prefill_slug().is_empty() || prefill_is_ticket());
     let user_overrode_prefill = RwSignal::new(false);
@@ -185,7 +212,10 @@ pub fn StoryPage() -> impl IntoView {
         let desc      = prefill_desc();
         let is_ticket = prefill_is_ticket();
         let ticket_ref = prefill_ticket_ref();
-        if (slug.is_empty() && !is_ticket) || cover.is_empty() { return; }
+        // Mode merchant: cover (logo) boleh kosong — renderer punya fallback.
+        if (slug.is_empty() && !is_ticket) || (cover.is_empty() && !prefill_is_merchant()) {
+            return;
+        }
 
         let from_create = query.with(|q| q.get("from_create").unwrap_or_default()) == "1";
         if from_create && slug == "draft" {
@@ -447,17 +477,33 @@ pub fn StoryPage() -> impl IntoView {
             let venue       = prefill_venue();
             let price       = prefill_price();
             let is_ticket_d = prefill_is_ticket();
+            let is_merchant_d = prefill_is_merchant();
+            let verified_d = prefill_verified();
+            let review_d = prefill_review_rating()
+                .map(|r| (r, prefill_review_comment()));
+            let mch_header_d = prefill_mch_header();
+            let followers_d = prefill_followers();
+            let events_count_d = prefill_events_count();
+            let rating_d = prefill_rating();
             sedang_mengunduh.set(true);
             let navigate_sv2 = navigate_sv;
             spawn_local(async move {
                 if let Err(e) = preload_fonts().await { web_sys::console::warn_1(&format!("font: {:?}", e).into()); }
                 let dpr = get_dpr();
                 let Some((canvas, ctx, cw, ch)) = create_export_canvas(dpr) else { sedang_mengunduh.set(false); return; };
-                if let Err(e) = render_event_card_to_canvas(
-                    &ctx, cw, ch, &cover, &bg_m, &bg_c, &ev_filter,
-                    &title, &date, &venue, &price, is_ticket_d,
-                ).await {
-                    web_sys::console::warn_1(&format!("event card render: {}", e).into());
+                let render_res = if is_merchant_d {
+                    render_merchant_card_to_canvas(
+                        &ctx, cw, ch, &cover, &mch_header_d, &bg_m, &bg_c, &title,
+                        verified_d, followers_d, events_count_d, rating_d, review_d,
+                    ).await
+                } else {
+                    render_event_card_to_canvas(
+                        &ctx, cw, ch, &cover, &bg_m, &bg_c, &ev_filter,
+                        &title, &date, &venue, &price, is_ticket_d,
+                    ).await
+                };
+                if let Err(e) = render_res {
+                    web_sys::console::warn_1(&format!("story card render: {}", e).into());
                     ctx.set_fill_style_str("#0d0d18");
                     ctx.fill_rect(0.0, 0.0, cw, ch);
                 }
@@ -590,7 +636,17 @@ pub fn StoryPage() -> impl IntoView {
             let venue        = prefill_venue();
             let price        = prefill_price();
             let is_ticket_u  = prefill_is_ticket();
-            if cover.is_empty() { error_unggah.set(Some("Cover event tidak tersedia di URL.".into())); return; }
+            let is_merchant_u = prefill_is_merchant();
+            let verified_u = prefill_verified();
+            let review_u = prefill_review_rating().map(|r| (r, prefill_review_comment()));
+            let mch_header_u = prefill_mch_header();
+            let followers_u = prefill_followers();
+            let events_count_u = prefill_events_count();
+            let rating_u = prefill_rating();
+            if cover.is_empty() && !is_merchant_u {
+                error_unggah.set(Some("Cover event tidak tersedia di URL.".into()));
+                return;
+            }
             sedang_mengunggah.set(true);
             store_ctx.uploading.set(true);
             error_unggah.set(None);
@@ -601,11 +657,19 @@ pub fn StoryPage() -> impl IntoView {
                 if let Err(e) = preload_fonts().await { web_sys::console::warn_1(&format!("font: {:?}", e).into()); }
                 let dpr = get_dpr();
                 let Some((canvas, render_ctx, cw, ch)) = create_export_canvas(dpr) else { ctx.uploading.set(false); return; };
-                if let Err(e) = render_event_card_to_canvas(
-                    &render_ctx, cw, ch, &cover, &ev_bg_mode, &ev_bg_color, &ev_filter,
-                    &title, &date, &venue, &price, is_ticket_u,
-                ).await {
-                    web_sys::console::warn_1(&format!("event card render: {}", e).into());
+                let render_res = if is_merchant_u {
+                    render_merchant_card_to_canvas(
+                        &render_ctx, cw, ch, &cover, &mch_header_u, &ev_bg_mode, &ev_bg_color,
+                        &title, verified_u, followers_u, events_count_u, rating_u, review_u,
+                    ).await
+                } else {
+                    render_event_card_to_canvas(
+                        &render_ctx, cw, ch, &cover, &ev_bg_mode, &ev_bg_color, &ev_filter,
+                        &title, &date, &venue, &price, is_ticket_u,
+                    ).await
+                };
+                if let Err(e) = render_res {
+                    web_sys::console::warn_1(&format!("story card render: {}", e).into());
                 }
                 let (dom_w, dom_h) = web_sys::window().and_then(|w| w.document())
                     .and_then(|d| d.query_selector(".sc-canvas-frame").ok().flatten())
@@ -696,7 +760,13 @@ pub fn StoryPage() -> impl IntoView {
     };
 
     let tutup_panel = move |ev: leptos::ev::KeyboardEvent| { if ev.key() == "Escape" { alat_aktif.set(Alat::None); } };
-    let can_share = Memo::new(move |_| { let is_event_mode = has_event_prefill.get() && !user_overrode_prefill.get(); !is_event_mode || cover_img_ready.get() });
+    let can_share = Memo::new(move |_| {
+        // Mode merchant tak digate cover_img_ready — kartu punya fallback & canvas
+        // memuat gambarnya sendiri; header kosong tak boleh menghalangi share.
+        let is_merchant_mode = prefill_is_merchant() && !user_overrode_prefill.get();
+        let is_event_mode = has_event_prefill.get() && !user_overrode_prefill.get() && !is_merchant_mode;
+        !is_event_mode || cover_img_ready.get()
+    });
 
     let on_swipe_start = move |ev: leptos::ev::TouchEvent| {
         if let Some(t) = ev.touches().get(0) { swipe_start_y.set_value(t.client_y() as f64); swipe_start_x.set_value(t.client_x() as f64); swipe_active.set_value(true); }
@@ -834,9 +904,83 @@ pub fn StoryPage() -> impl IntoView {
 
                         <div node_ref=media_layer_ref class="sc-layer-media">
                             {move || url_pratinjau.get().map(|url| {
-                                let is_event = has_event_prefill.get() && !user_overrode_prefill.get();
+                                // Mode merchant (share toko) memakai konvensi slug "m/{id}"
+                                // sehingga has_event_prefill juga true — WAJIB dicek lebih
+                                // dulu agar pratinjau memakai kartu MERCHANT (hero+avatar+
+                                // container FOLLOWERS/EVENTS/RATING, mirip halaman /m/{id}),
+                                // bukan kartu event.
+                                let is_merchant = prefill_is_merchant() && !user_overrode_prefill.get();
+                                let is_event = has_event_prefill.get() && !user_overrode_prefill.get() && !is_merchant;
                                 let is_blob  = url.starts_with("blob:");
-                                if is_event {
+                                if is_merchant {
+                                    let initial: String = prefill_title().chars().next()
+                                        .unwrap_or('P').to_uppercase().collect();
+                                    view! {
+                                        <div class="sc-mch-preview-frame"
+                                            style=move || {
+                                                let mode = bg_mode.get();
+                                                if mode == "blur" { String::new() }
+                                                else if mode == "solid" { format!("background-color:{};", bg_solid_color.get()) }
+                                                else if let Some(css) = BG_GRADIENTS.iter().find(|(k,_,_,_)| *k == mode.as_str()).map(|(_,c,_,_)| *c) { format!("background:{};", css) }
+                                                else { "background-color:#0d0d18;".to_string() }
+                                            }>
+                                            <Show when=move || bg_mode.get() == "blur">
+                                                <img
+                                                    src=move || { let h = prefill_mch_header(); if h.is_empty() { prefill_cover() } else { h } }
+                                                    class="sc-event-bg-img" alt=""
+                                                    on:load=move |_| cover_img_ready.set(true) />
+                                                <div class="sc-event-dark-overlay" />
+                                            </Show>
+                                            <div class="sc-mch-card">
+                                                <div class="sc-mch-hero">
+                                                    {move || {
+                                                        let h = prefill_mch_header();
+                                                        let src = if h.is_empty() { prefill_cover() } else { h };
+                                                        (!src.is_empty()).then(|| view! {
+                                                            <img src=src class="sc-mch-hero-img" alt=""
+                                                                on:load=move |_| cover_img_ready.set(true) />
+                                                        })
+                                                    }}
+                                                    <div class="sc-mch-hero-fade" />
+                                                </div>
+                                                <div class="sc-mch-body">
+                                                    <div class="sc-mch-avatar-wrap">
+                                                        {move || {
+                                                            let logo = prefill_cover();
+                                                            if logo.is_empty() {
+                                                                view! { <div class="sc-mch-avatar sc-mch-avatar--fallback">{initial.clone()}</div> }.into_any()
+                                                            } else {
+                                                                view! { <img class="sc-mch-avatar" src=logo alt="" /> }.into_any()
+                                                            }
+                                                        }}
+                                                        <Show when=move || prefill_verified()>
+                                                            <span class="sc-mch-badge" aria-hidden="true">"✓"</span>
+                                                        </Show>
+                                                    </div>
+                                                    <h2 class="sc-mch-name">{move || prefill_title().to_uppercase()}</h2>
+                                                    <div class="sc-mch-stats">
+                                                        <div class="sc-mch-stat">
+                                                            <span class="sc-mch-stat-num">{move || crate::web::pages::merchant_public::fmt_count(prefill_followers())}</span>
+                                                            <span class="sc-mch-stat-label">"FOLLOWERS"</span>
+                                                        </div>
+                                                        <div class="sc-mch-stat">
+                                                            <span class="sc-mch-stat-num">{move || crate::web::pages::merchant_public::fmt_count(prefill_events_count())}</span>
+                                                            <span class="sc-mch-stat-label">"EVENTS"</span>
+                                                        </div>
+                                                        <div class="sc-mch-stat">
+                                                            <span class="sc-mch-stat-num">
+                                                                {move || format!("{:.1}", prefill_rating())}
+                                                                <span class="sc-mch-stat-star">"★"</span>
+                                                            </span>
+                                                            <span class="sc-mch-stat-label">"RATING"</span>
+                                                        </div>
+                                                    </div>
+                                                    <div class="sc-mch-cta">"KUNJUNGI PROFIL ↗"</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }.into_any()
+                                } else if is_event {
                                     let url_sv = StoredValue::new(url.clone());
                                     view! {
                                         <div class="sc-event-preview-frame"

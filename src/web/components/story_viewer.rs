@@ -118,6 +118,18 @@ fn remove_el_style(el: &web_sys::HtmlElement, prop: &str) {
     let _ = el.style().remove_property(prop);
 }
 
+// ── Helper: path tujuan tap-through story ─────────────────────────────────
+// `event_slug` menyimpan dua jenis tautan (konvensi, tanpa kolom DB baru):
+//   * slug event biasa      → /events/{slug}
+//   * "m/{merchant_id}"     → /m/{id}   (story merchant / story ulasan)
+fn story_link_path(slug: &str) -> String {
+    if let Some(mid) = slug.strip_prefix("m/") {
+        format!("/m/{mid}")
+    } else {
+        format!("/events/{slug}")
+    }
+}
+
 // ── Helper: jalankan closure sekali setelah `ms` — Closure::once sehingga
 //    captures dibebaskan setelah callback jalan (tidak leak permanen) ───
 fn after_timeout(ms: i32, f: impl FnOnce() + 'static) {
@@ -956,7 +968,7 @@ pub fn StoryViewer() -> impl IntoView {
                                     );
                                 }
                             }
-                            let _ = win.location().set_href(&format!("/events/{}", slug));
+                            let _ = win.location().set_href(&story_link_path(&slug));
                         }
                     }
                 }
@@ -1460,8 +1472,16 @@ pub fn StoryViewer() -> impl IntoView {
                         }
                         ctx.with_current_story(|s| {
                             let slug = s.event_slug.clone().filter(|e| !e.is_empty())?;
+                            // Story merchant/ulasan (konvensi slug "m/{id}") →
+                            // eyebrow & label CTA berbeda dari story event.
+                            let is_merchant = slug.starts_with("m/");
+                            let (eyebrow, cta_label) = if is_merchant {
+                                ("PENYELENGGARA", "Kunjungi Profil")
+                            } else {
+                                ("EVENT", "Lihat Event")
+                            };
                             let title = s.event_title.clone()
-                                .unwrap_or_else(|| "Lihat Event".to_string());
+                                .unwrap_or_else(|| cta_label.to_string());
                             let cover = s.media_url.clone();
                             let slug_nav = slug.clone();
                             Some(view! {
@@ -1482,17 +1502,17 @@ pub fn StoryViewer() -> impl IntoView {
                                             <div class="sv-detail-cover-grad"></div>
                                         </div>
                                         <div class="sv-detail-body">
-                                            <span class="sv-detail-eyebrow">"EVENT"</span>
+                                            <span class="sv-detail-eyebrow">{eyebrow}</span>
                                             <h3 class="sv-detail-title">{title}</h3>
                                             <button class="sv-detail-cta"
                                                     on:click=move |ev| {
                                                         ev.stop_propagation();
                                                         if let Some(win) = web_sys::window() {
                                                             let _ = win.location()
-                                                                .set_href(&format!("/events/{}", slug_nav));
+                                                                .set_href(&story_link_path(&slug_nav));
                                                         }
                                                     }>
-                                                "Lihat Event"
+                                                {cta_label}
                                                 <svg width="16" height="16" viewBox="0 0 24 24"
                                                      fill="none" stroke="currentColor"
                                                      stroke-width="2.5" stroke-linecap="round">
