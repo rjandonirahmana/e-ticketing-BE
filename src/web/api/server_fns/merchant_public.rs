@@ -107,7 +107,24 @@ pub async fn get_merchant_public_page(
         state.event_svc.list(q, Some(&merchant_id)),
         state.merchant_svc.review_summary(&merchant_id),
         state.merchant_svc.list_reviews(&merchant_id, 1, 20),
-        state.story_svc.list_my_group(&merchant_id),
+        // Story grup: cache 30 s (viewer-invariant), sama seperti get_merchant_stories.
+        async {
+            if let Some(c) = state.pub_cache.merchant_stories.get(&merchant_id).await {
+                return c;
+            }
+            let web = state
+                .story_svc
+                .list_my_group(&merchant_id)
+                .await
+                .map(srv_story_groups_to_web)
+                .unwrap_or_default();
+            state
+                .pub_cache
+                .merchant_stories
+                .insert(merchant_id.clone(), web.clone())
+                .await;
+            web
+        },
     );
 
     let p = profile_res.map_err(map_app_error)?;
@@ -157,7 +174,8 @@ pub async fn get_merchant_public_page(
         },
     };
 
-    let stories = stories_res.map(srv_story_groups_to_web).unwrap_or_default();
+    // stories_res sudah Vec<StoryGroup> (web) dari blok async ber-cache di atas.
+    let stories = stories_res;
 
     Ok(MerchantPublicPageData {
         profile,
@@ -201,12 +219,23 @@ pub async fn get_merchant_stories(
     merchant_id: String,
 ) -> Result<Vec<crate::web::state::stories::StoryGroup>, ServerFnError> {
     let state = app_state().await?;
+    // Cache 30 s (viewer-invariant) — dipanggil tiap buka event detail (story
+    // ring). Hit cache → 0 query DB.
+    if let Some(cached) = state.pub_cache.merchant_stories.get(&merchant_id).await {
+        return Ok(cached);
+    }
     let groups = state
         .story_svc
         .list_my_group(&merchant_id)
         .await
         .map_err(map_app_error)?;
-    Ok(srv_story_groups_to_web(groups))
+    let web = srv_story_groups_to_web(groups);
+    state
+        .pub_cache
+        .merchant_stories
+        .insert(merchant_id.clone(), web.clone())
+        .await;
+    Ok(web)
 }
 
 #[server(GetMerchantReviews, "/api-fn")]
