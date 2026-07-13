@@ -63,6 +63,26 @@ pub fn PaymentSuccessPage() -> impl IntoView {
             .unwrap_or_else(|| "—".to_string())
     };
 
+    // Toast sukses sekali saat halaman dibuka (mis. balik dari gateway pembayaran
+    // yang TIDAK melewati toast checkout). Guard prev supaya hanya sekali.
+    let toast = crate::web::components::use_toast();
+    Effect::new(move |prev: Option<()>| {
+        if prev.is_none() {
+            let code = order_code();
+            let msg = if code.is_empty() {
+                "Pembayaran berhasil. Tiket sudah terbit.".to_string()
+            } else {
+                format!("Order #{code} lunas. Tiket sudah terbit.")
+            };
+            toast.notify(
+                crate::web::components::ToastKind::Success,
+                "Pembayaran berhasil".into(),
+                Some(msg),
+                Some("/tickets".into()),
+            );
+        }
+    });
+
     view! {
         <div class="page ps-page">
             <header class="page-header">

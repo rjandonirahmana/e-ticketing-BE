@@ -81,6 +81,11 @@ pub fn ChatRoomPage() -> impl IntoView {
         // halaman ditinggalkan (cegah reconnect zombie).
         let closing: StoredValue<bool> = StoredValue::new(false);
 
+        // Toast global — untuk notifikasi "pesan masuk" dari room LAIN. Koneksi
+        // WS ini menerima pesan SEMUA room milik user (server register_rooms),
+        // jadi pesan room lain sampai ke sini walau sedang membuka room lain.
+        let toast = crate::web::components::use_toast();
+
         // `connect` dibuat reusable agar bisa dipanggil ulang oleh watchdog
         // reconnect (penyebab "tidak live": koneksi putus & tak pernah pulih).
         // Tidak membaca signal reaktif (login dicek untracked) supaya Effect
@@ -123,6 +128,22 @@ pub fn ChatRoomPage() -> impl IntoView {
                             // ChatMessage.message_type has alias "msg_type" to match server field.
                             if let Ok(m) = serde_json::from_str::<ChatMessage>(&s) {
                                 let my_id = current_user_id().unwrap_or_default();
+                                // Pesan dari ROOM LAIN (koneksi ini terima semua room
+                                // user): jangan tampilkan di sini — munculkan TOAST
+                                // "pesan masuk" (klik → buka room itu). Pesan sendiri
+                                // di-skip (echo broadcast server ke pengirim).
+                                if m.room_id != room_id() {
+                                    if m.sender_id != my_id {
+                                        let preview: String = m.content.chars().take(60).collect();
+                                        toast.notify(
+                                            crate::web::components::ToastKind::Info,
+                                            format!("Pesan dari {}", m.sender_name),
+                                            Some(preview),
+                                            Some(format!("/pulse/{}", m.room_id)),
+                                        );
+                                    }
+                                    return;
+                                }
                                 live_msgs.update(|v| {
                                     // Standard dedup: server already confirmed this id.
                                     if v.iter().any(|x| x.id == m.id) { return; }

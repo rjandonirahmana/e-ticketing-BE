@@ -86,6 +86,13 @@ fn row_to_story_item(row: &Row) -> Result<StoryItemResponse> {
     })
 }
 
+/// Batas jumlah GRUP (user) di feed story-bar aktif. Story-bar hanya menampilkan
+/// sederet lingkaran user; tak perlu memuat SELURUH user aktif se-platform tiap
+/// kunjungan (biaya = jumlah story aktif global → membengkak seiring skala).
+/// 60 grup jauh lebih dari yang terlihat sekali layar, tapi memotong biaya
+/// join+jsonb+story_views ke ≤60 user. User dengan story TERBARU yang dipilih.
+const STORY_FEED_MAX_GROUPS: i64 = 60;
+
 /// Group rows hasil query list_groups/list_groups_public per user_id
 /// (urutan baris sudah benar dari ORDER BY di SQL).
 fn rows_to_story_groups(rows: &[Row]) -> Result<Vec<StoryGroupResponse>> {
@@ -323,9 +330,22 @@ impl StoryRepository for PgStoryRepository {
 
         // Ambil semua story aktif beserta info view (prepare_cached: jalur
         // panas — StoryBar memanggil ini di tiap kunjungan Explore/Messages).
+        // CTE `active_users` memilih HANYA N grup (user) dengan story terbaru —
+        // viewer sendiri selalu diprioritaskan masuk. Barulah JOIN mengambil
+        // story milik user-user itu. Efeknya: bagian MAHAL (fetch jsonb overlays
+        // + LEFT JOIN story_views + join users) dibatasi ke ≤N user, bukan ke
+        // SELURUH story aktif se-platform. Pola CTE sama dgn list_user_groups_paged.
         let stmt = conn
             .prepare_cached(
                 r#"
+                WITH active_users AS (
+                    SELECT s.user_id, MAX(s.created_at) AS latest_at
+                    FROM   stories s
+                    WHERE  s.expires_at > NOW()
+                    GROUP  BY s.user_id
+                    ORDER  BY (s.user_id = $1) DESC, MAX(s.created_at) DESC
+                    LIMIT  $2
+                )
                 SELECT
                     s.id,
                     s.user_id,
@@ -341,14 +361,15 @@ impl StoryRepository for PgStoryRepository {
                     s.event_slug,
                     s.event_title,
                     (sv.viewer_id IS NOT NULL)         AS viewed
-                FROM   stories s
+                FROM   active_users au
+                JOIN   stories s ON s.user_id = au.user_id AND s.expires_at > NOW()
                 JOIN   users u   ON u.id = s.user_id
                 LEFT   JOIN story_views sv
                        ON sv.story_id = s.id AND sv.viewer_id = $1
-                WHERE  s.expires_at > NOW()
                 ORDER BY
-                    -- story milik viewer sendiri muncul pertama
+                    -- story milik viewer sendiri muncul pertama, lalu grup terbaru
                     (s.user_id = $1) DESC,
+                    au.latest_at DESC,
                     s.user_id,
                     s.created_at ASC
                 "#,
@@ -356,7 +377,7 @@ impl StoryRepository for PgStoryRepository {
             .await
             .context("list_groups prepare")?;
         let rows = conn
-            .query(&stmt, &[&vid])
+            .query(&stmt, &[&vid, &STORY_FEED_MAX_GROUPS])
             .await
             .context("list_groups query")?;
 
@@ -367,9 +388,18 @@ impl StoryRepository for PgStoryRepository {
         let conn = get_conn(&self.pool).await?;
 
         // Tanpa join story_views: viewer anonim tidak punya status `viewed`.
+        // CTE `active_users` membatasi ke N grup terbaru (lihat list_groups).
         let stmt = conn
             .prepare_cached(
                 r#"
+                WITH active_users AS (
+                    SELECT s.user_id, MAX(s.created_at) AS latest_at
+                    FROM   stories s
+                    WHERE  s.expires_at > NOW()
+                    GROUP  BY s.user_id
+                    ORDER  BY MAX(s.created_at) DESC
+                    LIMIT  $1
+                )
                 SELECT
                     s.id,
                     s.user_id,
@@ -385,16 +415,16 @@ impl StoryRepository for PgStoryRepository {
                     s.event_slug,
                     s.event_title,
                     FALSE                              AS viewed
-                FROM   stories s
+                FROM   active_users au
+                JOIN   stories s ON s.user_id = au.user_id AND s.expires_at > NOW()
                 JOIN   users u   ON u.id = s.user_id
-                WHERE  s.expires_at > NOW()
-                ORDER BY s.user_id, s.created_at ASC
+                ORDER BY au.latest_at DESC, s.user_id, s.created_at ASC
                 "#,
             )
             .await
             .context("list_groups_public prepare")?;
         let rows = conn
-            .query(&stmt, &[])
+            .query(&stmt, &[&STORY_FEED_MAX_GROUPS])
             .await
             .context("list_groups_public query")?;
 
