@@ -678,13 +678,19 @@ pub fn ExplorePage() -> impl IntoView {
                         // TOTAL dari COUNT server (semua halaman), bukan jumlah
                         // item yang baru termuat. Saat user mengetik pencarian
                         // (filter lokal), tampilkan jumlah hasil filter itu.
-                        {move || {
-                            if query.get().trim().is_empty() {
-                                feed_total.get().max(0)
-                            } else {
-                                filtered.with(|f| f.len()) as i64
-                            }
-                        }} " acara tersedia"
+                        // Suspense: feed_total membaca resource SSR (ssr_first) —
+                        // pembacaan resource WAJIB di dalam Suspense agar tak ada
+                        // hydration mismatch (sama seperti grid feed di bawah).
+                        <Suspense fallback=|| ()>
+                            {move || {
+                                if query.get().trim().is_empty() {
+                                    feed_total.get().max(0)
+                                } else {
+                                    filtered.with(|f| f.len()) as i64
+                                }
+                            }}
+                        </Suspense>
+                        " acara tersedia"
                     </span>
                 </div>
                 <div class="exp-results-right">

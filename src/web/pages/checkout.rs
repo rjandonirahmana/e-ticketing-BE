@@ -66,6 +66,9 @@ pub fn CheckoutPage() -> impl IntoView {
     let pending_order_sig = pending_ctx.pending_order;
     let success_sig = pending_ctx.success_order;
 
+    // Toast global (notifikasi UI): feedback saat order dibuat / gagal bayar.
+    let toast = crate::web::components::use_toast();
+
     let method = RwSignal::new("CREDIT_CARD".to_string());
     let promo_code = RwSignal::new(String::new());
     let promo_applied = RwSignal::new(false);
@@ -146,6 +149,7 @@ pub fn CheckoutPage() -> impl IntoView {
                     // (payment-success / order detail), lalu tampilkan panel
                     // sukses IN-PAGE dari data response — tanpa redirect,
                     // sehingga user tidak pernah mendarat di /cart kosong.
+                    let order_href = format!("/orders/{}", order.id);
                     if order.status.eq_ignore_ascii_case("paid")
                         || order.status.eq_ignore_ascii_case("completed")
                     {
@@ -158,8 +162,20 @@ pub fn CheckoutPage() -> impl IntoView {
                                 .unwrap_or_default(),
                             total_amount: order.total_amount,
                         }));
+                        toast.notify(
+                            crate::web::components::ToastKind::Success,
+                            "Pembayaran berhasil".into(),
+                            Some(format!("Order #{} lunas. Tiket sudah terbit.", order.order_code)),
+                            Some(order_href),
+                        );
                     } else {
                         pending_order_sig.set(Some(order.clone()));
+                        toast.notify(
+                            crate::web::components::ToastKind::Success,
+                            "Pesanan dibuat".into(),
+                            Some(format!("Order #{} menunggu pembayaran.", order.order_code)),
+                            Some(order_href),
+                        );
                     }
                     items_sig.set(vec![]);
                     paying.set(false);
@@ -168,6 +184,7 @@ pub fn CheckoutPage() -> impl IntoView {
                 Err(e) => {
                     paying.set(false);
                     pay_error.set(e.to_string());
+                    toast.error("Gagal membuat pesanan. Coba lagi.");
                 }
             }
         });

@@ -31,6 +31,10 @@ pub(crate) fn provide_all_app_contexts() {
     // provide_theme() aman di SSR: web_sys::window() → None, Effect::new aman.
     crate::web::hooks::provide_theme();
 
+    // ── Toast global (notifikasi UI) ────────────────────────────────────────
+    // Daftar toast kosong di SSR (toast hanya ditambah di client) → aman.
+    crate::web::components::toast::provide_toast();
+
     // ── Cart: init dari localStorage di client, kosong di SSR ──────────────
     let initial_cart: Vec<CartItem> = {
         #[cfg(target_arch = "wasm32")]
