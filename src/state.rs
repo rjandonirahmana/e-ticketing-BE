@@ -50,6 +50,12 @@ pub struct PublicCache {
     /// dihitung terpisah per-viewer), jadi aman di-cache. 60 s TTL — konsisten
     /// dgn event_detail; follower/rating boleh stale sesaat saat traffic tinggi.
     pub merchant_profile: Cache<String, crate::models::merchant::MerchantPublicProfile>,
+    /// Key: merchant_id (== user_id pemilik). Grup story profil merchant —
+    /// dipakai story-ring di SETIAP buka event detail DAN panel STORY /m/{id}.
+    /// Viewer-invariant (`list_my_group` mengembalikan `viewed`=FALSE konstan),
+    /// jadi aman lintas-viewer. TTL 30 s (story lebih dinamis dari profil):
+    /// story baru muncul ≤30 s. Menghapus 1 query DB per buka detail.
+    pub merchant_stories: Cache<String, Vec<crate::web::state::stories::StoryGroup>>,
     /// Respons JSON REST publik (/api/events*, /api/banners) yang SUDAH
     /// terserialisasi, sebagai `Bytes` (clone murah, langsung jadi body).
     /// Tanpa ini setiap request REST = query DB + serialisasi ulang.
@@ -78,6 +84,10 @@ impl PublicCache {
             merchant_profile: Cache::builder()
                 .max_capacity(512)
                 .time_to_live(Duration::from_secs(60))
+                .build(),
+            merchant_stories: Cache::builder()
+                .max_capacity(512)
+                .time_to_live(Duration::from_secs(30))
                 .build(),
             rest: Cache::builder()
                 .max_capacity(1024)
