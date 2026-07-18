@@ -16,8 +16,8 @@
     text-transform: uppercase;
     padding: 7px 11px;
     border-radius: 20px;
-    background: rgba(200, 255, 94, 0.08);
-    border: 1px solid rgba(200, 255, 94, 0.28);
+    background: rgba(166, 217, 106, 0.08);
+    border: 1px solid rgba(166, 217, 106, 0.28);
     color: var(--accent-lime);
     text-decoration: none;
     white-space: nowrap;
@@ -27,8 +27,8 @@
         border-color 0.2s;
 }
 .exp-partner-btn:hover {
-    background: rgba(200, 255, 94, 0.15);
-    border-color: rgba(200, 255, 94, 0.5);
+    background: rgba(166, 217, 106, 0.15);
+    border-color: rgba(166, 217, 106, 0.5);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -147,7 +147,7 @@
             #0d2744 40%,
             #061e16 100%
         );
-    border: 1px solid rgba(57, 255, 138, 0.14);
+    border: 1px solid rgba(75, 216, 143, 0.14);
     overflow: hidden;
 }
 
@@ -171,7 +171,7 @@
     width: 160px;
     height: 160px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(57, 255, 138, 0.18) 0%, transparent 70%);
+    background: radial-gradient(circle, rgba(75, 216, 143, 0.18) 0%, transparent 70%);
     pointer-events: none;
 }
 
@@ -213,8 +213,8 @@
     display: inline-flex;
     align-items: center;
     padding: 10px 22px;
-    background: var(--accent-lime, #c8ff5e);
-    color: #0d0d1a;
+    background: var(--accent-lime, #a6d96a);
+    color: #16151d;
     font-family: var(--font-body);
     font-size: 12px;
     letter-spacing: 0.08em;
@@ -324,7 +324,7 @@
 .exp-chip--on {
     background: var(--accent-lime);
     border-color: transparent;
-    color: #0d0d1a;
+    color: #16151d;
     font-weight: 700;
 }
 
@@ -415,7 +415,7 @@
 }
 .exp-mkt-card:hover {
     transform: translateY(-3px);
-    border-color: var(--accent-lime, #c8ff5e);
+    border-color: var(--accent-lime, #a6d96a);
     box-shadow: 0 10px 28px rgba(0, 0, 0, .28);
 }
 
@@ -482,8 +482,8 @@
     letter-spacing: .05em;
     padding: 3px 8px;
     border-radius: 6px;
-    background: var(--accent-lime, #c8ff5e);
-    color: #0d0d1a;
+    background: var(--accent-lime, #a6d96a);
+    color: #16151d;
 }
 
 .exp-mkt-body {
@@ -514,7 +514,7 @@
 .exp-mkt-price {
     font-size: 15px;
     font-weight: 800;
-    color: var(--accent-lime, #c8ff5e);
+    color: var(--accent-lime, #a6d96a);
     letter-spacing: -.01em;
 }
 .exp-mkt-hot {
@@ -760,8 +760,8 @@
     pointer-events: none;
 }
 .exp-card-v2__badge--hot {
-    background: var(--accent-lime, #c8ff5e);
-    color: #0d0d1a;
+    background: var(--accent-lime, #a6d96a);
+    color: #16151d;
     font-weight: 700;
 }
 .exp-card-v2__badge--limited {
@@ -932,7 +932,7 @@
 .exp-genre-chip--on {
     border-color: var(--accent-lime);
     color: var(--accent-lime);
-    background: rgba(200, 255, 94, 0.06);
+    background: rgba(166, 217, 106, 0.06);
 }
 .exp-genre-chip--on {
     font-weight: 600;
@@ -1045,7 +1045,7 @@
 }
 .exp-sovl-input-wrap:focus-within {
     border-color: var(--accent-lime);
-    box-shadow: 0 0 0 3px rgba(57, 255, 138, 0.12);
+    box-shadow: 0 0 0 3px rgba(75, 216, 143, 0.12);
 }
 .exp-sovl-input-wrap svg {
     flex-shrink: 0;

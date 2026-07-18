@@ -41,8 +41,8 @@
     justify-content: center;
     overflow: hidden;
     box-shadow:
-        0 0 0 4px rgba(200, 255, 94, 0.08),
-        0 0 40px rgba(200, 255, 94, 0.12);
+        0 0 0 4px rgba(166, 217, 106, 0.08),
+        0 0 40px rgba(166, 217, 106, 0.12);
 }
 .avatar-img {
     width: 100%;

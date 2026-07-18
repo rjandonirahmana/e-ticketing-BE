@@ -40,9 +40,9 @@
     backdrop-filter: blur(12px);
 }
 .admin-toast--ok {
-    background: rgba(57, 255, 138, 0.12);
+    background: rgba(75, 216, 143, 0.12);
     color: var(--live-green);
-    border: 1px solid rgba(57, 255, 138, 0.25);
+    border: 1px solid rgba(75, 216, 143, 0.25);
 }
 .admin-toast--err {
     background: rgba(255, 79, 107, 0.12);
@@ -79,7 +79,7 @@
         box-shadow 0.2s;
 }
 .admin-banner-row:hover {
-    border-color: rgba(200, 255, 94, 0.18);
+    border-color: rgba(166, 217, 106, 0.18);
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
 }
 .admin-banner-thumb {
@@ -116,7 +116,7 @@
     letter-spacing: 0.05em;
 }
 .admin-banner-badge--on {
-    background: rgba(57, 255, 138, 0.25);
+    background: rgba(75, 216, 143, 0.25);
     color: var(--live-green);
 }
 .admin-banner-badge--off {
@@ -285,7 +285,7 @@
     border-radius: 14px;
     overflow: hidden;
     background: var(--bg-elevated);
-    border: 1px dashed rgba(200, 255, 94, 0.25);
+    border: 1px dashed rgba(166, 217, 106, 0.25);
     margin-bottom: 1rem;
     display: flex;
     align-items: center;
@@ -293,7 +293,7 @@
     transition: border-color 0.2s;
 }
 .admin-preview-box:hover {
-    border-color: rgba(200, 255, 94, 0.45);
+    border-color: rgba(166, 217, 106, 0.45);
 }
 .admin-preview-img {
     width: 100%;

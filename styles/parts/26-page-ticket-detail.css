@@ -85,7 +85,7 @@
     background: rgba(0, 0, 0, 0.4);
     padding: 5px 12px;
     border-radius: 100px;
-    border: 1px solid rgba(200, 255, 94, 0.35);
+    border: 1px solid rgba(166, 217, 106, 0.35);
 }
 
 .td-event-title {
@@ -195,8 +195,8 @@
     background: #fff;
     border-radius: 16px;
     padding: 0;          /* qrcodegen SVG sudah punya quiet-zone sendiri */
-    box-shadow: 0 0 40px rgba(200, 255, 94, 0.15);
-    border: 1px solid rgba(200, 255, 94, 0.1);
+    box-shadow: 0 0 40px rgba(166, 217, 106, 0.15);
+    border: 1px solid rgba(166, 217, 106, 0.1);
     overflow: hidden;    /* clip SVG corners ke border-radius */
     line-height: 0;      /* hapus spasi inline di bawah SVG */
 }
@@ -299,8 +299,8 @@
 .td-pulse-strip {
     margin: 8px 16px 100px;
     padding: 14px 16px;
-    background: rgba(57, 255, 138, 0.06);
-    border: 1px solid rgba(57, 255, 138, 0.2);
+    background: rgba(75, 216, 143, 0.06);
+    border: 1px solid rgba(75, 216, 143, 0.2);
     border-radius: 14px;
     display: flex;
     align-items: center;

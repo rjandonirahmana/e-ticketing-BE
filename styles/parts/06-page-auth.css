@@ -26,8 +26,8 @@
     font-size: 9px;
     letter-spacing: 0.18em;
     color: var(--accent-lime);
-    background: rgba(200, 255, 94, 0.1);
-    border: 1px solid rgba(200, 255, 94, 0.25);
+    background: rgba(166, 217, 106, 0.1);
+    border: 1px solid rgba(166, 217, 106, 0.25);
     padding: 4px 10px;
     border-radius: 100px;
 }
@@ -199,7 +199,7 @@
 /* ── FORGOT PASSWORD SUCCESS ───────────────────────────────────────────────── */
 .success-card {
     background: var(--bg-surface);
-    border: 1px solid rgba(200, 255, 94, 0.2);
+    border: 1px solid rgba(166, 217, 106, 0.2);
     border-radius: 24px;
     padding: 32px 24px;
     display: flex;
@@ -212,8 +212,8 @@
     width: 64px;
     height: 64px;
     border-radius: 50%;
-    background: rgba(200, 255, 94, 0.08);
-    border: 1px solid rgba(200, 255, 94, 0.2);
+    background: rgba(166, 217, 106, 0.08);
+    border: 1px solid rgba(166, 217, 106, 0.2);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -362,7 +362,7 @@
     flex-shrink: 0;
 }
 .verify-meta-icon--expiry {
-    background: rgba(200, 255, 94, 0.12);
+    background: rgba(166, 217, 106, 0.12);
     color: var(--accent-lime);
 }
 .verify-meta-icon--sent {

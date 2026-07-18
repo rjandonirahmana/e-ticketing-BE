@@ -72,7 +72,7 @@
     align-items: center;
     justify-content: space-between;
     padding-bottom: 8px;
-    border-bottom: 1px solid rgba(200, 255, 94, 0.12);
+    border-bottom: 1px solid rgba(166, 217, 106, 0.12);
     margin-top: 4px;
     width: 100%;
     min-width: 0;
@@ -149,9 +149,9 @@
 .medit-form-input:focus,
 .medit-form-select:focus,
 .medit-form-textarea:focus {
-    border-color: rgba(200, 255, 94, 0.55);
+    border-color: rgba(166, 217, 106, 0.55);
     background: var(--bg-card);
-    box-shadow: 0 0 0 3px rgba(200, 255, 94, 0.1);
+    box-shadow: 0 0 0 3px rgba(166, 217, 106, 0.1);
 }
 .medit-input::placeholder,
 .medit-form-input::placeholder,
@@ -238,7 +238,7 @@
 .medit-checkbox-label:has(input:checked) {
     border-color: var(--accent-lime);
     color: var(--text-primary);
-    background: rgba(200, 255, 94, 0.09);
+    background: rgba(166, 217, 106, 0.09);
 }
 .medit-checkbox-label input[type="checkbox"] {
     width: 13px;
@@ -344,7 +344,7 @@
 .medit-cover-empty-sub { font-size: 12px; color: var(--text-muted); }
 .medit-cover-upload-chip {
     display: flex; align-items: center; gap: 6px;
-    background: var(--accent-lime); color: #0d0d1a;
+    background: var(--accent-lime); color: #16151d;
     font-size: 10px; font-weight: 800; letter-spacing: 1px;
     border-radius: 100px; padding: 6px 14px; margin-top: 6px;
     white-space: nowrap;
@@ -373,7 +373,7 @@
     width: 100%;
     min-width: 0;
 }
-.medit-file-input-wrapper:hover { border-color: var(--accent-lime); background: rgba(200, 255, 94, 0.04); }
+.medit-file-input-wrapper:hover { border-color: var(--accent-lime); background: rgba(166, 217, 106, 0.04); }
 .medit-file-input { 
     position: absolute; 
     inset: 0; 
@@ -468,8 +468,8 @@
     display: inline-flex; 
     align-items: center; 
     gap: 5px;
-    background: rgba(200, 255, 94, 0.07); 
-    border: 1px solid rgba(200, 255, 94, 0.15);
+    background: rgba(166, 217, 106, 0.07); 
+    border: 1px solid rgba(166, 217, 106, 0.15);
     border-radius: 6px; 
     padding: 3px 8px; 
     font-size: 10px; 
@@ -501,7 +501,7 @@
     width: 100%; 
     padding: 14px 16px;
     background: transparent; 
-    border: 1.5px dashed rgba(200, 255, 94, 0.35);
+    border: 1.5px dashed rgba(166, 217, 106, 0.35);
     border-radius: 14px; 
     color: var(--accent-lime);
     font-family: var(--font-body); 
@@ -515,8 +515,8 @@
     -webkit-appearance: none;
 }
 .medit-add-variant-row:hover {
-    background: rgba(200, 255, 94, 0.06);
-    border-color: rgba(200, 255, 94, 0.6);
+    background: rgba(166, 217, 106, 0.06);
+    border-color: rgba(166, 217, 106, 0.6);
 }
 .medit-add-variant-row-icon {
     width: 26px; 
@@ -577,8 +577,8 @@
     display: flex; 
     align-items: center; 
     gap: 8px;
-    background: rgba(200, 255, 94, 0.08); 
-    border: 1px solid rgba(200, 255, 94, 0.25);
+    background: rgba(166, 217, 106, 0.08); 
+    border: 1px solid rgba(166, 217, 106, 0.25);
     border-radius: 12px; 
     padding: 12px 14px; 
     color: var(--accent-lime); 
@@ -887,8 +887,8 @@
   align-items: center;
   gap: 7px;
   padding: 9px 16px;
-  background: rgba(200, 255, 94, 0.08);
-  border: 1px solid rgba(200, 255, 94, 0.25);
+  background: rgba(166, 217, 106, 0.08);
+  border: 1px solid rgba(166, 217, 106, 0.25);
   border-radius: 100px;
   color: var(--accent-lime);
   font-size: 12px;
@@ -898,8 +898,8 @@
   transition: background 0.15s, border-color 0.15s;
 }
 .esp-toggle-btn:hover {
-  background: rgba(200, 255, 94, 0.14);
-  border-color: rgba(200, 255, 94, 0.45);
+  background: rgba(166, 217, 106, 0.14);
+  border-color: rgba(166, 217, 106, 0.45);
 }
 
 .esp-wrapper {
@@ -957,7 +957,7 @@
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #c8ff5e, #00c6ff);
+  background: linear-gradient(135deg, #a6d96a, #00c6ff);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1051,9 +1051,9 @@
   height: 2px;
   background: linear-gradient(
     to right,
-    rgba(200,255,94,0) 0%,
-    rgba(200,255,94,0.8) 50%,
-    rgba(200,255,94,0) 100%
+    rgba(166, 217, 106,0) 0%,
+    rgba(166, 217, 106,0.8) 50%,
+    rgba(166, 217, 106,0) 100%
   );
 }
 
@@ -1076,8 +1076,8 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  background: rgba(200,255,94,0.1);
-  border: 1px solid rgba(200,255,94,0.3);
+  background: rgba(166, 217, 106,0.1);
+  border: 1px solid rgba(166, 217, 106,0.3);
   border-radius: 100px;
   font-size: 7px;
   font-weight: 800;
@@ -1126,7 +1126,7 @@
   font-size: 7px;
   font-weight: 800;
   letter-spacing: 0.06em;
-  color: rgba(200,255,94,0.8);
+  color: rgba(166, 217, 106,0.8);
   margin-top: 2px;
 }
 

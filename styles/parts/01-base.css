@@ -244,7 +244,7 @@ main {
 
 /* Pastikan focus tetap terlihat untuk aksesibilitas keyboard (bukan touch) */
 :focus-visible {
-    outline: 2px solid var(--accent-lime, #c8ff5e);
+    outline: 2px solid var(--accent-lime, #a6d96a);
     outline-offset: 2px;
 }
 
@@ -371,7 +371,7 @@ button,
 .ap-bar {
     width: 2.5px;
     border-radius: 2px;
-    background: #39ff8a; /* hijau Instagram */
+    background: #4bd88f; /* hijau Instagram */
     animation: ap-wave 0.8s ease-in-out infinite;
 }
 .ap-bar:nth-child(1) { height: 6px; animation-delay: 0s; }

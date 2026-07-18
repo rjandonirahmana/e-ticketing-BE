@@ -70,7 +70,7 @@
     height: 8px;
     border-radius: 50%;
     background: var(--accent-lime);
-    box-shadow: 0 0 8px rgba(200, 255, 94, 0.8);
+    box-shadow: 0 0 8px rgba(166, 217, 106, 0.8);
     animation: pulse-dot 1.6s infinite;
 }
 @keyframes pulse-dot {
@@ -209,8 +209,8 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     color: var(--live-green);
-    background: rgba(57, 255, 138, 0.1);
-    border: 1px solid rgba(57, 255, 138, 0.25);
+    background: rgba(75, 216, 143, 0.1);
+    border: 1px solid rgba(75, 216, 143, 0.25);
     border-radius: 100px;
     padding: 4px 8px;
 }
@@ -584,7 +584,7 @@
     height: 8px;
     border-radius: 50%;
     background: var(--live-green);
-    box-shadow: 0 0 8px rgba(57, 255, 138, 0.8);
+    box-shadow: 0 0 8px rgba(75, 216, 143, 0.8);
     animation: pulse-dot 1.6s infinite;
 }
 

@@ -648,7 +648,7 @@
     width: 60px;
     height: 60px;
     border-radius: 50%;
-    background: rgba(200, 255, 94, 0.15);
+    background: rgba(166, 217, 106, 0.15);
     animation: pulse-ring 2s infinite;
 }
 .vl-pin-circle {
@@ -661,7 +661,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 0 30px rgba(200, 255, 94, 0.4);
+    box-shadow: 0 0 30px rgba(166, 217, 106, 0.4);
 }
 .vl-pin-dot {
     width: 14px;
@@ -678,7 +678,7 @@
     background: var(--overlay-blur-soft);
     padding: 4px 10px;
     border-radius: 100px;
-    border: 1px solid rgba(200, 255, 94, 0.3);
+    border: 1px solid rgba(166, 217, 106, 0.3);
 }
 .vl-cta-wrap {
     position: relative;
@@ -779,7 +779,7 @@
     width: 28px;
     height: 28px;
     border-radius: 50%;
-    background: rgba(200, 255, 94, 0.1);
+    background: rgba(166, 217, 106, 0.1);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -850,7 +850,7 @@
     background: rgba(125, 167, 255, 0.12);
 }
 .vl-facility-icon--lime {
-    background: rgba(200, 255, 94, 0.12);
+    background: rgba(166, 217, 106, 0.12);
 }
 .vl-facility-label {
     font-size: 13px;
@@ -926,7 +926,7 @@
 }
 .ticket-card--link:hover {
     transform: translateY(-2px);
-    border-color: rgba(200, 255, 94, 0.25);
+    border-color: rgba(166, 217, 106, 0.25);
 }
 .ticket-card--vip.ticket-card--link:hover {
     box-shadow: 0 8px 30px rgba(79, 107, 255, 0.3);
@@ -1107,7 +1107,7 @@
     margin-bottom: 2px; /* align vertically with starting-price baseline */
 }
 .ed-share-story-btn:hover {
-    background: rgba(200, 255, 94, 0.18);
+    background: rgba(166, 217, 106, 0.18);
     border-color: var(--accent-lime);
     color: var(--accent-lime);
     transform: scale(1.04);
@@ -1628,7 +1628,7 @@
 .exp-reset-btn {
     padding: 12px 28px;
     background: var(--accent-lime);
-    color: #0d0d1a;
+    color: #16151d;
     border: none;
     border-radius: 100px;
     font-family: var(--font-body);
