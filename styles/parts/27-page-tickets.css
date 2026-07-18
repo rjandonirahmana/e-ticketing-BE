@@ -69,7 +69,7 @@
     position: relative;
 }
 .ticket-card--live {
-    border-color: rgba(57, 255, 138, 0.3);
+    border-color: rgba(75, 216, 143, 0.3);
 }
 .live-badge-card {
     position: absolute;
@@ -188,7 +188,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #c8ff5e;
+    color: #a6d96a;
 }
 .vip-label {
     font-family: var(--font-body);

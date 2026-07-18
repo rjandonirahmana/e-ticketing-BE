@@ -212,7 +212,7 @@
 .mlive-btn--start {
     background: var(--live-green);
     color: var(--text-on-accent);
-    box-shadow: 0 0 30px rgba(57, 255, 138, 0.3);
+    box-shadow: 0 0 30px rgba(75, 216, 143, 0.3);
 }
 .mlive-btn--start:hover { opacity: 0.9; }
 
@@ -489,7 +489,7 @@
     background: var(--live-green);
     color: var(--text-on-accent);
     padding-left: 3px;
-    box-shadow: 0 0 26px rgba(57, 255, 138, 0.45);
+    box-shadow: 0 0 26px rgba(75, 216, 143, 0.45);
     transition: transform 0.15s;
 }
 .live-viewer-overlay--btn:hover .live-viewer-play { transform: scale(1.06); }

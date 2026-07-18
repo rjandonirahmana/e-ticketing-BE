@@ -89,8 +89,8 @@
     width: 120px;
     height: 120px;
     border-radius: 50%;
-    background: radial-gradient(circle at 50% 40%, rgba(200,255,94,0.12), rgba(200,255,94,0.03) 60%, transparent 70%);
-    border: 1px solid rgba(200,255,94,0.08);
+    background: radial-gradient(circle at 50% 40%, rgba(166, 217, 106,0.12), rgba(166, 217, 106,0.03) 60%, transparent 70%);
+    border: 1px solid rgba(166, 217, 106,0.08);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -175,8 +175,8 @@
     width: 32px;
     height: 32px;
     border-radius: 10px;
-    background: rgba(200,255,94,0.08);
-    border: 1px solid rgba(200,255,94,0.12);
+    background: rgba(166, 217, 106,0.08);
+    border: 1px solid rgba(166, 217, 106,0.12);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -294,7 +294,7 @@
     background: rgba(255,255,255,0.06);
     border: 1px solid rgba(255,255,255,0.08);
 }
-.notif-icon--success { background: rgba(200,255,94,0.1); border-color: rgba(200,255,94,0.18); color: var(--accent-lime); }
+.notif-icon--success { background: rgba(166, 217, 106,0.1); border-color: rgba(166, 217, 106,0.18); color: var(--accent-lime); }
 .notif-icon--promo   { background: rgba(183,140,255,0.1); border-color: rgba(183,140,255,0.18); color: var(--accent-promo); }
 .notif-icon--artist  { background: rgba(255,107,157,0.1); border-color: rgba(255,107,157,0.18); color: var(--accent-pink); }
 .notif-icon--alert   { background: rgba(125,167,255,0.1); border-color: rgba(125,167,255,0.18); color: var(--accent-info); }
@@ -353,9 +353,9 @@
     white-space: nowrap;
 }
 .notif-pill--live {
-    background: rgba(200,255,94,0.12);
+    background: rgba(166, 217, 106,0.12);
     color: var(--accent-lime);
-    border: 1px solid rgba(200,255,94,0.2);
+    border: 1px solid rgba(166, 217, 106,0.2);
 }
 .notif-pill--promo {
     background: rgba(183,140,255,0.12);

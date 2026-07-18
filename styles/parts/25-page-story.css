@@ -76,8 +76,8 @@
     inset: -3px;
     border-radius: 50%;
     border: 3px solid transparent;
-    border-top-color: var(--accent-lime, #c8ff5e);
-    border-right-color: rgba(200, 255, 94, 0.38);
+    border-top-color: var(--accent-lime, #a6d96a);
+    border-right-color: rgba(166, 217, 106, 0.38);
     animation: story-arc-spin 0.88s cubic-bezier(0.65, 0, 0.35, 1) infinite;
     pointer-events: none;
     z-index: 1;
@@ -99,8 +99,8 @@
 }
 
 @keyframes story-glow-pulse {
-    0%, 100% { box-shadow: 0 0 0 0   rgba(200, 255, 94, 0); }
-    50%       { box-shadow: 0 0 0 5px rgba(200, 255, 94, 0.18); }
+    0%, 100% { box-shadow: 0 0 0 0   rgba(166, 217, 106, 0); }
+    50%       { box-shadow: 0 0 0 5px rgba(166, 217, 106, 0.18); }
 }
 
 /* Inner content — must NOT spin */
@@ -113,7 +113,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--accent-lime, #c8ff5e);
+    color: var(--accent-lime, #a6d96a);
     animation: story-upload-icon-breathe 1.4s ease-in-out infinite;
 }
 
@@ -782,7 +782,7 @@
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: var(--accent-lime, #c8ff5e);
+    color: var(--accent-lime, #a6d96a);
 }
 
 .sv-detail-title {
@@ -1165,7 +1165,7 @@
 .sc-bg-chip--aktif {
     border-color: #fff;
     transform: scale(1.22);
-    box-shadow: 0 0 0 2px var(--accent-lime, #c8ff5e), inset 0 0 0 1px rgba(255,255,255,0.2);
+    box-shadow: 0 0 0 2px var(--accent-lime, #a6d96a), inset 0 0 0 1px rgba(255,255,255,0.2);
 }
 
 .sc-notif-gagal,
@@ -1255,7 +1255,7 @@
 
 .sc-tombol-alat--aktif,
 .sc-side-btn--active {
-    background: rgba(200,255,94,0.18);
+    background: rgba(166, 217, 106,0.18);
     color: var(--accent-lime);
 }
 
@@ -1286,7 +1286,7 @@
     border-radius: 50%;
     background: var(--accent-lime);
     border: 2px solid #000;
-    box-shadow: 0 0 6px rgba(200,255,94,0.8);
+    box-shadow: 0 0 6px rgba(166, 217, 106,0.8);
 }
 
 /* Top tiny toolbar */
@@ -1704,8 +1704,8 @@
 .sc-item-musik:active { transform: scale(0.97); }
 
 .sc-item-musik--aktif {
-    background: rgba(57,255,138,0.12);
-    border-color: rgba(57,255,138,0.35);
+    background: rgba(75, 216, 143,0.12);
+    border-color: rgba(75, 216, 143,0.35);
 }
 
 .sc-cover-musik {
@@ -1986,8 +1986,8 @@
     background: linear-gradient(135deg, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.48) 100%);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border-bottom: 1px solid rgba(200,255,94,0.25);
-    border-left: 2px solid rgba(200,255,94,0.5);
+    border-bottom: 1px solid rgba(166, 217, 106,0.25);
+    border-left: 2px solid rgba(166, 217, 106,0.5);
     animation: sc-banner-fadein 0.4s ease-out both;
 }
 
@@ -2002,10 +2002,10 @@
     justify-content: center;
     width: 28px;
     height: 28px;
-    background: rgba(200,255,94,0.15);
-    border: 1px solid rgba(200,255,94,0.3);
+    background: rgba(166, 217, 106,0.15);
+    border: 1px solid rgba(166, 217, 106,0.3);
     border-radius: 50%;
-    color: var(--accent-lime, #c8ff5e);
+    color: var(--accent-lime, #a6d96a);
     flex-shrink: 0;
 }
 
@@ -2038,9 +2038,9 @@
     font-size: 9px;
     font-weight: 800;
     letter-spacing: 0.1em;
-    color: var(--accent-lime, #c8ff5e);
-    background: rgba(200,255,94,0.12);
-    border: 1px solid rgba(200,255,94,0.3);
+    color: var(--accent-lime, #a6d96a);
+    background: rgba(166, 217, 106,0.12);
+    border: 1px solid rgba(166, 217, 106,0.3);
     padding: 3px 8px;
     border-radius: 100px;
     white-space: nowrap;
@@ -2123,8 +2123,8 @@
     font-family: "Bebas Neue", "Arial Black", sans-serif;
     font-weight: 800;
     font-size: 10cqw;
-    color: #080810;
-    background: #c8ff5e;
+    color: #100f16;
+    background: #a6d96a;
 }
 .sc-mch-badge {
     position: absolute;
@@ -2133,7 +2133,7 @@
     width: 6cqw;
     height: 6cqw;
     border-radius: 50%;
-    background: #c8ff5e;
+    background: #a6d96a;
     color: #0d0d18;
     border: 0.7cqw solid #0d0d18;
     display: flex;
@@ -2181,7 +2181,7 @@
     line-height: 1;
 }
 .sc-mch-stat-star {
-    color: #c8ff5e;
+    color: #a6d96a;
     font-size: 3.6cqw;
 }
 .sc-mch-stat-label {
@@ -2198,7 +2198,7 @@
     font-size: 3.4cqw;
     letter-spacing: 0.08em;
     color: #0d0d18;
-    background: #c8ff5e;
+    background: #a6d96a;
     padding: 2.6cqw 5.5cqw;
     border-radius: 999px;
 }
@@ -2276,8 +2276,8 @@
     width: clamp(7px, 1.8cqw, 10px);
     height: clamp(7px, 1.8cqw, 10px);
     border-radius: 50%;
-    background: #c8ff5e;
-    box-shadow: 0 0 6px rgba(200,255,94,0.8);
+    background: #a6d96a;
+    box-shadow: 0 0 6px rgba(166, 217, 106,0.8);
     flex-shrink: 0;
     animation: sc-pulse 2.2s ease infinite;
 }
@@ -2380,8 +2380,8 @@
     align-items: center;
     padding: clamp(9px, 2.8cqw, 15px) clamp(20px, 6cqw, 32px);
     border-radius: 100px;
-    background: #c8ff5e;
-    box-shadow: 0 4px 24px rgba(200,255,94,0.38);
+    background: #a6d96a;
+    box-shadow: 0 4px 24px rgba(166, 217, 106,0.38);
     font-family: -apple-system, BlinkMacSystemFont, sans-serif;
     font-size: clamp(15px, 4.5cqw, 24px);
     font-weight: 700;
@@ -2437,7 +2437,7 @@
 }
 
 .drg-overlay--selected {
-    filter: drop-shadow(0 0 8px rgba(200,255,94,0.4));
+    filter: drop-shadow(0 0 8px rgba(166, 217, 106,0.4));
 }
 
 .drg-overlay--selected .drg-text-content,
@@ -2529,8 +2529,8 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--accent-lime, #c8ff5e);
-    box-shadow: 0 0 6px rgba(200,255,94,0.8);
+    background: var(--accent-lime, #a6d96a);
+    box-shadow: 0 0 6px rgba(166, 217, 106,0.8);
     flex-shrink: 0;
 }
 
@@ -2656,7 +2656,7 @@
 .ap-bar {
     width: 2.5px;
     border-radius: 2px;
-    background: #39ff8a;
+    background: #4bd88f;
     animation: ap-wave 0.8s ease-in-out infinite;
 }
 

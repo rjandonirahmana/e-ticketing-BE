@@ -121,8 +121,8 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    background: rgba(57, 255, 138, 0.08);
-    border: 1px solid rgba(57, 255, 138, 0.25);
+    background: rgba(75, 216, 143, 0.08);
+    border: 1px solid rgba(75, 216, 143, 0.25);
     border-radius: 8px;
     padding: 12px 14px;
     font-size: 12px;
@@ -208,7 +208,7 @@
     border-radius: 50%;
     background: var(--accent-lime);
     border: 2px solid var(--bg-page);
-    box-shadow: 0 0 8px rgba(200, 255, 94, 0.6);
+    box-shadow: 0 0 8px rgba(166, 217, 106, 0.6);
 }
 
 /* ── THEME TOGGLE BUTTON ────────────────────────────────────────────────────── */
@@ -386,7 +386,7 @@
 .banner-price {
     font-family: var(--font-body);
     font-size: 13px;
-    color: #c8ff5e;
+    color: #a6d96a;
     font-weight: 700;
 }
 .banner-cta-btn {
@@ -453,7 +453,7 @@
     letter-spacing: 0.18em;
     color: var(--accent-lime);
     padding: 8px 0 4px;
-    border-bottom: 1px solid rgba(200, 255, 94, 0.15);
+    border-bottom: 1px solid rgba(166, 217, 106, 0.15);
     margin-bottom: 10px;
 }
 
@@ -526,7 +526,7 @@
     gap: 6px;
     padding: 6px 16px;
     margin: 0;
-    background: linear-gradient(90deg, rgba(79, 107, 255, 0.12) 0%, rgba(200, 255, 94, 0.06) 100%);
+    background: linear-gradient(90deg, rgba(79, 107, 255, 0.12) 0%, rgba(166, 217, 106, 0.06) 100%);
     border-bottom: 1px solid var(--border-soft);
     font-family: var(--font-body);
     font-size: 9px;
@@ -558,7 +558,7 @@
 
 /* Input "last chance" highlight */
 .chat-input--last-chance {
-    border-color: rgba(200, 255, 94, 0.35);
+    border-color: rgba(166, 217, 106, 0.35);
 }
 .chat-input--last-chance:focus {
     border-color: var(--accent-lime);
@@ -600,8 +600,8 @@
     gap: 10px;
     padding: 12px 20px;
     margin: 0 0 8px;
-    background: rgba(200, 255, 94, 0.08);
-    border: 1px solid rgba(200, 255, 94, 0.2);
+    background: rgba(166, 217, 106, 0.08);
+    border: 1px solid rgba(166, 217, 106, 0.2);
     border-radius: 12px;
     font-family: var(--font-body);
     font-size: 12px;
@@ -687,8 +687,8 @@
     align-items: center;
     gap: 4px;
     padding: 4px 10px;
-    background: rgba(200, 255, 94, 0.12);
-    border: 1px solid rgba(200, 255, 94, 0.25);
+    background: rgba(166, 217, 106, 0.12);
+    border: 1px solid rgba(166, 217, 106, 0.25);
     border-radius: 100px;
     font-family: var(--font-body);
     font-size: 9px;
@@ -1183,7 +1183,7 @@ button:focus-visible {
     display: flex;
     align-items: center;
     gap: 5px;
-    background: rgba(200, 255, 94, 0.15);
+    background: rgba(166, 217, 106, 0.15);
     border: 1px solid var(--accent-lime);
     color: var(--accent-lime);
     font-family: var(--font-body);
@@ -1290,7 +1290,7 @@ button:focus-visible {
 }
 .ed-cat-card-full:first-child {
     border-color: var(--accent-lime);
-    background: rgba(200, 255, 94, 0.04);
+    background: rgba(166, 217, 106, 0.04);
 }
 .ed-cat-card-left {
     display: flex;
@@ -1365,7 +1365,7 @@ button:focus-visible {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -60%);
-    filter: drop-shadow(0 4px 12px rgba(200, 255, 94, 0.4));
+    filter: drop-shadow(0 4px 12px rgba(166, 217, 106, 0.4));
 }
 .ed-map-info {
     padding: 14px 16px 16px;
@@ -1387,8 +1387,8 @@ button:focus-visible {
     align-items: center;
     gap: 6px;
     padding: 8px 16px;
-    background: rgba(200, 255, 94, 0.1);
-    border: 1px solid rgba(200, 255, 94, 0.3);
+    background: rgba(166, 217, 106, 0.1);
+    border: 1px solid rgba(166, 217, 106, 0.3);
     border-radius: 100px;
     color: var(--accent-lime);
     font-family: var(--font-body);
@@ -1400,7 +1400,7 @@ button:focus-visible {
     transition: background 0.15s;
 }
 .ed-directions-btn:hover {
-    background: rgba(200, 255, 94, 0.18);
+    background: rgba(166, 217, 106, 0.18);
 }
 
 /* Essential info accordion */
@@ -1482,7 +1482,7 @@ button:focus-visible {
     flex-shrink: 0;
     padding: 14px 28px;
     background: var(--accent-lime);
-    color: #0d0d1a;
+    color: #16151d;
     border: none;
     border-radius: 100px;
     font-family: var(--font-body);
@@ -2058,7 +2058,7 @@ button:focus-visible {
 .medit-section-header {
     margin-top: 4px;
     padding-bottom: 6px;
-    border-bottom: 1px solid rgba(200, 255, 94, 0.12);
+    border-bottom: 1px solid rgba(166, 217, 106, 0.12);
 }
 
 .medit-section-label {
@@ -2092,8 +2092,8 @@ button:focus-visible {
 }
 .medit-input:focus,
 .medit-textarea:focus {
-    border-color: rgba(200, 255, 94, 0.55) !important;
-    box-shadow: 0 0 0 3px rgba(200, 255, 94, 0.1) !important;
+    border-color: rgba(166, 217, 106, 0.55) !important;
+    box-shadow: 0 0 0 3px rgba(166, 217, 106, 0.1) !important;
 }
 
 /* Category grid: pill chips in a flex-wrap */

@@ -155,9 +155,9 @@
     white-space: nowrap;
 }
 .order-status-badge--paid {
-    background: rgba(57, 255, 138, 0.14);
-    color: #39ff8a;
-    border: 1px solid rgba(57, 255, 138, 0.28);
+    background: rgba(75, 216, 143, 0.14);
+    color: #4bd88f;
+    border: 1px solid rgba(75, 216, 143, 0.28);
 }
 .order-status-badge--pending {
     background: rgba(180, 130, 255, 0.14);
@@ -231,8 +231,8 @@
     border: 1px solid rgba(79, 107, 255, 0.3);
 }
 .order-action-btn--pay {
-    background: var(--accent-lime, #c8ff5e);
-    color: #0d0d1a;
+    background: var(--accent-lime, #a6d96a);
+    color: #16151d;
 }
 
 /* ── Order card shimmer ──────────────────────────────────────────────────────── */

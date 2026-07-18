@@ -93,10 +93,10 @@
     font-family: var(--font-display);
     font-size: 26px;
     letter-spacing: 2px;
-    color: var(--accent-lime, #c8ff5e);
+    color: var(--accent-lime, #a6d96a);
     font-variant-numeric: tabular-nums;
 }
-.vp-timer svg { color: var(--accent-lime, #c8ff5e); flex-shrink: 0; }
+.vp-timer svg { color: var(--accent-lime, #a6d96a); flex-shrink: 0; }
 
 /* ── Status badge ────────────────────────────────────────────────────────────── */
 .vp-status-badge {
@@ -117,9 +117,9 @@
     color: var(--text-primary);
 }
 .vp-status-badge--paid {
-    background: rgba(57,255,138,0.12);
-    border: 1px solid rgba(57,255,138,0.25);
-    color: #39ff8a;
+    background: rgba(75, 216, 143,0.12);
+    border: 1px solid rgba(75, 216, 143,0.25);
+    color: #4bd88f;
 }
 .vp-status-badge--cancelled {
     background: rgba(255,80,80,0.1);
@@ -130,11 +130,11 @@
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: var(--accent-lime, #c8ff5e);
+    background: var(--accent-lime, #a6d96a);
     flex-shrink: 0;
     animation: vp-pulse 2s infinite;
 }
-.vp-status-badge--paid    .vp-status-dot { background: #39ff8a; animation: none; }
+.vp-status-badge--paid    .vp-status-dot { background: #4bd88f; animation: none; }
 .vp-status-badge--cancelled .vp-status-dot { background: #ff8a65; animation: none; }
 @keyframes vp-pulse {
     0%, 100% { opacity: 1; }
@@ -161,7 +161,7 @@
 .vp-qr-logo {
     width: 34px;
     height: 34px;
-    background: #0d0d1a;
+    background: #16151d;
     border-radius: 8px;
     display: flex;
     align-items: center;
@@ -170,14 +170,14 @@
 .vp-gpn-label {
     font-size: 11px;
     font-weight: 700;
-    color: #0d0d1a;
+    color: #16151d;
     letter-spacing: 0.1em;
 }
 
 /* Dark container for QR code with glow */
 .vp-qr-container {
     width: 100%;
-    background: #0d0d1a;
+    background: #16151d;
     border-radius: 12px;
     padding: 16px;
     display: flex;
@@ -215,8 +215,8 @@
 
 /* ── Paid card ───────────────────────────────────────────────────────────────── */
 .vp-paid-card {
-    background: rgba(57,255,138,0.06);
-    border: 1px solid rgba(57,255,138,0.18);
+    background: rgba(75, 216, 143,0.06);
+    border: 1px solid rgba(75, 216, 143,0.18);
     border-radius: 20px;
     padding: 28px 20px;
     display: flex;
@@ -344,8 +344,8 @@
     width: 24px;
     height: 24px;
     border-radius: 50%;
-    background: var(--accent-lime, #c8ff5e);
-    color: #0d0d1a;
+    background: var(--accent-lime, #a6d96a);
+    color: #16151d;
     font-size: 11px;
     font-weight: 800;
     display: flex;

@@ -48,7 +48,7 @@
 
 .notif-card:hover {
     background: var(--bg-card-hover);
-    border-color: rgba(200, 255, 94, 0.18);
+    border-color: rgba(166, 217, 106, 0.18);
 }
 
 /* ── Icon ─────────────────────────────────────────────────────────────────── */
@@ -67,7 +67,7 @@
 }
 
 .notif-icon--success {
-    background: rgba(200, 255, 94, 0.12);
+    background: rgba(166, 217, 106, 0.12);
 }
 
 .notif-icon--promo {
@@ -148,7 +148,7 @@
 
 .pulse-dot--green {
     background: var(--live-green);
-    box-shadow: 0 0 8px rgba(57, 255, 138, 0.6);
+    box-shadow: 0 0 8px rgba(75, 216, 143, 0.6);
 }
 
 /* ── Body Text ──────────────────────────────────────────────────────────────── */
@@ -207,7 +207,7 @@
 .notif-cta:active { transform: scale(0.97); }
 
 .notif-cta:hover {
-    background: rgba(200, 255, 94, 0.12);
+    background: rgba(166, 217, 106, 0.12);
 }
 
 /* ── Empty State ────────────────────────────────────────────────────────────── */
@@ -317,7 +317,7 @@
     width: 32px;
     height: 32px;
     border-radius: 10px;
-    background: rgba(200, 255, 94, 0.1);
+    background: rgba(166, 217, 106, 0.1);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -349,11 +349,11 @@
 [data-theme="light"] .notif-cta {
     border-color: #5a8a00;
     color: #3d6600;
-    background: rgba(200, 255, 94, 0.08);
+    background: rgba(166, 217, 106, 0.08);
 }
 
 [data-theme="light"] .notif-cta:hover {
-    background: rgba(200, 255, 94, 0.18);
+    background: rgba(166, 217, 106, 0.18);
     border-color: #3d6600;
 }
 
@@ -400,7 +400,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 0 50px rgba(200, 255, 94, 0.25);
+    box-shadow: 0 0 50px rgba(166, 217, 106, 0.25);
 }
 
 .nd-check-circle {
@@ -498,7 +498,7 @@
     width: 32px;
     height: 32px;
     border-radius: 8px;
-    background: rgba(200, 255, 94, 0.12);
+    background: rgba(166, 217, 106, 0.12);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -556,8 +556,8 @@
 
 .nd-info-banner {
     margin: 0 20px 24px;
-    background: rgba(200, 255, 94, 0.06);
-    border: 1px solid rgba(200, 255, 94, 0.18);
+    background: rgba(166, 217, 106, 0.06);
+    border: 1px solid rgba(166, 217, 106, 0.18);
     border-radius: 16px;
     padding: 14px;
     display: flex;
@@ -570,7 +570,7 @@
     width: 28px;
     height: 28px;
     border-radius: 50%;
-    background: rgba(200, 255, 94, 0.12);
+    background: rgba(166, 217, 106, 0.12);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -828,9 +828,9 @@
 }
 
 .nd-status--ok {
-    background: rgba(200, 255, 94, 0.12);
+    background: rgba(166, 217, 106, 0.12);
     color: var(--accent-lime);
-    border-color: rgba(200, 255, 94, 0.28);
+    border-color: rgba(166, 217, 106, 0.28);
 }
 
 .nd-status--pending {

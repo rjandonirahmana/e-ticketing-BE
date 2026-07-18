@@ -9,27 +9,31 @@
     /* Dark theme — base defaults */
     /* --bg-base disamakan dengan --bg-page agar SEMUA halaman punya latar yang
        sama seperti /lives (canvas explore/home/messages & ring avatar ikut). */
-    --bg-base: #0d0d1a;
-    --bg-page: #0d0d1a;
-    --bg-surface: #0f0f1a;
-    --bg-card: #141424;
-    --bg-card-hover: #1a1a2e;
-    --bg-elevated: #1e1e30;
-    --bg-elevated-2: #2a2a4a;
+    /* Charcoal HANGAT (bukan near-black kebiruan) → buang kesan "OLED crypto".
+       Skala surface konsisten dari page → elevated. */
+    --bg-base: #16151d;
+    --bg-page: #16151d;
+    --bg-surface: #1a1922;
+    --bg-card: #201f29;
+    --bg-card-hover: #272631;
+    --bg-elevated: #2c2b37;
+    --bg-elevated-2: #3a3848;
 
     --text-primary: #f0f0f8;
     --text-secondary: #8888aa;
     --text-muted: #55556a;
     --text-soft-accent: #c8d8ff;
-    --text-on-accent: #080810;
+    --text-on-accent: #100f16;
 
-    --accent-lime: #c8ff5e;
+    /* Lime DIJINAKKAN: dulu neon chartreuse → kini lime lembut #a6d96a. Tetap
+       identitas brand, tapi tak lagi "trading terminal". live-green → mint. */
+    --accent-lime: #a6d96a;
     --accent-blue: #4f6bff;
     --accent-violet: #7c4fff;
     --accent-info: #7da7ff;
     --accent-pink: #ff6b9d;
     --accent-promo: #b78cff;
-    --live-green: #39ff8a;
+    --live-green: #4bd88f;
     --warning-amber: #ffad2b;
     --danger: #ff4f6b;
 
@@ -37,32 +41,33 @@
     --border: rgba(255, 255, 255, 0.07);
     --border-strong: rgba(255, 255, 255, 0.1);
 
-    --overlay-blur: rgba(13, 13, 26, 0.97);
-    --overlay-blur-soft: rgba(13, 13, 26, 0.75);
-    --notch-bg: #0d0d1a;
-    --map-bg-1: #1a1a2e;
-    --map-bg-2: #0d0d1a;
+    --overlay-blur: rgba(22, 21, 29, 0.97);
+    --overlay-blur-soft: rgba(22, 21, 29, 0.75);
+    --notch-bg: #16151d;
+    --map-bg-1: #201f29;
+    --map-bg-2: #16151d;
     --map-grid: rgba(79, 107, 255, 0.08);
 
-    --scrollbar-track: #080810;
-    --scrollbar-thumb: #1e1e30;
+    --scrollbar-track: #100f16;
+    --scrollbar-thumb: #2c2b37;
 
     /* Adaptive primary CTA — lime in dark, blue in light */
     --color-primary: var(--accent-lime);
     --color-primary-text: var(--text-on-accent);
-    --color-primary-glow: rgba(200, 255, 94, 0.4);
-    --color-primary-soft: rgba(200, 255, 94, 0.07);
-    --color-primary-border: rgba(200, 255, 94, 0.3);
+    /* Glow diperlembut (alpha & lebar turun) → tak lagi neon menyala. */
+    --color-primary-glow: rgba(166, 217, 106, 0.28);
+    --color-primary-soft: rgba(166, 217, 106, 0.08);
+    --color-primary-border: rgba(166, 217, 106, 0.3);
 
     --bdot-inactive: rgba(255, 255, 255, 0.2);
     --chip-active-bg: #ffffff;
-    --chip-active-text: #080810;
+    --chip-active-text: #100f16;
     --tab-active-bg: #ffffff;
-    --tab-active-text: #080810;
+    --tab-active-text: #100f16;
     --social-btn-border-hover: rgba(255, 255, 255, 0.15);
 
     --shadow-card: 0 10px 30px rgba(0, 0, 0, 0.45);
-    --shadow-glow: 0 0 30px rgba(200, 255, 94, 0.4);
+    --shadow-glow: 0 0 18px rgba(166, 217, 106, 0.22);
 
     --font-display: "Bebas Neue", sans-serif;
     --font-body: "Space Mono", monospace;
@@ -403,7 +408,7 @@
     color: #fff;
 }
 [data-theme="light"] .banner-price {
-    color: #c8ff5e;
+    color: #a6d96a;
 } /* keep original on dark image overlay */
 [data-theme="light"] .footer-meta-desc,
 [data-theme="light"] .order-meta-row {

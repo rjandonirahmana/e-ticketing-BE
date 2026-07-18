@@ -320,9 +320,9 @@
     color: var(--text-primary);
 }
 .mhub-nav-item--active {
-    background: rgba(200, 255, 94, 0.1);
+    background: rgba(166, 217, 106, 0.1);
     color: var(--accent-lime);
-    border: 1px solid rgba(200, 255, 94, 0.15);
+    border: 1px solid rgba(166, 217, 106, 0.15);
 }
 .mhub-nav-item--active svg {
     stroke: var(--accent-lime);
@@ -733,9 +733,9 @@
     white-space: nowrap;
 }
 .mhub-status-badge--paid {
-    background: rgba(57, 255, 138, 0.1);
+    background: rgba(75, 216, 143, 0.1);
     color: var(--live-green);
-    border: 1px solid rgba(57, 255, 138, 0.22);
+    border: 1px solid rgba(75, 216, 143, 0.22);
 }
 .mhub-status-badge--pending {
     background: rgba(255, 173, 43, 0.1);
@@ -848,7 +848,7 @@
 .mhub-form-input:focus,
 .mhub-form-select:focus,
 .mhub-form-textarea:focus {
-    border-color: rgba(200, 255, 94, 0.4);
+    border-color: rgba(166, 217, 106, 0.4);
 }
 .mhub-form-input::placeholder,
 .mhub-form-textarea::placeholder {
@@ -1068,9 +1068,9 @@
     white-space: nowrap;
 }
 .mhub-event-status-badge--live {
-    background: rgba(57, 255, 138, 0.1);
+    background: rgba(75, 216, 143, 0.1);
     color: var(--live-green);
-    border: 1px solid rgba(57, 255, 138, 0.22);
+    border: 1px solid rgba(75, 216, 143, 0.22);
 }
 .mhub-event-status-badge--upcoming {
     background: rgba(79, 107, 255, 0.1);
@@ -1610,7 +1610,7 @@
     letter-spacing: 0.08em;
 }
 .mhub-security-badge--on {
-    background: rgba(57, 255, 138, 0.1);
+    background: rgba(75, 216, 143, 0.1);
     color: var(--live-green);
 }
 .mhub-security-badge--off {
@@ -1831,18 +1831,18 @@
     height: 8px;
     border-radius: 50%;
     background: var(--live-green);
-    box-shadow: 0 0 0 0 rgba(57, 255, 138, 0.6);
+    box-shadow: 0 0 0 0 rgba(75, 216, 143, 0.6);
     animation: mhub-pulse 1.6s ease-in-out infinite;
 }
 @keyframes mhub-pulse {
     0% {
-        box-shadow: 0 0 0 0 rgba(57, 255, 138, 0.6);
+        box-shadow: 0 0 0 0 rgba(75, 216, 143, 0.6);
     }
     70% {
-        box-shadow: 0 0 0 6px rgba(57, 255, 138, 0);
+        box-shadow: 0 0 0 6px rgba(75, 216, 143, 0);
     }
     100% {
-        box-shadow: 0 0 0 0 rgba(57, 255, 138, 0);
+        box-shadow: 0 0 0 0 rgba(75, 216, 143, 0);
     }
 }
 
@@ -2152,7 +2152,7 @@
     transition:
         opacity 0.2s,
         transform 0.2s;
-    box-shadow: 0 4px 20px rgba(200, 255, 94, 0.25);
+    box-shadow: 0 4px 20px rgba(166, 217, 106, 0.25);
 }
 .mhub-empty-cta:hover {
     opacity: 0.88;
