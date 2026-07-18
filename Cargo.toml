@@ -270,3 +270,9 @@ strip = "symbols"
 [profile.wasm-release]
 inherits = "release"
 opt-level = "z"
+# panic=abort HANYA di sini (bundle WASM): buang kode unwinding/landing-pads →
+# .wasm lebih kecil & download lebih cepat. Di WASM panic memang selalu abort,
+# jadi nol perubahan perilaku. SENGAJA TIDAK di [profile.release] server: di
+# sana panic=abort membuat 1 panic handler mematikan SELURUH proses (hilang
+# isolasi panic per-request Axum) → risiko ketersediaan.
+panic = "abort"
