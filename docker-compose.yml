@@ -28,6 +28,18 @@ services:
       # Streaming upload di-tulis ke direktori ini — dipetakan ke volume disk
       # di bawah. WAJIB disk (bukan tmpfs) agar tak memakan RAM 4GB box.
       - UPLOAD_TMP_DIR=/var/tmp/e-ticketing-uploads
+      # Runtime tokio dibatasi untuk box 2 vCPU / 4 GB (lihat main.rs):
+      #  • WORKER_THREADS: cap worker async = 2. Penting bila host melaporkan
+      #    core LEBIH banyak dari kuota → tanpa ini tokio over-spawn worker
+      #    (tiap worker punya stack) = RAM & context-switch mubazir.
+      #  • Blocking-pool default sudah di-cap di kode (=16 utk 2 CPU); override
+      #    via TOKIO_MAX_BLOCKING_THREADS bila perlu.
+      - WORKER_THREADS=2
+      # EKSPERIMEN (ukur dulu pakai `docker stats`): suruh mimalloc kembalikan
+      # memori ke OS lebih cepat setelah burst (upload/flash-sale) → RSS steady
+      # lebih rendah, tukar sedikit CPU. Aktifkan bila RSS terlihat "nempel"
+      # tinggi setelah lonjakan. 0 = purge segera; angka = tunda ms.
+      # - MIMALLOC_PURGE_DELAY=1000
     ports:
       - "3100:3000"        # HTTP (SSR + REST + WS) — di belakang pingora
       - "4000:4000/udp"    # SFU WebRTC media (live streaming)

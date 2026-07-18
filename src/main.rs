@@ -40,8 +40,34 @@ use e_ticketing::meet::api::meet_router;
 use leptos::config::get_configuration;
 use leptos_axum::{generate_route_list, LeptosRoutes};
 
-#[tokio::main]
-async fn main() -> Result<()> {
+/// Entry: bangun runtime tokio dengan BATAS aman untuk box kecil, lalu jalankan
+/// `run()`. Sengaja TIDAK memakai `#[tokio::main]` karena makro itu tak bisa
+/// menyetel `max_blocking_threads`.
+fn main() -> Result<()> {
+    // Blocking-pool: bcrypt hash/verify (service/auth.rs) dijalankan lewat
+    // `spawn_blocking`. Default tokio = 512 thread → storm login/registrasi bisa
+    // memunculkan ratusan thread (tiap thread mencadangkan stack) → boros RAM &
+    // thrash CPU di 2 vCPU. Cap skala-CPU: kelebihan request ANTRE, bukan
+    // meledakkan thread. Override via env TOKIO_MAX_BLOCKING_THREADS.
+    let cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2);
+    let max_blocking = std::env::var("TOKIO_MAX_BLOCKING_THREADS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or((cpus * 8).max(16));
+
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    builder.enable_all().max_blocking_threads(max_blocking);
+    // Worker threads: default = jumlah CPU (perilaku tokio). Di VPS shared yang
+    // melaporkan core host > kuota, batasi via env WORKER_THREADS agar tak
+    // over-spawn worker (tiap worker punya stack) → hemat RAM.
+    if let Some(n) = std::env::var("WORKER_THREADS").ok().and_then(|v| v.parse::<usize>().ok()) {
+        builder.worker_threads(n.max(1));
+    }
+    builder.build()?.block_on(run())
+}
+
+/// Badan aplikasi (dulu `main`), berjalan di dalam runtime yang sudah dibatasi.
+async fn run() -> Result<()> {
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("Failed to install rustls crypto provider");
