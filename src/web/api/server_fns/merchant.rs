@@ -57,6 +57,45 @@ fn parse_variants_json(raw: &str) -> Result<Option<Vec<crate::web::models::Varia
     Ok(Some(forms))
 }
 
+/// Batas foto detail per event (samakan dengan cap 6 di `detail_image_section.rs`).
+#[cfg(feature = "ssr")]
+const MAX_DETAIL_IMAGES_SRV: usize = 6;
+
+/// Parse JSON foto detail dari form → `Vec<DetailImageEntry>` (urutan
+/// dipertahankan sesuai array = urutan tampil). String kosong → `None`:
+///   - create: tak ada foto detail;
+///   - update: field `detail_images` tak disentuh (COALESCE di repo).
+/// `Some(vec![])` (array kosong "[]") = user menghapus semua foto → di-clear.
+/// URL divalidasi hanya sebatas berasal dari public_url storage kita.
+#[cfg(feature = "ssr")]
+fn parse_detail_images_json(
+    raw: &str,
+    public_url: &str,
+) -> Result<Option<Vec<crate::models::events::DetailImageEntry>>, String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    let mut items: Vec<crate::models::events::DetailImageEntry> =
+        serde_json::from_str(raw).map_err(|e| format!("Data foto tidak valid: {e}"))?;
+    if items.len() > MAX_DETAIL_IMAGES_SRV {
+        return Err(format!("Maksimal {MAX_DETAIL_IMAGES_SRV} foto detail."));
+    }
+    let base = public_url.trim_end_matches('/');
+    for it in &mut items {
+        // Terima URL absolut milik storage kita, atau path relatif — tolak URL
+        // eksternal agar tak menyimpan tautan sembarangan sebagai "foto event".
+        if !(it.url.starts_with(base) || it.url.starts_with('/')) {
+            return Err("URL foto tidak dikenal.".into());
+        }
+        if !matches!(it.image_type.as_str(), "map" | "seat" | "price" | "other") {
+            it.image_type = "other".into();
+        }
+        it.caption.truncate(500);
+    }
+    Ok(Some(items))
+}
+
 #[server(CreateMerchantEvent, "/api-fn")]
 pub async fn create_merchant_event(
     name: String,
@@ -69,10 +108,20 @@ pub async fn create_merchant_event(
     latitude: Option<f64>,
     longitude: Option<f64>,
     variants: String,
+    cover_url: String,
+    detail_images: String,
 ) -> Result<String, ServerFnError> {
     use crate::models::events::{CreateEventRequest, CreateVariantInline};
     let claims = require_roles(&["merchant", "admin"]).await?;
     let state = app_state().await?;
+
+    // Foto: FE meng-upload file ke /upload/merchant-image lalu mengirim URL-nya
+    // di sini (cover = string tunggal, detail = JSON array terurut). String
+    // kosong = tak ada foto.
+    let cover = { let c = cover_url.trim(); (!c.is_empty()).then(|| c.to_string()) };
+    let detail_imgs = parse_detail_images_json(&detail_images, &state.storage.public_url)
+        .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e) })?
+        .unwrap_or_default();
 
     // Varian dari form (JSON) → CreateVariantInline. Kosong → default lama
     // ("Umum", gratis, kuota 100) agar kompatibel dengan alur minimal.
@@ -158,12 +207,12 @@ pub async fn create_merchant_event(
         start_time: start_time_dt,
         end_time: None,
         variants: variants_inline,
-        detail_images: vec![],
+        detail_images: detail_imgs,
     };
 
     let result = state
         .event_svc
-        .create(&claims.user_id, &merchant_name, req, None)
+        .create(&claims.user_id, &merchant_name, req, cover.as_deref())
         .await
         .map_err(map_app_error)?;
     return Ok(result.slug);
@@ -182,10 +231,19 @@ pub async fn update_merchant_event(
     latitude: Option<f64>,
     longitude: Option<f64>,
     variants: String,
+    cover_url: String,
+    detail_images: String,
 ) -> Result<(), ServerFnError> {
     use crate::models::events::{UpdateEventRequest, UpdateVariantInline};
     let claims = require_roles(&["merchant", "admin"]).await?;
     let state = app_state().await?;
+
+    // Foto: cover kosong = pertahankan cover lama (None = COALESCE di repo);
+    // detail_images kosong = tak disentuh, "[]" = hapus semua. FE mengirim URL
+    // hasil upload ke /upload/merchant-image.
+    let cover_new = { let c = cover_url.trim(); (!c.is_empty()).then(|| c.to_string()) };
+    let detail_imgs = parse_detail_images_json(&detail_images, &state.storage.public_url)
+        .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e) })?;
 
     // Varian dari form (JSON). String kosong → None (varian tidak disentuh).
     // id Some = update varian lama, None = tambah baru; is_active=false =
@@ -260,7 +318,7 @@ pub async fn update_merchant_event(
         } else {
             Some(description)
         },
-        cover_url: None,
+        cover_url: cover_new,
         venue: if venue.is_empty() { None } else { Some(venue) },
         city: if city.is_empty() { None } else { Some(city) },
         latitude,
@@ -270,7 +328,7 @@ pub async fn update_merchant_event(
         start_time: start_time_dt,
         end_time: None,
         status: Some("edited".into()),
-        detail_images: None,
+        detail_images: detail_imgs,
         variants: variants_update,
     };
 

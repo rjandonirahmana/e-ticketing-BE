@@ -107,6 +107,21 @@ fn type_badge_short(t: &str) -> &'static str {
 #[component]
 pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl IntoView {
     let active_idx: RwSignal<Option<usize>> = RwSignal::new(None);
+    // Index thumbnail yang sedang di-drag (HTML5 drag-and-drop asli).
+    let drag_from: RwSignal<Option<usize>> = RwSignal::new(None);
+
+    // Pindahkan item dari `from` ke posisi `to` (reorder galeri) + jaga
+    // `active_idx` tetap menunjuk foto yang sama.
+    let move_item = move |from: usize, to: usize| {
+        drafts.update(|d| {
+            if from < d.len() && to < d.len() && from != to {
+                let item = d.remove(from);
+                d.insert(to, item);
+            }
+        });
+        active_idx.set(Some(to));
+        drag_from.set(None);
+    };
 
     // ── Tambah file ───────────────────────────────────────────────────────────
     #[cfg(target_arch = "wasm32")]
@@ -157,9 +172,34 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
         };
 
         let new_idx = count;
+        // Kunci pencocokan robust: blob URL unik per file. Dipakai untuk
+        // menyetel uploaded_url ke draft yang BENAR meski user reorder/hapus
+        // draft lain selagi upload berjalan.
+        let match_key = url.clone();
+        let file_for_upload = file.clone();
         drafts.update(|d| d.push(DetailImageDraft::from_file(file, url)));
         active_idx.set(Some(new_idx));
         input.set_value("");
+
+        // Upload SEKARANG (bukan saat submit) → draft langsung punya URL permanen.
+        // Menghindari menyimpan `web_sys::File` sampai submit (rumit lintas-target)
+        // dan menyederhanakan serialisasi: saat simpan semua draft sudah ber-URL.
+        leptos::task::spawn_local(async move {
+            match crate::web::pages::merchant::upload_merchant_image(&file_for_upload).await {
+                Ok(permanent) => {
+                    drafts.update(|d| {
+                        if let Some(dr) = d.iter_mut().find(|x| x.preview_url == match_key) {
+                            dr.uploaded_url = Some(permanent);
+                        }
+                    });
+                }
+                Err(e) => {
+                    web_sys::console::error_1(
+                        &format!("[DetailImage] upload gagal: {e}").into(),
+                    );
+                }
+            }
+        });
     };
     #[cfg(not(target_arch = "wasm32"))]
     let on_add_file = move |_: leptos::ev::Event| {};
@@ -195,7 +235,7 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
                 </label>
                 <div style="font-size:11px;color:var(--text-muted);line-height:1.5">
                     <p style="margin:0;font-weight:600">"TAMBAH FOTO DETAIL"</p>
-                    <p style="margin:0;opacity:.7">"JPG, PNG, hingga 6 foto"</p>
+                    <p style="margin:0;opacity:.7">"JPG, PNG, hingga 6 foto · seret untuk urutkan"</p>
                 </div>
             </div>
 
@@ -219,32 +259,54 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
                                                         let is_active = move || active_idx.get() == Some(idx);
                                                         let img_type = draft.image_type;
                                                         let preview = draft.preview_url.clone();
+                                                        // Foto ini masih diunggah? (uploaded_url belum ada)
+                                                        let uploading = draft.uploaded_url.is_none();
 
                                                         view! {
                                                             <button
+                                                                draggable="true"
                                                                 style=move || {
                                                                     let active_style = if is_active() {
                                                                         "border-color:#93c5fd;box-shadow:0 0 0 2px rgba(147,197,253,.3)"
                                                                     } else {
                                                                         "border-color:var(--border-soft)"
                                                                     };
+                                                                    // Item yang sedang di-drag di-redupkan.
+                                                                    let dim = if drag_from.get() == Some(idx) { "opacity:.4;" } else { "" };
                                                                     format!(
                                                                         "position:relative;width:100px;height:100px;
                                                         border:2px solid {};padding:0;background:var(--bg-elevated);
-                                                        border-radius:12px;cursor:pointer;flex-shrink:0;
+                                                        border-radius:12px;cursor:grab;flex-shrink:0;
                                                         overflow:hidden;display:flex;align-items:center;
                                                         justify-content:center;transition:all .2s;
-                                                        scroll-snap-align:start;",
-                                                                        active_style,
+                                                        scroll-snap-align:start;{}",
+                                                                        active_style, dim,
                                                                     )
                                                                 }
                                                                 on:click=move |_| active_idx.set(Some(idx))
+                                                                on:dragstart=move |_| drag_from.set(Some(idx))
+                                                                on:dragover=move |e| e.prevent_default()
+                                                                on:drop=move |e| {
+                                                                    e.prevent_default();
+                                                                    if let Some(from) = drag_from.get_untracked() {
+                                                                        move_item(from, idx);
+                                                                    }
+                                                                }
+                                                                on:dragend=move |_| drag_from.set(None)
                                                             >
                                                                 <img
                                                                     src=preview
                                                                     style="width:100%;height:100%;object-fit:cover"
                                                                     alt=format!("Detail {}", idx)
                                                                 />
+                                                                // Overlay "mengunggah…" selagi upload berjalan
+                                                                {uploading.then(|| view! {
+                                                                    <div style="position:absolute;inset:0;display:flex;align-items:center;
+                                                                    justify-content:center;background:rgba(0,0,0,.5);
+                                                                    color:#fff;font-size:9px;font-weight:700;letter-spacing:.05em">
+                                                                        "MENGUNGGAH…"
+                                                                    </div>
+                                                                })}
                                                                 // Badge type — reaktif terhadap img_type
                                                                 {move || {
                                                                     let t = img_type.get();

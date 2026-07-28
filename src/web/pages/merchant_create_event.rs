@@ -6,8 +6,10 @@ use leptos_router::hooks::use_navigate;
 
 use crate::web::api::create_merchant_event;
 use crate::web::app::AuthResource;
+use crate::web::components::detail_image_section::{DetailImageDraft, DetailImagesSection};
 use crate::web::components::event_story_preview::EventStoryPreviewInline;
 use crate::web::components::variant_editor::{new_variant_row, rows_to_json, VariantEditor, VariantRow};
+use crate::web::services::event::DetailImagePayload;
 use crate::web::hooks::ThemeToggle;
 use crate::web::utils::{map_picker, map_set, DEFAULT_LAT, DEFAULT_LNG};
 
@@ -53,12 +55,18 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
     });
 
     let cover_preview: RwSignal<Option<String>> = RwSignal::new(None);
+    // URL permanen cover setelah di-upload ke /upload/merchant-image.
+    let cover_url = RwSignal::new(String::new());
+    let cover_uploading = RwSignal::new(false);
+    // Foto detail event (galeri multi-foto, bisa di-drag urutannya).
+    let drafts: RwSignal<Vec<DetailImageDraft>> = RwSignal::new(vec![]);
 
     let submitting = RwSignal::new(false);
     let error_msg  = RwSignal::new(String::new());
     let success_msg = RwSignal::new(String::new());
 
-    // Cover image preview (WASM-only)
+    // Cover: preview + upload SEKARANG ke storage (WASM-only). Menyimpan URL
+    // permanen di `cover_url` agar submit tinggal mengirim string (tanpa File).
     let on_cover_change = move |ev: leptos::ev::Event| {
         #[cfg(target_arch = "wasm32")]
         {
@@ -71,6 +79,16 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
                         if let Ok(url) = web_sys::Url::create_object_url_with_blob(&file) {
                             cover_preview.set(Some(url));
                         }
+                        cover_uploading.set(true);
+                        leptos::task::spawn_local(async move {
+                            match crate::web::pages::merchant::upload_merchant_image(&file).await {
+                                Ok(u) => cover_url.set(u),
+                                Err(e) => web_sys::console::error_1(
+                                    &format!("[Cover] upload gagal: {e}").into(),
+                                ),
+                            }
+                            cover_uploading.set(false);
+                        });
                     }
                 }
             }
@@ -105,6 +123,23 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
             Err(m) => { error_msg.set(m); return; }
         };
 
+        // Foto masih diunggah? Cegah simpan agar URL tak hilang.
+        if cover_uploading.get_untracked() {
+            error_msg.set("Tunggu foto cover selesai diunggah.".into()); return;
+        }
+        if drafts.get_untracked().iter().any(|d| d.uploaded_url.is_none()) {
+            error_msg.set("Tunggu semua foto detail selesai diunggah.".into()); return;
+        }
+        // Serialisasi foto detail terurut → JSON (foto lama & baru sama saja di
+        // sini karena semuanya sudah punya URL permanen).
+        let cover = cover_url.get_untracked();
+        let payloads: Vec<DetailImagePayload> = drafts
+            .get_untracked()
+            .iter()
+            .filter_map(|d| d.to_retain_payload())
+            .collect();
+        let detail_json = serde_json::to_string(&payloads).unwrap_or_else(|_| "[]".to_string());
+
         let cats_str = cats.join(",");
         let start_iso = format!("{}T{}:00Z", date, time);
         let (lat, lng) = if loc_touched.get_untracked() {
@@ -115,7 +150,7 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
         submitting.set(true);
 
         leptos::task::spawn_local(async move {
-            match create_merchant_event(name, desc, venue, city, start_iso.clone(), start_iso, cats_str, lat, lng, variants_json).await {
+            match create_merchant_event(name, desc, venue, city, start_iso.clone(), start_iso, cats_str, lat, lng, variants_json, cover, detail_json).await {
                 Ok(_slug) => {
                     success_msg.set("Event berhasil dibuat!".into());
                     submitting.set(false);
@@ -294,6 +329,14 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
                                 }
                             })
                     }}
+                    {move || cover_uploading.get().then(|| view! {
+                        <p style="font-size:11px;color:var(--text-muted);margin-top:6px">"Mengunggah cover…"</p>
+                    })}
+                </div>
+                // ── FOTO DETAIL (galeri, bisa di-drag urutannya) ──────────────
+                <div class="medit-field-group">
+                    <label class="medit-field-label">"FOTO DETAIL"</label>
+                    <DetailImagesSection drafts=drafts />
                 </div>
                 // ── STORY PREVIEW ─────────────────────────────────────────────
                 <EventStoryPreviewInline
