@@ -155,6 +155,15 @@ pub(super) fn srv_event_with_variants_to_web(
             rating_count: m.rating_count,
         }),
         event_variants: e.event_variants.into_iter().map(srv_event_variant_to_web).collect(),
+        detail_images: e
+            .detail_images
+            .into_iter()
+            .map(|d| crate::web::models::WebDetailImage {
+                url: d.url,
+                image_type: d.image_type,
+                caption: d.caption,
+            })
+            .collect(),
     }
 }
 

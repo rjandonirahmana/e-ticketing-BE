@@ -6,8 +6,10 @@ use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::web::api::{get_merchant_event_detail, update_merchant_event};
 use crate::web::app::AuthResource;
+use crate::web::components::detail_image_section::{DetailImageDraft, DetailImagesSection};
 use crate::web::components::event_story_preview::EventStoryPreviewInline;
 use crate::web::components::variant_editor::{rows_from_event, rows_to_json, VariantEditor, VariantRow};
+use crate::web::services::event::DetailImagePayload;
 use crate::web::hooks::ThemeToggle;
 use crate::web::utils::{map_picker, map_set, DEFAULT_LAT, DEFAULT_LNG};
 
@@ -81,6 +83,11 @@ pub fn MerchantEditEventPage() -> impl IntoView {
     });
 
     let cover_preview: RwSignal<Option<String>> = RwSignal::new(None);
+    // Cover baru (URL permanen) — kosong = pertahankan cover lama saat simpan.
+    let cover_url = RwSignal::new(String::new());
+    let cover_uploading = RwSignal::new(false);
+    // Galeri foto detail — di-seed dari data event agar foto lama tak hilang.
+    let drafts: RwSignal<Vec<DetailImageDraft>> = RwSignal::new(vec![]);
     let navigate = use_navigate();
     let saving   = RwSignal::new(false);
     let error_msg = RwSignal::new(String::new());
@@ -110,6 +117,18 @@ pub fn MerchantEditEventPage() -> impl IntoView {
                 if let Some(url) = ev.cover_url {
                     if !url.is_empty() { cover_preview.set(Some(url)); }
                 }
+                // Seed galeri foto detail dari data event. WAJIB: tanpa ini,
+                // submit akan mengirim "[]" dan MENGHAPUS foto lama.
+                let seeded: Vec<DetailImageDraft> = ev
+                    .detail_images
+                    .iter()
+                    .map(|d| DetailImageDraft::from_existing(&DetailImagePayload {
+                        url: d.url.clone(),
+                        image_type: d.image_type.clone(),
+                        caption: d.caption.clone(),
+                    }))
+                    .collect();
+                drafts.set(seeded);
                 v_rows.set(rows_from_event(&ev.event_variants));
                 initialized.set(true);
             }
@@ -128,6 +147,16 @@ pub fn MerchantEditEventPage() -> impl IntoView {
                         if let Ok(url) = web_sys::Url::create_object_url_with_blob(&file) {
                             cover_preview.set(Some(url));
                         }
+                        cover_uploading.set(true);
+                        leptos::task::spawn_local(async move {
+                            match crate::web::pages::merchant::upload_merchant_image(&file).await {
+                                Ok(u) => cover_url.set(u),
+                                Err(e) => web_sys::console::error_1(
+                                    &format!("[Cover] upload gagal: {e}").into(),
+                                ),
+                            }
+                            cover_uploading.set(false);
+                        });
                     }
                 }
             }
@@ -171,9 +200,27 @@ pub fn MerchantEditEventPage() -> impl IntoView {
             (None, None)
         };
 
+        // Foto masih diunggah? Tunggu agar URL tak hilang.
+        if cover_uploading.get_untracked() {
+            error_msg.set("Tunggu foto cover selesai diunggah.".into()); return;
+        }
+        if drafts.get_untracked().iter().any(|d| d.uploaded_url.is_none()) {
+            error_msg.set("Tunggu semua foto detail selesai diunggah.".into()); return;
+        }
+        // cover kosong = pertahankan cover lama (COALESCE di server).
+        let cover = cover_url.get_untracked();
+        // detail_images SELALU dikirim (galeri di-seed dari data lama), jadi
+        // urutan/hapus/tambah tersimpan. Array kosong = user hapus semua.
+        let payloads: Vec<DetailImagePayload> = drafts
+            .get_untracked()
+            .iter()
+            .filter_map(|d| d.to_retain_payload())
+            .collect();
+        let detail_json = serde_json::to_string(&payloads).unwrap_or_else(|_| "[]".to_string());
+
         saving.set(true);
         leptos::task::spawn_local(async move {
-            match update_merchant_event(current_slug, name, desc, venue, city, date_iso.clone(), date_iso, cats, lat, lng, variants_json).await {
+            match update_merchant_event(current_slug, name, desc, venue, city, date_iso.clone(), date_iso, cats, lat, lng, variants_json, cover, detail_json).await {
                 Ok(_) => { saved.set(true); saving.set(false); }
                 Err(e) => { error_msg.set(e.to_string()); saving.set(false); }
             }
@@ -297,6 +344,15 @@ pub fn MerchantEditEventPage() -> impl IntoView {
                                                on:change=on_cover_change/>
                                         <span class="medit-file-input-label">"GANTI FOTO"</span>
                                     </div>
+                                    {move || cover_uploading.get().then(|| view! {
+                                        <p style="font-size:11px;color:var(--text-muted);margin-top:6px">"Mengunggah cover…"</p>
+                                    })}
+                                </div>
+
+                                // ── FOTO DETAIL (galeri, bisa di-drag urutannya) ──
+                                <div class="medit-field-group">
+                                    <label class="medit-field-label">"FOTO DETAIL"</label>
+                                    <DetailImagesSection drafts=drafts />
                                 </div>
 
                                 // ── STORY PREVIEW (sama seperti create event) ──

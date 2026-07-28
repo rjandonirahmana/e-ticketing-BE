@@ -85,6 +85,19 @@ pub struct EventWithVariants {
     pub merchant: Option<EventMerchantInfo>,
     #[serde(default)]
     pub event_variants: Vec<EventVariant>,
+    /// Foto detail event (denah/seat/harga/lainnya), terurut sesuai tampilan.
+    #[serde(default)]
+    pub detail_images: Vec<WebDetailImage>,
+}
+
+/// Satu foto detail event untuk sisi web (seed galeri di halaman edit).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebDetailImage {
+    pub url: String,
+    #[serde(default)]
+    pub image_type: String,
+    #[serde(default)]
+    pub caption: String,
 }
 
 /// Ringkasan merchant yang di-embed di detail event (isi bottom sheet
