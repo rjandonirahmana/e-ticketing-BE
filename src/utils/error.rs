@@ -73,7 +73,7 @@ pub enum AppError {
     Redis(#[from] redis::RedisError),
 
     #[error("Bcrypt error: {0}")]
-    Bcrpyt(String),
+    Bcrypt(String),
 }
 
 impl IntoResponse for AppError {
@@ -140,7 +140,7 @@ impl IntoResponse for AppError {
                 )
             }
 
-            AppError::Bcrpyt(e) => {
+            AppError::Bcrypt(e) => {
                 tracing::error!("Bcrypt error: {}", e);
                 notify(500, "Bcrypt", e.clone());
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal error".into())

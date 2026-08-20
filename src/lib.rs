@@ -48,6 +48,7 @@ pub mod meet;
 #[cfg(feature = "hydrate")]
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn hydrate() {
+    use wasm_bindgen::JsCast;
     use web::app::App;
     console_error_panic_hook::set_once();
 
@@ -65,4 +66,23 @@ pub fn hydrate() {
     // True hydration: attach event listener & signals ke DOM yang sudah
     // di-render server. Jangan clear body — struktur DOM harus identik.
     leptos::mount::hydrate_body(App);
+
+    // Peta baru boleh menyentuh DOM SESUDAH hidrasi selesai.
+    //
+    // Leaflet menulis ulang isi container-nya; melakukannya di tengah hidrasi
+    // membuat kursor hidrasi meleset dan seluruh sisa halaman kehilangan event
+    // delegation — tombol serta tautan jadi mati sampai halaman dimuat ulang.
+    // Skrip di `web::app::shell` karena itu tak lagi memulai sendiri di
+    // DOMContentLoaded; ia menunggu panggilan ini. (Bila WASM tak pernah
+    // datang, skrip itu punya jalur cadangannya sendiri setelah 3 detik.)
+    if let Some(win) = web_sys::window() {
+        if let Ok(f) = js_sys::Reflect::get(
+            &win,
+            &wasm_bindgen::JsValue::from_str("__pulseStartMaps"),
+        ) {
+            if let Ok(func) = f.dyn_into::<js_sys::Function>() {
+                let _ = func.call0(&win);
+            }
+        }
+    }
 }

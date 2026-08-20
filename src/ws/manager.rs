@@ -50,6 +50,10 @@ const PONG_TIMEOUT: Duration = Duration::from_secs(10);
 const CH_USER: &str = "ws:u:";
 const CH_ROOM: &str = "ws:r:";
 const SHRINK_INTERVAL: Duration = Duration::from_secs(300);
+/// Tenggang bagi koneksi yang digantikan untuk menuliskan pesan `Replaced`-nya
+/// sebelum dihentikan paksa. Cukup untuk satu penulisan socket, jauh di bawah
+/// 40 detik yang harus ditunggu bila mengandalkan timeout heartbeat.
+const REPLACED_GRACE: Duration = Duration::from_millis(500);
 
 const REDIS_PUBLISH_RETRIES: u8 = 3;
 const REDIS_PUBLISH_RETRY_DELAY: Duration = Duration::from_millis(50);
@@ -74,6 +78,20 @@ pub type WsTx = mpsc::Sender<Arc<str>>;
 struct Session {
     conn_id: u64,
     tx: WsTx,
+    /// Token pembatalan MILIK koneksi ini.
+    ///
+    /// Tanpa ini, koneksi yang DIGANTI reconnect tak punya cara diberi tahu
+    /// untuk berhenti: `sessions.insert` mencabutnya dari peta, pesan
+    /// `Replaced` dikirim, lalu task-nya tetap hidup sampai heartbeat-nya
+    /// sendiri kedaluwarsa — PING_INTERVAL + PONG_TIMEOUT = 40 detik.
+    ///
+    /// Selama 40 detik itu koneksi mati tetap memegang: satu izin semaphore
+    /// (dari plafon `max_conn`), dua task tokio, dan buffer channel 32 slot.
+    /// Di jaringan seluler yang putus-nyambung, reconnect adalah kejadian
+    /// paling lumrah — jadi pada beban puncak sebagian besar plafon koneksi
+    /// justru dipegang koneksi yang sudah tak ada, dan koneksi BARU ditolak
+    /// "Server at capacity" padahal `active_conns` masih rendah.
+    cancel: CancellationToken,
 }
 
 // ── Per-user rate limiter (token bucket, lock-free) ────────────────────────────
@@ -95,9 +113,24 @@ impl UserBucket {
         let now = now_secs();
         let start = self.window_start.load(Ordering::Relaxed);
 
-        if now.saturating_sub(start) >= RATE_LIMIT_WINDOW_SECS {
-            self.tokens.store(RATE_LIMIT_MAX, Ordering::Relaxed);
-            self.window_start.store(now, Ordering::Relaxed);
+        // Reset jendela HANYA boleh dimenangkan satu pemanggil.
+        //
+        // Versi sebelumnya memakai `store` polos: dua permintaan yang tiba
+        // bersamaan sesudah jendela habis sama-sama melihat syaratnya terpenuhi
+        // dan sama-sama mengisi ulang token ke penuh. Hasilnya satu user bisa
+        // menembus 2× (atau lebih, sebanyak thread yang kebetulan bertabrakan)
+        // jatah per jendela — persis pada beban tinggi, satu-satunya keadaan
+        // yang membuat pembatas ini ada.
+        //
+        // `compare_exchange` membuat yang kalah balapan melanjutkan memakai
+        // jendela yang baru saja dibuka pemenangnya, bukan membukanya lagi.
+        if now.saturating_sub(start) >= RATE_LIMIT_WINDOW_SECS
+            && self
+                .window_start
+                .compare_exchange(start, now, Ordering::AcqRel, Ordering::Relaxed)
+                .is_ok()
+        {
+            self.tokens.store(RATE_LIMIT_MAX, Ordering::Release);
         }
 
         loop {
@@ -185,6 +218,34 @@ pub struct WsManager {
     /// Membuat broadcast O(members) bukan O(total connections)
     room_members: DashMap<Arc<str>, DashSet<Arc<str>>, RandomState>,
 
+    /// user_id → Set<room_id> — indeks BALIK dari `room_members`.
+    ///
+    /// Ada semata untuk `leave_all_rooms`. Tanpa indeks ini, memutus SATU user
+    /// berarti memindai SELURUH `room_members` (setiap room, setiap shard) hanya
+    /// untuk menemukan segelintir room yang benar-benar ia ikuti.
+    ///
+    /// Biaya sebenarnya muncul saat putus MASSAL — deploy, restart, atau satu
+    /// menara seluler yang bermasalah: N user × R room. Pada 10.000 user dan
+    /// beberapa ribu room itu puluhan juta operasi yang semuanya memegang kunci
+    /// shard, tepat pada momen seluruh sisa sistem juga sedang sibuk menerima
+    /// koneksi ulang mereka.
+    ///
+    /// Nilainya `Vec`, BUKAN `DashSet` seperti `room_members`. Ini bukan
+    /// ketidakkonsistenan — `DashMap`/`DashSet` mengalokasikan shard sendiri
+    /// (bawaannya 4 × jumlah core, dibulatkan ke pangkat dua), masing-masing
+    /// dengan kunci dan tabel hash-nya sendiri. Sebagai peta global itu murah
+    /// karena dibayar sekali; sebagai nilai PER USER ia jadi ~1–2 KB overhead
+    /// shard hanya untuk menyimpan dua sampai lima room. Pada 10.000 koneksi itu
+    /// belasan hingga puluhan MB yang tak menyimpan apa pun.
+    ///
+    /// `Vec<Arc<str>>` untuk isi sekecil itu: 24 byte + 8 byte per room, dan
+    /// pencarian linear atas lima elemen lebih cepat daripada hashing. Mutasinya
+    /// aman karena selalu lewat kunci shard `DashMap` induknya (`entry`/`get_mut`).
+    ///
+    /// Harga yang dibayar: satu `Arc<str>` tambahan per pasangan (user, room) —
+    /// pointer, bukan salinan teks, dan hanya untuk keanggotaan yang memang ada.
+    user_rooms: DashMap<Arc<str>, Vec<Arc<str>>, RandomState>,
+
     redis: ConnectionManager,
     pub dropped: Arc<AtomicU64>,
     conn_limit: Arc<Semaphore>,
@@ -210,6 +271,7 @@ impl WsManager {
             sessions: DashMap::with_hasher(RandomState::new()),
             next_conn_id: AtomicU64::new(0),
             room_members: DashMap::with_hasher(RandomState::new()),
+            user_rooms: DashMap::with_hasher(RandomState::new()),
             redis,
             dropped: Arc::new(AtomicU64::new(0)),
             conn_limit: Arc::new(Semaphore::new(max_conn)),
@@ -248,12 +310,37 @@ impl WsManager {
         // Kick existing session (replaced connection). insert() mengembalikan
         // sesi lama bila ada — satu operasi map (bukan remove+insert), dan
         // hitungan aktif tak berubah saat replace (lama keluar, baru masuk).
-        match self.sessions.insert(key, Session { conn_id, tx }) {
+        match self.sessions.insert(
+            key,
+            Session {
+                conn_id,
+                tx,
+                cancel: conn_token.clone(),
+            },
+        ) {
             Some(old) => {
                 // Pre-serialized error untuk session lama — tidak perlu serialize baru
                 let msg = WsEvent::err(ErrorCode::Replaced, "Session replaced by newer connection")
                     .to_json();
                 let _ = old.tx.try_send(msg);
+
+                // Lalu HENTIKAN koneksi lama, jangan tunggu heartbeat-nya habis.
+                //
+                // Diberi tenggang singkat, bukan dibatalkan seketika: pesan
+                // `Replaced` di atas baru masuk antrean channel, dan write task
+                // yang langsung dibatalkan akan keluar sebelum sempat menuliskannya
+                // ke socket. Klien lama lalu hanya melihat socket tertutup begitu
+                // saja — tak bisa dibedakan dari gangguan jaringan, dan ia akan
+                // mencoba menyambung ulang, merebut kembali sesi yang baru saja
+                // diambil alih. Tenggang ini yang membuat pesannya sampai lebih
+                // dulu sehingga klien tahu harus berhenti.
+                //
+                // Task-nya sangat pendek dan jumlahnya sebanyak reconnect, bukan
+                // sebanyak koneksi hidup.
+                tokio::spawn(async move {
+                    tokio::time::sleep(REPLACED_GRACE).await;
+                    old.cancel.cancel();
+                });
             }
             None => {
                 self.active_conns.fetch_add(1, Ordering::Relaxed);
@@ -294,40 +381,57 @@ impl WsManager {
         if !self.sessions.contains_key(user_id) {
             return;
         }
+        let uid: Arc<str> = Arc::from(user_id);
+        let rid: Arc<str> = Arc::from(room_id);
         self.room_members
-            .entry(Arc::from(room_id))
+            .entry(rid.clone())
             .or_insert_with(|| DashSet::with_hasher(RandomState::new()))
-            .insert(Arc::from(user_id));
+            .insert(uid.clone());
+        // `contains` sebelum `push`: daftar ini sangat pendek, jadi pemindaian
+        // linear lebih murah daripada struktur ber-hash — tapi tanpa pemeriksaan
+        // ini, `register_rooms` saat setiap reconnect akan menumpuk room yang
+        // sama berulang kali.
+        let mut rooms = self.user_rooms.entry(uid).or_default();
+        if !rooms.iter().any(|r| **r == *rid) {
+            rooms.push(rid);
+        }
     }
 
     pub fn leave_room(&self, user_id: &str, room_id: &str) {
         if let Some(members) = self.room_members.get(room_id) {
             members.remove(user_id);
         }
+        if let Some(mut rooms) = self.user_rooms.get_mut(user_id) {
+            rooms.retain(|r| **r != *room_id);
+        }
+        self.buang_room_bila_kosong(room_id);
     }
 
+    /// Cabut user dari SEMUA room yang ia ikuti — O(room milik user), bukan
+    /// O(seluruh room). Lihat catatan pada `user_rooms`.
     pub fn leave_all_rooms(&self, user_id: &str) {
-        let empty_rooms: Vec<Arc<str>> = self
-            .room_members
-            .iter()
-            .filter_map(|entry| {
-                entry.value().remove(user_id);
-                if entry.value().is_empty() {
-                    Some(entry.key().clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        for room_id in empty_rooms {
-            if let Some(members) = self.room_members.get(&room_id) {
-                if members.is_empty() {
-                    drop(members);
-                    self.room_members.remove(&room_id);
-                }
+        // Entri user diambil KELUAR lebih dulu (remove, bukan get): sesudah ini
+        // tak ada lagi yang bisa menambah room ke daftar yang sedang dibereskan,
+        // dan kuncinya tak dipegang selama pembersihan di bawah.
+        let Some((_, rooms)) = self.user_rooms.remove(user_id) else {
+            return;
+        };
+        for room_id in &rooms {
+            if let Some(members) = self.room_members.get(room_id.as_ref()) {
+                members.remove(user_id);
             }
+            self.buang_room_bila_kosong(room_id);
         }
+    }
+
+    /// Buang entri room yang sudah tak beranggota.
+    ///
+    /// `remove_if` — bukan `is_empty()` lalu `remove()` terpisah: di antara dua
+    /// operasi itu ada celah tempat anggota baru bisa masuk, dan room yang baru
+    /// saja diisi seseorang akan ikut terhapus. Predikatnya dievaluasi di bawah
+    /// kunci shard yang sama dengan penghapusannya.
+    fn buang_room_bila_kosong(&self, room_id: &str) {
+        self.room_members.remove_if(room_id, |_, m| m.is_empty());
     }
 
     pub fn register_rooms(&self, user_id: &str, room_ids: &[String]) {

@@ -5,7 +5,6 @@ use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
 
 use crate::web::api::{get_notification_detail, mark_notification_read};
-use crate::web::app::AuthResource;
 use crate::web::hooks::ThemeToggle;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -103,20 +102,29 @@ pub fn NotificationDetailPage() -> impl IntoView {
     let params = use_params_map();
     let notif_id = move || params.read().get("id").unwrap_or_default();
 
-    let auth = use_context::<AuthResource>().expect("AuthResource missing");
-    let is_logged_in = move || auth.get().and_then(|r| r.ok()).flatten().is_some();
 
     let reload = RwSignal::new(0u32);
 
+    // Penggerbang `is_logged_in()` DIBUANG dari sumber resource.
+    //
+    // Menebak status login di klien sebelum memanggil server tak menjaga apa
+    // pun — server function-nya sudah menuntut sesi sendiri — tapi ia menambah
+    // satu cara untuk gagal: selama `AuthResource` belum terbaca, fetcher
+    // menjawab `not_ready`, dan `not_ready` dirender sebagai skeleton yang sama
+    // persis dengan "sedang memuat". Halaman lalu berkedip tanpa akhir, tanpa
+    // pesan, tanpa percobaan ulang — dan dari sisi pengguna itu terbaca sebagai
+    // "klik tombol, halaman tidak pindah". Muat ulang menolong hanya karena
+    // jalur SSR membaca sesi dari cookie di server, jauh dari masalah ini.
+    //
+    // Sekarang satu-satunya syarat adalah id-nya ada.
     let notif = Resource::new(
-        move || { let _ = reload.get(); (notif_id(), is_logged_in()) },
-        |(id, logged_in)| async move {
-            if logged_in && !id.is_empty() {
-                let _ = mark_notification_read(id.clone()).await;
-                get_notification_detail(id).await
-            } else {
-                Err(ServerFnError::ServerError("not_ready".into()))
+        move || { let _ = reload.get(); notif_id() },
+        |id| async move {
+            if id.is_empty() {
+                return Err(ServerFnError::ServerError("not_ready".into()));
             }
+            let _ = mark_notification_read(id.clone()).await;
+            get_notification_detail(id).await
         },
     );
 

@@ -92,6 +92,10 @@ fn parse_detail_images_json(
             it.image_type = "other".into();
         }
         it.caption.truncate(500);
+        // Nilai ini berakhir di atribut `style`, jadi ia dibersihkan di sini —
+        // satu-satunya pintu masuknya dari luar. Yang tak berbentuk "X% Y%"
+        // jatuh ke tengah, bukan diteruskan apa adanya.
+        it.focus = crate::models::events::normalisasi_fokus(&it.focus);
     }
     Ok(Some(items))
 }
@@ -242,6 +246,9 @@ pub async fn update_merchant_event(
     // detail_images kosong = tak disentuh, "[]" = hapus semua. FE mengirim URL
     // hasil upload ke /upload/merchant-image.
     let cover_new = { let c = cover_url.trim(); (!c.is_empty()).then(|| c.to_string()) };
+    // Salinan untuk perbandingan foto lama vs baru di bawah — `cover_new` sendiri
+    // ikut berpindah ke dalam `UpdateEventRequest`.
+    let cover_baru = cover_new.clone();
     let detail_imgs = parse_detail_images_json(&detail_images, &state.storage.public_url)
         .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e) })?;
 
@@ -311,6 +318,31 @@ pub async fn update_merchant_event(
         claims.user_id.clone()
     };
 
+    // ── Jejak diagnosis ──────────────────────────────────────────────────────
+    // Baris ini menjawab satu-satunya pertanyaan yang tak bisa dijawab dengan
+    // membaca kode: apakah `merchant_id` yang dipakai untuk mencocokkan baris
+    // benar-benar sama dengan pemilik event-nya.
+    //
+    // `UPDATE … WHERE id = $1 AND merchant_id = $2` mencocokkan nol baris bila
+    // keduanya berbeda — dan keduanya BISA berbeda tanpa ada yang salah ketik:
+    // event menyimpan pemiliknya sebagai id user merchant, tapi bila di suatu
+    // pemasangan kolom itu ternyata merujuk baris tabel `merchants`, setiap
+    // penyimpanan oleh merchant akan diam-diam tak mengenai apa pun.
+    //
+    // Ditulis pada level INFO, bukan DEBUG: yang membutuhkannya adalah orang
+    // yang sedang mengejar laporan "simpan tak bisa" di server produksi, tempat
+    // DEBUG hampir selalu dimatikan.
+    tracing::info!(
+        slug = %slug,
+        event_id = %event.id,
+        pemilik_event = %event.merchant_id,
+        pemakai = %claims.user_id,
+        peran = %claims.role,
+        merchant_id_dipakai = %effective_merchant_id,
+        cocok = event.merchant_id == effective_merchant_id,
+        "edit event: mulai menyimpan"
+    );
+
     let req = UpdateEventRequest {
         name: if name.is_empty() { None } else { Some(name) },
         description: if description.is_empty() {
@@ -319,6 +351,9 @@ pub async fn update_merchant_event(
             Some(description)
         },
         cover_url: cover_new,
+        // Form belum mengirim titik fokus cover → None = pertahankan yang lama.
+        // Diisi begitu editor titik fokus terpasang di halaman buat/edit.
+        cover_focus: None,
         venue: if venue.is_empty() { None } else { Some(venue) },
         city: if city.is_empty() { None } else { Some(city) },
         latitude,
@@ -332,11 +367,41 @@ pub async fn update_merchant_event(
         variants: variants_update,
     };
 
-    state
-        .event_svc
-        .update(&event.id, &effective_merchant_id, req)
-        .await
-        .map_err(map_app_error)?;
+    // Foto lama yang akan ditinggalkan — dikumpulkan SEBELUM update, karena
+    // sesudahnya baris lamanya sudah tertimpa dan tak ada lagi yang tahu URL
+    // mana yang dulu dipakai.
+    let yatim = kumpulkan_foto_yatim(
+        event.cover_url.as_deref(),
+        &event.detail_images,
+        cover_baru.as_deref(),
+        req.detail_images.as_deref(),
+    );
+
+    if let Err(e) = state.event_svc.update(&event.id, &effective_merchant_id, req).await {
+        // Digemakan ke log SEBELUM diteruskan ke klien: pesan yang sampai ke
+        // layar merchant sering tak pernah dilaporkan ulang apa adanya, dan
+        // tanpa salinan di server tak ada yang bisa ditelusuri sesudahnya.
+        tracing::error!(
+            slug = %slug,
+            event_id = %event.id,
+            merchant_id_dipakai = %effective_merchant_id,
+            error = %e,
+            "edit event: GAGAL menyimpan"
+        );
+        return Err(map_app_error(e));
+    }
+    tracing::info!(slug = %slug, "edit event: tersimpan");
+
+    // Baru SESUDAH database menerima perubahannya, objek lamanya dibuang.
+    //
+    // Urutannya sengaja begini, bukan "hapus dulu baru unggah" seperti bunyi
+    // permintaannya: berkas BARU-nya memang sudah diunggah lebih dulu (front-end
+    // mengirim URL hasil unggah, bukan berkasnya), jadi yang tersisa hanyalah
+    // membuang yang lama. Kalau dibuang sebelum update tersimpan dan update itu
+    // gagal, event tetap menunjuk ke objek yang sudah tak ada — foto hilang dari
+    // halaman padahal tak ada yang berubah. Hasil akhirnya sama (tak ada objek
+    // yatim), tanpa jendela kehilangan foto.
+    hapus_objek(&state, yatim).await;
     return Ok(());
 }
 
@@ -373,4 +438,156 @@ pub async fn update_merchant_profile(
         .await
         .map(|_| ())
         .map_err(map_app_error)
+}
+
+// ── Pembersihan objek foto ────────────────────────────────────────────────────
+
+/// Kumpulkan URL foto yang TAK LAGI dipakai event sesudah pembaruan ini.
+///
+/// Dipisah dari pemanggilnya supaya bisa diuji tanpa database maupun object
+/// storage — inti dari benar-tidaknya pembersihan ada di sini, bukan di panggilan
+/// hapusnya.
+///
+/// Aturannya mengikuti makna field yang sudah berlaku di server function:
+///   • `cover_baru = None` → kolom cover tak disentuh (COALESCE), jadi foto
+///     lamanya MASIH dipakai dan tak boleh dihapus.
+///   • `detail_baru = None` → daftar foto detail tak disentuh, seluruhnya tetap.
+///   • `detail_baru = Some(daftar)` → daftar itu menggantikan yang lama; yang
+///     tak ada di dalamnya jadi yatim.
+///
+/// Foto yang dipakai ulang (URL sama muncul di daftar baru) TIDAK ikut dihapus —
+/// termasuk saat sebuah foto hanya dipindah urutannya atau diganti keterangannya.
+///
+/// Menerima DUA potong data lama, bukan seluruh `EventWithVariants`: hanya itu
+/// yang dipakai, dan struct penuhnya tak bisa dibangun di dalam uji (ia hanya
+/// `Serialize`, bukan `Deserialize`). Parameter sempit = uji tanpa perancah.
+///
+/// `ssr` saja: `crate::models` tak dikompilasi untuk wasm32, dan fungsi ini
+/// hanya dipanggil dari badan server function yang juga server-only.
+#[cfg(feature = "ssr")]
+fn kumpulkan_foto_yatim(
+    cover_lama: Option<&str>,
+    detail_lama: &[crate::models::events::DetailImageEntry],
+    cover_baru: Option<&str>,
+    detail_baru: Option<&[crate::models::events::DetailImageEntry]>,
+) -> Vec<String> {
+    let mut yatim = Vec::new();
+
+    if let (Some(baru), Some(lama_cover)) = (cover_baru, cover_lama) {
+        if baru != lama_cover && !lama_cover.is_empty() {
+            yatim.push(lama_cover.to_string());
+        }
+    }
+
+    if let Some(baru) = detail_baru {
+        for it in detail_lama {
+            let masih_dipakai = baru.iter().any(|b| b.url == it.url);
+            // Cover ikut diperiksa: satu foto bisa dipakai sebagai cover DAN
+            // sebagai foto detail. Menghapusnya karena hilang dari daftar detail
+            // akan mematikan cover yang masih tampil.
+            let jadi_cover = cover_baru == Some(it.url.as_str())
+                || (cover_baru.is_none() && cover_lama == Some(it.url.as_str()));
+            if !masih_dipakai && !jadi_cover {
+                yatim.push(it.url.clone());
+            }
+        }
+    }
+
+    yatim.sort();
+    yatim.dedup();
+    yatim
+}
+
+/// Buang objek dari storage. Kegagalan DICATAT, bukan digagalkan ke pengguna:
+/// perubahannya sudah tersimpan, dan objek yatim yang tertinggal adalah masalah
+/// tagihan penyimpanan — bukan alasan memberi tahu merchant bahwa penyimpanannya
+/// gagal padahal berhasil.
+#[cfg(feature = "ssr")]
+async fn hapus_objek(state: &std::sync::Arc<crate::state::AppState>, urls: Vec<String>) {
+    for url in urls {
+        if let Err(e) = state.storage.delete_by_url(&url).await {
+            tracing::warn!(url = %url, error = %e, "gagal menghapus objek foto lama");
+        } else {
+            tracing::debug!(url = %url, "objek foto lama dihapus");
+        }
+    }
+}
+
+#[cfg(all(test, feature = "ssr"))]
+mod tests_foto {
+    use super::kumpulkan_foto_yatim;
+    use crate::models::events::DetailImageEntry;
+
+    fn foto(url: &str) -> DetailImageEntry {
+        DetailImageEntry {
+            url: url.into(),
+            image_type: "other".into(),
+            caption: String::new(),
+            focus: crate::models::events::fokus_tengah(),
+        }
+    }
+    fn daftar(urls: &[&str]) -> Vec<DetailImageEntry> {
+        urls.iter().map(|u| foto(u)).collect()
+    }
+
+    /// Cover diganti → yang lama jadi yatim.
+    #[test]
+    fn cover_diganti_dihapus() {
+        let y = kumpulkan_foto_yatim(Some("/a.jpg"), &[], Some("/b.jpg"), None);
+        assert_eq!(y, vec!["/a.jpg"]);
+    }
+
+    /// Cover tak dikirim = tak disentuh → JANGAN dihapus. Ini kasus yang paling
+    /// mudah salah: form yang tak mengubah cover mengirim string kosong, dan
+    /// string kosong di server function berarti "pertahankan yang lama".
+    #[test]
+    fn cover_tak_dikirim_dipertahankan() {
+        assert!(kumpulkan_foto_yatim(Some("/a.jpg"), &[], None, None).is_empty());
+    }
+
+    /// Cover diganti dengan nilai yang sama persis bukan penggantian.
+    #[test]
+    fn cover_sama_tak_dihapus() {
+        assert!(kumpulkan_foto_yatim(Some("/a.jpg"), &[], Some("/a.jpg"), None).is_empty());
+    }
+
+    /// Satu foto detail dibuang dari daftar → objeknya ikut dibuang.
+    #[test]
+    fn detail_dihapus_jadi_yatim() {
+        let lama = daftar(&["/1.jpg", "/2.jpg"]);
+        let baru = daftar(&["/1.jpg"]);
+        assert_eq!(kumpulkan_foto_yatim(None, &lama, None, Some(&baru)), vec!["/2.jpg"]);
+    }
+
+    /// Mengosongkan galeri membuang semuanya.
+    #[test]
+    fn semua_detail_dihapus() {
+        let lama = daftar(&["/1.jpg", "/2.jpg"]);
+        let y = kumpulkan_foto_yatim(None, &lama, None, Some(&[]));
+        assert_eq!(y, vec!["/1.jpg", "/2.jpg"]);
+    }
+
+    /// Urutan berubah / keterangan disunting bukan penghapusan.
+    #[test]
+    fn urutan_berubah_tak_menghapus() {
+        let lama = daftar(&["/1.jpg", "/2.jpg"]);
+        let baru = daftar(&["/2.jpg", "/1.jpg"]);
+        assert!(kumpulkan_foto_yatim(None, &lama, None, Some(&baru)).is_empty());
+    }
+
+    /// Foto yang juga dipakai sebagai cover tak boleh terhapus hanya karena
+    /// keluar dari daftar detail — cover-nya masih tampil di halaman.
+    #[test]
+    fn foto_yang_jadi_cover_dipertahankan() {
+        let lama = daftar(&["/1.jpg", "/2.jpg"]);
+        let y = kumpulkan_foto_yatim(Some("/1.jpg"), &lama, None, Some(&[]));
+        assert_eq!(y, vec!["/2.jpg"]);
+    }
+
+    /// Daftar detail tak dikirim sama sekali → tak ada yang dihapus.
+    #[test]
+    fn detail_tak_dikirim_dipertahankan() {
+        let lama = daftar(&["/1.jpg", "/2.jpg"]);
+        assert!(kumpulkan_foto_yatim(None, &lama, None, None).is_empty());
+    }
 }

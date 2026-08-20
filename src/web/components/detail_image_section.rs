@@ -30,6 +30,8 @@ pub struct DetailImageDraft {
     pub file: Option<web_sys::File>,
     pub image_type: RwSignal<String>,
     pub caption: RwSignal<String>,
+    /// Titik fokus `object-position` yang diatur pemakai lewat penanda seret.
+    pub focus: RwSignal<String>,
 }
 
 impl DetailImageDraft {
@@ -42,6 +44,9 @@ impl DetailImageDraft {
             file: Some(file),
             image_type: RwSignal::new("other".to_string()),
             caption: RwSignal::new(String::new()),
+            // Foto baru mulai dari tengah — sama dengan perilaku sebelum ada
+            // fitur ini, jadi tak ada kejutan bagi yang tak menyentuhnya.
+            focus: RwSignal::new("50% 50%".to_string()),
         }
     }
 
@@ -54,6 +59,13 @@ impl DetailImageDraft {
             file: None,
             image_type: RwSignal::new(payload.image_type.clone()),
             caption: RwSignal::new(payload.caption.clone()),
+            // Foto lama tanpa nilai fokus (data sebelum fitur ini) jatuh ke
+            // tengah, bukan ke string kosong yang akan jadi CSS tak sah.
+            focus: RwSignal::new(if payload.focus.trim().is_empty() {
+                "50% 50%".to_string()
+            } else {
+                payload.focus.clone()
+            }),
         }
     }
 
@@ -66,6 +78,7 @@ impl DetailImageDraft {
     pub fn to_retain_payload(&self) -> Option<DetailImagePayload> {
         let url = self.uploaded_url.clone()?;
         Some(DetailImagePayload {
+            focus: self.focus.get_untracked(),
             url,
             image_type: self.image_type.get_untracked(),
             caption: self.caption.get_untracked(),

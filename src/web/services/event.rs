@@ -22,6 +22,10 @@ pub struct DetailImagePayload {
     pub url: String,
     pub image_type: String,
     pub caption: String,
+    /// Titik fokus `object-position` — dikirim balik ke server saat simpan.
+    /// `serde(default)` supaya payload lama (tanpa field ini) tetap terbaca.
+    #[serde(default)]
+    pub focus: String,
 }
 
 /// Foto detail BARU yang perlu di-upload (bytes mentah dari `File`).

@@ -186,7 +186,7 @@ deadpool-postgres = "0.14.1"
 redis = { version = "1.2.1", features = ["tokio-comp", "connection-manager"] }
 
 # Auth / Security
-jsonwebtoken = { version = "10.3.0", features = ["use_pem", "rust_crypto"] }
+jsonwebtoken = { version = "11", features = ["use_pem", "rust_crypto"] }
 bcrypt = "0.19.1"
 uuid = { version = "1", features = ["v4", "serde"] }
 
@@ -200,7 +200,7 @@ rustls = { version = "0.23", features = ["ring"], default-features = false }
 # Config / Validation / Logging
 dotenvy = "0.15"
 config = "0.15.22"
-validator = { version = "0.20", features = ["derive"] }
+validator = { version = "0.21", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
@@ -215,7 +215,7 @@ bytes = "1.12.0"
 ahash = "0.8.12"
 dashmap = "6.1.0"
 moka = { version = "0.12", features = ["future"] }
-ulid = "1"
+ulid = "3"
 chrono-tz = "0.10"
 rust_decimal = { version = "1.42.1", features = ["db-tokio-postgres"] }
 rust_decimal_macros = "1"

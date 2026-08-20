@@ -216,8 +216,21 @@ pub fn TicketsPage() -> impl IntoView {
                                             let status = t.status.clone();
                                             let cover = t.cover_url.clone();
                                             let ticket_id = t.id.clone();
+                                            // Tiket TERPAKAI harus terbaca beda sejak
+                                            // sekilas. Kedua cabang sebelumnya
+                                            // mengembalikan kelas yang sama persis —
+                                            // percabangan yang tak melakukan apa-apa,
+                                            // jadi tiket yang sudah dipakai tampil
+                                            // identik dengan yang masih sah. Di
+                                            // aplikasi tiket itu bukan soal rapi:
+                                            // pemegang tiket (dan petugas yang
+                                            // melihat layarnya) tak punya petunjuk
+                                            // apa pun selain membuka QR-nya satu per
+                                            // satu. Label "USED" di dalam kartu sudah
+                                            // ada sejak dulu — yang hilang justru
+                                            // penanda pada kartunya sendiri.
                                             let card_class = if status == "used" {
-                                                "ticket-card ticket-card--link"
+                                                "ticket-card ticket-card--link ticket-card--used"
                                             } else {
                                                 "ticket-card ticket-card--link"
                                             };

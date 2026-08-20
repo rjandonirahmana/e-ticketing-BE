@@ -155,7 +155,7 @@ impl AppState {
             .build()
             .expect("http client");
 
-        let jwt = JwtService::new(jwt_secret);
+        let jwt = JwtService::new(jwt_secret, jwt_expiry_hours);
 
         // ── Repositories ──────────────────────────────────────────────────────
         let user_repo = Arc::new(PgUserRepository::new(pool.clone()));
@@ -178,7 +178,9 @@ impl AppState {
             user_repo.clone(),
             jwt.clone(),
             bcrypt_cost,
-            jwt_expiry_hours,
+            // `jwt_expiry_hours` tak lagi dioper terpisah: JwtService yang
+            // memegangnya, dan `expires_in` diambil dari sana — supaya angka
+            // yang dijanjikan ke klien mustahil berbeda dari klaim `exp`.
             waha.clone(),
             redis.clone(),
         ));

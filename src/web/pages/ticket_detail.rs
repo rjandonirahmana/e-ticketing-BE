@@ -148,14 +148,25 @@ pub fn TicketDetailPage() -> impl IntoView {
     let is_logged_in = move || auth.get().and_then(|r| r.ok()).flatten().is_some();
     let navigate = use_navigate();
 
+    // Penggerbang `is_logged_in()` DIBUANG dari sumber resource.
+    //
+    // Menebak status login di klien sebelum memanggil server tak menjaga apa
+    // pun — server function-nya sudah menuntut sesi sendiri — tapi ia menambah
+    // satu cara untuk gagal: selama `AuthResource` belum terbaca, fetcher
+    // menjawab `not_ready`, dan `not_ready` dirender sebagai skeleton yang sama
+    // persis dengan "sedang memuat". Halaman lalu berkedip tanpa akhir, tanpa
+    // pesan, tanpa percobaan ulang — dan dari sisi pengguna itu terbaca sebagai
+    // "klik tombol, halaman tidak pindah". Muat ulang menolong hanya karena
+    // jalur SSR membaca sesi dari cookie di server, jauh dari masalah ini.
+    //
+    // Sekarang satu-satunya syarat adalah id-nya ada.
     let ticket = Resource::new(
-        move || (ticket_id(), is_logged_in()),
-        |(id, logged_in)| async move {
-            if logged_in && !id.is_empty() {
-                get_ticket_detail(id).await
-            } else {
-                Err(ServerFnError::ServerError("not_ready".into()))
+        ticket_id,
+        |id| async move {
+            if id.is_empty() {
+                return Err(ServerFnError::ServerError("not_ready".into()));
             }
+            get_ticket_detail(id).await
         },
     );
 

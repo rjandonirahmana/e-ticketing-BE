@@ -24,7 +24,6 @@ pub struct AuthService {
     repo: Arc<dyn UserRepository>,
     jwt: JwtService,
     bcrypt_cost: u32,
-    jwt_expiry_hours: i64,
     waha: Arc<WahaConfig>,
     redis: ConnectionManager,
     http: HttpClient,
@@ -35,7 +34,6 @@ impl AuthService {
         repo: Arc<dyn UserRepository>,
         jwt: JwtService,
         bcrypt_cost: u32,
-        jwt_expiry_hours: i64,
         waha: Arc<WahaConfig>,
         redis: ConnectionManager,
     ) -> Self {
@@ -51,7 +49,6 @@ impl AuthService {
             repo,
             jwt,
             bcrypt_cost,
-            jwt_expiry_hours,
             waha,
             redis,
             http,
@@ -336,7 +333,10 @@ impl AuthService {
         Ok(AuthResponse {
             access_token: token,
             token_type: "Bearer".into(),
-            expires_in: self.jwt_expiry_hours * 3600,
+            // Diambil dari JwtService, bukan dihitung ulang di sini: angka yang
+            // dijanjikan ke klien harus berasal dari sumber yang sama dengan
+            // yang dipasang ke klaim `exp`.
+            expires_in: self.jwt.expires_in_secs(),
             user: user.into(),
         })
     }

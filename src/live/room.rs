@@ -86,11 +86,18 @@ impl LiveRoom {
         if let Some((_, info)) = self.subscribers.remove(id) {
             // Turunkan refcount user; hapus entri saat koneksi terakhir pergi.
             // Drop ref sebelum remove pada map yang sama → hindari deadlock DashMap.
-            if let Some(mut cnt) = self.unique_viewers.get_mut(&info.id) {
-                if *cnt <= 1 {
-                    drop(cnt);
-                    self.unique_viewers.remove(&info.id);
-                } else {
+            // `remove_if` menguji DAN menghapus di bawah kunci shard yang sama.
+            // Versi sebelumnya melepas kunci (`drop(cnt)`) lalu menghapus tanpa
+            // syarat: bila tepat di celah itu tab baru milik user yang sama
+            // tersambung dan menaikkan hitungannya jadi 2, entrinya tetap
+            // terhapus — penonton yang masih menonton hilang dari hitungan, dan
+            // saat ia benar-benar pergi tak ada lagi entri untuk dikurangi.
+            if self
+                .unique_viewers
+                .remove_if(&info.id, |_, cnt| *cnt <= 1)
+                .is_none()
+            {
+                if let Some(mut cnt) = self.unique_viewers.get_mut(&info.id) {
                     *cnt -= 1;
                 }
             }

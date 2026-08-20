@@ -216,6 +216,7 @@ impl EventService {
             slug: event.slug,
             description: event.description,
             cover_url: event.cover_url,
+            cover_focus: event.cover_focus,
             venue: event.venue,
             city: event.city,
             latitude: event.latitude,

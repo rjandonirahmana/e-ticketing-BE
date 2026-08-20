@@ -19,7 +19,29 @@ use crate::web::seo::SeoMeta;
 pub fn EventDetailPage() -> impl IntoView {
     let params    = use_params_map();
     let slug      = Memo::new(move |_| params.read().get("slug").unwrap_or_default());
+    // ── BLOCKING HANYA DI SISI SERVER ────────────────────────────────────────
+    // `Resource::new_blocking` bukan sekadar urusan streaming SSR. Saat navigasi
+    // di klien, `leptos_router` MENUNGGU view rute baru selesai di-resolve
+    // sebelum menukarnya (`flat_router.rs:308` — `view.choose().await`),
+    // sementara pembaruan lokasi — termasuk GULIR KE ATAS — sudah terjadi lebih
+    // dulu. Resource blocking ikut ditunggu di jalur itu.
+    //
+    // Akibatnya persis yang dilaporkan: klik kartu event dari beranda →
+    // halaman menggulir ke atas, URL berganti, tapi isinya tetap beranda sampai
+    // permintaan detail selesai. Bila permintaannya lambat, itu terbaca sebagai
+    // "tidak pindah halaman"; bila gagal/menggantung, ia tak pernah pindah.
+    //
+    // `Suspense` di bawah sudah punya fallback shimmer — tapi fallback itu tak
+    // pernah terpakai selama resource-nya blocking, karena justru itu maknanya:
+    // "jangan tampilkan apa pun, tunggu".
+    //
+    // SSR tetap memakai blocking supaya HTML pertama sudah berisi detail event
+    // utuh (SEO + tanpa kedip pada kunjungan langsung). Klien memakai versi
+    // biasa supaya perpindahan halaman terjadi SEKETIKA dengan shimmer.
+    #[cfg(feature = "ssr")]
     let event_res = Resource::new_blocking(move || slug.get(), |s| get_event_detail(s));
+    #[cfg(not(feature = "ssr"))]
+    let event_res = Resource::new(move || slug.get(), |s| get_event_detail(s));
     // Kategori event ini → dipakai untuk (a) mencari event BERKAITAN, dan
     // (b) mencatat minat user untuk rekomendasi "Untuk Kamu".
     let rel_cat = Memo::new(move |_| {
@@ -291,6 +313,17 @@ pub fn EventDetailPage() -> impl IntoView {
                             Ok(ev) => {
                                 let title = ev.name.clone();
                                 let cover = ev.cover_url.clone().unwrap_or_default();
+                                // Titik fokus cover → `object-position`. Hero ini
+                                // jauh lebih lebar daripada kartu di grid, jadi
+                                // justru di sinilah potongan "selalu tengah"
+                                // paling sering memenggal kepala orang atau judul
+                                // poster. Data lama (nilai kosong) jatuh ke tengah
+                                // — sama persis dengan perilaku sebelumnya.
+                                let cover_pos = {
+                                    let f = ev.cover_focus.trim();
+                                    let f = if f.is_empty() { "50% 50%" } else { f };
+                                    format!("object-position:{f}")
+                                };
                                 let date_str = format_date(&ev.event_date);
                                 let venue_str = match (&ev.venue, &ev.city) {
                                     (Some(v), Some(c)) => format!("{}, {}", v, c),
@@ -651,7 +684,12 @@ pub fn EventDetailPage() -> impl IntoView {
                                                 .into_any()
                                         } else {
                                             view! {
-                                                <img src=cover alt=title.clone() class="ed-hero-img" />
+                                                <img
+                                                    src=cover
+                                                    alt=title.clone()
+                                                    class="ed-hero-img"
+                                                    style=cover_pos
+                                                />
                                             }
                                                 .into_any()
                                         }} <div class="ed-hero-gradient"></div>

@@ -59,6 +59,10 @@ pub struct EventWithVariants {
     pub slug: String,
     pub description: Option<String>,
     pub cover_url: Option<String>,
+    /// Titik fokus cover (`object-position`), mis. "50% 50%". Kosong = data
+    /// lama; sisi render menjatuhkannya ke tengah.
+    #[serde(default)]
+    pub cover_focus: String,
     pub venue: Option<String>,
     pub city: Option<String>,
     #[serde(default)]
@@ -98,6 +102,10 @@ pub struct WebDetailImage {
     pub image_type: String,
     #[serde(default)]
     pub caption: String,
+    /// Titik fokus `object-position` (mis. "50% 50%"). `serde(default)` +
+    /// fallback di sisi render menjaga data lama tetap tampil seperti dulu.
+    #[serde(default)]
+    pub focus: String,
 }
 
 /// Ringkasan merchant yang di-embed di detail event (isi bottom sheet

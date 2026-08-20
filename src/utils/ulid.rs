@@ -2,7 +2,9 @@ use anyhow::{Context, Result};
 use ulid::Ulid;
 
 pub fn new_ulid() -> String {
-    Ulid::new().to_string()
+    // `generate()`, bukan `new()`: ulid 3.0 mengganti namanya. Keduanya sama —
+    // stempel waktu sekarang + 80 bit acak.
+    Ulid::generate().to_string()
 }
 
 pub fn ulid_to_bytes(s: &str) -> Result<[u8; 16]> {

@@ -96,6 +96,32 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
         let _ = ev;
     };
 
+
+    // ── Umpan balik harus TERLIHAT ────────────────────────────────────────────
+    // Banner sukses/galat dirender di PUNCAK form, sedangkan tombol simpan ada
+    // di DASAR form yang panjang. Akibatnya setiap penolakan validasi —
+    // "Tanggal event wajib diisi", "Tunggu foto selesai diunggah", atau galat
+    // dari server — muncul di layar yang sedang tak dilihat siapa pun: pengguna
+    // menekan SIMPAN, halaman diam, dan satu-satunya kesimpulan yang masuk akal
+    // baginya adalah tombolnya rusak.
+    //
+    // Effect ini menggulirkan banner ke dalam pandangan begitu isinya berubah.
+    // Hanya di klien (wasm) — tak ada yang perlu digulir saat render server.
+    #[cfg(target_arch = "wasm32")]
+    Effect::new(move |_| {
+        let ada_galat = !error_msg.get().is_empty();
+        let berhasil = !success_msg.get().is_empty();
+        if !(ada_galat || berhasil) {
+            return;
+        }
+        // `scroll_to_with_x_and_y`, bukan versi ber-`ScrollToOptions`: yang
+        // terakhir menuntut dua fitur web-sys tambahan hanya demi animasi halus,
+        // dan yang dibutuhkan di sini cuma pesannya terlihat.
+        if let Some(win) = web_sys::window() {
+            win.scroll_to_with_x_and_y(0.0, 0.0);
+        }
+    });
+
     let do_submit = move |_: leptos::ev::MouseEvent| {
         error_msg.set(String::new());
         success_msg.set(String::new());
