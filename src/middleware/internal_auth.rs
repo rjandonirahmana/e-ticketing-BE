@@ -23,7 +23,7 @@ struct InternalClaims {
 /// memanggil API — bukan scraper atau client lain yang tidak memiliki secret.
 ///
 /// Cara pemakaian (di build_router):
-/// ```rust
+/// ```text
 /// .route_layer(from_fn_with_state(state.clone(), require_internal_jwt))
 /// ```
 pub async fn require_internal_jwt(
@@ -42,7 +42,10 @@ pub async fn require_internal_jwt(
     Ok(next.run(req).await)
 }
 
-fn verify_internal_token(token: &str, secret: &str) -> Result<(), AppError> {
+/// Verifikasi token internal. `pub(crate)` supaya ekstraktor di
+/// `api::extractor` memakai implementasi YANG SAMA — bukan menuliskan
+/// versinya sendiri yang bisa menyimpang diam-diam.
+pub(crate) fn verify_internal_token(token: &str, secret: &str) -> Result<(), AppError> {
     let dec_key = DecodingKey::from_secret(secret.as_bytes());
 
     let mut validation = Validation::new(Algorithm::HS256);

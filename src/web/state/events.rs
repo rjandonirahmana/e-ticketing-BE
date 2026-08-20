@@ -94,6 +94,33 @@ fn cat_to_opt(category: &str) -> Option<String> {
     if c.is_empty() { None } else { Some(c.to_string()) }
 }
 
+/// Batas waktu memuat feed. Cukup panjang untuk menampung permintaan pertama
+/// sesudah server dingin (pool Postgres belum terbentuk) dan jaringan seluler
+/// yang buruk, tapi tetap ada supaya halaman tak menggantung selamanya.
+const BATAS_MUAT_MS: u32 = 20_000;
+
+/// Ubah galat mentah jadi kalimat yang menunjuk sebab yang BENAR.
+///
+/// Yang dibedakan hanya yang bisa ditindaklanjuti pengguna secara berbeda:
+/// sesi habis (harus masuk lagi), peramban memang sedang luring (periksa
+/// jaringan), dan sisanya — masalah di sisi server, yang tak ada gunanya
+/// disuruh "periksa koneksi".
+fn pesan_galat_muat(raw: &str) -> String {
+    let r = raw.to_lowercase();
+    if r.contains("unauth") || r.contains("401") || r.contains("session") {
+        return "Sesi kamu berakhir. Masuk lagi untuk melanjutkan.".to_string();
+    }
+    // `navigator.onLine` hanya bisa dipercaya saat ia bilang FALSE: true belum
+    // tentu berarti internetnya jalan, tapi false hampir pasti benar.
+    let luring = web_sys::window()
+        .map(|w| !w.navigator().on_line())
+        .unwrap_or(false);
+    if luring {
+        return "Perangkat sedang tidak terhubung ke internet.".to_string();
+    }
+    "Gagal memuat data dari server. Coba muat ulang halaman.".to_string()
+}
+
 impl EventsCtx {
     pub fn load(&self) {
         self.load_cat(String::new());
@@ -150,9 +177,18 @@ impl EventsCtx {
         spawn_local(async move {
             let cat_opt = cat_to_opt(&category);
 
-            // Race the server function against an 8-second safety timeout.
+            // Batas waktu pengaman. DINAIKKAN dari 8 detik.
+            //
+            // Delapan detik terdengar longgar di jaringan kantor, tapi permintaan
+            // pertama sesudah proses server baru hidup harus menunggu pool
+            // Postgres terbentuk, dan pengunjung di jaringan seluler pinggiran
+            // rutin melewatinya. Yang terjadi kemudian bukan sekadar pesan
+            // keliru: `select` MEMBUANG future yang kalah, jadi permintaan yang
+            // sebenarnya baik-baik saja ikut DIBATALKAN tepat sebelum ia
+            // menjawab — pengguna diberi tahu "tak bisa terhubung" oleh kode
+            // yang barusan memutus hubungannya sendiri.
             let fetch = get_events(Some(1), None, cat_opt, None, Some(PAGE_SIZE));
-            let timeout = gloo_timers::future::TimeoutFuture::new(8_000);
+            let timeout = gloo_timers::future::TimeoutFuture::new(BATAS_MUAT_MS);
             let result = futures::future::select(Box::pin(fetch), Box::pin(timeout)).await;
 
             match result {
@@ -163,14 +199,29 @@ impl EventsCtx {
                                 has_more.set(res.page < res.total_pages);
                                 total.set(res.total);
                                 items.set(res.data.iter().map(event_to_explore).collect());
+                                // Bersihkan galat lama secara eksplisit. Reset di
+                                // awal `load_cat` saja tak cukup: `load_more` dan
+                                // jalur muat lain memakai `error` yang sama, dan
+                                // banner yang tertinggal dari kegagalan sebelumnya
+                                // akan bertahan di layar meski data terbaru sudah
+                                // tampil di bawahnya.
+                                error.set(String::new());
                             }
-                            Err(e) => error.set(e.to_string()),
+                            // Pesannya dibedakan menurut SEBABNYA. Sebelumnya
+                            // setiap galat — 500 dari server, gagal deserialisasi,
+                            // sesi kedaluwarsa — muncul sebagai "tidak bisa
+                            // terhubung ke server", padahal server justru sedang
+                            // terhubung dan menjawab. Diagnosis yang salah membuat
+                            // orang mencari masalah di jaringannya berjam-jam.
+                            Err(e) => error.set(pesan_galat_muat(&e.to_string())),
                         }
                     }
                 }
                 futures::future::Either::Right(_) => {
                     if fetch_gen.get_untracked() == gen {
-                        error.set("Koneksi ke server habis waktu. Coba refresh.".to_string());
+                        error.set(
+                            "Server lama menjawab. Coba muat ulang halaman.".to_string(),
+                        );
                     }
                 }
             }

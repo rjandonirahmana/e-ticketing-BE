@@ -183,6 +183,14 @@ impl PgEventRepository {
             detail_images,
             description: row.try_get("description").context("description")?,
             cover_url: row.try_get::<_, Option<String>>("cover_url")?,
+            // Baris lama (sebelum migrasi 020) bisa saja belum punya kolomnya
+            // saat aplikasi baru di-deploy mendahului migrasinya — jatuh ke
+            // tengah alih-alih menggagalkan seluruh pembacaan event.
+            cover_focus: row
+                .try_get::<_, Option<String>>("cover_focus")
+                .ok()
+                .flatten()
+                .unwrap_or_else(crate::models::events::fokus_tengah),
             price: row.try_get::<_, f64>("price").unwrap_or(0.0),
             sale_price: row.try_get("sale_price").ok().flatten(),
             sale_price_start_date: row.try_get("sale_price_start_date").ok().flatten(),
@@ -230,6 +238,14 @@ impl PgEventRepository {
             detail_images,
             description: row.try_get("description").context("description")?,
             cover_url: row.try_get::<_, Option<String>>("cover_url")?,
+            // Baris lama (sebelum migrasi 020) bisa saja belum punya kolomnya
+            // saat aplikasi baru di-deploy mendahului migrasinya — jatuh ke
+            // tengah alih-alih menggagalkan seluruh pembacaan event.
+            cover_focus: row
+                .try_get::<_, Option<String>>("cover_focus")
+                .ok()
+                .flatten()
+                .unwrap_or_else(crate::models::events::fokus_tengah),
             price: 0.0,
             sale_price: None,
             sale_price_start_date: None,

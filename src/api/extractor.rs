@@ -54,7 +54,7 @@ impl FromRequestParts<Arc<AppState>> for InternalAuth {
         parts: &mut Parts,
         _state: &Arc<AppState>,
     ) -> Result<Self, Self::Rejection> {
-        let _token = parts
+        let token = parts
             .headers
             .get("x-app-token")
             .and_then(|v| v.to_str().ok())
@@ -64,7 +64,31 @@ impl FromRequestParts<Arc<AppState>> for InternalAuth {
                     axum::Json(serde_json::json!({ "message": "x-app-token missing" })),
                 )
             })?;
-        // Cukup cek keberadaan header untuk sekarang; validasi HMAC bisa ditambah nanti.
+
+        // TANDA TANGANNYA DIPERIKSA, bukan sekadar ada-tidaknya header.
+        //
+        // Versi sebelumnya berhenti di `ok_or_else` di atas dengan catatan
+        // "validasi HMAC bisa ditambah nanti" — sementara nama tipenya,
+        // `InternalAuth`, dan doc-comment-nya menjanjikan verifikasi JWT.
+        // Selama ia tak dipasang di rute mana pun, itu tak berbahaya; masalahnya
+        // muncul pada hari seseorang memasangnya sambil mengira ia melindungi
+        // sesuatu. Yang dijaganya cuma "pengirim tahu ada header bernama
+        // x-app-token" — pengetahuan yang bisa didapat siapa pun dengan membuka
+        // tab Network sekali.
+        //
+        // Implementasinya sengaja DIPINJAM dari middleware, bukan disalin:
+        // dua salinan aturan verifikasi adalah dua tempat yang bisa berbeda.
+        crate::middleware::internal_auth::verify_internal_token(
+            token,
+            &_state.internal_jwt_secret,
+        )
+        .map_err(|e| {
+            (
+                StatusCode::UNAUTHORIZED,
+                axum::Json(serde_json::json!({ "message": e.to_string() })),
+            )
+        })?;
+
         Ok(InternalAuth)
     }
 }

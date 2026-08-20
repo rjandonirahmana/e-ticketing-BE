@@ -408,3 +408,21 @@
     color: var(--warning-amber);
 }
 
+
+/* Tiket yang SUDAH DIPAKAI ─────────────────────────────────────────────────
+   Dibedakan dengan dua isyarat yang saling menguatkan, bukan satu:
+   warna yang meredup DAN garis tepi putus-putus. Warna saja tak cukup —
+   sebagian pemakai tak bisa membedakannya, dan layar ponsel di bawah matahari
+   meratakan hampir semua perbedaan terang-gelap.
+
+   Kartunya sengaja TIDAK dimatikan (`pointer-events`): tiket terpakai tetap
+   boleh dibuka untuk melihat riwayatnya. Yang diubah hanya cara ia terbaca. */
+.ticket-card--used {
+    opacity: 0.62;
+    border-style: dashed;
+    border-color: var(--border);
+}
+/* Foto ikut diredam supaya kartunya tak tetap "berteriak" lewat cover-nya. */
+.ticket-card--used img {
+    filter: grayscale(0.85);
+}

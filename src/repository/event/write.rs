@@ -48,7 +48,10 @@ impl PgEventRepository {
                     &detail_images_json,
                     &req.latitude,
                     &req.longitude,
-                ],
+                    // $18 — titik fokus cover. Event baru selalu mulai dari
+                    // tengah; merchant menggesernya lewat editor sesudah itu.
+                    &crate::models::events::fokus_tengah(),
+            ],
             )
             .await;
 
@@ -292,7 +295,16 @@ impl PgEventRepository {
             .map(|di| serde_json::to_value(di))
             .transpose()?;
 
-        exec_drop(
+        // Jumlah baris DIPERIKSA, tak lagi dibuang.
+        //
+        // `WHERE id = $1 AND merchant_id = $2` bisa mencocokkan NOL baris —
+        // event milik merchant lain, atau id yang sudah tak ada. `exec_drop`
+        // mengembalikan jumlah baris terpengaruh, tapi nilainya selama ini
+        // langsung dibuang, jadi keadaan itu tak bisa dibedakan dari sukses:
+        // server menjawab Ok, layar menampilkan "tersimpan", dan tak satu pun
+        // perubahan benar-benar masuk. Persis gejala "simpan tak bisa" yang
+        // tak meninggalkan jejak galat di mana pun.
+        let terpengaruh = exec_drop(
             &self.pool,
             UPDATE_EVENT,
             &[
@@ -311,9 +323,17 @@ impl PgEventRepository {
                 &detail_images_json,
                 &req.latitude,
                 &req.longitude,
+                &req.cover_focus,
             ],
         )
         .await?;
+
+        if terpengaruh == 0 {
+            anyhow::bail!(
+                "Event tidak ditemukan atau bukan milik merchant ini \
+                 (event {id}, merchant {merchant_id})"
+            );
+        }
         Ok(())
     }
 

@@ -129,6 +129,7 @@ pub(super) fn srv_event_with_variants_to_web(
         slug: e.slug,
         description: e.description,
         cover_url: e.cover_url,
+        cover_focus: e.cover_focus,
         venue: e.venue,
         city: e.city,
         latitude: e.latitude,
@@ -162,6 +163,7 @@ pub(super) fn srv_event_with_variants_to_web(
                 url: d.url,
                 image_type: d.image_type,
                 caption: d.caption,
+                focus: d.focus,
             })
             .collect(),
     }

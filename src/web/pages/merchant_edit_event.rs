@@ -5,7 +5,6 @@ use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::web::api::{get_merchant_event_detail, update_merchant_event};
-use crate::web::app::AuthResource;
 use crate::web::components::detail_image_section::{DetailImageDraft, DetailImagesSection};
 use crate::web::components::event_story_preview::EventStoryPreviewInline;
 use crate::web::components::variant_editor::{rows_from_event, rows_to_json, VariantEditor, VariantRow};
@@ -41,14 +40,64 @@ pub fn MerchantEditEventPage() -> impl IntoView {
     let params = use_params_map();
     let slug = move || params.read().get("slug").unwrap_or_default();
 
-    let auth = use_context::<AuthResource>().expect("AuthResource missing");
-    let is_logged_in = move || auth.get().and_then(|r| r.ok()).flatten().is_some();
+    // `AuthResource` tak lagi dibaca di sini — wewenang ditegakkan server
+    // (`require_roles` di `get_merchant_event_detail`), dan `MerchantGuard` di
+    // tabel route sudah menahan yang bukan merchant sebelum halaman ini dirender.
 
+    // ── Skeleton TIDAK BOLEH ABADI ───────────────────────────────────────────
+    // Keadaan `not_ready` (sesi belum terbaca / slug belum ada) dirender sebagai
+    // skeleton yang sama persis dengan keadaan "sedang memuat". Keduanya tak
+    // bisa dibedakan mata, dan tak satu pun punya jalan keluar: bila sesuatu
+    // membuat data tak pernah datang — permintaan menggantung, sesi tak kunjung
+    // terbaca — halaman berkedip selamanya tanpa memberi tahu apa pun.
+    //
+    // Penanda ini menyala sesudah tenggang wajar dan mengubah kedipan itu jadi
+    // pesan yang bisa ditindaklanjuti. Ia TIDAK membatalkan apa pun: kalau
+    // datanya akhirnya datang, halaman tetap terisi seperti biasa.
+    let terlalu_lama = RwSignal::new(false);
+    #[cfg(target_arch = "wasm32")]
+    Effect::new(move |sudah: Option<()>| {
+        // Sekali saja per kunjungan halaman.
+        if sudah.is_some() {
+            return;
+        }
+        leptos::task::spawn_local(async move {
+            gloo_timers::future::TimeoutFuture::new(12_000).await;
+            terlalu_lama.set(true);
+        });
+    });
+
+    // ── PENGGERBANG `is_logged_in()` DIBUANG ────────────────────────────────
+    // Sumber resource ini dulu `(slug(), is_logged_in())`, dan fetcher-nya
+    // menolak dengan `not_ready` selama sesi belum terbaca. Itu memasang dua
+    // kegagalan sekaligus:
+    //
+    //   1. Halaman berkedip selamanya. `not_ready` dirender sebagai skeleton
+    //      yang sama persis dengan "sedang memuat", tanpa pesan dan tanpa
+    //      percobaan ulang — persis "shimmer terus, refresh baru muncul".
+    //
+    //   2. SIMPAN mati diam-diam, dan ini yang paling menipu. Bila data tak
+    //      pernah datang, Effect penyemai tak pernah jalan, sehingga SELURUH
+    //      signal form tetap kosong — termasuk `f_name`. Isian di layar tampak
+    //      terisi karena HTML dari server masih terpampang, tapi yang dibaca
+    //      `do_save` adalah signal, dan `f_name` yang kosong langsung tertahan
+    //      di `name.trim().len() < 3`. Tombolnya berfungsi; datanya yang tak
+    //      pernah ada.
+    //
+    // Penggerbang itu juga TAK MENJAGA APA PUN: `get_merchant_event_detail`
+    // memanggil `require_roles(&["merchant","admin"])` di server. Menebak status
+    // login di klien lebih dulu hanya menambah satu cara untuk gagal, tanpa
+    // menambah satu pun lapis keamanan.
+    //
+    // Sekarang: satu-satunya syarat adalah slug ada. Yang belum masuk akan
+    // dijawab 401 oleh server dan tampil sebagai galat yang jujur.
     let event_data = Resource::new(
-        move || (slug(), is_logged_in()),
-        |(s, logged_in)| async move {
-            if logged_in && !s.is_empty() { get_merchant_event_detail(s).await }
-            else { Err(ServerFnError::ServerError("not_ready".into())) }
+        slug,
+        |s| async move {
+            if s.is_empty() {
+                return Err(ServerFnError::ServerError("not_ready".into()));
+            }
+            get_merchant_event_detail(s).await
         },
     );
 
@@ -126,6 +175,7 @@ pub fn MerchantEditEventPage() -> impl IntoView {
                         url: d.url.clone(),
                         image_type: d.image_type.clone(),
                         caption: d.caption.clone(),
+                        focus: d.focus.clone(),
                     }))
                     .collect();
                 drafts.set(seeded);
@@ -164,17 +214,59 @@ pub fn MerchantEditEventPage() -> impl IntoView {
         let _ = ev;
     };
 
+
+    // ── Umpan balik harus TERLIHAT ────────────────────────────────────────────
+    // Banner sukses/galat dirender di PUNCAK form, sedangkan tombol simpan ada
+    // di DASAR form yang panjang. Akibatnya setiap penolakan validasi —
+    // "Tanggal event wajib diisi", "Tunggu foto selesai diunggah", atau galat
+    // dari server — muncul di layar yang sedang tak dilihat siapa pun: pengguna
+    // menekan SIMPAN, halaman diam, dan satu-satunya kesimpulan yang masuk akal
+    // baginya adalah tombolnya rusak.
+    //
+    // Effect ini menggulirkan banner ke dalam pandangan begitu isinya berubah.
+    // Hanya di klien (wasm) — tak ada yang perlu digulir saat render server.
+    #[cfg(target_arch = "wasm32")]
+    Effect::new(move |_| {
+        let ada_galat = !error_msg.get().is_empty();
+        let berhasil = saved.get();
+        if !(ada_galat || berhasil) {
+            return;
+        }
+        // `scroll_to_with_x_and_y`, bukan versi ber-`ScrollToOptions`: yang
+        // terakhir menuntut dua fitur web-sys tambahan hanya demi animasi halus,
+        // dan yang dibutuhkan di sini cuma pesannya terlihat.
+        if let Some(win) = web_sys::window() {
+            win.scroll_to_with_x_and_y(0.0, 0.0);
+        }
+    });
+
+    // Setiap penolakan di `do_save` melewati sini: banner DI LAYAR sekaligus
+    // baris DI CONSOLE.
+    //
+    // Kenapa dua-duanya. Banner-nya dirender di puncak form sementara tombolnya
+    // di dasar, jadi meski sudah digulir otomatis ia tetap bisa terlewat — dan
+    // ketika seseorang melaporkan "simpan tidak bisa", yang paling dibutuhkan
+    // justru kalimat yang tak sempat ia baca. Console menyimpannya apa adanya,
+    // dengan awalan tetap supaya gampang dicari.
+    let tolak = move |alasan: &str| {
+        error_msg.set(alasan.to_string());
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::warn_1(&format!("[EditEvent] simpan DITOLAK: {alasan}").into());
+    };
+
     let do_save = move |_: leptos::ev::MouseEvent| {
         error_msg.set(String::new());
         saved.set(false);
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&"[EditEvent] tombol SIMPAN ditekan".into());
 
         let name = f_name.get_untracked();
-        if name.trim().len() < 3 { error_msg.set("Nama event minimal 3 karakter.".into()); return; }
+        if name.trim().len() < 3 { tolak("Nama event minimal 3 karakter."); return; }
         let desc  = f_desc.get_untracked();
         let venue = f_venue.get_untracked();
         let city  = f_city.get_untracked();
         let date  = f_date.get_untracked();
-        if date.is_empty() { error_msg.set("Tanggal event wajib diisi.".into()); return; }
+        if date.is_empty() { tolak("Tanggal event wajib diisi."); return; }
         let time  = f_time.get_untracked();
         let cats  = f_cat.get_untracked().join(",");
         let current_slug = slug();
@@ -183,7 +275,7 @@ pub fn MerchantEditEventPage() -> impl IntoView {
         // dari form — server menonaktifkannya).
         let variants_json = match rows_to_json(&v_rows.get_untracked(), &v_removed.get_untracked()) {
             Ok(j) => j,
-            Err(m) => { error_msg.set(m); return; }
+            Err(m) => { tolak(&m); return; }
         };
 
         // Combine date + time into RFC3339 format that the server can parse.
@@ -202,10 +294,10 @@ pub fn MerchantEditEventPage() -> impl IntoView {
 
         // Foto masih diunggah? Tunggu agar URL tak hilang.
         if cover_uploading.get_untracked() {
-            error_msg.set("Tunggu foto cover selesai diunggah.".into()); return;
+            tolak("Tunggu foto cover selesai diunggah."); return;
         }
         if drafts.get_untracked().iter().any(|d| d.uploaded_url.is_none()) {
-            error_msg.set("Tunggu semua foto detail selesai diunggah.".into()); return;
+            tolak("Tunggu semua foto detail selesai diunggah."); return;
         }
         // cover kosong = pertahankan cover lama (COALESCE di server).
         let cover = cover_url.get_untracked();
@@ -219,10 +311,26 @@ pub fn MerchantEditEventPage() -> impl IntoView {
         let detail_json = serde_json::to_string(&payloads).unwrap_or_else(|_| "[]".to_string());
 
         saving.set(true);
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(
+            &"[EditEvent] semua validasi lolos — mengirim ke server…".into(),
+        );
         leptos::task::spawn_local(async move {
             match update_merchant_event(current_slug, name, desc, venue, city, date_iso.clone(), date_iso, cats, lat, lng, variants_json, cover, detail_json).await {
-                Ok(_) => { saved.set(true); saving.set(false); }
-                Err(e) => { error_msg.set(e.to_string()); saving.set(false); }
+                Ok(_) => {
+                    #[cfg(target_arch = "wasm32")]
+                    web_sys::console::log_1(&"[EditEvent] server: tersimpan".into());
+                    saved.set(true);
+                    saving.set(false);
+                }
+                Err(e) => {
+                    #[cfg(target_arch = "wasm32")]
+                    web_sys::console::error_1(
+                        &format!("[EditEvent] server MENOLAK: {e}").into(),
+                    );
+                    error_msg.set(e.to_string());
+                    saving.set(false);
+                }
             }
         });
     };
@@ -255,8 +363,38 @@ pub fn MerchantEditEventPage() -> impl IntoView {
                     if ev_data.is_none() { return view! { <EditSkeleton/> }.into_any(); }
 
                     match ev_data.unwrap() {
-                        Err(e) if e.to_string().contains("not_ready") =>
-                            view! { <EditSkeleton/> }.into_any(),
+                        // `not_ready` = sesi/slug belum siap. Tampilkan skeleton
+                        // SELAMA masih masuk akal menunggu; sesudah itu jujur
+                        // saja bahwa ada yang tak beres, lengkap dengan jalan
+                        // keluar. Memuat ulang halaman menempuh jalur SSR yang
+                        // merender datanya di server — itulah kenapa "refresh
+                        // baru jalan" selama ini bekerja.
+                        Err(e) if e.to_string().contains("not_ready") => {
+                            if terlalu_lama.get() {
+                                view! {
+                                    <div class="medit-container">
+                                        <div class="medit-error-banner">
+                                            "Data event tak kunjung termuat. Sesi mungkin "
+                                            "belum terbaca di halaman ini."
+                                        </div>
+                                        <button
+                                            class="medit-submit-btn"
+                                            on:click=move |_| {
+                                                #[cfg(target_arch = "wasm32")]
+                                                if let Some(w) = web_sys::window() {
+                                                    let _ = w.location().reload();
+                                                }
+                                            }
+                                        >
+                                            "MUAT ULANG HALAMAN"
+                                        </button>
+                                    </div>
+                                }
+                                    .into_any()
+                            } else {
+                                view! { <EditSkeleton/> }.into_any()
+                            }
+                        }
                         Err(_) => view! {
                             <div class="medit-container">
                                 <div class="medit-error-banner">

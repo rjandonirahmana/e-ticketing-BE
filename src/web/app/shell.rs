@@ -106,6 +106,29 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                 <script nonce=use_nonce() inner_html=r##"
                 (function(){
                   window.__pulseMaps = window.__pulseMaps || {};
+
+                  // ── TENGGANG JALUR CADANGAN ────────────────────────────────
+                  // Semua jalur cadangan peta menunggu selama ini sebelum
+                  // bertindak sendiri. Nilainya SENGAJA jauh lebih panjang dari
+                  // waktu hidrasi yang wajar.
+                  //
+                  // Sebelumnya 1,5 detik (picker) dan 3 detik (viewer). Itu
+                  // terlalu pendek untuk MUAT PERTAMA: WASM masih dingin — harus
+                  // diunduh, dikompilasi, lalu dijalankan — dan di ponsel atau
+                  // jaringan biasa itu lewat dari empat detik dengan mudah.
+                  // Ketika tenggangnya habis lebih dulu, `__pulseHydrated` belum
+                  // ada, cadangan menyimpulkan "WASM gagal", lalu Leaflet menulis
+                  // ulang container di tengah hidrasi → hidrasi meleset → semua
+                  // tombol dan tautan mati.
+                  //
+                  // Itulah kenapa "harus refresh dulu baru bisa pindah halaman":
+                  // pada muat KEDUA, WASM datang dari cache dan menang balapan.
+                  // Bug-nya tak pernah hilang, ia cuma tak sempat terjadi.
+                  //
+                  // 12 detik: kalau WASM memang tak pernah datang, peta terlambat
+                  // belasan detik — tak menyenangkan tapi masih tampil. Kalau ia
+                  // datang, cadangan ini tak pernah dipakai sama sekali.
+                  var CADANGAN_MS = 12000;
                   // Tiles OpenStreetMap resmi (paling andal & tak butuh API key).
                   function tile(m){
                     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -274,7 +297,46 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                       window.pulseMapPicker(el.id, el.getAttribute('data-lat-input'), el.getAttribute('data-lng-input'));
                     })(ps[i]); }
                   }
-                  function autoInitMaps(){ initViewers(); }
+                  // ── PETA TAK BOLEH MENDAHULUI HIDRASI ──────────────────────
+                  // `L.map(el)` MENULIS ULANG isi containernya: pane, layer
+                  // tile, kontrol — puluhan simpul baru di dalam elemen yang
+                  // dirender server. Bila itu terjadi sebelum Leptos selesai
+                  // menghidrasi, kursor hidrasi meleset tepat di titik itu, dan
+                  // SEMUA yang ada sesudahnya dalam urutan dokumen tak pernah
+                  // dipasangi event delegation. Gejalanya: tombol dan tautan
+                  // mati — klik tak memindahkan halaman sampai di-refresh, dan
+                  // tombol simpan di halaman ber-peta (mis. edit event, yang
+                  // punya picker lokasi) tak melakukan apa pun tanpa satu pun
+                  // pesan galat.
+                  //
+                  // DOMContentLoaded menang telak dari hidrasi: ia menyala
+                  // begitu HTML selesai diurai, sementara WASM masih harus
+                  // diunduh, dikompilasi, lalu dijalankan. Jadi di halaman yang
+                  // punya peta, balapan ini nyaris selalu kalah.
+                  //
+                  // Sekarang: Rust yang memulai (lihat `lib.rs`, sesudah
+                  // `hydrate_body`). Jalur cadangan di bawah hanya untuk kasus
+                  // WASM benar-benar tak pernah datang.
+                  function startMaps(){
+                    if(window.__mapsStarted) return;
+                    window.__mapsStarted = true;
+                    initViewers();
+                  }
+                  window.__pulseStartMaps = startMaps;
+
+                  // Cadangan: bila WASM gagal/terblok, peta tetap harus tampil.
+                  // 3 detik — cukup lama untuk kalah dari hidrasi yang normal,
+                  // cukup singkat agar halaman tanpa WASM tak lama menunggu.
+                  function scheduleMapsFallback(){
+                    setTimeout(function(){
+                      if(window.__pulseHydrated) return;  // hidrasi jalan → biar Rust
+                      startMaps();
+                    }, CADANGAN_MS);
+                  }
+                  // Dipertahankan namanya supaya pemanggil lama (MutationObserver
+                  // di bawah) tak perlu ikut berubah maknanya: sesudah peta boleh
+                  // mulai, ia hanya meng-init container BARU dari navigasi SPA.
+                  function autoInitMaps(){ if(window.__mapsStarted) initViewers(); }
                   // Fallback picker: jalan HANYA bila WASM gagal load (mismatch
                   // hydration terhindar). Bila `window.__pulseHydrated` ter-set
                   // (WASM jalan — lihat lib.rs hydrate()), Effect Leptos yang
@@ -283,11 +345,15 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                     setTimeout(function(){
                       if(window.__pulseHydrated) return;   // WASM ada → biar Effect
                       initPickersFallback();
-                    }, 1500);
+                    }, CADANGAN_MS);
                   }
                   function needsPicker(){ return !!document.querySelector('[data-map-picker]:not([data-map-init])'); }
-                  if(document.readyState!=='loading'){ autoInitMaps(); if(needsPicker()) schedulePickers(); }
-                  else { document.addEventListener('DOMContentLoaded', function(){ autoInitMaps(); if(needsPicker()) schedulePickers(); }); }
+                  // Yang dijadwalkan di sini hanya JALUR CADANGAN — bukan lagi
+                  // init langsung. Bandingkan dengan versi sebelumnya yang
+                  // memanggil `autoInitMaps()` seketika di DOMContentLoaded.
+                  function jadwalkanCadangan(){ scheduleMapsFallback(); if(needsPicker()) schedulePickers(); }
+                  if(document.readyState!=='loading'){ jadwalkanCadangan(); }
+                  else { document.addEventListener('DOMContentLoaded', jadwalkanCadangan); }
                   try{
                     var __mo=new MutationObserver(function(){
                       if(window.__mapT) return;

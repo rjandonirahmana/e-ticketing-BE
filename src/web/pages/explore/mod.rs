@@ -49,7 +49,37 @@ pub fn ExplorePage() -> impl IntoView {
     // Di-key sekali oleh kategori AWAL (dari URL); pergantian kategori setelah itu
     // ditangani store di klien, jadi resource ini tak refetch berulang.
     let initial_cat_val = active_cat.get_untracked();
+    // Blocking HANYA di SSR — alasan yang sama dengan `pages::event_detail`:
+    // saat navigasi klien, router menunggu view rute baru selesai di-resolve
+    // sebelum menukarnya, sementara gulir-ke-atas sudah terjadi. Resource
+    // blocking membuat kembali ke beranda terasa "menggulir tapi tak pindah".
+    // Di klien, store yang mengambil alih feed (lihat `store.is_active()`),
+    // jadi versi non-blocking tak mengubah apa pun selain membuat perpindahan
+    // halaman terjadi seketika.
+    #[cfg(feature = "ssr")]
     let ssr_first = Resource::new_blocking(
+        || (),
+        move |_| {
+            let cat = initial_cat_val.clone();
+            async move {
+                let cat_opt = if cat == "All" || cat.is_empty() {
+                    None
+                } else {
+                    Some(cat)
+                };
+                crate::web::api::get_events(
+                    Some(1),
+                    None,
+                    cat_opt,
+                    None,
+                    Some(crate::web::state::events::PAGE_SIZE),
+                )
+                .await
+            }
+        },
+    );
+#[cfg(not(feature = "ssr"))]
+    let ssr_first = Resource::new(
         || (),
         move |_| {
             let cat = initial_cat_val.clone();
@@ -755,10 +785,21 @@ pub fn ExplorePage() -> impl IntoView {
                     } else if !feed_error.with(|e| e.is_empty()) {
                         view! {
                             <div class="exp-empty">
+                                // Pesannya datang dari store, yang sudah
+                                // membedakan sebabnya (sesi habis / perangkat
+                                // luring / server bermasalah). Sebelumnya kalimat
+                                // ini dipatri di sini dan SELALU berbunyi "tidak
+                                // bisa terhubung ke server" — untuk galat apa pun,
+                                // termasuk saat server terhubung dan menjawab
+                                // dengan baik.
                                 <EmptyState
                                     icon="⚠️"
                                     title="Gagal Memuat"
-                                    body="Tidak bisa terhubung ke server. Coba muat ulang halaman."
+                                    // Closure pembungkusnya sudah dijalankan
+                                    // ulang saat `feed_error` berubah, jadi nilai
+                                    // biasa sudah cukup — `EmptyState` menerima
+                                    // String, bukan sinyal.
+                                    body=feed_error.get()
                                 />
                                 <button
                                     class="exp-reset-btn"

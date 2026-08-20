@@ -203,13 +203,13 @@ impl WsEvent {
     /// Alias semantik eksplisit untuk broadcast use-case.
     ///
     /// Pola yang BENAR di broadcast_room():
-    /// ```rust
+    /// ```text
     /// let shared = event.to_shared_json();          // serialize SEKALI
     /// for uid in members { deliver(uid, shared.clone()); }  // N × atomic clone
     /// ```
     ///
     /// BUKAN:
-    /// ```rust
+    /// ```text
     /// for uid in members { deliver(uid, event.to_json()); } // N × serialize — SALAH
     /// ```
     #[inline(always)]

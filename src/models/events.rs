@@ -9,6 +9,88 @@ pub struct DetailImageEntry {
     /// "map" | "seat" | "price" | "other"
     pub image_type: String,
     pub caption: String,
+    /// Titik fokus untuk `object-position`, mis. `"50% 50%"`.
+    ///
+    /// Tak perlu migrasi: kolom `events.detail_images` sudah JSONB, dan
+    /// `serde(default)` membuat seluruh entri LAMA (yang tak punya field ini)
+    /// tetap terbaca — nilainya jatuh ke tengah, persis perilaku sebelum fitur
+    /// ini ada. Jadi tak ada satu pun foto yang berubah tampilannya sampai
+    /// pemiliknya sendiri menggeser titiknya.
+    #[serde(default = "fokus_tengah")]
+    pub focus: String,
+}
+
+/// Titik fokus bawaan — tengah, sama dengan perilaku `object-position` bawaan.
+pub fn fokus_tengah() -> String {
+    "50% 50%".to_string()
+}
+
+/// Bersihkan nilai titik fokus dari luar menjadi bentuk yang aman dipakai
+/// langsung di CSS.
+///
+/// Nilai ini masuk ke atribut `style`, jadi ia TIDAK boleh dipercaya apa adanya:
+/// tanpa penyaringan, sebuah "titik fokus" bisa membawa deklarasi CSS lain
+/// sekaligus. Karena itu bentuknya tak diperbaiki-perbaiki — yang tak cocok
+/// dibuang seluruhnya dan diganti nilai tengah.
+///
+/// Rentangnya dijepit 0–100: di luar itu foto justru tergeser keluar bingkai,
+/// dan tak ada gunanya menyimpan angka yang hasilnya pasti salah.
+pub fn normalisasi_fokus(raw: &str) -> String {
+    let mut bagian = raw.trim().split_whitespace();
+    let (Some(x), Some(y), None) = (bagian.next(), bagian.next(), bagian.next()) else {
+        return fokus_tengah();
+    };
+    let angka = |s: &str| -> Option<u32> {
+        s.strip_suffix('%')?
+            .parse::<f32>()
+            .ok()
+            .filter(|v| v.is_finite())
+            .map(|v| v.clamp(0.0, 100.0).round() as u32)
+    };
+    match (angka(x), angka(y)) {
+        (Some(x), Some(y)) => format!("{x}% {y}%"),
+        _ => fokus_tengah(),
+    }
+}
+
+#[cfg(test)]
+mod tests_fokus {
+    use super::{fokus_tengah, normalisasi_fokus};
+
+    #[test]
+    fn nilai_wajar_dipertahankan() {
+        assert_eq!(normalisasi_fokus("30% 70%"), "30% 70%");
+        assert_eq!(normalisasi_fokus("  0%   100%  "), "0% 100%");
+    }
+
+    /// Pecahan dibulatkan — editor seret menghasilkan angka seperti 33.7%.
+    #[test]
+    fn pecahan_dibulatkan() {
+        assert_eq!(normalisasi_fokus("33.7% 66.2%"), "34% 66%");
+    }
+
+    /// Di luar bingkai dijepit, bukan ditolak: hasil seret yang meleset sedikit
+    /// tak boleh membuat penyimpanan gagal.
+    #[test]
+    fn di_luar_rentang_dijepit() {
+        assert_eq!(normalisasi_fokus("-20% 300%"), "0% 100%");
+    }
+
+    /// Apa pun yang bukan "X% Y%" jatuh ke tengah — termasuk percobaan
+    /// menyelipkan deklarasi CSS lain lewat field ini.
+    #[test]
+    fn bentuk_asing_jadi_tengah() {
+        for jahat in [
+            "center",
+            "50%",
+            "50% 50% 50%",
+            "50%;background:url(http://x)",
+            "red",
+            "",
+        ] {
+            assert_eq!(normalisasi_fokus(jahat), fokus_tengah(), "gagal untuk: {jahat}");
+        }
+    }
 }
 
 /// Metadata per file `detail_image` yang dikirim lewat multipart.
@@ -45,6 +127,11 @@ pub struct Event {
     pub slug: String,
     pub description: Option<String>,
     pub cover_url: Option<String>,
+    /// Titik fokus cover untuk `object-position` (mis. "50% 50%"). Satu berkas
+    /// asli dipakai di banyak rasio — kartu 1:1, hero lebar, thumbnail tiket —
+    /// dan nilai ini yang menentukan bagian mana yang bertahan saat dipotong.
+    #[serde(default = "fokus_tengah")]
+    pub cover_focus: String,
     /// Array foto detail event (denah, seat map, dll.)
     #[serde(default)]
     pub detail_images: Vec<DetailImageEntry>,
@@ -104,6 +191,11 @@ pub struct EventWithVariants {
     pub slug: String,
     pub description: Option<String>,
     pub cover_url: Option<String>,
+    /// Titik fokus cover untuk `object-position` (mis. "50% 50%"). Satu berkas
+    /// asli dipakai di banyak rasio — kartu 1:1, hero lebar, thumbnail tiket —
+    /// dan nilai ini yang menentukan bagian mana yang bertahan saat dipotong.
+    #[serde(default = "fokus_tengah")]
+    pub cover_focus: String,
     /// Array foto detail event (denah, seat map, dll.)
     #[serde(default)]
     pub detail_images: Vec<DetailImageEntry>,
@@ -204,6 +296,11 @@ pub struct UpdateEventRequest {
     pub name: Option<String>,
     pub description: Option<String>,
     pub cover_url: Option<String>,
+    /// Titik fokus cover (`object-position`). `None` = tak diubah — COALESCE di
+    /// repo. Konsisten dengan field lain di struct ini: yang tak dikirim form
+    /// tak boleh menimpa nilai lama dengan bawaan.
+    #[serde(default)]
+    pub cover_focus: Option<String>,
     pub venue: Option<String>,
     pub city: Option<String>,
     pub latitude: Option<f64>,

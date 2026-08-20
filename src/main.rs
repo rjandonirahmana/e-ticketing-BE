@@ -311,7 +311,7 @@ fn mount_fstype_for(dir: &Path) -> Option<String> {
         // Cocokkan per-komponen agar "/var" tak salah cocok dengan "/variant".
         if target.starts_with(Path::new(mount_point)) {
             let len = mount_point.len();
-            if best.as_ref().map_or(true, |(l, _)| len > *l) {
+            if best.as_ref().is_none_or(|(l, _)| len > *l) {
                 best = Some((len, fstype.to_string()));
             }
         }
