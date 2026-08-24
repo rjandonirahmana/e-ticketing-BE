@@ -1,0 +1,67 @@
+# Gitea Actions — BUILD SAJA untuk e-ticketing.
+#
+# ── BATAS TANGGUNG JAWAB WORKFLOW INI ───────────────────────────────────────
+# Berhenti tepat setelah image jadi. TIDAK menghentikan container, TIDAK
+# menjalankan yang baru, TIDAK menyentuh `.env`. Menjalankan versi baru adalah
+# keputusan manusia — dilakukan dari server lewat `/opt/e-ticketing/deploy.txt`,
+# yang memegang env sekaligus perintah `docker run`-nya.
+#
+# Pemisahan ini disengaja: build boleh jalan tiap push tanpa satu pun pengunjung
+# merasakannya, dan pergantian versi terjadi saat Anda memang siap.
+#
+# ── PRASYARAT (sekali saja) ─────────────────────────────────────────────────
+# `act_runner` terpasang di server, terdaftar dengan label `server` dan executor
+# `host` (bukan container) — kalau tidak, `docker` di dalam job tak menjangkau
+# Docker milik host. Lihat `pasang-runner.sh`.
+
+name: Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Dua build berbarengan akan berebut cache layer Docker yang sama dan saling
+# memperlambat. Yang baru menunggu, bukan bertabrakan.
+concurrency:
+  group: build-e-ticketing
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: server
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tes lebih dulu — inilah nilai utama CI yang hanya membangun.
+      # Tanpa langkah ini, "build hijau" cuma berarti kodenya bisa dikompilasi.
+      - name: Uji
+        run: cargo test --locked --no-default-features --features ssr
+
+      # `docker build` langsung — proyek ini tak memakai docker compose.
+      # Tag `pulse:latest` itulah yang dirujuk /opt/e-ticketing/deploy.txt.
+      # Container tak disentuh sama sekali di sini.
+      - name: Build image
+        run: docker build -t pulse:latest .
+
+      # Tag kedua berisi commit SHA. Gunanya saat sesuatu ternyata rusak
+      # sesudah dijalankan: `latest` sudah tertimpa build berikutnya, sedangkan
+      # tag SHA tetap menunjuk versi persis yang dulu berjalan — jadi mundur
+      # cukup `docker run pulse:<sha-lama>`, tanpa membangun ulang apa pun.
+      - name: Tandai dengan commit
+        run: |
+          SHA=$(echo "${{ gitea.sha }}" | cut -c1-8)
+          docker tag pulse:latest "pulse:$SHA"
+          echo "Image siap: pulse:latest dan pulse:$SHA"
+
+      # Dangling image dari build sebelumnya menumpuk diam-diam dan menghabiskan
+      # disk VPS. Hanya yang menganggur & tanpa tag yang dibuang — image yang
+      # sedang dipakai container mana pun tak tersentuh.
+      - name: Bersihkan image menganggur
+        if: always()
+        run: docker image prune -f
+
+      - name: Langkah berikutnya
+        run: |
+          echo "Image sudah siap di server."
+          echo "Jalankan versi baru dengan: bash /opt/e-ticketing/deploy.txt"
