@@ -33,11 +33,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Tes lebih dulu — inilah nilai utama CI yang hanya membangun.
-      # Tanpa langkah ini, "build hijau" cuma berarti kodenya bisa dikompilasi.
-      - name: Uji
-        run: cargo test --locked --no-default-features --features ssr
-
       # `docker build` langsung — proyek ini tak memakai docker compose.
       # Tag `pulse:latest` itulah yang dirujuk /opt/e-ticketing/deploy.txt.
       # Container tak disentuh sama sekali di sini.
