@@ -1,5 +1,6 @@
 use leptos::prelude::*;
 use leptos_router::components::A;
+use leptos_router::hooks::use_navigate;
 
 use crate::web::state::events::{event_to_explore_pub, ExploreEvent};
 use crate::web::utils::format_number;
@@ -125,6 +126,14 @@ pub fn EventCardPub(ev: ExploreEvent, #[prop(default = 0)] index: usize) -> impl
         ev.price_str.clone()
     };
     let org_href = format!("/m/{}", ev.merchant_id);
+    // Navigasi SPA, bukan `location().assign()`.
+    //
+    // Chip ini ada di SETIAP kartu event di beranda. Dengan `assign`, menekannya
+    // memicu MUAT ULANG DOKUMEN PENUH: seluruh HTML diambil lagi, WASM dimuat
+    // dan dihidrasi lagi dari nol — beberapa detik untuk perpindahan yang
+    // seharusnya seketika, dan persis terasa seperti "aplikasi nge-refresh
+    // sendiri". Router sudah ada di halaman ini; tinggal dipakai.
+    let ke_merchant = use_navigate();
     // Nama toko penyelenggara di chip; event lama tanpa nama → fallback generik.
     let org_label = if ev.merchant_name.is_empty() {
         "PENYELENGGARA \u{2192}".to_string()
@@ -166,14 +175,13 @@ pub fn EventCardPub(ev: ExploreEvent, #[prop(default = 0)] index: usize) -> impl
                     class="exp-mkt-org"
                     on:click={
                         move |e: leptos::ev::MouseEvent| {
+                            // `stop_propagation` tetap perlu: tanpa itu klik ikut
+                            // naik ke pendengar router di window, yang akan
+                            // membaca anchor kartu (induknya) dan justru membuka
+                            // halaman event — bukan profil penyelenggara.
                             e.prevent_default();
                             e.stop_propagation();
-                            #[cfg(target_arch = "wasm32")]
-                            if let Some(w) = web_sys::window() {
-                                let _ = w.location().assign(&org_href);
-                            }
-                            #[cfg(not(target_arch = "wasm32"))]
-                            let _ = &org_href;
+                            ke_merchant(&org_href, Default::default());
                         }
                     }
                 >

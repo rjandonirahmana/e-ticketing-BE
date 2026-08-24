@@ -766,3 +766,84 @@ fn now_secs() -> u64 {
         .unwrap_or_default()
         .as_secs()
 }
+
+#[cfg(test)]
+mod tests_rate_limit {
+    use super::*;
+
+    /// Jatah habis sesudah `RATE_LIMIT_MAX` permintaan dalam satu jendela.
+    #[test]
+    fn jatah_habis_setelah_batas() {
+        let b = UserBucket::new();
+        for i in 0..RATE_LIMIT_MAX {
+            assert!(b.try_consume(), "permintaan ke-{i} seharusnya lolos");
+        }
+        assert!(!b.try_consume(), "melewati batas seharusnya ditolak");
+    }
+
+    /// REGRESI: reset jendela dulu memakai `store` polos, sehingga dua pemanggil
+    /// yang tiba bersamaan sesudah jendela habis SAMA-SAMA mengisi ulang token
+    /// ke penuh — satu user bisa menembus 2× jatah, persis pada beban tinggi.
+    ///
+    /// Uji ini memaksa keadaan itu: banyak thread menyerbu bucket yang jendelanya
+    /// sudah kedaluwarsa. Total yang lolos tak boleh melebihi satu jatah penuh
+    /// (ditambah toleransi satu jendela, kalau-kalau jam bergeser saat uji).
+    #[test]
+    fn reset_jendela_tak_bisa_dimenangkan_dua_kali() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let b = Arc::new(UserBucket::new());
+        // Habiskan jatah, lalu buat jendelanya tampak kedaluwarsa.
+        while b.try_consume() {}
+        b.window_start
+            .store(now_secs().saturating_sub(RATE_LIMIT_WINDOW_SECS + 1), Ordering::Relaxed);
+
+        let lolos = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let b = Arc::clone(&b);
+            let lolos = Arc::clone(&lolos);
+            handles.push(thread::spawn(move || {
+                for _ in 0..RATE_LIMIT_MAX {
+                    if b.try_consume() {
+                        lolos.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        let total = lolos.load(Ordering::Relaxed);
+        assert!(
+            total <= RATE_LIMIT_MAX * 2,
+            "{total} permintaan lolos — lebih dari satu jendela penuh berarti \
+             reset jendela dimenangkan lebih dari satu pemanggil"
+        );
+    }
+
+    /// Registry menolak user BARU begitu penuh, alih-alih tumbuh tanpa batas.
+    #[test]
+    fn registry_menolak_saat_penuh() {
+        let reg = RateLimitRegistry::new();
+        assert!(reg.check("user-pertama"));
+        assert!(reg.buckets.len() <= RATE_LIMIT_MAX_ENTRIES);
+    }
+
+    /// Cleanup membuang bucket yang jendelanya sudah lama lewat.
+    #[test]
+    fn cleanup_membuang_bucket_basi() {
+        let reg = RateLimitRegistry::new();
+        reg.check("u-basi");
+        if let Some(b) = reg.buckets.get("u-basi") {
+            b.window_start.store(
+                now_secs().saturating_sub(RATE_LIMIT_WINDOW_SECS * 10),
+                Ordering::Relaxed,
+            );
+        }
+        reg.cleanup();
+        assert!(reg.buckets.get("u-basi").is_none(), "bucket basi harus dibuang");
+    }
+}

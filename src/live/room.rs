@@ -128,3 +128,68 @@ impl LiveRoom {
         }
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn room() -> LiveRoom {
+        // Penerima channel dibuang; tak ada perintah SFU yang dikirim di uji ini.
+        let (tx, _rx) = mpsc::channel(1);
+        LiveRoom::new("r1".into(), "merchant-1".into(), "Toko".into(), None, tx)
+    }
+    fn penonton(id: &str) -> ViewerInfo {
+        ViewerInfo { id: id.into(), name: format!("User {id}"), photo_url: None }
+    }
+
+    /// Satu user dengan BEBERAPA tab dihitung SEKALI.
+    #[test]
+    fn multi_tab_dihitung_satu() {
+        let r = room();
+        r.add_subscriber("conn-a", penonton("u1"));
+        r.add_subscriber("conn-b", penonton("u1"));
+        assert_eq!(r.viewer_count(), 1);
+        assert_eq!(r.viewers().len(), 1);
+    }
+
+    /// Menutup SATU tab tak boleh menghilangkan penonton yang masih menonton di
+    /// tab lain. Ini regresi dari `remove_subscriber` yang dulu menghapus entri
+    /// refcount tanpa syarat setelah melepas kuncinya.
+    #[test]
+    fn tutup_satu_tab_penonton_tetap_terhitung() {
+        let r = room();
+        r.add_subscriber("conn-a", penonton("u1"));
+        r.add_subscriber("conn-b", penonton("u1"));
+        r.remove_subscriber("conn-a");
+        assert_eq!(r.viewer_count(), 1, "masih ada satu tab terbuka");
+        r.remove_subscriber("conn-b");
+        assert_eq!(r.viewer_count(), 0, "semua tab tertutup");
+    }
+
+    /// Merchant pemilik siaran bukan penonton.
+    #[test]
+    fn pemilik_siaran_tak_dihitung() {
+        let r = room();
+        r.add_subscriber("conn-owner", penonton("merchant-1"));
+        assert_eq!(r.viewer_count(), 0);
+    }
+
+    /// Koneksi yang tak dikenal tak boleh membuat hitungan jadi negatif atau
+    /// menghapus entri orang lain.
+    #[test]
+    fn hapus_koneksi_asing_tak_berefek() {
+        let r = room();
+        r.add_subscriber("conn-a", penonton("u1"));
+        r.remove_subscriber("conn-entah");
+        assert_eq!(r.viewer_count(), 1);
+    }
+
+    /// Beberapa user berbeda dihitung terpisah.
+    #[test]
+    fn user_berbeda_dihitung_terpisah() {
+        let r = room();
+        for i in 0..5 {
+            r.add_subscriber(&format!("c{i}"), penonton(&format!("u{i}")));
+        }
+        assert_eq!(r.viewer_count(), 5);
+    }
+}
