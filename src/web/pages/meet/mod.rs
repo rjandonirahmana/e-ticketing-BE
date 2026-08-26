@@ -109,7 +109,7 @@ async fn get_display_media() -> Result<web_sys::MediaStream, String> {
 }
 
 /// Hentikan screen share: stop track layar, kembalikan track kamera ke semua
-/// peer (via replace_track) & ke preview lokal. Idempoten (tombol + event
+/// peer (via replace_track) & ke preview lokal. Idempoten (tombol + product
 /// `onended` browser bisa dua-duanya memanggil).
 fn stop_share(
     ctx: &Ctx,
@@ -392,7 +392,7 @@ pub fn MeetPage() -> impl IntoView {
     };
 
     // Bagikan layar: getDisplayMedia → replace_track ke semua peer; preview
-    // lokal jadi layar. Stop (tombol / event onended browser) → balik ke kamera.
+    // lokal jadi layar. Stop (tombol / product onended browser) → balik ke kamera.
     let toggle_share = Action::new_local(move |_: &()| {
         let c = ctx.get_value();
         async move {

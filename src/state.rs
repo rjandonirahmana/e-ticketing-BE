@@ -10,18 +10,21 @@ use tokio::sync::Semaphore;
 
 use crate::config::config::{RustFsConfig, WahaConfig};
 use crate::repository::{
-    banner::PgBannerRepository, event::PgEventRepository, group_chat::PgGroupChatRepository,
-    merchant::PgMerchantRepository, notification::PgNotificationRepository,
-    order::PgOrderRepository, story::PgStoryRepository, ticket::PgTicketRepository,
+    banner::PgBannerRepository, cart::PgCartRepository, product::PgProductRepository,
+    group_chat::PgGroupChatRepository, merchant::PgMerchantRepository,
+    notification::PgNotificationRepository, order::PgOrderRepository,
+    payment::PgPaymentRepository, refresh_token::PgRefreshTokenRepository,
+    story::PgStoryRepository, ticket::PgTicketRepository,
     user::PgUserRepository,
 };
 use crate::service::affinity::AffinityService;
 use crate::service::norifications::NotificationService;
 use crate::service::notification_store::NotificationStoreService;
 use crate::service::{
-    auth::AuthService, banners::BannerService, event::EventService, group_chat::GroupChatService,
-    merchant::MerchantService, order::OrderService, storage::StorageService, story::StoryService,
-    ticket::TicketService,
+    auth::AuthService, banners::BannerService, cart::CartService, product::ProductService,
+    group_chat::GroupChatService, merchant::MerchantService, order::OrderService,
+    payment::PaymentService, refresh::RefreshService, storage::StorageService,
+    story::StoryService, ticket::TicketService,
 };
 use crate::live::LiveStreamService;
 use crate::meet::MeetService;
@@ -42,21 +45,21 @@ pub struct PublicCache {
     pub categories: Cache<(), Vec<String>>,
     /// Key: canonical query string (page|city|category|search|per_page).
     /// 30 s TTL — cukup untuk meredam burst traffic tanpa data stale terasa.
-    pub events: Cache<String, crate::web::models::PaginatedEvents>,
-    /// Key: event slug. 60 s TTL — event detail jarang berubah.
-    pub event_detail: Cache<String, crate::web::models::EventWithVariants>,
+    pub products: Cache<String, crate::web::models::PaginatedProducts>,
+    /// Key: product slug. 60 s TTL — product detail jarang berubah.
+    pub product_detail: Cache<String, crate::web::models::ProductWithVariants>,
     /// Key: merchant_id. Profil publik /m/{id} — sub-query TERBERAT di halaman
-    /// (followers + events_count + rating agg). Viewer-invariant (is_following
+    /// (followers + products_count + rating agg). Viewer-invariant (is_following
     /// dihitung terpisah per-viewer), jadi aman di-cache. 60 s TTL — konsisten
-    /// dgn event_detail; follower/rating boleh stale sesaat saat traffic tinggi.
+    /// dgn product_detail; follower/rating boleh stale sesaat saat traffic tinggi.
     pub merchant_profile: Cache<String, crate::models::merchant::MerchantPublicProfile>,
     /// Key: merchant_id (== user_id pemilik). Grup story profil merchant —
-    /// dipakai story-ring di SETIAP buka event detail DAN panel STORY /m/{id}.
+    /// dipakai story-ring di SETIAP buka product detail DAN panel STORY /m/{id}.
     /// Viewer-invariant (`list_my_group` mengembalikan `viewed`=FALSE konstan),
     /// jadi aman lintas-viewer. TTL 30 s (story lebih dinamis dari profil):
     /// story baru muncul ≤30 s. Menghapus 1 query DB per buka detail.
     pub merchant_stories: Cache<String, Vec<crate::web::state::stories::StoryGroup>>,
-    /// Respons JSON REST publik (/api/events*, /api/banners) yang SUDAH
+    /// Respons JSON REST publik (/api/products*, /api/banners) yang SUDAH
     /// terserialisasi, sebagai `Bytes` (clone murah, langsung jadi body).
     /// Tanpa ini setiap request REST = query DB + serialisasi ulang.
     pub rest: Cache<String, bytes::Bytes>,
@@ -73,11 +76,11 @@ impl PublicCache {
                 .max_capacity(1)
                 .time_to_live(Duration::from_secs(300))
                 .build(),
-            events: Cache::builder()
+            products: Cache::builder()
                 .max_capacity(256)
                 .time_to_live(Duration::from_secs(30))
                 .build(),
-            event_detail: Cache::builder()
+            product_detail: Cache::builder()
                 .max_capacity(512)
                 .time_to_live(Duration::from_secs(60))
                 .build(),
@@ -95,6 +98,31 @@ impl PublicCache {
                 .build(),
         }
     }
+
+    /// Buang setiap entri cache yang bisa memuat versi lama sebuah product.
+    ///
+    /// Tanpa ini, TTL-lah satu-satunya yang menyegarkan: sesudah merchant
+    /// menekan SIMPAN, halaman publik dan REST tetap menyajikan versi lama
+    /// sampai 30–60 detik. Bagi yang baru saja menyimpan, itu tak terbaca
+    /// sebagai "cache" melainkan sebagai "perubahan saya tidak masuk" — lalu
+    /// ia menyimpan ulang berkali-kali, dan setiap kali tampak gagal lagi.
+    ///
+    /// Daftar (`products`, dan kunci `products|…` di `rest`) di-cache per kombinasi
+    /// query, jadi tak ada cara menyasar hanya yang memuat product ini —
+    /// seluruhnya dibuang. Ongkosnya satu query ulang per kombinasi yang masih
+    /// aktif; jauh lebih murah daripada data yang salah.
+    pub async fn invalidate_product(&self, slug: &str, merchant_id: &str) {
+        self.product_detail.invalidate(slug).await;
+        self.rest.invalidate(&format!("product|{slug}")).await;
+        self.rest.invalidate(&format!("loc|{slug}")).await;
+        self.products.invalidate_all();
+        self.rest.invalidate_all();
+        // Kategori bisa bertambah/hilang saat product diubah.
+        self.categories.invalidate(&()).await;
+        // Profil publik merchant memuat `products_count` (hanya status 'active'),
+        // yang ikut berubah begitu status product berpindah.
+        self.merchant_profile.invalidate(merchant_id).await;
+    }
 }
 
 pub struct AppState {
@@ -104,9 +132,15 @@ pub struct AppState {
     pub internal_jwt_secret: String,
 
     pub auth_svc: Arc<AuthService>,
+    /// Daur hidup refresh token: penerbitan, rotasi, pencabutan.
+    pub refresh_svc: Arc<RefreshService>,
     pub merchant_svc: Arc<MerchantService>,
-    pub event_svc: Arc<EventService>,
+    pub product_svc: Arc<ProductService>,
     pub order_svc: Arc<OrderService>,
+    /// Keranjang belanja DB-backed (menggantikan localStorage browser).
+    pub cart_svc: Arc<CartService>,
+    /// Kanal pembayaran & kode promo — datanya di tabel, bukan konstanta kode.
+    pub payment_svc: Arc<PaymentService>,
     pub ticket_svc: Arc<TicketService>,
     pub group_chat_svc: Arc<GroupChatService>,
     pub ws_mgr: Arc<WsManager>,
@@ -159,10 +193,13 @@ impl AppState {
 
         // ── Repositories ──────────────────────────────────────────────────────
         let user_repo = Arc::new(PgUserRepository::new(pool.clone()));
+        let refresh_repo = Arc::new(PgRefreshTokenRepository::new(pool.clone()));
         let banner_repo = Arc::new(PgBannerRepository::new(pool.clone()));
         let merchant_repo = Arc::new(PgMerchantRepository::new(pool.clone()));
-        let event_repo = Arc::new(PgEventRepository::new(pool.clone()));
+        let product_repo = Arc::new(PgProductRepository::new(pool.clone()));
         let order_repo = Arc::new(PgOrderRepository::new(pool.clone()));
+        let cart_repo = Arc::new(PgCartRepository::new(pool.clone()));
+        let payment_repo = Arc::new(PgPaymentRepository::new(pool.clone()));
         let ticket_repo = Arc::new(PgTicketRepository::new(pool.clone()));
         let group_chat_repo = Arc::new(PgGroupChatRepository::new(pool.clone()));
         let notification_repo = Arc::new(PgNotificationRepository::new(pool.clone()));
@@ -184,6 +221,11 @@ impl AppState {
             waha.clone(),
             redis.clone(),
         ));
+        let refresh_svc = Arc::new(RefreshService::new(
+            refresh_repo,
+            user_repo.clone(),
+            jwt.clone(),
+        ));
         let notif_service = Arc::new(NotificationService::new(
             http,
             waha,
@@ -191,10 +233,14 @@ impl AppState {
             redis.clone(),
         ));
         let merchant_svc = Arc::new(MerchantService::new(merchant_repo));
-        let event_svc = Arc::new(EventService::new(event_repo));
+        let product_svc = Arc::new(ProductService::new(product_repo));
         let notification_store_svc = Arc::new(NotificationStoreService::new(notification_repo));
         let ticket_svc = Arc::new(TicketService::new(ticket_repo.clone()));
         let group_chat_svc = Arc::new(GroupChatService::new(group_chat_repo, ws_mgr.clone()));
+        // Kanal pembayaran & keranjang dibuat SEBELUM order: checkout membaca
+        // keranjang dan menghitung biaya kanal dari sana.
+        let payment_svc = Arc::new(PaymentService::new(payment_repo));
+        let cart_svc = Arc::new(CartService::new(cart_repo, payment_svc.clone()));
         let order_svc = Arc::new(OrderService::new(
             order_repo,
             redis,
@@ -203,6 +249,8 @@ impl AppState {
             notification_store_svc.clone(),
             ticket_repo,
             group_chat_svc.clone(),
+            cart_svc.clone(),
+            payment_svc.clone(),
         ));
         let banner_svc = Arc::new(BannerService::new(banner_repo));
         let storage = Arc::new(StorageService::new(&rustfs));
@@ -226,9 +274,12 @@ impl AppState {
             jwt,
             internal_jwt_secret,
             auth_svc,
+            refresh_svc,
             merchant_svc,
-            event_svc,
+            product_svc,
             order_svc,
+            cart_svc,
+            payment_svc,
             ticket_svc,
             group_chat_svc,
             ws_mgr,

@@ -143,7 +143,7 @@ fn write_transform_buf(el_ref: NodeRef<leptos::html::Div>, st: &OverlayState, bu
 }
 
 // 🔴 FIX: Stack array — zero heap alloc per PointerMove.
-//   Browser coalesced events biasanya ≤ 4; buffer 8 aman.
+//   Browser coalesced products biasanya ≤ 4; buffer 8 aman.
 #[inline]
 fn coalesced_points<'a>(
     ev: &leptos::ev::PointerEvent,
@@ -434,7 +434,7 @@ pub fn DraggableOverlay(
         let mut became_drag = false;
         let mut any_movement = false;
 
-        // 🔴 FIX: Batch semua coalesced events, tulis DOM 1x di akhir
+        // 🔴 FIX: Batch semua coalesced products, tulis DOM 1x di akhir
         for &(cx, cy) in pts {
             ph.update_value(|s| {
                 if !s.actually_dragging {
@@ -477,7 +477,7 @@ pub fn DraggableOverlay(
             on_select.run(String::new());
         }
 
-        // 🔴 Tulis DOM sekali saja, meski ada 4 coalesced events
+        // 🔴 Tulis DOM sekali saja, meski ada 4 coalesced products
         if any_movement {
             tf_buf.update_value(|buf| {
                 let s = ph.get_value();

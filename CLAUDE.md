@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-PULSE — an event ticketing platform backend in Rust. A **single Axum binary on one port** serves four things at once:
+PULSE — a product/ticketing platform backend in Rust. A **single Axum binary on one port** serves four things at once:
 
 - **Leptos SSR + WASM-hydration web app** (`/*`, server functions at `/api-fn/*`)
 - **REST API** consumed by a separate Next.js frontend (`/api/*`)
@@ -29,7 +29,14 @@ To type-check the **WASM/hydrate** side (the client-only WebRTC code, web_sys us
 cargo check --target wasm32-unknown-unknown --no-default-features --features hydrate --lib
 ```
 
-There is no test suite in this repo. gRPC stubs are generated at build time by `build.rs` from `proto/auth.proto` (tonic/prost). DB migrations are raw SQL in `migration/` applied manually (no runner). Config comes from `.env` via dotenvy — see `.env.example`.
+gRPC stubs are generated at build time by `build.rs` from `proto/auth.proto` (tonic/prost).
+
+**DB migrations berjalan otomatis saat start** (`config/migrate.rs`), bukan lagi manual:
+- Berkas `migration/*.sql` di-embed ke binari oleh `build.rs` (urut nama), jadi container yang hanya memuat binari tetap bisa bermigrasi.
+- Tiap berkas dikirim **utuh** lewat `batch_execute` — PostgreSQL yang memisah pernyataannya. Ini menghapus kelas bug yang mahal: klien SQL yang memecah berkas per titik-koma tanpa memahami komentar akan membelah `CREATE TABLE` menjadi kepingan rusak, dan errornya muncul di pernyataan LAIN yang merujuk tabel yang tak pernah lahir.
+- `schema_migrations` mencatat versi + checksum; `pg_advisory_lock` menahan replika lain saat rolling deploy; tiap berkas berjalan dalam transaksinya sendiri bersama pencatatannya.
+- **Baseline `021_paid_at_semantics.sql`**: pada database yang sudah berisi data tapi belum punya `schema_migrations`, berkas sampai batas itu hanya DICATAT tanpa dijalankan — sebagian di antaranya (mis. `007_seed_bulk.sql`) tidak aman diulang. Database kosong menjalankan semuanya dari nol.
+- `AUTO_MIGRATE=false` mematikannya. Config comes from `.env` via dotenvy — see `.env.example`.
 
 ## The cfg-gating rule (most important architectural constraint)
 
@@ -86,6 +93,72 @@ A "zoom meet" between a merchant (host) and invited users. **Unlike `live` (SFU,
 - `api.rs`: `POST /api/meet/rooms` (auth merchant/admin → create), `GET /api/meet/rooms/{id}` (public info), and `GET /ws/meet/{room_id}` (public WS). The WS is public so invited guests can connect without login; **host identity is verified inside the handler** via the `pulse_token` cookie JWT (role + `user_id == host_id`).
 - Admission (waiting room): guests land in a pending list; only the host connection may send `admit`/`deny` (enforced server-side). Signaling relay (`signal`) is restricted to admitted peers. Anti-glare: the **newly admitted peer initiates** offers to existing peers. Mic/camera on-off is broadcast via a `state` → `peer_state` message so tiles show muted/avatar indicators.
 - Browser side: `web/pages/meet.rs` (`/meet/:id`), Google-Meet-style flow: **green room** (camera preview + mic/cam toggle + name before joining) → waiting → in-meet grid with a bottom **control bar** (mic, camera, host people-panel, leave). Route `/meet/host` = create+host (merchant "MEET" button on `/merchant`); `/meet/{room_id}` = guest invite link. WASM mesh manages one `RtcPeerConnection` per peer; remote `<video>` tiles are created imperatively in the DOM (reliable for binding dynamic `MediaStream`s; avatar/mic indicators toggled via class), the self tile + controls are reactive Leptos. STUN+TURN via `/api/rtc/ice` (`web/rtc.rs`).
+
+## Auth: access token JWT + refresh token opaque
+
+Sejak migrasi 025, keduanya adalah benda yang berbeda — dan itu poin utamanya.
+
+| | Access token | Refresh token |
+|---|---|---|
+| Bentuk | JWT bertanda tangan | 32 byte acak (opaque) |
+| Disimpan server | tidak (stateless) | ya, sebagai SHA-256 di `refresh_tokens` |
+| Umur | `JWT_EXPIRY_HOURS` | 30 hari |
+| Dicabut | tidak bisa | bisa, per token atau per keluarga |
+
+**Kenapa opaque, bukan JWT ber-`token_type`.** Karena bentuknya berbeda sama sekali, memakai access token sebagai refresh token menjadi mustahil secara struktur — bukan sekadar dilarang oleh satu pemeriksaan yang bisa lupa ditulis. Versi sebelumnya mengembalikan token yang SAMA di kedua field dan endpoint refresh menerima apa pun yang lolos verifikasi JWT.
+
+**Rotasi & deteksi pemakaian ulang** (`service/refresh.rs`): tiap refresh mencabut token lama dan menerbitkan yang baru dalam `family_id` yang sama. Token yang sudah dicabut muncul lagi = salinannya ada di dua tangan → **seluruh keluarga dicabut**. Pemilik sah ikut kerepotan sekali, dan itu disengaja: alternatifnya pencuri memegang rantai yang bisa diperpanjang tanpa batas.
+
+Balapan dua refresh serentak diputus oleh `WHERE revoked_at IS NULL` pada UPDATE pencabutan — hanya satu yang mendapat baris.
+
+**Peran diambil ulang dari database saat refresh**, tidak disalin dari token lama. Ini yang membatasi umur hak akses yang sudah dicabut. Perlu diketahui: dengan `JWT_EXPIRY_HOURS` masih 24, peran basi tetap bisa bertahan sampai 24 jam. Menurunkannya ke 15–30 menit kini AMAN untuk klien REST (mereka punya refresh), tetapi **web Leptos belum punya refresh cookie** — jalur cookie masih mengandalkan umur access token, jadi menurunkannya akan mengeluarkan pengguna web tiap 30 menit. Itu pekerjaan berikutnya.
+
+Baris yang dicabut sengaja disimpan sampai kedaluwarsa (deteksi pemakaian ulang butuh barisnya ada); tugas latar harian di `main.rs` membuang yang sudah lewat.
+
+## Styling: CSS lama + Tailwind, berdampingan
+
+Dua sistem hidup bersamaan selama migrasi bertahap:
+
+- `styles/parts/*.css` → digabung `build.rs` → di-embed binari → `/styles/app.css`. Memegang halaman yang belum dipindahkan.
+- `style/tailwind.css` → di-compile cargo-leptos (`tailwind-input-file`) → `/pkg/e-ticketing.css`. Tailwind **v4, dikonfigurasi lewat CSS** — tak ada `tailwind.config.js`.
+
+Empat hal yang harus dijaga saat menyentuh styling:
+
+1. **Warna & font memakai token, bukan hex.** Blok `@theme` memetakan `--color-brand: var(--color-primary)`, `--font-title: var(--font-display)`, dst. Utility karena itu ikut berubah saat tema terang/gelap diganti, tanpa satu pun varian `dark:`. Nama Tailwind sengaja BERBEDA dari nama token aplikasi (`brand` bukan `primary`) — nama yang sama menghasilkan `var()` melingkar dan properti itu batal diam-diam.
+2. **Preflight tidak diimpor** (hanya `theme.css` + `utilities.css`). Reset Tailwind akan menggeser jarak di seluruh CSS lama yang ditulis tanpanya. Konsekuensi: `border-2` tak memberi `border-style`, jadi tulis `border border-solid`.
+3. **Kelas harus literal di markup.** `@source "../src/**/*.rs"` memindai teks apa adanya. Kelas yang dirakit (`format!("bg-{…}")`) lolos purge dan gayanya hilang senyap di produksi. Untuk kelas kondisional, tulis dua rangkaian LENGKAP lalu pilih salah satu (lihat `cart_row` di `web/pages/cart.rs`).
+4. **`/pkg/*.css` hanya dihasilkan `cargo leptos build|watch`.** `make run` biasa tidak membuatnya.
+
+**Status migrasi:** `web/pages/cart.rs` sudah pindah (42 kelas eksklusifnya dihapus dari CSS). Kelas yang dipakai bersama banyak halaman — `page`, `page-header`, `back-btn`, `page-logo`, `header-actions`, `shim`, `item-*` — sengaja DIBIARKAN sebagai CSS: memindahkannya berarti menyentuh 25-58 berkas sekaligus, yang bukan lagi bertahap.
+
+## Penamaan domain: products, bukan events
+
+Migrasi 023 me-rename `events` → `products` dan `event_variants` → `product_variants`, beserta seluruh identifier Rust (`Product`, `ProductVariant`, `ProductService`, `PgProductRepository`, …), nama modul/berkas (`models/products.rs`, `repository/product/`, `web/pages/product_detail.rs`, …), dan URL publik (`/products/:slug`, `/api/products*`).
+
+**Nama KOLOM sengaja tidak ikut di-rename** — `product_variants.event_id`, `products.event_date`, `banners.event_id`, `group_rooms.event_id` tetap seperti semula, dan field Rust yang memetakannya juga. Alasannya operasional: `ALTER TABLE IF EXISTS … RENAME TO` aman dijalankan ulang, sedangkan `RENAME COLUMN` tak punya padanan `IF EXISTS` dan akan menggagalkan seluruh berkas pada percobaan kedua. Di database ini yang riwayat migrasinya sering berhenti separuh jalan, itu risiko yang tak sebanding.
+
+Identifier browser (`MouseEvent`, `StorageEvent`, `str0m::Event`, `add_event_listener_*`, `prevent_default`) jelas TIDAK termasuk rename — kalau menyunting massal lagi, kecualikan mereka.
+
+## Keranjang, order, pembayaran (DB-backed)
+
+Keranjang **tidak lagi hidup di `localStorage`**. Sejak `migration/022_cart_payment.sql`:
+
+- `carts` (satu baris aktif per user, dijaga unique index parsial `WHERE deleted_at IS NULL`) + `cart_items` yang hanya menyimpan varian, jumlah, dan **harga saat dimasukkan**. Nama event/varian, venue, dan cover TIDAK disalin — di-JOIN hidup dari `events`/`event_variants` tiap pembacaan, jadi mustahil basi. Harga satu-satunya pengecualian karena justru perbedaannya yang bermakna: harga yang MENGIKAT dihitung ulang di dalam transaksi order, dan selisihnya menandai "harga berubah sejak Anda menambahkan".
+- **`order_items` DIHAPUS** (migrasi 023). Baris pesanan kini tinggal di `cart_items`, dihubungkan lewat `orders.cart_id`, dan `tickets.cart_item_id` menggantikan `order_item_id`. Konsekuensinya yang harus dijaga:
+  - `cart_items.unit_price` berganti arti saat keranjang ditutup: selama `carts.deleted_at IS NULL` ia "harga yang dilihat pembeli", sesudahnya "harga yang ditagihkan". Transaksi order menimpanya dengan harga yang baru dikunci (`OrderTx::freeze_cart_items`) lalu menutup keranjang — keduanya di dalam transaksi yang sama.
+  - FK `cart_items → product_variants` menjadi `ON DELETE RESTRICT` (dulu CASCADE), karena tabel itu kini juga memuat pesanan berbayar. Agar merchant tetap bisa menghapus varian yang belum laku, `exec_delete_variant` lebih dulu melepasnya dari keranjang yang masih terbuka (`DETACH_VARIANT_FROM_OPEN_CARTS`).
+  - Jalur beli-langsung (`POST /api/orders`) tak punya keranjang, jadi transaksi order membuatkan **keranjang sekali-pakai yang lahir sudah tertutup** (`STMT_INSERT_CLOSED_CART`) — tidak menyerempet unique index "satu keranjang aktif per user".
+- `payment_methods` — kanal + biayanya sebagai DATA (`charge` tetap + `charge_percent`, `min/max_amount`, `allow_promo`, `is_instant`, `va_prefix`, `instruction`). Menambah kanal = satu baris INSERT, bukan deploy.
+- `promos` + `promo_redemptions` — kuota global (`quota_total`/`quota_used`) dan batas per user (`per_user_limit`).
+- `orders` bertambah `cart_id`, `subtotal_amount`, `discount_amount`, `promo_code`, `payment_vendor/code/charge`, `payment_expired_at`, `payment_reference`, `link_pay`. Invarian: `total_amount = subtotal_amount − discount_amount + payment_charge`.
+
+Alur & lapisannya (`repository/cart.rs`, `repository/payment.rs` → `service/cart.rs`, `service/payment.rs` → `service/order/checkout.rs`):
+
+- `CartService::view()` **menulis**, bukan sekadar membaca: barang yang tak bisa dibeli lagi (varian nonaktif, event tutup, stok habis, acara lewat) dibuang dan alasannya dikembalikan lewat `CartView.notif` — mengikuti `GET /cart/view` kiddoapi. Jumlah yang melebihi stok TIDAK dipotong diam-diam; barisnya ditandai `exceeds_stock` dan halaman mengunci tombol bayar.
+- `OrderService::checkout()` menerima **hanya** `payment_code` (+ promo opsional + idempotency key). Isi keranjang, harga, potongan, dan biaya kanal dihitung server. Kuota promo dipesan sebelum order dibuat dan dikembalikan bila order gagal lahir. Order dibuat lewat `create_inner` yang sama dengan jalur lain, jadi penguncian varian + penjaga oversell + retry + idempotensi berlaku identik.
+- Kanal `is_instant` (dan order nol rupiah) langsung dibayar sehingga tiket terbit tanpa langkah tambahan; sisanya lahir `pending` dengan nomor VA / referensi QRIS deterministik dari `order_code`.
+
+Endpoint REST sepadan dengan kiddoapi (`api/cart.rs`): `/api/cart/{view,count,create,add,quantity,item/:variant_id,clear,promo,payment}`, `/api/payments`, `/api/checkout`, `/api/orders/:id/{pay,cancel}`. Server function-nya di `web/api/server_fns/cart.rs` dan `checkout.rs`; halaman memakai `CartContext` (`web/app/contexts.rs`) yang **local-first**: perubahan diterapkan optimistis lalu dikoreksi jawaban server. Tamu tetap memakai `localStorage`, dan `bootstrap()` menuangnya ke keranjang server sekali saat login.
 
 ## External integrations
 

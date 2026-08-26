@@ -94,7 +94,7 @@
 .oc-event-block {
     padding: 16px 16px 0;
 }
-.oc-event-name {
+.oc-product-name {
     font-family: var(--font-display);
     font-size: 36px;
     color: var(--accent-blue);
@@ -368,7 +368,7 @@
 [data-theme="light"] .oc-hero-title {
     color: var(--accent-blue);
 }
-[data-theme="light"] .oc-event-name {
+[data-theme="light"] .oc-product-name {
     color: var(--accent-blue);
 }
 [data-theme="light"] .oc-price-total-amt {
@@ -501,7 +501,7 @@
     display: block;
     margin-bottom: 6px;
 }
-.ps-card-event {
+.ps-card-product {
     font-family: var(--font-display);
     font-size: 34px;
     color: var(--text-soft-accent);
@@ -641,7 +641,7 @@
 [data-theme="light"] .ps-title {
     color: var(--accent-blue);
 }
-[data-theme="light"] .ps-card-event {
+[data-theme="light"] .ps-card-product {
     color: var(--accent-blue);
 }
 [data-theme="light"] .ps-status {

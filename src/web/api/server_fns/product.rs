@@ -3,15 +3,15 @@ use leptos::prelude::*;
 #[cfg_attr(not(feature = "ssr"), allow(unused_imports))]
 use super::helpers::*;
 
-#[server(GetEvents, "/api-fn")]
-pub async fn get_events(
+#[server(GetProducts, "/api-fn")]
+pub async fn get_products(
     page: Option<i64>,
     city: Option<String>,
     category: Option<String>,
     search: Option<String>,
     per_page: Option<i64>,
-) -> Result<PaginatedEvents, ServerFnError> {
-    use crate::models::events::EventListQuery;
+) -> Result<PaginatedProducts, ServerFnError> {
+    use crate::models::products::ProductListQuery;
     let state = app_state().await?;
 
     let cache_key = format!(
@@ -22,11 +22,11 @@ pub async fn get_events(
         search.as_deref().unwrap_or(""),
         per_page.unwrap_or(20),
     );
-    if let Some(cached) = state.pub_cache.events.get(&cache_key).await {
+    if let Some(cached) = state.pub_cache.products.get(&cache_key).await {
         return Ok(cached);
     }
 
-    let q = EventListQuery {
+    let q = ProductListQuery {
         page,
         per_page,
         city,
@@ -34,21 +34,21 @@ pub async fn get_events(
         search,
         status: Some("active".into()),
     };
-    let result = state.event_svc.list(q, None).await.map_err(map_app_error)?;
-    let web = srv_paginated_events_to_web(result);
-    state.pub_cache.events.insert(cache_key, web.clone()).await;
+    let result = state.product_svc.list(q, None).await.map_err(map_app_error)?;
+    let web = srv_paginated_products_to_web(result);
+    state.pub_cache.products.insert(cache_key, web.clone()).await;
     Ok(web)
 }
 
-#[server(GetEventDetail, "/api-fn")]
-pub async fn get_event_detail(slug: String) -> Result<EventWithVariants, ServerFnError> {
+#[server(GetProductDetail, "/api-fn")]
+pub async fn get_product_detail(slug: String) -> Result<ProductWithVariants, ServerFnError> {
     let state = app_state().await?;
-    if let Some(cached) = state.pub_cache.event_detail.get(&slug).await {
+    if let Some(cached) = state.pub_cache.product_detail.get(&slug).await {
         return Ok(cached);
     }
-    let result = state.event_svc.get(&slug).await.map_err(map_app_error)?;
-    let web = srv_event_with_variants_to_web(result);
-    state.pub_cache.event_detail.insert(slug, web.clone()).await;
+    let result = state.product_svc.get(&slug).await.map_err(map_app_error)?;
+    let web = srv_product_with_variants_to_web(result);
+    state.pub_cache.product_detail.insert(slug, web.clone()).await;
     Ok(web)
 }
 
@@ -59,7 +59,7 @@ pub async fn get_categories() -> Result<Vec<String>, ServerFnError> {
         return Ok(cached);
     }
     let cats = state
-        .event_svc
+        .product_svc
         .list_categories()
         .await
         .map_err(map_app_error)?;
@@ -82,19 +82,19 @@ pub async fn get_banners() -> Result<Vec<Banner>, ServerFnError> {
     Ok(banners.into_iter().map(srv_banner_to_web).collect())
 }
 
-#[server(GetEventLocation, "/api-fn")]
-pub async fn get_event_location(slug: String) -> Result<serde_json::Value, ServerFnError> {
+#[server(GetProductLocation, "/api-fn")]
+pub async fn get_product_location(slug: String) -> Result<serde_json::Value, ServerFnError> {
     let state = app_state().await?;
-    let event = state
-        .event_svc
+    let product = state
+        .product_svc
         .get(&slug)
         .await
         .map_err(map_app_error)?;
     return Ok(serde_json::json!({
-        "venue": event.venue,
-        "city": event.city,
-        "slug": event.slug,
-        "latitude": event.latitude,
-        "longitude": event.longitude,
+        "venue": product.venue,
+        "city": product.city,
+        "slug": product.slug,
+        "latitude": product.latitude,
+        "longitude": product.longitude,
     }));
 }

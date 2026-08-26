@@ -105,6 +105,26 @@ async fn run() -> Result<()> {
     let pool = create_pool(&cfg.database_url, cfg.db_pool_max_size).await?;
     tracing::info!("Postgres pool ready (max={})", cfg.db_pool_max_size);
 
+    // ── Migrasi ──────────────────────────────────────────────────────────────
+    // Dijalankan SEBELUM apa pun menyentuh tabel, dijaga advisory lock sehingga
+    // aman saat beberapa replika start bersamaan.
+    //
+    // Gagal migrasi = gagal start, disengaja. Melanjutkan dengan skema yang tak
+    // cocok hanya memindahkan kegagalan ke request pertama pengguna, dalam
+    // bentuk "column ... does not exist" yang jauh lebih sulit dilacak.
+    //
+    // `AUTO_MIGRATE=false` mematikannya bagi deployment yang menjalankan
+    // migrasi lewat langkah terpisah.
+    let auto_migrate = std::env::var("AUTO_MIGRATE")
+        .map(|v| !matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no"))
+        .unwrap_or(false);
+
+    if auto_migrate {
+        e_ticketing::config::migrate::run(&pool).await?;
+    } else {
+        tracing::warn!("AUTO_MIGRATE dimatikan — pastikan skema sudah dimigrasi terpisah");
+    }
+
     let redis_url = format!("{}/1", cfg.redis_url.trim_end_matches('/'));
     let redis_conn = redis::aio::ConnectionManager::new_with_config(
         redis::Client::open(redis_url.as_str())?,
@@ -160,6 +180,30 @@ async fn run() -> Result<()> {
         .await,
     );
 
+    // ── Pembersihan refresh token kedaluwarsa ────────────────────────────────
+    // Baris yang sudah DICABUT sengaja tetap disimpan sampai kedaluwarsa —
+    // itulah yang membuat deteksi pemakaian ulang bekerja, karena token curian
+    // yang dicoba lagi masih ketemu barisnya. Setelah lewat masa berlaku ia tak
+    // berguna lagi, dan tanpa pembersihan tabelnya tumbuh selamanya.
+    {
+        let svc = state.refresh_svc.clone();
+        tokio::spawn(async move {
+            // Dijalankan sekali saat start lalu sehari sekali. Bukan pekerjaan
+            // mendesak, jadi kegagalannya cukup dicatat — tak boleh menjatuhkan
+            // proses.
+            loop {
+                match svc.cleanup_expired().await {
+                    Ok(n) if n > 0 => {
+                        tracing::info!(dihapus = n, "refresh token kedaluwarsa dibersihkan")
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(error = %e, "pembersihan refresh token gagal"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
+            }
+        });
+    }
+
     let ws_state = Arc::new(WsAppState {
         jwt: state.jwt.clone(),
         ws_mgr: state.ws_mgr.clone(),
@@ -184,12 +228,35 @@ async fn run() -> Result<()> {
 
     let ssr_routes = generate_route_list(App);
 
-    let leptos_router: axum::Router = axum::Router::new()
+    let mut leptos_router = axum::Router::new()
         .leptos_routes(&leptos_options, ssr_routes, {
             let opts = leptos_options.clone();
             move || shell(opts.clone())
         })
-        .fallback(leptos_axum::file_and_error_handler(shell))
+        .fallback(leptos_axum::file_and_error_handler(shell));
+
+    // Nama bundle WASM yang ditulis build vs yang dimuat glue JS bisa berbeda —
+    // lihat `wasm_bg_alias`. Tanpa alias ini hydration diam-diam tak pernah
+    // jalan dan seluruh aplikasi jadi HTML mati yang tampak normal.
+    if let Some((alias, berkas)) = wasm_bg_alias(&site_root, &leptos_options.output_name) {
+        tracing::warn!(
+            alias = %alias,
+            berkas = %berkas.display(),
+            "bundle WASM bernama beda dari yang diminta glue JS — alias dipasang \
+             agar hydration tetap jalan"
+        );
+        leptos_router =
+            leptos_router.route_service(&alias, tower_http::services::ServeFile::new(berkas));
+    }
+
+    let leptos_router: axum::Router = leptos_router
+        // Silent refresh HARUS di atas jalur Leptos: ia menyuntikkan token baru
+        // ke header Cookie permintaan ini, sehingga SSR dan server function di
+        // belakangnya langsung melihat pengguna yang sudah masuk.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            e_ticketing::middleware::silent_refresh::silent_refresh,
+        ))
         .layer(axum::middleware::from_fn(pkg_no_cache))
         // Provide AppState as Axum Extension so server functions can extract it
         .layer(axum::Extension(state.clone()))
@@ -338,7 +405,61 @@ fn build_cors(_cfg: &AppConfig) -> tower_http::cors::CorsLayer {
     }
 }
 
-/// Prevent browsers from caching /pkg/* (JS/WASM) across deploys.
+/// Cari berkas WASM yang namanya tak cocok dengan yang diminta glue JS.
+///
+/// cargo-leptos 0.3.7 menulis bundle sebagai `<output-name>.wasm`, sedangkan
+/// glue JS yang ia hasilkan SENDIRI memuat `<output-name>_bg.wasm`. Namanya
+/// beda satu suku kata, dan akibatnya tak sebanding: permintaan WASM dijawab
+/// 404.
+///
+/// Yang membuat kegagalan ini mahal adalah bentuknya. Tak ada halaman error,
+/// tak ada layar putih — HTML dari SSR tetap terpampang utuh, bisa digulir,
+/// bisa diketik. Yang tidak terjadi hanyalah hydration, sehingga TIDAK SATU PUN
+/// tombol di seluruh aplikasi bekerja. Ditekan, tak ada loading, tak ada galat,
+/// tak ada permintaan ke server. Semua tampak baik-baik saja kecuali bahwa tak
+/// ada yang berfungsi.
+///
+/// `Dockerfile` sudah menormalkan nama ini saat membangun image. Alias di sini
+/// membuat jalur dev (`make dev` / `cargo leptos watch`) ikut benar tanpa perlu
+/// menyalin berkas secara manual sesudah setiap rebuild — dan tetap diam bila
+/// versi cargo-leptos berikutnya sudah menulis nama yang benar.
+///
+/// Mengembalikan `(path URL alias, berkas nyata di disk)`.
+fn wasm_bg_alias(site_root: &str, output_name: &str) -> Option<(String, std::path::PathBuf)> {
+    let pkg = std::path::Path::new(site_root).join("pkg");
+    let diminta = pkg.join(format!("{output_name}_bg.wasm"));
+    let tersedia = pkg.join(format!("{output_name}.wasm"));
+
+    // Tak ada yang bisa dialiaskan.
+    if !tersedia.exists() {
+        return None;
+    }
+
+    // Berkas ber-nama benar sudah ada — tapi belum tentu masih sahih. Salinan
+    // manual yang pernah dibuat orang untuk menambal masalah ini tidak ikut
+    // diperbarui saat `cargo leptos watch` membangun ulang, dan salinan basi
+    // JAUH lebih buruk daripada 404: glue JS yang baru bertemu WASM lama, lalu
+    // hydration gagal dengan "is not a function" yang membingungkan.
+    //
+    // Karena itu yang dibandingkan bukan sekadar ada/tidak, melainkan umurnya.
+    if diminta.exists() {
+        let umur = |p: &std::path::Path| {
+            std::fs::metadata(p)
+                .and_then(|m| m.modified())
+                .ok()
+        };
+        match (umur(&diminta), umur(&tersedia)) {
+            // Salinannya lebih tua dari hasil build terbaru → jangan dipakai.
+            (Some(a), Some(b)) if a < b => {}
+            // Sama baru (atau umurnya tak terbaca): percayai berkas aslinya.
+            _ => return None,
+        }
+    }
+
+    Some((format!("/pkg/{output_name}_bg.wasm"), tersedia))
+}
+
+/// Prproduct browsers from caching /pkg/* (JS/WASM) across deploys.
 /// Without this, stale JS + new WASM causes "is not a function" hydration crashes.
 async fn pkg_no_cache(
     req: axum::http::Request<axum::body::Body>,

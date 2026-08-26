@@ -2,7 +2,16 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
-/// Satu foto detail event (denah, seat map, info harga, dll.)
+/// Status product yang sedang menunggu review admin.
+///
+/// Product baru dan setiap suntingan merchant masuk ke antrean ini
+/// (`ProductService::list_cancelled_products` membacanya), dan hanya admin yang
+/// memindahkannya ke `"active"`. Ditulis sekali di sini karena nilainya harus
+/// sama persis di tiga tempat — INSERT, UPDATE, dan kueri antrean review;
+/// satu huruf beda dan product menghilang dari antrean tanpa jejak galat.
+pub const STATUS_MENUNGGU_REVIEW: &str = "edited";
+
+/// Satu foto detail product (denah, seat map, info harga, dll.)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DetailImageEntry {
     pub url: String,
@@ -11,7 +20,7 @@ pub struct DetailImageEntry {
     pub caption: String,
     /// Titik fokus untuk `object-position`, mis. `"50% 50%"`.
     ///
-    /// Tak perlu migrasi: kolom `events.detail_images` sudah JSONB, dan
+    /// Tak perlu migrasi: kolom `products.detail_images` sudah JSONB, dan
     /// `serde(default)` membuat seluruh entri LAMA (yang tak punya field ini)
     /// tetap terbaca — nilainya jatuh ke tengah, persis perilaku sebelum fitur
     /// ini ada. Jadi tak ada satu pun foto yang berubah tampilannya sampai
@@ -120,7 +129,7 @@ impl Default for DetailImageMeta {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Event {
+pub struct Product {
     pub id: String,
     pub merchant_id: String,
     pub name: String,
@@ -132,7 +141,7 @@ pub struct Event {
     /// dan nilai ini yang menentukan bagian mana yang bertahan saat dipotong.
     #[serde(default = "fokus_tengah")]
     pub cover_focus: String,
-    /// Array foto detail event (denah, seat map, dll.)
+    /// Array foto detail product (denah, seat map, dll.)
     #[serde(default)]
     pub detail_images: Vec<DetailImageEntry>,
     /// Harga base termurah dari variant aktif.
@@ -162,14 +171,14 @@ pub struct Event {
     /// Nama toko penyelenggara (JOIN merchant_details.store_name). None hanya
     /// pada jalur tanpa join (INSERT RETURNING).
     pub merchant_name: Option<String>,
-    /// Ringkasan profil penyelenggara untuk bottom sheet di event detail.
+    /// Ringkasan profil penyelenggara untuk bottom sheet di product detail.
     /// HANYA terisi pada query detail (by slug/id dengan MERCHANT_INFO_COLS) —
     /// list & INSERT RETURNING tak membayar subquery agregatnya (None).
     #[serde(default)]
     pub merchant: Option<MerchantSummary>,
 }
 
-/// Ringkasan profil merchant yang di-embed di detail event: satu round-trip
+/// Ringkasan profil merchant yang di-embed di detail product: satu round-trip
 /// (JOIN + subquery agregat) — sheet penyelenggara tak perlu fetch kedua.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MerchantSummary {
@@ -178,13 +187,13 @@ pub struct MerchantSummary {
     pub description: Option<String>,
     pub verified: bool,
     pub followers: i64,
-    pub events_count: i64,
+    pub products_count: i64,
     pub rating_avg: f64,
     pub rating_count: i64,
 }
 
 #[derive(Debug, Serialize)]
-pub struct EventWithVariants {
+pub struct ProductWithVariants {
     pub id: String,
     pub merchant_id: String,
     pub name: String,
@@ -196,7 +205,7 @@ pub struct EventWithVariants {
     /// dan nilai ini yang menentukan bagian mana yang bertahan saat dipotong.
     #[serde(default = "fokus_tengah")]
     pub cover_focus: String,
-    /// Array foto detail event (denah, seat map, dll.)
+    /// Array foto detail product (denah, seat map, dll.)
     #[serde(default)]
     pub detail_images: Vec<DetailImageEntry>,
     pub venue: Option<String>,
@@ -222,12 +231,12 @@ pub struct EventWithVariants {
     pub total_quota: i32,
     /// Nama toko penyelenggara (JOIN merchant_details.store_name).
     pub merchant_name: Option<String>,
-    /// Ringkasan profil penyelenggara (bottom sheet event detail).
+    /// Ringkasan profil penyelenggara (bottom sheet product detail).
     pub merchant: Option<MerchantSummary>,
-    pub event_variants: Vec<crate::models::event_variants::EventVariantResponse>,
+    pub product_variants: Vec<crate::models::product_variants::ProductVariantResponse>,
 }
 
-/// Variant inline di dalam CreateEventRequest.
+/// Variant inline di dalam CreateProductRequest.
 #[derive(Debug, Serialize, Deserialize, Validate)]
 pub struct CreateVariantInline {
     #[validate(length(min = 1, max = 255))]
@@ -244,10 +253,10 @@ pub struct CreateVariantInline {
     pub sort_order: Option<i32>,
 }
 
-/// Satu hit: event + variants + image sekaligus.
+/// Satu hit: product + variants + image sekaligus.
 /// FE kirim multipart: field "data" (JSON) + field "image" (file opsional).
 #[derive(Debug, Serialize, Deserialize, Validate)]
-pub struct CreateEventRequest {
+pub struct CreateProductRequest {
     /// Nama merchant — dipakai untuk generate slug.
     #[validate(length(min = 1, max = 80))]
     pub merchant_name: String,
@@ -268,7 +277,7 @@ pub struct CreateEventRequest {
     /// Min 1 variant wajib ada.
     #[validate(length(min = 1))]
     pub variants: Vec<CreateVariantInline>,
-    /// Foto detail event yang sudah di-upload ke storage.
+    /// Foto detail product yang sudah di-upload ke storage.
     #[serde(default)]
     pub detail_images: Vec<DetailImageEntry>,
 }
@@ -291,7 +300,7 @@ pub struct UpdateVariantInline {
 }
 
 #[derive(Debug, Deserialize, Validate)]
-pub struct UpdateEventRequest {
+pub struct UpdateProductRequest {
     #[validate(length(min = 2, max = 255))]
     pub name: Option<String>,
     pub description: Option<String>,
@@ -306,13 +315,19 @@ pub struct UpdateEventRequest {
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
     pub event_date: Option<DateTime<Utc>>,
+    /// `None` = kategori tak disentuh. `Some(vec![])` = merchant melepas SEMUA
+    /// centang kategori, dan itu harus benar-benar tersimpan sebagai kosong.
+    ///
+    /// Dulu tipenya `Vec<String>` dan repo memperlakukan vec kosong sebagai
+    /// "tidak dikirim" (COALESCE), sehingga kategori mustahil dikosongkan:
+    /// centang dilepas, SIMPAN, lalu kategori lama muncul lagi.
     #[serde(default)]
-    pub category: Vec<String>,
+    pub category: Option<Vec<String>>,
     pub start_time: Option<DateTime<Utc>>,
     pub end_time: Option<DateTime<Utc>>,
     /// Hanya admin yang boleh set status selain "edited".
     /// Merchant: field ini di-ignore oleh route handler (di-hardcode "edited").
-    /// Admin: dikirim via PUT /api/admin/events/:id/status
+    /// Admin: dikirim via PUT /api/admin/products/:id/status
     pub status: Option<String>,
     /// Foto detail — None = tidak berubah, Some(vec) = replace seluruhnya.
     pub detail_images: Option<Vec<DetailImageEntry>>,
@@ -321,7 +336,7 @@ pub struct UpdateEventRequest {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct EventListQuery {
+pub struct ProductListQuery {
     pub city: Option<String>,
     pub status: Option<String>,
     pub category: Option<String>,
@@ -331,8 +346,8 @@ pub struct EventListQuery {
 }
 
 #[derive(Debug, Serialize)]
-pub struct PaginatedEvents {
-    pub data: Vec<Event>,
+pub struct PaginatedProducts {
+    pub data: Vec<Product>,
     pub total: i64,
     pub page: i64,
     pub per_page: i64,

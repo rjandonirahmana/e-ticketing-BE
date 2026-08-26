@@ -11,7 +11,7 @@ use crate::web::models::{format_price, TicketResponse};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn fmt_event_date(dt: &DateTime<Utc>) -> String {
+fn fmt_product_date(dt: &DateTime<Utc>) -> String {
     use chrono::Datelike;
     let months = ["JAN","FEB","MAR","APR","MEI","JUN","JUL","AGU","SEP","OKT","NOV","DES"];
     format!("{} {} {}", dt.day(), months[dt.month0() as usize], dt.year())
@@ -168,15 +168,15 @@ pub fn OrderTicketsPage() -> impl IntoView {
                         let first    = list.first().expect("list is not empty");
                         let ev_name  = first.event_name.clone().to_uppercase();
                         let order_code = first.order_code.clone();
-                        let ev_date  = fmt_event_date(&first.event_date);
+                        let ev_date  = fmt_product_date(&first.event_date);
                         let venue    = first.event_venue.clone().unwrap_or_default();
                         let total: f64 = list.iter().map(|t| t.unit_price).sum();
                         let count    = list.len();
 
                         view! {
                             <div class="yt-content">
-                                <div class="yt-event-header">
-                                    <h1 class="yt-event-name">{ev_name}</h1>
+                                <div class="yt-product-header">
+                                    <h1 class="yt-product-name">{ev_name}</h1>
                                     <div class="yt-order-row">
                                         <div class="yt-order-left">
                                             <span class="yt-order-id-label">
@@ -193,7 +193,7 @@ pub fn OrderTicketsPage() -> impl IntoView {
                                         </div>
                                     </div>
                                     {(!ev_date.is_empty()).then(|| view! {
-                                        <div class="yt-event-meta">
+                                        <div class="yt-product-meta">
                                             <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
                                                  stroke="currentColor" stroke-width="2" stroke-linecap="round">
                                                 <rect x="3" y="4" width="18" height="18" rx="2"/>

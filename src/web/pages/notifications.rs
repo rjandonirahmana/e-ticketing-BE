@@ -112,7 +112,7 @@ fn map_notif(n: &NotificationItem) -> NotifView {
             "payment_success" | "order_paid" => ("success", Some("PAID"), "live"),
             "promo" => ("promo", Some("PROMO"), "promo"),
             "artist_update" => ("artist", Some("NEW"), "new"),
-            "event_reminder" => ("bell", None, "new"),
+            "product_reminder" => ("bell", None, "new"),
             _ => ("bell", None, "new"),
         };
     let section = if n.kind == "promo" { "PROMOTIONS" } else { "TODAY" };
@@ -188,13 +188,6 @@ pub fn NotificationsPage() -> impl IntoView {
                 <span class="page-logo">"NOTIFICATIONS"</span>
                 <div class="header-actions">
                     <ThemeToggle />
-                    <A href="/profile" attr:class="nav-avatar">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" stroke-linecap="round">
-                            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-                            <circle cx="12" cy="7" r="4" />
-                        </svg>
-                    </A>
                 </div>
             </header>
 
@@ -312,7 +305,7 @@ fn empty_state() -> impl IntoView {
 
             <h2 class="notif-empty-title">"SEMUA TENANG"</h2>
             <p class="notif-empty-body">
-                "Belum ada notifikasi untukmu. Notifikasi tentang tiket, promo, dan event akan muncul di sini."
+                "Belum ada notifikasi untukmu. Notifikasi tentang tiket, promo, dan product akan muncul di sini."
             </p>
 
             <A href="/explore" attr:class="notif-empty-cta">

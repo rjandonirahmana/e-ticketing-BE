@@ -249,7 +249,7 @@ pub fn TicketDetailPage() -> impl IntoView {
                                     let _masked_code    = mask_ticket_code(&t.ticket_code);
                                     let _share_title    = t.event_name.clone();
                                     let _share_cover    = cover.clone();
-                                    let _share_event_id = t.event_id.clone();
+                                    let _share_product_id = t.event_id.clone();
                                     let _share_slug     = t.event_slug.clone();
                                     let _share_date     = date_str.clone();
                                     let _share_venue    = venue.clone();
@@ -265,20 +265,20 @@ pub fn TicketDetailPage() -> impl IntoView {
                                         {
                                             let params = web_sys::UrlSearchParams::new()
                                                 .expect("UrlSearchParams");
-                                            params.append("event_id",    &_share_event_id);
+                                            params.append("event_id",    &_share_product_id);
                                             // Kirim slug agar story yang dipublish dari tiket tetap
-                                            // tertaut ke halaman event (viewer bisa tap-through).
+                                            // tertaut ke halaman product (viewer bisa tap-through).
                                             params.append("event_slug",  &_share_slug);
                                             params.append("event_title", &_share_title);
                                             params.append("event_cover", &_share_cover);
                                             params.append("event_date",  &_share_date);
                                             params.append("event_venue", &_share_venue);
-                                            params.append("event_price", &format!("{} · {}", _share_tier, _share_price_str));
+                                            params.append("product_price", &format!("{} · {}", _share_tier, _share_price_str));
                                             params.append("is_ticket",   "1");
                                             params.append("ticket_ref",  &_masked_code);
                                             if let Some(win) = web_sys::window() {
                                                 if let Ok(Some(storage)) = win.session_storage() {
-                                                    let _ = storage.set_item("story_hero_transition", "event");
+                                                    let _ = storage.set_item("story_hero_transition", "product");
                                                     let _ = storage.set_item("story_hero_cover", &_share_cover);
                                                 }
                                             }
@@ -299,7 +299,7 @@ pub fn TicketDetailPage() -> impl IntoView {
                                                 <div class="td-hero-gradient"></div>
                                                 <div class="td-hero-content">
                                                     <span class="td-confirmed">{status_badge}</span>
-                                                    <h1 class="td-event-title">
+                                                    <h1 class="td-product-title">
                                                         {t.event_name.clone()}
                                                     </h1>
                                                 </div>

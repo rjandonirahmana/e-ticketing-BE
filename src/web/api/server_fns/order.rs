@@ -24,6 +24,9 @@ pub async fn get_order_detail(id: String) -> Result<OrderDetail, ServerFnError> 
         .detail(&id, &claims.user_id)
         .await
         .map_err(map_app_error)?;
+    // Nama & instruksi kanal tinggal di `payment_methods`; dilekatkan di sini
+    // supaya halaman detail order tak perlu memetakan kode kanal sendiri.
+    let order = state.order_svc.enrich_payment(order).await;
     return Ok(srv_order_detail_to_web(order));
 }
 

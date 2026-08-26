@@ -1,7 +1,7 @@
 //! api/admin.rs
 //!
-//! GET /api/admin/events          (private, query: page, status)
-//! PUT /api/admin/events/:id      (private, body: { status })
+//! GET /api/admin/products          (private, query: page, status)
+//! PUT /api/admin/products/:id      (private, body: { status })
 
 use axum::{
     extract::{Path, Query, State},
@@ -16,15 +16,15 @@ use crate::state::AppState;
 use super::extractor::{app_err, AuthUser};
 
 #[derive(Deserialize, Default)]
-pub struct AdminEventsQuery {
+pub struct AdminProductsQuery {
     pub page: Option<i64>,
     pub status: Option<String>,
 }
 
-async fn list_admin_events(
+async fn list_admin_products(
     AuthUser(claims): AuthUser,
     State(state): State<Arc<AppState>>,
-    Query(q): Query<AdminEventsQuery>,
+    Query(q): Query<AdminProductsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     if claims.role != "admin" {
         return Err((
@@ -32,8 +32,8 @@ async fn list_admin_events(
             Json(serde_json::json!({ "message": "Akses ditolak" })),
         ));
     }
-    use crate::models::events::EventListQuery;
-    let query = EventListQuery {
+    use crate::models::products::ProductListQuery;
+    let query = ProductListQuery {
         page: q.page,
         per_page: Some(50),
         city: None,
@@ -41,7 +41,7 @@ async fn list_admin_events(
         search: None,
         status: q.status,
     };
-    let result = state.event_svc.list(query, None).await.map_err(app_err)?;
+    let result = state.product_svc.list(query, None).await.map_err(app_err)?;
     Ok(Json(serde_json::to_value(result).unwrap_or_default()))
 }
 
@@ -50,7 +50,7 @@ pub struct UpdateStatusReq {
     pub status: String,
 }
 
-async fn update_event_status(
+async fn update_product_status(
     AuthUser(claims): AuthUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -63,15 +63,21 @@ async fn update_event_status(
         ));
     }
     let result = state
-        .event_svc
+        .product_svc
         .admin_update_status(&id, &body.status)
         .await
         .map_err(app_err)?;
+    // Sama seperti jalur server-function-nya: status berubah = data publik
+    // berubah, jadi cache-nya harus ikut dibuang saat itu juga.
+    state
+        .pub_cache
+        .invalidate_product(&result.slug, &result.merchant_id)
+        .await;
     Ok(Json(serde_json::json!({ "id": result.id, "status": result.status })))
 }
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/admin/events", get(list_admin_events))
-        .route("/admin/events/{id}", put(update_event_status))
+        .route("/admin/products", get(list_admin_products))
+        .route("/admin/products/{id}", put(update_product_status))
 }

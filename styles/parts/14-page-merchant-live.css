@@ -575,3 +575,22 @@
     box-shadow: 0 0 20px rgba(188, 24, 48, 0.2);
 }
 
+
+/* ── Siaran fullscreen tetap di dalam kolom mobile ──────────────────────────
+   Aplikasi ini memakai SATU tampilan: kolom 480px terpusat, juga di laptop
+   (lihat `web/app/router.rs`). Tiga elemen `position: fixed` di bawah memakai
+   `left: 0; right: 0`, jadi tanpa pembatas ini merekalah satu-satunya bagian
+   yang melar memenuhi layar — kamera selebar 1920px di atas aplikasi selebar
+   480px, dengan tombol kontrol terlempar jauh ke tepi.
+
+   `position: fixed` mengacu ke viewport, bukan ke kolomnya, jadi pemusatannya
+   harus ditulis di sini dan tak bisa diwarisi dari `<main>`.                */
+.merchant-live-page.is-streaming .mlive-header,
+.merchant-live-page.is-streaming .mlive-preview-area,
+.merchant-live-page.is-streaming .mlive-actions {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 480px;
+}

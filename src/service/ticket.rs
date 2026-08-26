@@ -22,7 +22,7 @@ impl TicketService {
     ) -> AppResult<Vec<TicketResponse>> {
         let page = page.max(1);
         let per_page = per_page.clamp(1, 100);
-        let offset = (page - 1) * per_page;
+        let offset = page.max(1).saturating_sub(1).saturating_mul(per_page);
         Ok(self
             .repo
             .list_for_customer(customer_id, per_page, offset)
@@ -41,7 +41,7 @@ impl TicketService {
     ) -> AppResult<Vec<TicketResponse>> {
         let page = page.max(1);
         let per_page = per_page.clamp(1, 100);
-        let offset = (page - 1) * per_page;
+        let offset = page.max(1).saturating_sub(1).saturating_mul(per_page);
         let tickets = self
             .repo
             .list_by_order(order_id, customer_id, per_page, offset)
@@ -81,7 +81,7 @@ impl TicketService {
 
         if owner_merchant != merchant_id {
             return Err(AppError::Forbidden(
-                "This ticket belongs to another merchant's event".into(),
+                "This ticket belongs to another merchant's product".into(),
             ));
         }
         Ok(resp)

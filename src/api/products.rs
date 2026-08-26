@@ -1,8 +1,8 @@
-//! api/events.rs — Events & Banners REST endpoints.
+//! api/products.rs — Products & Banners REST endpoints.
 //!
-//! GET  /api/events               (public, query: query, category, city, page, page_size)
-//! GET  /api/events/:slug         (public)
-//! GET  /api/events/:slug/location (public)
+//! GET  /api/products               (public, query: query, category, city, page, page_size)
+//! GET  /api/products/:slug         (public)
+//! GET  /api/products/:slug/location (public)
 //! GET  /api/banners              (public)
 //!
 //! Semua endpoint di sini publik & read-heavy — dua lapis peredam beban:
@@ -47,7 +47,7 @@ fn cached_json(body: bytes::Bytes) -> Response {
 
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct EventsQuery {
+pub struct ProductsQuery {
     pub query: Option<String>,
     pub category: Option<String>,
     pub city: Option<String>,
@@ -55,14 +55,14 @@ pub struct EventsQuery {
     pub page_size: Option<i64>,
 }
 
-async fn list_events(
+async fn list_products(
     State(state): State<Arc<AppState>>,
-    Query(q): Query<EventsQuery>,
+    Query(q): Query<ProductsQuery>,
 ) -> Result<Response, ApiErr> {
-    use crate::models::events::EventListQuery;
+    use crate::models::products::ProductListQuery;
 
     let cache_key = format!(
-        "events|{}|{}|{}|{}|{}",
+        "products|{}|{}|{}|{}|{}",
         q.page.unwrap_or(1),
         q.city.as_deref().unwrap_or(""),
         q.category.as_deref().unwrap_or(""),
@@ -73,7 +73,7 @@ async fn list_events(
         return Ok(cached_json(body));
     }
 
-    let query = EventListQuery {
+    let query = ProductListQuery {
         page: q.page,
         per_page: q.page_size,
         city: q.city,
@@ -81,27 +81,27 @@ async fn list_events(
         search: q.query,
         status: Some("active".into()),
     };
-    let result = state.event_svc.list(query, None).await.map_err(app_err)?;
+    let result = state.product_svc.list(query, None).await.map_err(app_err)?;
     let body = bytes::Bytes::from(serde_json::to_vec(&result).unwrap_or_default());
     state.pub_cache.rest.insert(cache_key, body.clone()).await;
     Ok(cached_json(body))
 }
 
-async fn get_event(
+async fn get_product(
     State(state): State<Arc<AppState>>,
     Path(slug): Path<String>,
 ) -> Result<Response, ApiErr> {
-    let cache_key = format!("event|{slug}");
+    let cache_key = format!("product|{slug}");
     if let Some(body) = state.pub_cache.rest.get(&cache_key).await {
         return Ok(cached_json(body));
     }
-    let event = state.event_svc.get(&slug).await.map_err(app_err)?;
-    let body = bytes::Bytes::from(serde_json::to_vec(&event).unwrap_or_default());
+    let product = state.product_svc.get(&slug).await.map_err(app_err)?;
+    let body = bytes::Bytes::from(serde_json::to_vec(&product).unwrap_or_default());
     state.pub_cache.rest.insert(cache_key, body.clone()).await;
     Ok(cached_json(body))
 }
 
-async fn get_event_location(
+async fn get_product_location(
     State(state): State<Arc<AppState>>,
     Path(slug): Path<String>,
 ) -> Result<Response, ApiErr> {
@@ -109,12 +109,12 @@ async fn get_event_location(
     if let Some(body) = state.pub_cache.rest.get(&cache_key).await {
         return Ok(cached_json(body));
     }
-    let event = state.event_svc.get(&slug).await.map_err(app_err)?;
+    let product = state.product_svc.get(&slug).await.map_err(app_err)?;
     let body = bytes::Bytes::from(
         serde_json::to_vec(&serde_json::json!({
-            "slug": event.slug,
-            "venue": event.venue,
-            "city": event.city,
+            "slug": product.slug,
+            "venue": product.venue,
+            "city": product.city,
         }))
         .unwrap_or_default(),
     );
@@ -135,8 +135,8 @@ async fn list_banners(State(state): State<Arc<AppState>>) -> Result<Response, Ap
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/events", get(list_events))
-        .route("/events/{slug}", get(get_event))
-        .route("/events/location/{slug}", get(get_event_location))
+        .route("/products", get(list_products))
+        .route("/products/{slug}", get(get_product))
+        .route("/products/location/{slug}", get(get_product_location))
         .route("/banners", get(list_banners))
 }

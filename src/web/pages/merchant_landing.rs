@@ -115,8 +115,8 @@ fn SavingsCalculator() -> impl IntoView {
 #[component]
 pub fn PulseLandingPage() -> impl IntoView {
     view! {
-        <Title text="Jadi Partner PULSE — Jual Tiket Eventmu" />
-        <Meta name="description" content="Bergabung sebagai merchant PULSE. Jual tiket event dengan mudah, cepat, dan terpercaya." />
+        <Title text="Jadi Partner PULSE — Jual Tiket Productmu" />
+        <Meta name="description" content="Bergabung sebagai merchant PULSE. Jual tiket product dengan mudah, cepat, dan terpercaya." />
         <div class="pl-page">
 
             <nav class="pl-nav">
@@ -138,7 +138,7 @@ pub fn PulseLandingPage() -> impl IntoView {
             <section class="pl-hero">
                 <p class="pl-hero-tagline">"Join the next generation of live entertainment."</p>
                 <h1 class="pl-hero-title">
-                    "Scale Your Event with "
+                    "Scale Your Product with "
                     <span class="pl-hero-accent">"PULSE"</span>
                 </h1>
                 <p class="pl-hero-sub">
@@ -265,7 +265,7 @@ pub fn PulseLandingPage() -> impl IntoView {
                     </blockquote>
                     <div class="pl-testi-author">
                         <span class="pl-testi-name">"Andre Pratama"</span>
-                        <span class="pl-testi-role">"CEO of Jakarta Groove Events"</span>
+                        <span class="pl-testi-role">"CEO of Jakarta Groove Products"</span>
                     </div>
                 </div>
             </section>

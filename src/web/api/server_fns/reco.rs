@@ -1,8 +1,8 @@
 //! reco.rs — Behavior tracking + rekomendasi per-user (server-side, DB).
 //!
-//! - `record_affinity`  : catat minat user (kategori event yang dibuka). No-op
+//! - `record_affinity`  : catat minat user (kategori product yang dibuka). No-op
 //!                        diam-diam bila belum login (anonim → localStorage client).
-//! - `get_recommended_events` : event dari kategori favorit user (skor tertinggi
+//! - `get_recommended_products` : product dari kategori favorit user (skor tertinggi
 //!                        di `user_affinity`). Kosong bila belum login / belum ada
 //!                        data / tabel belum dimigrasi (graceful).
 
@@ -11,7 +11,7 @@ use leptos::prelude::*;
 #[cfg_attr(not(feature = "ssr"), allow(unused_imports))]
 use super::helpers::*;
 
-/// Catat perilaku: user berinteraksi dengan event berkategori `categories`.
+/// Catat perilaku: user berinteraksi dengan product berkategori `categories`.
 /// `signal`: "view" (default) | "cart" | "purchase" — bobot naik sesuai kuatnya
 /// niat. Hanya menulis buffer in-memory (flush batch oleh AffinityService) —
 /// TIDAK ada round-trip DB di jalur request. No-op bila tak login.
@@ -40,13 +40,13 @@ pub async fn record_affinity(
     Ok(())
 }
 
-/// Event rekomendasi = event dari kategori favorit user (skor tertinggi).
+/// Product rekomendasi = product dari kategori favorit user (skor tertinggi).
 /// Kosong bila belum login / belum ada perilaku / tabel belum ada (graceful).
-#[server(GetRecommendedEvents, "/api-fn")]
-pub async fn get_recommended_events() -> Result<PaginatedEvents, ServerFnError> {
-    use crate::models::events::EventListQuery;
+#[server(GetRecommendedProducts, "/api-fn")]
+pub async fn get_recommended_products() -> Result<PaginatedProducts, ServerFnError> {
+    use crate::models::products::ProductListQuery;
 
-    let empty = || PaginatedEvents {
+    let empty = || PaginatedProducts {
         data: vec![],
         total: 0,
         page: 1,
@@ -85,8 +85,8 @@ pub async fn get_recommended_events() -> Result<PaginatedEvents, ServerFnError> 
     };
     let top_cat: String = row.get(0);
 
-    // Ambil event kategori itu lewat listing (pakai index GIN @> category).
-    let q = EventListQuery {
+    // Ambil product kategori itu lewat listing (pakai index GIN @> category).
+    let q = ProductListQuery {
         page: Some(1),
         per_page: Some(12),
         city: None,
@@ -94,6 +94,6 @@ pub async fn get_recommended_events() -> Result<PaginatedEvents, ServerFnError> 
         search: None,
         status: Some("active".into()),
     };
-    let result = state.event_svc.list(q, None).await.map_err(map_app_error)?;
-    Ok(srv_paginated_events_to_web(result))
+    let result = state.product_svc.list(q, None).await.map_err(map_app_error)?;
+    Ok(srv_paginated_products_to_web(result))
 }

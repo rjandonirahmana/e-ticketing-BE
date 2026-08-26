@@ -1,10 +1,10 @@
 //! behavior.rs — Pelacakan minat implisit (rekomendasi TANPA "like").
 //!
-//! Ide: setiap kali user membuka detail sebuah event, kita catat kategori event
+//! Ide: setiap kali user membuka detail sebuah product, kita catat kategori product
 //! itu sebagai sinyal minat. Skor per-kategori disimpan di **localStorage**
 //! (per-device, hanya di browser) dan **di-decay** tiap kunjungan sehingga minat
 //! terbaru lebih berbobot daripada yang lama. Section "Untuk Kamu" lalu mengambil
-//! event dari kategori berskor tertinggi.
+//! product dari kategori berskor tertinggi.
 //!
 //! Kenapa localStorage (bukan server)? Nol beban DB/write per page-view (penting
 //! untuk VPS kecil), tanpa perlu login, dan privasi tetap di perangkat user.
@@ -18,7 +18,7 @@ const KEY: &str = "pulse_affinity_v1";
 #[cfg(target_arch = "wasm32")]
 const DECAY: f64 = 0.92;
 
-/// Catat bahwa user membuka event dengan kategori `categories`.
+/// Catat bahwa user membuka product dengan kategori `categories`.
 /// Semua skor di-decay, lalu kategori yang dilihat ditambah +1.
 pub fn record_view(categories: &[String]) {
     record_signal(categories, 1.0);

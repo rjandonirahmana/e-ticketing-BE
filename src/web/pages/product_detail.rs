@@ -1,4 +1,4 @@
-//! event_detail.rs — Halaman Detail Event (SSR + hydration).
+//! product_detail.rs — Halaman Detail Product (SSR + hydration).
 //!
 //! Cart-based ticket selection matching CSR design:
 //! Add button → qty ctrl, footer subtotal → Secure Tickets → /cart.
@@ -7,16 +7,16 @@ use leptos::prelude::*;
 use leptos_meta::*;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_params_map};
-use crate::web::api::{get_event_detail, get_events};
+use crate::web::api::{get_product_detail, get_products};
 use crate::web::app::{AuthResource, CartContext};
 use crate::web::components::story_viewer::StoryViewer;
-use crate::web::components::{EventCardPub, LiveStreamViewer, MerchantLivePip};
+use crate::web::components::{CartButton, ProductCardPub, LiveStreamViewer, MerchantLivePip};
 use crate::web::hooks::ThemeToggle;
 use crate::web::models::{CartItem, format_date, format_price};
 use crate::web::seo::SeoMeta;
 
 #[component]
-pub fn EventDetailPage() -> impl IntoView {
+pub fn ProductDetailPage() -> impl IntoView {
     let params    = use_params_map();
     let slug      = Memo::new(move |_| params.read().get("slug").unwrap_or_default());
     // ── BLOCKING HANYA DI SISI SERVER ────────────────────────────────────────
@@ -26,7 +26,7 @@ pub fn EventDetailPage() -> impl IntoView {
     // sementara pembaruan lokasi — termasuk GULIR KE ATAS — sudah terjadi lebih
     // dulu. Resource blocking ikut ditunggu di jalur itu.
     //
-    // Akibatnya persis yang dilaporkan: klik kartu event dari beranda →
+    // Akibatnya persis yang dilaporkan: klik kartu product dari beranda →
     // halaman menggulir ke atas, URL berganti, tapi isinya tetap beranda sampai
     // permintaan detail selesai. Bila permintaannya lambat, itu terbaca sebagai
     // "tidak pindah halaman"; bila gagal/menggantung, ia tak pernah pindah.
@@ -35,33 +35,33 @@ pub fn EventDetailPage() -> impl IntoView {
     // pernah terpakai selama resource-nya blocking, karena justru itu maknanya:
     // "jangan tampilkan apa pun, tunggu".
     //
-    // SSR tetap memakai blocking supaya HTML pertama sudah berisi detail event
+    // SSR tetap memakai blocking supaya HTML pertama sudah berisi detail product
     // utuh (SEO + tanpa kedip pada kunjungan langsung). Klien memakai versi
     // biasa supaya perpindahan halaman terjadi SEKETIKA dengan shimmer.
     #[cfg(feature = "ssr")]
-    let event_res = Resource::new_blocking(move || slug.get(), |s| get_event_detail(s));
+    let product_res = Resource::new_blocking(move || slug.get(), |s| get_product_detail(s));
     #[cfg(not(feature = "ssr"))]
-    let event_res = Resource::new(move || slug.get(), |s| get_event_detail(s));
-    // Kategori event ini → dipakai untuk (a) mencari event BERKAITAN, dan
+    let product_res = Resource::new(move || slug.get(), |s| get_product_detail(s));
+    // Kategori product ini → dipakai untuk (a) mencari product BERKAITAN, dan
     // (b) mencatat minat user untuk rekomendasi "Untuk Kamu".
     let rel_cat = Memo::new(move |_| {
-        event_res
+        product_res
             .get()
             .and_then(|r| r.ok())
             .and_then(|ev| ev.category.first().cloned())
     });
-    // ── Event Berkaitan: daftar inkremental (LIMIT/OFFSET) ────────────────────
+    // ── Product Berkaitan: daftar inkremental (LIMIT/OFFSET) ────────────────────
     // Dulu fetch 24 item sekaligus. Sekarang chunk kecil per halaman
-    // (page/per_page get_events = LIMIT/OFFSET di DB); chunk berikutnya diminta
+    // (page/per_page get_products = LIMIT/OFFSET di DB); chunk berikutnya diminta
     // otomatis saat user scroll mendekati ujung halaman.
     const REL_PAGE_SIZE: i64 = 12;
-    let rel_items: RwSignal<Vec<crate::web::models::Event>> = RwSignal::new(Vec::new());
+    let rel_items: RwSignal<Vec<crate::web::models::Product>> = RwSignal::new(Vec::new());
     let rel_page = RwSignal::new(1i64);
     let rel_has_more = RwSignal::new(false);
     let rel_loading = RwSignal::new(false);
 
     // Muat satu halaman berikutnya & APPEND. Guard rangkap (loading/has_more)
-    // agar aman dipanggil bertubi-tubi dari event scroll tanpa fetch ganda.
+    // agar aman dipanggil bertubi-tubi dari product scroll tanpa fetch ganda.
     let load_rel = move || {
         if rel_loading.get_untracked() {
             return;
@@ -73,7 +73,7 @@ pub fn EventDetailPage() -> impl IntoView {
         rel_loading.set(true);
         let cat = rel_cat.get_untracked();
         leptos::task::spawn_local(async move {
-            if let Ok(res) = get_events(Some(next), None, cat, None, Some(REL_PAGE_SIZE)).await {
+            if let Ok(res) = get_products(Some(next), None, cat, None, Some(REL_PAGE_SIZE)).await {
                 rel_has_more.set(res.page < res.total_pages);
                 rel_page.set(next + 1);
                 rel_items.update(|v| v.extend(res.data));
@@ -82,9 +82,9 @@ pub fn EventDetailPage() -> impl IntoView {
         });
     };
 
-    // Reset + muat halaman pertama begitu detail event termuat / slug berganti.
+    // Reset + muat halaman pertama begitu detail product termuat / slug berganti.
     Effect::new(move |_| {
-        if event_res.get().map(|r| r.is_ok()) != Some(true) {
+        if product_res.get().map(|r| r.is_ok()) != Some(true) {
             return;
         }
         let _ = rel_cat.get(); // ikut re-run bila kategori (slug) berubah
@@ -95,14 +95,14 @@ pub fn EventDetailPage() -> impl IntoView {
     });
 
     // Footer beli disembunyikan begitu user scroll melewati kartu venue
-    // ("Get Directions" = bagian detail terakhir) → area "Event Berkaitan"
+    // ("Get Directions" = bagian detail terakhir) → area "Product Berkaitan"
     // bersih tanpa tombol beli menutupi konten.
     let past_dirs = RwSignal::new(false);
 
-    // Peta venue asli (OpenStreetMap) langsung dirender di detail event bila
+    // Peta venue asli (OpenStreetMap) langsung dirender di detail product bila
     // koordinat tersedia — init post-hydration (pola sama dgn venue_location).
     Effect::new(move |_| {
-        if let Some(Ok(ev)) = event_res.get() {
+        if let Some(Ok(ev)) = product_res.get() {
             if let (Some(la), Some(lo)) = (ev.latitude, ev.longitude) {
                 let label = ev.venue.clone().unwrap_or_else(|| ev.name.clone());
                 crate::web::utils::map_viewer("ed-venue-map", la, lo, &label);
@@ -162,10 +162,10 @@ pub fn EventDetailPage() -> impl IntoView {
             }
         });
     }
-    // Rekomendasi implisit (tanpa "like"): catat kategori event yang dibuka user
+    // Rekomendasi implisit (tanpa "like"): catat kategori product yang dibuka user
     // ke localStorage. Effect hanya jalan di client saat detail sudah termuat.
     Effect::new(move |_| {
-        if let Some(Ok(ev)) = event_res.get() {
+        if let Some(Ok(ev)) = product_res.get() {
             let cats = ev.category.clone();
             // (a) Client: localStorage (jalan utk semua user, termasuk anonim).
             crate::web::behavior::record_view(&cats);
@@ -184,7 +184,7 @@ pub fn EventDetailPage() -> impl IntoView {
     // ── Bottom sheets ─────────────────────────────────────────────────────────
     // Info merchant (klik penyelenggara → sheet dulu, BUKAN langsung /m/{id})
     // dan pilihan tiket (varian). Panel selalu dirender agar transisi CSS
-    // slide-up/fade berjalan (lihat styles/parts/39-event-sheets.css).
+    // slide-up/fade berjalan (lihat styles/parts/39-product-sheets.css).
     let merchant_sheet = RwSignal::new(false);
     let tickets_sheet = RwSignal::new(false);
 
@@ -197,7 +197,7 @@ pub fn EventDetailPage() -> impl IntoView {
     let stories_ctx = crate::web::state::stories::use_stories_store();
     #[cfg(feature = "hydrate")]
     Effect::new(move |_| {
-        let Some(Ok(ev)) = event_res.get() else { return };
+        let Some(Ok(ev)) = product_res.get() else { return };
         let mid = ev.merchant_id.clone();
         leptos::task::spawn_local(async move {
             if let Ok(groups) = crate::web::api::get_merchant_stories(mid).await {
@@ -223,7 +223,7 @@ pub fn EventDetailPage() -> impl IntoView {
             stories_ctx.open_at(0, 0);
         }
     };
-    // Info merchant TIDAK di-fetch terpisah: sudah ikut payload detail event
+    // Info merchant TIDAK di-fetch terpisah: sudah ikut payload detail product
     // (`ev.merchant`, JOIN + agregat satu query di server) — sheet render
     // langsung dari data yang ada, tanpa fetch kedua & tanpa loading state.
 
@@ -269,7 +269,7 @@ pub fn EventDetailPage() -> impl IntoView {
                 {move || {
                     let navigate = navigate.clone();
                     Suspend::new(async move {
-                        match event_res.await {
+                        match product_res.await {
                             Err(_) => {
                                 view! {
                                     <header class="page-header ed-header">
@@ -301,7 +301,7 @@ pub fn EventDetailPage() -> impl IntoView {
                                             "EVENT TIDAK DITEMUKAN"
                                         </h2>
                                         <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:20px">
-                                            "Event ini mungkin sudah selesai atau telah dihapus."
+                                            "Product ini mungkin sudah selesai atau telah dihapus."
                                         </p>
                                         <A href="/explore" attr:class="tier-add-btn">
                                             "JELAJAHI EVENT"
@@ -338,7 +338,7 @@ pub fn EventDetailPage() -> impl IntoView {
                                 let ev_id = ev.id.clone();
                                 let ev_name = ev.name.clone();
                                 let ev_cover = ev.cover_url.clone().unwrap_or_default();
-                                let variants = ev.event_variants.clone();
+                                let variants = ev.product_variants.clone();
                                 let has_coords = ev.latitude.is_some() && ev.longitude.is_some();
                                 let is_live = ev.status.eq_ignore_ascii_case("live");
                                 let live_room_id = format!("live_{}", ev.merchant_id);
@@ -382,13 +382,13 @@ pub fn EventDetailPage() -> impl IntoView {
                                         params.append("event_slug", &_share_slug);
                                         params.append("event_title", &_share_title);
                                         params.append("event_cover", &_share_cover);
-                                        params.append("event_desc", &_share_desc);
+                                        params.append("product_desc", &_share_desc);
                                         params.append("event_date", &_share_date_str);
                                         params.append("event_venue", &_share_venue);
-                                        params.append("event_price", &_share_price_str);
+                                        params.append("product_price", &_share_price_str);
                                         if let Some(win) = web_sys::window() {
                                             if let Ok(Some(storage)) = win.session_storage() {
-                                                let _ = storage.set_item("story_hero_transition", "event");
+                                                let _ = storage.set_item("story_hero_transition", "product");
                                                 let _ = storage.set_item("story_hero_cover", &_share_cover);
                                             }
                                         }
@@ -466,14 +466,14 @@ pub fn EventDetailPage() -> impl IntoView {
                                             cart_ctx.update_qty(&vid_plus, q + 1);
                                         };
                                         // Nama toko penyelenggara (fallback label lama bila
-                                        // event lama belum punya nama ter-join).
+                                        // product lama belum punya nama ter-join).
 
                                         // Live streaming: badge + embedded viewer hanya tampil saat
-                                        // event berstatus "live". room_id mengikuti format SFU.
+                                        // product berstatus "live". room_id mengikuti format SFU.
                                         // Link profil merchant publik (penyelenggara) — /m/{id}.
                                         // Social proof (gaya marketplace): terjual + sisa stok.
                                         // Sumber data asli: agregasi SUM(sold)/SUM(quota) dari
-                                        // ticket_variants (ter-update tiap order via order.rs).
+                                        // product_variants (ter-update tiap order via order.rs).
 
                                         // ── Cart total helpers: inline in each closure ─────────
                                         // cart_ctx is Copy. Each closure gets a distinct clone of ev_id.
@@ -541,23 +541,23 @@ pub fn EventDetailPage() -> impl IntoView {
                                 let meta_title = format!("{} — PULSE", title);
                                 let meta_desc = format!(
                                     "{} | {} | {}",
-                                    if desc.is_empty() { "Event seru di Indonesia" } else { &desc },
+                                    if desc.is_empty() { "Product seru di Indonesia" } else { &desc },
                                     venue_str,
                                     date_str,
                                 );
-                                let seo_path = format!("/events/{}", ev_slug);
+                                let seo_path = format!("/products/{}", ev_slug);
                                 let seo_image = cover.clone();
-                                let ld_event = crate::web::seo::safe_ld(
+                                let ld_product = crate::web::seo::safe_ld(
                                     &serde_json::json!(
                                         {
                                         "@context": "https://schema.org",
-                                        "@type": "Event",
+                                        "@type": "Product",
                                         "name": ev.name.clone(),
                                         "description": (!desc.is_empty()).then(|| desc.clone()),
                                         "startDate": ev.event_date.to_rfc3339(),
                                         "endDate": ev.end_time.map(|d| d.to_rfc3339()),
-                                        "eventStatus": "https://schema.org/EventScheduled",
-                                        "eventAttendanceMode": "https://schema.org/OfflineEventAttendanceMode",
+                                        "productStatus": "https://schema.org/EventScheduled",
+                                        "productAttendanceMode": "https://schema.org/OfflineEventAttendanceMode",
                                         "image": ev.cover_url.clone().map(|c| vec![c]),
                                         "location": {
                                             "@type": "Place",
@@ -588,9 +588,9 @@ pub fn EventDetailPage() -> impl IntoView {
                                         image=seo_image
                                         og_type="article"
                                     />
-                                    <Script type_="application/ld+json">{ld_event}</Script>
+                                    <Script type_="application/ld+json">{ld_product}</Script>
                                     // Overlay live melayang: muncul saat merchant pemilik
-                                    // event ini sedang siaran (room SFU benar-benar ada).
+                                    // product ini sedang siaran (room SFU benar-benar ada).
                                     <MerchantLivePip room_id=live_room_id.clone() />
                                     // ── Header ───────────────────────────────────────────
                                     <header class="page-header ed-header">
@@ -618,6 +618,7 @@ pub fn EventDetailPage() -> impl IntoView {
                                         </button>
                                         <span class="page-logo">"KINETIC"</span>
                                         <div class="header-actions">
+                                            <CartButton />
                                             <ThemeToggle />
                                             <button
                                                 class="icon-btn"
@@ -653,20 +654,6 @@ pub fn EventDetailPage() -> impl IntoView {
                                                 >
                                                     <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
                                                     <path d="M13.73 21a2 2 0 01-3.46 0" />
-                                                </svg>
-                                            </A>
-                                            <A href="/profile" attr:class="nav-avatar">
-                                                <svg
-                                                    width="18"
-                                                    height="18"
-                                                    viewBox="0 0 24 24"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    stroke-width="2"
-                                                    stroke-linecap="round"
-                                                >
-                                                    <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-                                                    <circle cx="12" cy="7" r="4" />
                                                 </svg>
                                             </A>
                                         </div>
@@ -861,7 +848,7 @@ pub fn EventDetailPage() -> impl IntoView {
                                             </div>
 
                                             // Penyelenggara → profil merchant publik (/m/{id}):
-                                            // rating, follower, dan semua event si penyelenggara.
+                                            // rating, follower, dan semua product si penyelenggara.
                                             // Lingkaran story penyelenggara (ala story-bar
                                             // explore) — tampil hanya bila ada story aktif
                                             // (termasuk story ulasan). Klik → StoryViewer.
@@ -940,7 +927,7 @@ pub fn EventDetailPage() -> impl IntoView {
                                                 <span class="ed-org-text">
                                                     {organizer_name.clone()}
                                                     <span class="ed-org-sub">
-                                                        "Lihat profil, rating & event lainnya"
+                                                        "Lihat profil, rating & product lainnya"
                                                     </span>
                                                 </span>
                                                 <span class="ed-org-arrow">
@@ -958,7 +945,7 @@ pub fn EventDetailPage() -> impl IntoView {
                                                 </span>
                                             </button>
 
-                                            // Live stream (tampil saat event sedang live)
+                                            // Live stream (tampil saat product sedang live)
                                             {is_live
                                                 .then({
                                                     let rid = live_room_id.clone();
@@ -1052,7 +1039,7 @@ pub fn EventDetailPage() -> impl IntoView {
                                                 <h2 class="section-title">"The Venue"</h2>
                                             </section>
                                             <div class="map-card" id="ed-venue-card">
-                                                // Peta OpenStreetMap asli langsung tampil bila event
+                                                // Peta OpenStreetMap asli langsung tampil bila product
                                                 // punya koordinat; fallback visual dekoratif bila kosong.
                                                 {if has_coords {
                                                     view! {
@@ -1086,7 +1073,7 @@ pub fn EventDetailPage() -> impl IntoView {
                                                             move || {
                                                                 view! {
                                                                     <A
-                                                                        href=format!("/events/{}/location", es)
+                                                                        href=format!("/products/{}/location", es)
                                                                         attr:class="directions-btn"
                                                                     >
                                                                         <svg
@@ -1109,9 +1096,9 @@ pub fn EventDetailPage() -> impl IntoView {
                                                 </div>
                                             </div>
 
-                                            // ── Event lain (arah marketplace) ─────────
+                                            // ── Product lain (arah marketplace) ─────────
                                             <section class="section ed-more">
-                                                <h2 class="section-title">"Event Berkaitan"</h2>
+                                                <h2 class="section-title">"Product Berkaitan"</h2>
                                                 {move || {
                                                     let cur = slug.get();
                                                     let items = rel_items.get();
@@ -1120,10 +1107,10 @@ pub fn EventDetailPage() -> impl IntoView {
                                                         .into_iter()
                                                         .filter(|e| e.slug != cur)
                                                         .map(|e| {
-                                                            let ev = crate::web::state::events::event_to_explore_pub(
+                                                            let ev = crate::web::state::products::product_to_explore_pub(
                                                                 &e,
                                                             );
-                                                            view! { <EventCardPub ev=ev /> }
+                                                            view! { <ProductCardPub ev=ev /> }
                                                         })
                                                         .collect_view();
                                                     let shims = loading
@@ -1155,7 +1142,7 @@ pub fn EventDetailPage() -> impl IntoView {
 
                                     // ── Sticky footer: starting price + Secure Tickets ───
                                     // Otomatis slide-down (hilang) begitu user melewati kartu
-                                    // venue — konten "Event Berkaitan" tampil tanpa halangan.
+                                    // venue — konten "Product Berkaitan" tampil tanpa halangan.
                                     <div class=move || {
                                         if past_dirs.get() {
                                             "sticky-footer ed-mobile-footer ed-footer-hidden"
@@ -1300,7 +1287,7 @@ pub fn EventDetailPage() -> impl IntoView {
                                             </div>
                                             <div class="edsheet-body">
                                                 {
-                                                    // Data sudah di tangan (ikut payload event) —
+                                                    // Data sudah di tangan (ikut payload product) —
                                                     // render statis, tanpa loading state.
                                                     let header = sheet_merchant
                                                         .as_ref()
@@ -1322,9 +1309,9 @@ pub fn EventDetailPage() -> impl IntoView {
                                                         .as_ref()
                                                         .map(|m| m.followers)
                                                         .unwrap_or(0);
-                                                    let events_count = sheet_merchant
+                                                    let products_count = sheet_merchant
                                                         .as_ref()
-                                                        .map(|m| m.events_count)
+                                                        .map(|m| m.products_count)
                                                         .unwrap_or(0);
                                                     let rating_avg = sheet_merchant
                                                         .as_ref()
@@ -1389,8 +1376,8 @@ pub fn EventDetailPage() -> impl IntoView {
                                                                     " Followers"
                                                                 </span>
                                                                 <span>
-                                                                    <b>{events_count}</b>
-                                                                    " Events"
+                                                                    <b>{products_count}</b>
+                                                                    " Products"
                                                                 </span>
                                                                 <span>
                                                                     <b>{format!("{rating_avg:.1}")}</b>

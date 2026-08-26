@@ -1,18 +1,18 @@
-//! Komponen reusable untuk input foto detail event.
-//! Dipakai di halaman create event dan edit event.
+//! Komponen reusable untuk input foto detail product.
+//! Dipakai di halaman create product dan edit product.
 //!
 //! Perubahan dari versi lama:
 //! - Foto TIDAK lagi di-upload ke /upload terpisah — file langsung dikumpulkan
-//!   sebagai `DetailImageUploadItem` dan diserahkan ke `create_event`/`update_event`
+//!   sebagai `DetailImageUploadItem` dan diserahkan ke `create_product`/`update_product`
 //!   yang mengirimnya sebagai multipart field `detail_image` ke BE.
 //! - Foto lama (dari BE, sudah punya URL) dikumpulkan sebagai `DetailImagePayload`
 //!   dan dikirim via JSON field `detail_images` (untuk retain tanpa re-upload).
 //! - Grid layout adaptif dengan horizontal scroll: foto ditampilkan dalam grid
 //!   yang bisa di-scroll ke kanan.
 
-use crate::web::services::event::DetailImagePayload;
+use crate::web::services::product::DetailImagePayload;
 #[cfg(target_arch = "wasm32")]
-use crate::web::services::event::{DetailImageMeta, DetailImageUploadItem};
+use crate::web::services::product::{DetailImageMeta, DetailImageUploadItem};
 use leptos::prelude::*;
 
 // ─── State satu foto draft ────────────────────────────────────────────────────
@@ -25,6 +25,11 @@ pub struct DetailImageDraft {
     /// URL permanen — Some berarti foto LAMA dari BE, tidak perlu re-upload.
     /// None berarti foto BARU dari file picker, perlu dikirim sebagai file.
     pub uploaded_url: Option<String>,
+    /// Unggahannya gagal. Dibedakan dari "masih berjalan" karena keduanya
+    /// sama-sama ber-`uploaded_url: None`: tanpa penanda ini, satu unggahan yang
+    /// gagal membuat form menolak SIMPAN dengan "Tunggu semua foto selesai
+    /// diunggah" SELAMANYA — menyuruh menunggu sesuatu yang sudah berhenti.
+    pub gagal: RwSignal<bool>,
     /// File asli — Some hanya untuk foto baru yang belum pernah di-upload.
     #[cfg(target_arch = "wasm32")]
     pub file: Option<web_sys::File>,
@@ -41,6 +46,7 @@ impl DetailImageDraft {
         Self {
             preview_url,
             uploaded_url: None,
+            gagal: RwSignal::new(false),
             file: Some(file),
             image_type: RwSignal::new("other".to_string()),
             caption: RwSignal::new(String::new()),
@@ -55,6 +61,8 @@ impl DetailImageDraft {
         Self {
             preview_url: payload.url.clone(),
             uploaded_url: Some(payload.url.clone()),
+            // Foto lama sudah ada di server — tak ada unggahan yang bisa gagal.
+            gagal: RwSignal::new(false),
             #[cfg(target_arch = "wasm32")]
             file: None,
             image_type: RwSignal::new(payload.image_type.clone()),
@@ -210,6 +218,14 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
                     web_sys::console::error_1(
                         &format!("[DetailImage] upload gagal: {e}").into(),
                     );
+                    // Ditandai di draft-nya sendiri supaya thumbnail berhenti
+                    // berkata "MENGUNGGAH…" dan form bisa memberi alasan yang
+                    // benar saat SIMPAN ditekan.
+                    drafts.update(|d| {
+                        if let Some(dr) = d.iter_mut().find(|x| x.preview_url == match_key) {
+                            dr.gagal.set(true);
+                        }
+                    });
                 }
             }
         });
@@ -272,8 +288,10 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
                                                         let is_active = move || active_idx.get() == Some(idx);
                                                         let img_type = draft.image_type;
                                                         let preview = draft.preview_url.clone();
-                                                        // Foto ini masih diunggah? (uploaded_url belum ada)
-                                                        let uploading = draft.uploaded_url.is_none();
+                                                        // Belum punya URL permanen: entah masih berjalan,
+                                                        // entah sudah gagal — dibedakan oleh `gagal`.
+                                                        let belum_terunggah = draft.uploaded_url.is_none();
+                                                        let gagal = draft.gagal;
 
                                                         view! {
                                                             <button
@@ -312,13 +330,26 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
                                                                     style="width:100%;height:100%;object-fit:cover"
                                                                     alt=format!("Detail {}", idx)
                                                                 />
-                                                                // Overlay "mengunggah…" selagi upload berjalan
-                                                                {uploading.then(|| view! {
-                                                                    <div style="position:absolute;inset:0;display:flex;align-items:center;
-                                                                    justify-content:center;background:rgba(0,0,0,.5);
-                                                                    color:#fff;font-size:9px;font-weight:700;letter-spacing:.05em">
-                                                                        "MENGUNGGAH…"
-                                                                    </div>
+                                                                // Overlay: "mengunggah…" selagi berjalan,
+                                                                // "GAGAL" bila unggahannya berhenti — dulu
+                                                                // keduanya tampil sebagai "MENGUNGGAH…" yang
+                                                                // tak pernah selesai.
+                                                                {move || belum_terunggah.then(|| {
+                                                                    let rusak = gagal.get();
+                                                                    let gaya = if rusak {
+                                                                        "position:absolute;inset:0;display:flex;align-items:center;\
+                                                                         justify-content:center;background:rgba(120,20,20,.72);\
+                                                                         color:#fff;font-size:9px;font-weight:700;letter-spacing:.05em"
+                                                                    } else {
+                                                                        "position:absolute;inset:0;display:flex;align-items:center;\
+                                                                         justify-content:center;background:rgba(0,0,0,.5);\
+                                                                         color:#fff;font-size:9px;font-weight:700;letter-spacing:.05em"
+                                                                    };
+                                                                    view! {
+                                                                        <div style=gaya>
+                                                                            {if rusak { "GAGAL" } else { "MENGUNGGAH…" }}
+                                                                        </div>
+                                                                    }
                                                                 })}
                                                                 // Badge type — reaktif terhadap img_type
                                                                 {move || {
@@ -514,7 +545,7 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
                                                         on:input=move |e| caption.set(event_target_value(&e))
                                                     />
                                                     <p style="font-size:10px;color:var(--text-muted);line-height:1.5">
-                                                        "Keterangan singkat ditampilkan di bawah foto pada halaman detail event."
+                                                        "Keterangan singkat ditampilkan di bawah foto pada halaman detail product."
                                                     </p>
                                                 </div>
 

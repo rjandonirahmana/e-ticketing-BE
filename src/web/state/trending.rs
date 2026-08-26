@@ -1,13 +1,13 @@
-//! Trending events — server function GetEvents (page 1, 6 item).
+//! Trending products — server function GetProducts (page 1, 6 item).
 //!
-//! Data diambil lewat server function `get_events` (jalur SSR yang benar,
+//! Data diambil lewat server function `get_products` (jalur SSR yang benar,
 //! menambahkan X-App-Token di server). Pola `RwSignal` + `spawn_local`
 //! dipertahankan agar konsisten dengan store lain.
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
-use crate::web::api::get_events;
-use crate::web::models::Event;
+use crate::web::api::get_products;
+use crate::web::models::Product;
 use crate::web::utils::format_number;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -20,7 +20,7 @@ pub struct TrendingItem {
     pub category: Vec<String>,
 }
 
-fn event_to_trending(e: &Event) -> TrendingItem {
+fn product_to_trending(e: &Product) -> TrendingItem {
     let price = if e.display_price <= 0.0 {
         "FREE".into()
     } else {
@@ -55,8 +55,8 @@ impl TrendingCtx {
         let items = self.items;
         let loading = self.loading;
         spawn_local(async move {
-            if let Ok(res) = get_events(Some(1), None, None, None, Some(6)).await {
-                let trending = res.data.iter().map(event_to_trending).collect();
+            if let Ok(res) = get_products(Some(1), None, None, None, Some(6)).await {
+                let trending = res.data.iter().map(product_to_trending).collect();
                 items.set(trending);
             }
             loading.set(false);
@@ -70,7 +70,7 @@ pub fn provide_trending_store() {
         loading: RwSignal::new(false),
     };
     // Tidak auto-load: tidak ada komponen yang memanggil use_trending_store()
-    // — menghindari get_events() yang sia-sia di setiap halaman.
+    // — menghindari get_products() yang sia-sia di setiap halaman.
     provide_context(ctx);
 }
 

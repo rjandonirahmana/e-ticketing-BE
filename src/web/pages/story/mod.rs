@@ -9,4 +9,4 @@ mod types;
 mod upload;
 
 pub use page::StoryPage;
-pub use types::EventStoryMeta;
+pub use types::ProductStoryMeta;

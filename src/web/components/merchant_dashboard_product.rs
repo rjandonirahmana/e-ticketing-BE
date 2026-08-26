@@ -3,7 +3,7 @@
 use leptos::prelude::*;
 
 #[component]
-pub fn MerchantEventSkeleton() -> impl IntoView {
+pub fn MerchantProductSkeleton() -> impl IntoView {
     view! {
         <div class="medit-container">
             // INFO DASAR

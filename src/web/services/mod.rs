@@ -6,4 +6,4 @@
 //!   functions di `web::api`. Module ini hanya menyimpan tipe data yang
 //!   masih dipakai komponen (mis. payload upload detail image).
 
-pub mod event;
+pub mod product;

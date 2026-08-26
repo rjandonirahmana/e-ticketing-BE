@@ -11,9 +11,9 @@ use leptos_router::hooks::use_query_map;
 
 use crate::web::components::story_bars::StoryBar;
 use crate::web::components::story_viewer::StoryViewer;
-use crate::web::components::{BottomNav, EmptyState, EventCardPub, EventCardShimmer};
-use crate::web::components::ThemeToggle;
-use crate::web::state::use_events_store;
+use crate::web::components::{BottomNav, EmptyState, ProductCardPub, ProductCardShimmer};
+use crate::web::components::{CartButton, ThemeToggle};
+use crate::web::state::use_products_store;
 
 #[cfg(feature = "hydrate")]
 use leptos::task::spawn_local;
@@ -37,11 +37,11 @@ pub fn ExplorePage() -> impl IntoView {
     let show_overlay = RwSignal::new(false);
     let overlay_visible = RwSignal::new(false);
 
-    let store = use_events_store();
+    let store = use_products_store();
 
-    // ── SSR page-1: render kartu event LANGSUNG di HTML awal ────────────────────
+    // ── SSR page-1: render kartu product LANGSUNG di HTML awal ────────────────────
     // AKAR "lambat saat pertama diakses": landing (/) dulu hanya mengirim shimmer;
-    // event baru terisi SETELAH bundle WASM (besar) diunduh → hydrate → memicu
+    // product baru terisi SETELAH bundle WASM (besar) diunduh → hydrate → memicu
     // fetch. Resource blocking ini dieksekusi di SERVER (ikut di HTML awal) dan
     // nilainya di-serialize ke klien, sehingga:
     //   • kunjungan pertama langsung melihat kartu (bukan menunggu WASM),
@@ -49,7 +49,7 @@ pub fn ExplorePage() -> impl IntoView {
     // Di-key sekali oleh kategori AWAL (dari URL); pergantian kategori setelah itu
     // ditangani store di klien, jadi resource ini tak refetch berulang.
     let initial_cat_val = active_cat.get_untracked();
-    // Blocking HANYA di SSR — alasan yang sama dengan `pages::event_detail`:
+    // Blocking HANYA di SSR — alasan yang sama dengan `pages::product_detail`:
     // saat navigasi klien, router menunggu view rute baru selesai di-resolve
     // sebelum menukarnya, sementara gulir-ke-atas sudah terjadi. Resource
     // blocking membuat kembali ke beranda terasa "menggulir tapi tak pindah".
@@ -67,12 +67,12 @@ pub fn ExplorePage() -> impl IntoView {
                 } else {
                     Some(cat)
                 };
-                crate::web::api::get_events(
+                crate::web::api::get_products(
                     Some(1),
                     None,
                     cat_opt,
                     None,
-                    Some(crate::web::state::events::PAGE_SIZE),
+                    Some(crate::web::state::products::PAGE_SIZE),
                 )
                 .await
             }
@@ -89,12 +89,12 @@ pub fn ExplorePage() -> impl IntoView {
                 } else {
                     Some(cat)
                 };
-                crate::web::api::get_events(
+                crate::web::api::get_products(
                     Some(1),
                     None,
                     cat_opt,
                     None,
-                    Some(crate::web::state::events::PAGE_SIZE),
+                    Some(crate::web::state::products::PAGE_SIZE),
                 )
                 .await
             }
@@ -158,17 +158,17 @@ pub fn ExplorePage() -> impl IntoView {
     // Rekomendasi "Untuk Kamu" (tanpa perlu "like"):
     //   1) Coba rekomendasi SERVER (user login) dari DB perilaku (user_affinity).
     //   2) Fallback: kategori favorit dari localStorage (perilaku di device ini).
-    let rec_events = RwSignal::new(Vec::<crate::web::state::events::ExploreEvent>::new());
+    let rec_products = RwSignal::new(Vec::<crate::web::state::products::ExploreProduct>::new());
     #[cfg(feature = "hydrate")]
     Effect::new(move |_| {
         spawn_local(async move {
             // (1) Server-side (persisten, lintas-sesi untuk user login).
-            if let Ok(res) = crate::web::api::get_recommended_events().await {
+            if let Ok(res) = crate::web::api::get_recommended_products().await {
                 if !res.data.is_empty() {
-                    rec_events.set(
+                    rec_products.set(
                         res.data
                             .iter()
-                            .map(crate::web::state::events::event_to_explore_pub)
+                            .map(crate::web::state::products::product_to_explore_pub)
                             .collect(),
                     );
                     return;
@@ -178,12 +178,12 @@ pub fn ExplorePage() -> impl IntoView {
             let cats = crate::web::behavior::top_categories(1);
             if let Some(cat) = cats.into_iter().next() {
                 if let Ok(res) =
-                    crate::web::api::get_events(Some(1), None, Some(cat), None, Some(10)).await
+                    crate::web::api::get_products(Some(1), None, Some(cat), None, Some(10)).await
                 {
-                    rec_events.set(
+                    rec_products.set(
                         res.data
                             .iter()
-                            .map(crate::web::state::events::event_to_explore_pub)
+                            .map(crate::web::state::products::product_to_explore_pub)
                             .collect(),
                     );
                 }
@@ -196,7 +196,7 @@ pub fn ExplorePage() -> impl IntoView {
     // user tiba di bawah (shimmer nyaris tak pernah terlihat pada scroll
     // normal; dulu 700px fixed → flick cepat selalu menabrak shimmer selama
     // network round-trip). load_more() sudah punya guard
-    // (loading/loading_more/has_more) → aman dipanggil berkali-kali tiap event
+    // (loading/loading_more/has_more) → aman dipanggil berkali-kali tiap product
     // scroll tanpa fetch ganda.
     #[cfg(feature = "hydrate")]
     {
@@ -266,8 +266,8 @@ pub fn ExplorePage() -> impl IntoView {
 
     let filtered = Memo::new(move |_| {
         let q = query.get().to_lowercase();
-        store.items.with(|events| {
-            events
+        store.items.with(|products| {
+            products
                 .iter()
                 .filter(|e| {
                     q.is_empty()
@@ -309,7 +309,7 @@ pub fn ExplorePage() -> impl IntoView {
                 Some(Ok(res)) => res
                     .data
                     .iter()
-                    .map(crate::web::state::events::event_to_explore_pub)
+                    .map(crate::web::state::products::product_to_explore_pub)
                     .collect::<Vec<_>>(),
                 _ => Vec::new(),
             }
@@ -328,7 +328,7 @@ pub fn ExplorePage() -> impl IntoView {
 
     let close_c = StoredValue::new(close_overlay);
 
-    let placeholders = vec!["search events, artists...", "cari tiket konser", "tiket stand up"];
+    let placeholders = vec!["search products, artists...", "cari tiket konser", "tiket stand up"];
     let _ph_idx = RwSignal::new(0usize);
     let ph_text = RwSignal::new(placeholders[0].to_string());
     let ph_show = RwSignal::new(true);
@@ -424,10 +424,10 @@ pub fn ExplorePage() -> impl IntoView {
     }
 
     view! {
-        <Title text="Jelajahi Event — PULSE" />
+        <Title text="Jelajahi Product — PULSE" />
         <Meta
             name="description"
-            content="Temukan konser, festival, dan event seru di kotamu. Beli tiket sekarang di PULSE."
+            content="Temukan konser, festival, dan product seru di kotamu. Beli tiket sekarang di PULSE."
         />
         <div class="page explore-page exp-page">
             <header class="page-header exp-header">
@@ -455,6 +455,7 @@ pub fn ExplorePage() -> impl IntoView {
                 </A>
                 <span class="page-logo">"PULSE"</span>
                 <div class="header-actions">
+                    <CartButton />
                     <ThemeToggle />
                     <A href="/notifications" attr:class="bell-btn">
                         <svg
@@ -471,20 +472,6 @@ pub fn ExplorePage() -> impl IntoView {
                             <path d="M13.73 21a2 2 0 01-3.46 0" />
                         </svg>
                         <span class="bell-dot"></span>
-                    </A>
-                    <A href="/profile" attr:class="nav-avatar">
-                        <svg
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                        >
-                            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-                            <circle cx="12" cy="7" r="4" />
-                        </svg>
                     </A>
                 </div>
             </header>
@@ -618,14 +605,14 @@ pub fn ExplorePage() -> impl IntoView {
 
             // ── Untuk Kamu (rekomendasi implisit dari perilaku) ──────────────
             {move || {
-                let list = rec_events.get();
+                let list = rec_products.get();
                 (!list.is_empty())
                     .then(|| {
                         let cards = list
                             .into_iter()
                             .take(10)
                             .map(|ev| {
-                                let href = format!("/events/{}", ev.slug);
+                                let href = format!("/products/{}", ev.slug);
                                 view! {
                                     <a href=href class="exp-fy-card">
                                         <div class="exp-fy-img-wrap">
@@ -662,9 +649,9 @@ pub fn ExplorePage() -> impl IntoView {
             <div class="exp-section-hdr-row">
                 <div class="exp-section-hdr-left">
                     <span class="exp-section-eyebrow">"TRENDING NOW"</span>
-                    <h2 class="exp-section-title">"Story Events"</h2>
+                    <h2 class="exp-section-title">"Story Products"</h2>
                 </div>
-                // Arsip publik semua story yang pernah ada (bukan list event).
+                // Arsip publik semua story yang pernah ada (bukan list product).
                 <A href="/stories" attr:class="exp-view-all">
                     "View All →"
                 </A>
@@ -760,7 +747,7 @@ pub fn ExplorePage() -> impl IntoView {
                                     class="exp-shimmer-wrap"
                                     style=format!("animation-delay:{}ms", i * 60)
                                 >
-                                    <EventCardShimmer />
+                                    <ProductCardShimmer />
                                 </div>
                             }
                         })
@@ -776,7 +763,7 @@ pub fn ExplorePage() -> impl IntoView {
                                         class="exp-shimmer-wrap"
                                         style=format!("animation-delay:{}ms", i * 60)
                                     >
-                                        <EventCardShimmer />
+                                        <ProductCardShimmer />
                                     </div>
                                 }
                             })
@@ -834,7 +821,7 @@ pub fn ExplorePage() -> impl IntoView {
                                 .into_iter()
                                 .enumerate()
                                 .map(|(i, ev)| {
-                                    view! { <EventCardPub ev=ev index=i /> }
+                                    view! { <ProductCardPub ev=ev index=i /> }
                                 })
                                 .collect_view();
                             let shims = store
@@ -846,10 +833,10 @@ pub fn ExplorePage() -> impl IntoView {
                                             // Shimmer load_more menyatu di grid yang SAMA
                                             // (bukan grid terpisah di bawah) — kartu shimmer
                                             // langsung tergantikan data di posisinya, sama
-                                            // seperti "Event Berkaitan" di detail event.
+                                            // seperti "Product Berkaitan" di detail product.
                                             view! {
                                                 <div class="exp-shimmer-wrap">
-                                                    <EventCardShimmer />
+                                                    <ProductCardShimmer />
                                                 </div>
                                             }
                                         })

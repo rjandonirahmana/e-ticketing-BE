@@ -46,7 +46,7 @@ pub fn PaymentSuccessPage() -> impl IntoView {
                 return ord.event_name;
             }
         }
-        query.read().get("event").unwrap_or_else(|| "Acara Anda".to_string())
+        query.read().get("product").unwrap_or_else(|| "Acara Anda".to_string())
     };
 
     let total_amount = move || {
@@ -90,12 +90,6 @@ pub fn PaymentSuccessPage() -> impl IntoView {
                 <span class="page-logo">"PULSE"</span>
                 <div class="header-actions">
                     <ThemeToggle />
-                    <A href="/profile" attr:class="nav-avatar">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
-                            <circle cx="12" cy="7" r="4"/>
-                        </svg>
-                    </A>
                 </div>
             </header>
 
@@ -112,12 +106,12 @@ pub fn PaymentSuccessPage() -> impl IntoView {
                 <p class="ps-sub">"Tiketmu sudah siap. Sampai jumpa di acara!"</p>
             </div>
 
-            // ── Event summary card ───────────────────────────────────────
+            // ── Product summary card ───────────────────────────────────────
             <div class="ps-card">
                 <div class="ps-card-top">
                     <div>
                         <div class="ps-card-label">"ACARA"</div>
-                        <div class="ps-card-event">{event_name}</div>
+                        <div class="ps-card-product">{event_name}</div>
                     </div>
                     <div class="ps-ticket-icon">
                         <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity="0.25">

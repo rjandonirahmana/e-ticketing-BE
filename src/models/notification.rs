@@ -30,7 +30,7 @@ pub mod kind {
 pub enum NotificationTarget {
     Story {
         media_url: String,
-        /// stories.event_slug (None bila story tidak terkait event)
+        /// stories.event_slug (None bila story tidak terkait product)
         slug: Option<String>,
         event_title: Option<String>,
     },

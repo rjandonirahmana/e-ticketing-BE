@@ -16,7 +16,7 @@ pub async fn get_admin_stats() -> Result<AdminStats, ServerFnError> {
         r#"
         SELECT
             (SELECT COUNT(*)::BIGINT FROM users)  AS total_users,
-            (SELECT COUNT(*)::BIGINT FROM events) AS total_events,
+            (SELECT COUNT(*)::BIGINT FROM products) AS total_products,
             (SELECT COUNT(*)::BIGINT FROM orders) AS total_orders,
             (SELECT COALESCE(SUM(total_amount), 0)::DECIMAL
                  FROM orders WHERE status = 'paid') AS total_revenue
@@ -32,7 +32,7 @@ pub async fn get_admin_stats() -> Result<AdminStats, ServerFnError> {
 
     return Ok(AdminStats {
         total_users: row.try_get("total_users").unwrap_or(0),
-        total_events: row.try_get("total_events").unwrap_or(0),
+        total_products: row.try_get("total_products").unwrap_or(0),
         total_orders: row.try_get("total_orders").unwrap_or(0),
         total_revenue: revenue.to_f64().unwrap_or(0.0),
     });
@@ -124,15 +124,15 @@ pub async fn get_admin_orders(page: Option<i64>) -> Result<serde_json::Value, Se
     return Ok(serde_json::json!({ "data": [], "total": 0 }));
 }
 
-#[server(GetAdminEvents, "/api-fn")]
-pub async fn get_admin_events(
+#[server(GetAdminProducts, "/api-fn")]
+pub async fn get_admin_products(
     page: Option<i64>,
     status: Option<String>,
-) -> Result<PaginatedEvents, ServerFnError> {
-    use crate::models::events::EventListQuery;
+) -> Result<PaginatedProducts, ServerFnError> {
+    use crate::models::products::ProductListQuery;
     let _claims = require_role("admin").await?;
     let state = app_state().await?;
-    let q = EventListQuery {
+    let q = ProductListQuery {
         page,
         per_page: Some(50),
         city: None,
@@ -141,24 +141,31 @@ pub async fn get_admin_events(
         status,
     };
     let result = state
-        .event_svc
+        .product_svc
         .list(q, None)
         .await
         .map_err(map_app_error)?;
-    return Ok(srv_paginated_events_to_web(result));
+    return Ok(srv_paginated_products_to_web(result));
 }
 
-#[server(UpdateEventStatusAdmin, "/api-fn")]
-pub async fn update_event_status_admin(
+#[server(UpdateProductStatusAdmin, "/api-fn")]
+pub async fn update_product_status_admin(
     event_id: String,
     new_status: String,
 ) -> Result<serde_json::Value, ServerFnError> {
     let _claims = require_role("admin").await?;
     let state = app_state().await?;
     let result = state
-        .event_svc
+        .product_svc
         .admin_update_status(&event_id, &new_status)
         .await
         .map_err(map_app_error)?;
+    // Inilah saat sebuah product menjadi (atau berhenti) publik. Tanpa membuang
+    // cache di sini, persetujuan admin baru terasa 30–60 detik kemudian —
+    // termasuk saat product dibatalkan, yang justru harus hilang seketika.
+    state
+        .pub_cache
+        .invalidate_product(&result.slug, &result.merchant_id)
+        .await;
     return Ok(serde_json::json!({ "id": result.id, "status": result.status }));
 }

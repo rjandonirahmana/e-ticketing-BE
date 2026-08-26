@@ -63,14 +63,14 @@ pub fn hydrate() {
         );
     }
 
-    // True hydration: attach event listener & signals ke DOM yang sudah
+    // True hydration: attach product listener & signals ke DOM yang sudah
     // di-render server. Jangan clear body — struktur DOM harus identik.
     leptos::mount::hydrate_body(App);
 
     // Peta baru boleh menyentuh DOM SESUDAH hidrasi selesai.
     //
     // Leaflet menulis ulang isi container-nya; melakukannya di tengah hidrasi
-    // membuat kursor hidrasi meleset dan seluruh sisa halaman kehilangan event
+    // membuat kursor hidrasi meleset dan seluruh sisa halaman kehilangan product
     // delegation — tombol serta tautan jadi mati sampai halaman dimuat ulang.
     // Skrip di `web::app::shell` karena itu tak lagi memulai sendiri di
     // DOMContentLoaded; ia menunggu panggilan ini. (Bila WASM tak pernah

@@ -67,7 +67,7 @@ pub fn MyTicketsPage() -> impl IntoView {
                             <EmptyState
                                 icon="🎟"
                                 title="BELUM ADA TIKET"
-                                body="Beli tiket event favoritmu dan temukan pengalaman seru!"
+                                body="Beli tiket product favoritmu dan temukan pengalaman seru!"
                                 cta_label="JELAJAHI EVENT"
                                 cta_href="/explore"
                             />
@@ -93,7 +93,7 @@ pub fn MyTicketsPage() -> impl IntoView {
                                         <A href=href attr:class="ticket-card">
                                             <div class="ticket-accent"></div>
                                             <div class="ticket-body">
-                                                <div class="ticket-event-name">{t.event_name.clone()}</div>
+                                                <div class="ticket-product-name">{t.event_name.clone()}</div>
                                                 <div class="ticket-variant">
                                                     {t.variant_name.clone()}
                                                     " · "

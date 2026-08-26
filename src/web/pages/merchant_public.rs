@@ -1,10 +1,10 @@
 //! merchant_public.rs — Profil merchant publik (/m/:id), sisi user.
 //!
-//! Hero cover (dari event terbaru), avatar/logo, tombol Follow, statistik
-//! (followers / events / rating → klik rating ke halaman reviews), dan panel
+//! Hero cover (dari product terbaru), avatar/logo, tombol Follow, statistik
+//! (followers / products / rating → klik rating ke halaman reviews), dan panel
 //! yang bisa DIGESER (swipe horizontal / klik tab): EVENTS · TENTANG · ULASAN ·
 //! STORY. Story merchant = story user pemilik (buka viewer via StoryViewer).
-//! Entry point: tombol penyelenggara di event detail & chip penyelenggara di
+//! Entry point: tombol penyelenggara di product detail & chip penyelenggara di
 //! kartu explore.
 
 use leptos::html::Div;
@@ -12,10 +12,10 @@ use leptos::prelude::*;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_params_map};
 
-use crate::web::api::{get_merchant_public_events, get_merchant_public_page, set_follow_merchant};
+use crate::web::api::{get_merchant_public_products, get_merchant_public_page, set_follow_merchant};
 use crate::web::app::AuthResource;
 use crate::web::components::story_viewer::StoryViewer;
-use crate::web::components::{EventGrid, EventGridShimmer};
+use crate::web::components::{ProductGrid, ProductGridShimmer};
 use crate::web::hooks::ThemeToggle;
 use crate::web::seo::SeoMeta;
 use crate::web::state::stories::{use_stories_store, StoryMediaType};
@@ -163,7 +163,7 @@ pub(crate) fn MerchantProfileShimmer() -> impl IntoView {
                     })
                     .collect_view()}
             </div>
-            <EventGridShimmer count=4 />
+            <ProductGridShimmer count=4 />
         </div>
     }
 }
@@ -175,7 +175,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
 
     let auth = use_context::<AuthResource>().expect("AuthResource missing");
 
-    // SATU resource untuk seluruh halaman (profil + events + ulasan + story):
+    // SATU resource untuk seluruh halaman (profil + products + ulasan + story):
     // 1 round-trip HTTP dari klien, server join semua query paralel — dulu 4
     // POST /api-fn terpisah. Derived signal di bawah mempertahankan bentuk
     // `.get() -> Option<Result<T>>` yang sama sehingga view tak perlu berubah.
@@ -186,20 +186,20 @@ pub fn MerchantPublicPage() -> impl IntoView {
         get_merchant_public_page(id).await
     });
     let profile = Signal::derive(move || page_data.get().map(|r| r.map(|d| d.profile)));
-    let events = Signal::derive(move || page_data.get().map(|r| r.map(|d| d.events)));
+    let products = Signal::derive(move || page_data.get().map(|r| r.map(|d| d.products)));
     let reviews = Signal::derive(move || page_data.get().map(|r| r.map(|d| d.reviews)));
     let stories = Signal::derive(move || page_data.get().map(|r| r.map(|d| d.stories)));
 
     // ── Paginasi EVENTS (append "Muat lebih banyak") ────────────────────────────
-    // `events` resource = halaman 1 (juga sumber hero/kota); halaman berikutnya
+    // `products` resource = halaman 1 (juga sumber hero/kota); halaman berikutnya
     // diambil terpisah & di-append ke `ev_extra`. Grid render = data page1 + extra.
-    let ev_extra = RwSignal::new(Vec::<crate::web::models::Event>::new());
+    let ev_extra = RwSignal::new(Vec::<crate::web::models::Product>::new());
     let ev_page = RwSignal::new(1i64);
     let ev_total_pages = RwSignal::new(1i64);
     let ev_loading = RwSignal::new(false);
     // Saat merchant (mid) berganti → resource refetch page 1 → reset akumulasi.
     Effect::new(move |_| {
-        if let Some(Ok(pe)) = events.get() {
+        if let Some(Ok(pe)) = products.get() {
             ev_total_pages.set(pe.total_pages);
             ev_extra.set(Vec::new());
             ev_page.set(1);
@@ -208,7 +208,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
     let ev_has_more = move || ev_page.get() < ev_total_pages.get();
     // Tanpa argumen agar bisa dipanggil dari tombol DAN listener scroll (infinite
     // scroll ala /explore). Guard loading/total_pages → aman dipanggil berkali-
-    // kali per event scroll tanpa fetch ganda.
+    // kali per product scroll tanpa fetch ganda.
     let do_load_more = move || {
         if ev_loading.get_untracked() {
             return;
@@ -220,14 +220,14 @@ pub fn MerchantPublicPage() -> impl IntoView {
         let id = mid();
         ev_loading.set(true);
         leptos::task::spawn_local(async move {
-            if let Ok(pe) = get_merchant_public_events(id, Some(next)).await {
+            if let Ok(pe) = get_merchant_public_products(id, Some(next)).await {
                 ev_extra.update(|v| v.extend(pe.data));
                 ev_page.set(next);
             }
             ev_loading.set(false);
         });
     };
-    let load_more_events = move |_| do_load_more();
+    let load_more_products = move |_| do_load_more();
 
     // State follow lokal (optimistic): diisi dari profile saat termuat.
     let following = RwSignal::new(false);
@@ -286,7 +286,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
 
     // Infinite scroll ala /explore: listener "scroll" window, prefetch mulai
     // ~2.5 layar sebelum ujung dokumen. HANYA saat tab EVENTS aktif — scroll di
-    // panel lain (ulasan/story) tak boleh memicu fetch events tersembunyi.
+    // panel lain (ulasan/story) tak boleh memicu fetch products tersembunyi.
     // Closure DIPEGANG + di-remove & drop saat unmount (bukan .forget()).
     #[cfg(feature = "hydrate")]
     {
@@ -498,7 +498,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                 .to_uppercase()
                                 .to_string();
                             let desc = p.description.clone().unwrap_or_default();
-                            // Header kustom merchant → hero; kosong = fallback cover event terbaru.
+                            // Header kustom merchant → hero; kosong = fallback cover product terbaru.
                             let header = p.header_url.clone().unwrap_or_default();
                             let reviews_href = format!("/m/{}/reviews", merchant_id);
                             let followers_href = format!("/m/{}/followers", merchant_id);
@@ -508,7 +508,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                             let user_href = format!("/u/{}", merchant_id);
                             // Buat STORY berisi kartu profil merchant ini (share toko).
                             // Konvensi slug "m/{id}" → viewer tap-through ke /m/{id}.
-                            // Pola sama dengan share_to_story di event detail:
+                            // Pola sama dengan share_to_story di product detail:
                             // UrlSearchParams (wasm) agar nama/URL ter-encode aman.
                             #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
                             let story_mid = merchant_id.clone();
@@ -519,7 +519,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                             #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
                             let story_header = header.clone(); // header image kartu story
                             #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
-                            let story_stats = (p.followers, p.events_count, p.rating_avg);
+                            let story_stats = (p.followers, p.products_count, p.rating_avg);
                             let nav_story = navigate.clone();
                             let on_share_story = move |_: leptos::ev::MouseEvent| {
                                 #[cfg(target_arch = "wasm32")]
@@ -533,7 +533,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                     params.append("merchant_header", &story_header);
                                     params.append("verified", if verified { "1" } else { "0" });
                                     params.append("followers", &story_stats.0.to_string());
-                                    params.append("events_count", &story_stats.1.to_string());
+                                    params.append("products_count", &story_stats.1.to_string());
                                     params.append("rating", &format!("{:.1}", story_stats.2));
                                     nav_story(
                                         &format!("/story?{}", params.to_string()),
@@ -602,7 +602,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                     og_type="profile"
                                 />
                                 <Script type_="application/ld+json">{ld_org}</Script>
-                                // ── Hero: header kustom, fallback cover event terbaru ──
+                                // ── Hero: header kustom, fallback cover product terbaru ──
                                 <div class="mp-hero">
                                     {
                                         let header = header.clone();
@@ -610,7 +610,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                             let custom = (!header.is_empty()).then(|| header.clone());
                                             custom
                                                 .or_else(|| {
-                                                    events
+                                                    products
                                                         .get()
                                                         .and_then(|r| r.ok())
                                                         .and_then(|pe| {
@@ -639,7 +639,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                 <div class="mp-head">
                                     <div class="mp-avatar-wrap">
                                         {
-                                            // Bingkai story pada avatar — SAMA seperti event
+                                            // Bingkai story pada avatar — SAMA seperti product
                                             // detail (.ed-story-ring): gradient ring + klik buka
                                             // StoryViewer. Muncul HANYA bila merchant punya story
                                             // aktif; kalau tidak, avatar polos (tanpa cincin).
@@ -797,9 +797,9 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                         <h1 class="mp-name">{store_name.clone()}</h1>
                                     </div>
 
-                                    // ── Lokasi (kota event terbaru) ───────────
+                                    // ── Lokasi (kota product terbaru) ───────────
                                     {move || {
-                                        events
+                                        products
                                             .get()
                                             .and_then(|r| r.ok())
                                             .and_then(|pe| {
@@ -837,7 +837,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                             <span class="mp-stat-label">"FOLLOWERS"</span>
                                         </a>
                                         <div class="mp-stat">
-                                            <span class="mp-stat-num">{fmt_count(p.events_count)}</span>
+                                            <span class="mp-stat-num">{fmt_count(p.products_count)}</span>
                                             <span class="mp-stat-label">"EVENTS"</span>
                                         </div>
                                         <a class="mp-stat mp-stat-link" href=reviews_href.clone()>
@@ -887,10 +887,10 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                             style=move || panel_tf(0)
                                         >
                                             <Suspense fallback=|| {
-                                                view! { <EventGridShimmer count=4 /> }
+                                                view! { <ProductGridShimmer count=4 /> }
                                             }>
                                                 {move || {
-                                                    events
+                                                    products
                                                         .get()
                                                         .map(|r| match r {
                                                             Ok(pe) => {
@@ -898,9 +898,9 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                                 let mut all = pe.data.clone();
                                                                 all.extend(ev_extra.get());
                                                                 view! {
-                                                                    <EventGrid
-                                                                        events=all
-                                                                        empty="Belum ada event aktif."
+                                                                    <ProductGrid
+                                                                        products=all
+                                                                        empty="Belum ada product aktif."
                                                                     />
                                                                     {move || {
                                                                         ev_has_more()
@@ -910,7 +910,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                                                         <button
                                                                                             class="mp-more-btn"
                                                                                             disabled=move || ev_loading.get()
-                                                                                            on:click=load_more_events
+                                                                                            on:click=load_more_products
                                                                                         >
                                                                                             {move || {
                                                                                                 if ev_loading.get() {
@@ -928,7 +928,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                                     .into_any()
                                                             }
                                                             Err(_) => {
-                                                                view! { <p class="mp-empty">"Gagal memuat event."</p> }
+                                                                view! { <p class="mp-empty">"Gagal memuat product."</p> }
                                                                     .into_any()
                                                             }
                                                         })

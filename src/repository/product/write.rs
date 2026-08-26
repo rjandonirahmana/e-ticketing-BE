@@ -5,19 +5,21 @@ use super::helpers::{
     generate_slug, is_unique_violation, DELETE_EVENT, INSERT_EVENT, UPDATE_EVENT, VARIANT_COLS,
     VARIANT_INSERT_COLS,
 };
-use super::{PgEventRepository};
-use crate::models::events::{CreateEventRequest, CreateVariantInline, Event, UpdateEventRequest};
-use crate::models::event_variants::EventVariant;
+use super::{PgProductRepository};
+use crate::models::products::{
+    CreateProductRequest, CreateVariantInline, Product, UpdateProductRequest, STATUS_MENUNGGU_REVIEW,
+};
+use crate::models::product_variants::ProductVariant;
 use crate::utils::ulid::{id_to_vec, new_ulid, ulid_to_vec};
 
-impl PgEventRepository {
+impl PgProductRepository {
     pub(super) async fn exec_create(
         &self,
         merchant_id: &str,
         merchant_name: &str,
-        req: &CreateEventRequest,
+        req: &CreateProductRequest,
         cover_url: Option<&str>,
-    ) -> Result<Event> {
+    ) -> Result<Product> {
         let id = new_ulid();
         let id_vec = ulid_to_vec(&id)?;
         let mid_vec = id_to_vec(merchant_id)?;
@@ -44,13 +46,13 @@ impl PgEventRepository {
                     &req.start_time,
                     &req.end_time,
                     &category_json,
-                    &"edited",
+                    &STATUS_MENUNGGU_REVIEW,
                     &detail_images_json,
                     &req.latitude,
                     &req.longitude,
-                    // $18 — titik fokus cover. Event baru selalu mulai dari
+                    // $18 — titik fokus cover. Product baru selalu mulai dari
                     // tengah; merchant menggesernya lewat editor sesudah itu.
-                    &crate::models::events::fokus_tengah(),
+                    &crate::models::products::fokus_tengah(),
             ],
             )
             .await;
@@ -58,9 +60,9 @@ impl PgEventRepository {
             match result {
                 Ok(rows) => {
                     let row = rows.into_iter().next().ok_or_else(|| {
-                        anyhow::anyhow!("INSERT returned no rows for event: {}", id)
+                        anyhow::anyhow!("INSERT returned no rows for product: {}", id)
                     })?;
-                    return Self::row_to_event_no_agg(&row);
+                    return Self::row_to_product_no_agg(&row);
                 }
                 Err(e) if is_unique_violation(&e) => {
                     last_err = e;
@@ -76,12 +78,12 @@ impl PgEventRepository {
         &self,
         event_id: &str,
         variants: &[CreateVariantInline],
-    ) -> Result<Vec<EventVariant>> {
+    ) -> Result<Vec<ProductVariant>> {
         if variants.is_empty() {
             return Ok(Vec::new());
         }
 
-        let event_vec = id_to_vec(event_id)?;
+        let product_vec = id_to_vec(event_id)?;
         type BoxParam = Box<dyn tokio_postgres::types::ToSql + Sync + Send>;
         let mut ids: Vec<Vec<u8>> = Vec::with_capacity(variants.len());
         for _ in 0..variants.len() {
@@ -107,7 +109,7 @@ impl PgEventRepository {
         }
 
         let sql = format!(
-            "INSERT INTO event_variants \
+            "INSERT INTO product_variants \
              (id, event_id, name, description, price, sale_price, sale_price_start_date, \
               sale_price_end_date, quota, max_per_order, sort_order) \
              VALUES {} \
@@ -120,7 +122,7 @@ impl PgEventRepository {
         for (i, v) in variants.iter().enumerate() {
             let sort_order = v.sort_order.unwrap_or(i as i32);
             params.push(Box::new(ids[i].clone()));
-            params.push(Box::new(event_vec.clone()));
+            params.push(Box::new(product_vec.clone()));
             params.push(Box::new(v.name.clone()));
             params.push(Box::new(v.description.clone()));
             params.push(Box::new(v.price));
@@ -138,15 +140,15 @@ impl PgEventRepository {
         rows.iter().map(Self::row_to_variant).collect()
     }
 
-    /// Atomic create event + variants in one DB transaction.
+    /// Atomic create product + variants in one DB transaction.
     pub(super) async fn exec_create_with_variants(
         &self,
         merchant_id: &str,
         merchant_name: &str,
-        req: &CreateEventRequest,
+        req: &CreateProductRequest,
         variants: &[CreateVariantInline],
         cover_url: Option<&str>,
-    ) -> Result<(Event, Vec<EventVariant>)> {
+    ) -> Result<(Product, Vec<ProductVariant>)> {
         let id = new_ulid();
         let id_vec = ulid_to_vec(&id)?;
         let mid_vec = id_to_vec(merchant_id)?;
@@ -157,7 +159,7 @@ impl PgEventRepository {
         let tx = client.transaction().await?;
 
         let mut last_err = anyhow::anyhow!("slug generation failed after max retries");
-        let mut inserted_event: Option<Event> = None;
+        let mut inserted_product: Option<Product> = None;
         for _ in 0..5u8 {
             let slug = generate_slug(merchant_name, &req.name);
             let result = tx
@@ -177,10 +179,15 @@ impl PgEventRepository {
                         &req.start_time,
                         &req.end_time,
                         &category_json,
-                        &"edited",
+                        &STATUS_MENUNGGU_REVIEW,
                         &detail_images_json,
                         &req.latitude,
                         &req.longitude,
+                        // $18 — cover_focus. Sempat tertinggal di sini padahal
+                        // `INSERT_EVENT` menuntut 18 parameter, jadi jalur ini
+                        // pasti gagal saat bind ("17 parameters, requires 18").
+                        // Belum ada yang memanggilnya, jadi tak pernah terlihat.
+                        &crate::models::products::fokus_tengah(),
                     ],
                 )
                 .await;
@@ -190,7 +197,7 @@ impl PgEventRepository {
                         .into_iter()
                         .next()
                         .ok_or_else(|| anyhow::anyhow!("INSERT returned no rows"))?;
-                    inserted_event = Some(Self::row_to_event_no_agg(&row)?);
+                    inserted_product = Some(Self::row_to_product_no_agg(&row)?);
                     break;
                 }
                 Err(e) => {
@@ -205,13 +212,13 @@ impl PgEventRepository {
                 }
             }
         }
-        let event_base = inserted_event.ok_or(last_err)?;
+        let product_base = inserted_product.ok_or(last_err)?;
 
-        let event_variants = if variants.is_empty() {
+        let product_variants = if variants.is_empty() {
             Vec::new()
         } else {
             type BoxParam = Box<dyn tokio_postgres::types::ToSql + Sync + Send>;
-            let event_vec = id_vec.clone();
+            let product_vec = id_vec.clone();
             let cols = VARIANT_INSERT_COLS;
             let mut var_ids: Vec<Vec<u8>> = Vec::with_capacity(variants.len());
             for _ in 0..variants.len() {
@@ -235,7 +242,7 @@ impl PgEventRepository {
             }
 
             let sql = format!(
-                "INSERT INTO event_variants \
+                "INSERT INTO product_variants \
                  (id, event_id, name, description, price, sale_price, sale_price_start_date, \
                   sale_price_end_date, quota, max_per_order, sort_order) \
                  VALUES {} RETURNING {}",
@@ -247,7 +254,7 @@ impl PgEventRepository {
             for (i, v) in variants.iter().enumerate() {
                 let sort_order = v.sort_order.unwrap_or(i as i32);
                 params.push(Box::new(var_ids[i].clone()));
-                params.push(Box::new(event_vec.clone()));
+                params.push(Box::new(product_vec.clone()));
                 params.push(Box::new(v.name.clone()));
                 params.push(Box::new(v.description.clone()));
                 params.push(Box::new(v.price));
@@ -272,23 +279,25 @@ impl PgEventRepository {
         };
 
         tx.commit().await.context("transaction commit failed")?;
-        Ok((event_base, event_variants))
+        Ok((product_base, product_variants))
     }
 
     pub(super) async fn exec_update(
         &self,
         id: &str,
         merchant_id: &str,
-        req: &UpdateEventRequest,
+        req: &UpdateProductRequest,
     ) -> Result<()> {
         let id_vec = id_to_vec(id)?;
         let merchant_id_vec = id_to_vec(merchant_id)?;
 
-        let category_json: Option<serde_json::Value> = if req.category.is_empty() {
-            None
-        } else {
-            Some(serde_json::to_value(&req.category)?)
-        };
+        // `None` = tak dikirim (COALESCE mempertahankan yang lama);
+        // `Some(vec![])` = dikosongkan dengan sengaja → tersimpan sebagai `[]`.
+        let category_json: Option<serde_json::Value> = req
+            .category
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()?;
         let detail_images_json: Option<serde_json::Value> = req
             .detail_images
             .as_ref()
@@ -298,7 +307,7 @@ impl PgEventRepository {
         // Jumlah baris DIPERIKSA, tak lagi dibuang.
         //
         // `WHERE id = $1 AND merchant_id = $2` bisa mencocokkan NOL baris —
-        // event milik merchant lain, atau id yang sudah tak ada. `exec_drop`
+        // product milik merchant lain, atau id yang sudah tak ada. `exec_drop`
         // mengembalikan jumlah baris terpengaruh, tapi nilainya selama ini
         // langsung dibuang, jadi keadaan itu tak bisa dibedakan dari sukses:
         // server menjawab Ok, layar menampilkan "tersimpan", dan tak satu pun
@@ -318,7 +327,14 @@ impl PgEventRepository {
                 &req.event_date,
                 &req.start_time,
                 &req.end_time,
-                &"edited",
+                // Status diambil dari permintaan, bukan dipaku "edited" di sini.
+                // Nilai paku itu membuat `UpdateProductRequest.status` jadi field
+                // yang tampak berfungsi padahal diabaikan diam-diam — siapa pun
+                // yang mengisinya (termasuk jalur admin di kemudian hari) akan
+                // melihat perubahannya lenyap tanpa galat. Yang memaksa "edited"
+                // untuk suntingan merchant sekarang server function-nya, tempat
+                // aturan itu memang berlaku.
+                &req.status,
                 &category_json,
                 &detail_images_json,
                 &req.latitude,
@@ -330,8 +346,8 @@ impl PgEventRepository {
 
         if terpengaruh == 0 {
             anyhow::bail!(
-                "Event tidak ditemukan atau bukan milik merchant ini \
-                 (event {id}, merchant {merchant_id})"
+                "Product tidak ditemukan atau bukan milik merchant ini \
+                 (product {id}, merchant {merchant_id})"
             );
         }
         Ok(())

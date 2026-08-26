@@ -1,0 +1,92 @@
+/* Input Tailwind PULSE — di-compile cargo-leptos menjadi /pkg/e-ticketing.css.
+ *
+ * ── HUBUNGANNYA DENGAN styles/parts/*.css ──────────────────────────────────
+ * Keduanya HIDUP BERDAMPINGAN, dan itu disengaja:
+ *
+ *   • `styles/parts/*.css` (28.000 baris, 2.555 kelas) digabung `build.rs`,
+ *     di-embed ke binari, disajikan sebagai /styles/app.css. Ia memegang
+ *     seluruh tampilan yang sudah ada.
+ *   • Berkas ini menambahkan utility Tailwind di atasnya, jadi markup baru
+ *     boleh langsung memakainya tanpa menunggu apa pun dipindahkan.
+ *
+ * Menukar keduanya sekaligus berarti menulis ulang 2.756 atribut `class` di 64
+ * berkas dalam satu tarikan napas — perubahan yang tak bisa diuji sebagian dan
+ * tak bisa dibatalkan sebagian.
+ *
+ * ── PREFLIGHT SENGAJA TIDAK DIIMPOR ───────────────────────────────────────
+ * `@import "tailwindcss"` menarik tiga hal: theme, PREFLIGHT, dan utilities.
+ * Preflight adalah reset CSS Tailwind — ia menormalkan margin, `list-style`,
+ * `border-style`, ukuran heading, dan lainnya.
+ *
+ * styles/parts/*.css ditulis TANPA reset itu dan mengandalkan default peramban
+ * di banyak tempat. Menyalakannya sekarang menggeser jarak dan ukuran di
+ * seluruh aplikasi sekaligus — kerusakan yang menyebar rata dan tak berkaitan
+ * dengan apa pun yang sedang dikerjakan.
+ *
+ * Konsekuensi yang harus diketahui: `border-2` dkk TIDAK memberi
+ * `border-style: solid` sendiri, jadi tulis `border border-solid` bila butuh
+ * garis. Bila kelak seluruh CSS lama sudah pindah, Preflight bisa dinyalakan.
+ */
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/* Sumber kelas untuk purge. Seluruh markup ada di berkas .rs — deteksi otomatis
+ * Tailwind v4 tidak mengenali ekstensi itu, jadi harus disebut eksplisit.
+ *
+ * ⚠️ Semua kelas WAJIB ditulis literal di markup. Kelas yang dirakit
+ * (`format!("bg-{…}")`) tak terlihat oleh pemindai dan gayanya akan hilang
+ * senyap di produksi — build dev bisa saja tetap tampak benar, yang membuatnya
+ * makin sulit dilacak. */
+@source "../src/**/*.rs";
+
+/* ── Warna = token CSS yang sudah ada, bukan hex ──────────────────────────────
+ * Satu sumber kebenaran dengan styles/parts/00-tokens.css. Nilai token berubah
+ * saat tema terang/gelap diganti, jadi utility di bawah ikut berubah sendirinya
+ * tanpa satu pun varian `dark:`. Kalau warnanya ditulis hex di sini, tema gelap
+ * akan berhenti bekerja tepat di elemen-elemen baru — jenis kerusakan yang baru
+ * ketahuan setelah dipakai orang. */
+@theme {
+  --color-page: var(--bg-page);
+  --color-base: var(--bg-base);
+  --color-surface: var(--bg-surface);
+  --color-card: var(--bg-card);
+  --color-card-hover: var(--bg-card-hover);
+  --color-elevated: var(--bg-elevated);
+  --color-elevated-2: var(--bg-elevated-2);
+
+  --color-content: var(--text-primary);
+  --color-content-soft: var(--text-secondary);
+  --color-content-muted: var(--text-muted);
+  --color-on-accent: var(--text-on-accent);
+
+  /* ⚠️ Namanya `brand`, BUKAN `primary`. Token aplikasi kebetulan juga bernama
+   * `--color-primary`, dan menulis `--color-primary: var(--color-primary)` di
+   * sini menghasilkan rujukan melingkar — properti itu batal, dan setiap
+   * `bg-primary` senyap tanpa warna. Nama berbeda memutus lingkarannya. */
+  --color-brand: var(--color-primary);
+  --color-brand-soft: var(--color-primary-soft);
+  --color-brand-border: var(--color-primary-border);
+  --color-on-brand: var(--color-primary-text);
+
+  --color-lime: var(--accent-lime);
+  --color-blue: var(--accent-blue);
+  --color-violet: var(--accent-violet);
+  --color-info: var(--accent-info);
+  --color-pink: var(--accent-pink);
+  --color-promo: var(--accent-promo);
+  --color-live: var(--live-green);
+  --color-warning: var(--warning-amber);
+  --color-danger: var(--danger);
+
+  --color-line: var(--border);
+  --color-line-soft: var(--border-soft);
+  --color-line-strong: var(--border-strong);
+  --color-overlay: var(--overlay-blur);
+
+  /* Sama seperti warna: nama Tailwind sengaja BERBEDA dari nama token aplikasi
+   * (`--font-display` / `--font-body`) supaya tak melingkar. */
+  --font-title: var(--font-display);
+  --font-sans: var(--font-body);
+}

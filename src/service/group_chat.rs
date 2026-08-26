@@ -26,8 +26,8 @@ impl GroupChatService {
 
     // ── Room ─────────────────────────────────────────────────────────────────
 
-    /// Buat atau dapatkan room untuk sebuah event.
-    /// Merchant yang buat event memanggil ini saat publish event.
+    /// Buat atau dapatkan room untuk sebuah product.
+    /// Merchant yang buat product memanggil ini saat publish product.
     pub async fn get_or_create_room(
         &self,
         event_id: &str,
@@ -36,7 +36,7 @@ impl GroupChatService {
         merchant_id: &str,
     ) -> Result<GroupRoom> {
         self.repo
-            .upsert_event_room(event_id, event_name, cover_url, merchant_id)
+            .upsert_product_room(event_id, event_name, cover_url, merchant_id)
             .await
     }
 
@@ -93,7 +93,7 @@ impl GroupChatService {
         Ok(room)
     }
 
-    // ── Auto-join setelah bayar event ─────────────────────────────────────────
+    // ── Auto-join setelah bayar product ─────────────────────────────────────────
 
     /// Dipanggil oleh OrderService setelah `mark_paid_and_issue_tickets` sukses.
     /// event_id diambil dari order items.
@@ -103,14 +103,14 @@ impl GroupChatService {
         user_id: &str,
         user_name: &str,
     ) -> Result<()> {
-        let room = match self.repo.find_by_event(event_id).await? {
+        let room = match self.repo.find_by_product(event_id).await? {
             Some(r) => r,
             None => {
                 // Room belum dibuat merchant — buat dengan nama placeholder
                 tracing::warn!(
                     event_id,
                     user_id,
-                    "No group room found for event, skipping auto-join"
+                    "No group room found for product, skipping auto-join"
                 );
                 return Ok(());
             }
@@ -140,7 +140,7 @@ impl GroupChatService {
 
         tracing::info!(
             user_id, room_id = %room.id, event_id,
-            "User auto-joined event group after payment"
+            "User auto-joined product group after payment"
         );
         Ok(())
     }
@@ -280,7 +280,7 @@ impl GroupChatService {
     /// broadcast_room local-delivery via try_send (non-blocking), Redis 1 publish.
     /// Latency tambahan ke caller hanya μs untuk local + ~1ms untuk Redis — acceptable.
     async fn fanout(&self, room_id: &str, msg: &GroupMessage) {
-        let event = WsEvent::NewMessage(Box::new(WsMessage::from_model(msg)));
-        self.ws_mgr.broadcast_room(room_id, event).await;
+        let product = WsEvent::NewMessage(Box::new(WsMessage::from_model(msg)));
+        self.ws_mgr.broadcast_room(room_id, product).await;
     }
 }

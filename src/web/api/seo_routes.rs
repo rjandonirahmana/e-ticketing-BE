@@ -1,6 +1,6 @@
 //! seo_routes.rs — /robots.txt & /sitemap.xml (server-only).
 //!
-//! Sitemap dibangun dinamis dari DB: halaman statis + event aktif + profil
+//! Sitemap dibangun dinamis dari DB: halaman statis + product aktif + profil
 //! merchant. Dibatasi jauh di bawah 50.000 URL (batas satu file sitemap).
 #![cfg(not(target_arch = "wasm32"))]
 
@@ -27,7 +27,7 @@ pub async fn robots_txt() -> Response {
         .into_response()
 }
 
-/// GET /sitemap.xml — halaman statis + event aktif + merchant.
+/// GET /sitemap.xml — halaman statis + product aktif + merchant.
 pub async fn sitemap_xml(Extension(state): Extension<Arc<AppState>>) -> Response {
     let mut urls: Vec<String> = [
         "/", "/explore", "/lives", "/stories", "/pulse-landing",
@@ -36,10 +36,10 @@ pub async fn sitemap_xml(Extension(state): Extension<Arc<AppState>>) -> Response
     .map(|p| format!("{SITE_BASE}{p}"))
     .collect();
 
-    // Event aktif (terbaru dulu). Cap 45k → sisakan ruang utk statis + merchant.
+    // Product aktif (terbaru dulu). Cap 45k → sisakan ruang utk statis + merchant.
     if let Ok(rows) = exec_rows(
         &state.pool,
-        "SELECT slug FROM events WHERE status = 'active' AND slug <> '' \
+        "SELECT slug FROM products WHERE status = 'active' AND slug <> '' \
          ORDER BY event_date DESC LIMIT 45000",
         &[],
     )
@@ -47,7 +47,7 @@ pub async fn sitemap_xml(Extension(state): Extension<Arc<AppState>>) -> Response
     {
         for r in &rows {
             if let Ok(slug) = r.try_get::<_, String>("slug") {
-                urls.push(format!("{SITE_BASE}/events/{slug}"));
+                urls.push(format!("{SITE_BASE}/products/{slug}"));
             }
         }
     }

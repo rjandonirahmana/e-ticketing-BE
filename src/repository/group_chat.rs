@@ -10,19 +10,19 @@ use crate::utils::ulid::{bin_to_ulid, id_to_vec, new_ulid, ulid_to_arr, ulid_to_
 
 /// FIX: Ekstrak semua method ke trait agar GroupChatService bisa bergantung pada
 /// abstraksi (Arc<dyn GroupChatRepository>), bukan concrete type.
-/// Ini konsisten dengan OrderRepository, EventRepository, dll, dan memungkinkan
+/// Ini konsisten dengan OrderRepository, ProductRepository, dll, dan memungkinkan
 /// mock/test tanpa database sungguhan.
 #[async_trait]
 pub trait GroupChatRepository: Send + Sync {
     // Rooms
-    async fn upsert_event_room(
+    async fn upsert_product_room(
         &self,
         event_id: &str,
         name: &str,
         cover_url: Option<&str>,
         created_by: &str,
     ) -> Result<GroupRoom>;
-    async fn find_by_event(&self, event_id: &str) -> Result<Option<GroupRoom>>;
+    async fn find_by_product(&self, event_id: &str) -> Result<Option<GroupRoom>>;
     async fn find_by_id(&self, room_id: &str) -> Result<Option<GroupRoom>>;
     async fn get_user_rooms(&self, user_id: &str) -> Result<Vec<GroupRoom>>;
 
@@ -56,11 +56,11 @@ impl PgGroupChatRepository {
 
     fn row_to_room(row: &tokio_postgres::Row) -> Result<GroupRoom> {
         let id_b: Vec<u8> = row.try_get("id")?;
-        let event_b: Vec<u8> = row.try_get("event_id")?;
+        let product_b: Vec<u8> = row.try_get("event_id")?;
         let creator_b: Vec<u8> = row.try_get("created_by")?;
         Ok(GroupRoom {
             id: bin_to_ulid(id_b)?,
-            event_id: bin_to_ulid(event_b)?,
+            event_id: bin_to_ulid(product_b)?,
             name: row.try_get("name")?,
             cover_url: col_opt_str(row, "cover_url")?,
             created_by: bin_to_ulid(creator_b)?,
@@ -74,7 +74,7 @@ impl PgGroupChatRepository {
 impl GroupChatRepository for PgGroupChatRepository {
     // ── Rooms ─────────────────────────────────────────────────────────────────
 
-    async fn upsert_event_room(
+    async fn upsert_product_room(
         &self,
         event_id: &str,
         name: &str,
@@ -82,9 +82,9 @@ impl GroupChatRepository for PgGroupChatRepository {
         created_by: &str,
     ) -> Result<GroupRoom> {
         let id_b = ulid_to_vec(&new_ulid())?;
-        let event_b = id_to_vec(event_id)?;
+        let product_b = id_to_vec(event_id)?;
         let creator_b = id_to_vec(created_by)?;
-        // FIX: RETURNING menghilangkan round-trip find_by_event setelah insert.
+        // FIX: RETURNING menghilangkan round-trip find_by_product setelah insert.
         // DO UPDATE SET ... agar ON CONFLICT juga return row yang existing.
         // member_count diambil via subquery skalar — tidak perlu GROUP BY terpisah.
         let rows = exec_rows(
@@ -99,7 +99,7 @@ impl GroupChatRepository for PgGroupChatRepository {
                 id, event_id, name, cover_url, created_by, created_at,
                 (SELECT COUNT(*)::BIGINT FROM group_members WHERE room_id = group_rooms.id) AS member_count
             "#,
-            &[&id_b, &event_b, &name, &cover_url, &creator_b],
+            &[&id_b, &product_b, &name, &cover_url, &creator_b],
         )
         .await?;
         rows.first()
@@ -108,8 +108,8 @@ impl GroupChatRepository for PgGroupChatRepository {
             .ok_or_else(|| anyhow::anyhow!("Room not found after upsert"))
     }
 
-    async fn find_by_event(&self, event_id: &str) -> Result<Option<GroupRoom>> {
-        let event_b = id_to_vec(event_id)?;
+    async fn find_by_product(&self, event_id: &str) -> Result<Option<GroupRoom>> {
+        let product_b = id_to_vec(event_id)?;
         let rows = exec_rows(
             &self.pool,
             r#"
@@ -120,7 +120,7 @@ impl GroupChatRepository for PgGroupChatRepository {
             WHERE r.event_id = $1
             GROUP BY r.id LIMIT 1
         "#,
-            &[&event_b],
+            &[&product_b],
         )
         .await?;
         rows.first().map(|r| Self::row_to_room(r)).transpose()
@@ -150,7 +150,7 @@ impl GroupChatRepository for PgGroupChatRepository {
             &self.pool,
             // P1 FIX: Ganti LEFT JOIN group_members m2 + GROUP BY dengan correlated subquery.
             // Self-join menghasilkan Cartesian product sebelum aggregate — untuk room 10k member
-            // ini membengkak jadi O(n²). Subquery berjalan O(n) per row event.
+            // ini membengkak jadi O(n²). Subquery berjalan O(n) per row product.
             r#"
             SELECT r.id, r.event_id, r.name, r.cover_url, r.created_by, r.created_at,
                    (SELECT COUNT(*)::BIGINT FROM group_members WHERE room_id = r.id) AS member_count

@@ -705,44 +705,44 @@
 /* Skeleton placeholder — lihat .shim di bagian bawah untuk animasi */
 
 /* ── Event card skeleton ──────────────────────────────────────────────── */
-.shim-event-card {
+.shim-product-card {
     background: var(--bg-card);
     border: 1px solid var(--border-soft);
     border-radius: 16px;
     overflow: hidden;
 }
-.shim-event-card .shim-img {
+.shim-product-card .shim-img {
     height: 170px;
     width: 100%;
 }
-.shim-event-card .shim-body {
+.shim-product-card .shim-body {
     padding: 14px 16px;
     display: flex;
     flex-direction: column;
     gap: 10px;
 }
-.shim-event-card .shim-cat {
+.shim-product-card .shim-cat {
     height: 9px;
     width: 60px;
 }
-.shim-event-card .shim-title {
+.shim-product-card .shim-title {
     height: 22px;
     width: 80%;
 }
-.shim-event-card .shim-date {
+.shim-product-card .shim-date {
     height: 10px;
     width: 50%;
 }
-.shim-event-card .shim-foot {
+.shim-product-card .shim-foot {
     display: flex;
     justify-content: space-between;
     margin-top: 4px;
 }
-.shim-event-card .shim-venue {
+.shim-product-card .shim-venue {
     height: 10px;
     width: 40%;
 }
-.shim-event-card .shim-price {
+.shim-product-card .shim-price {
     height: 13px;
     width: 25%;
 }
@@ -873,7 +873,7 @@
     border-radius: 100px;
 }
 
-/* ── Merchant/Admin event card skeleton (mirrors .mhub-event-card) ────── */
+/* ── Merchant/Admin event card skeleton (mirrors .mhub-product-card) ────── */
 .shim-mhub-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -1036,12 +1036,12 @@ button:focus-visible {
 }
 
 /* EventCard hover lift */
-.explore-event-card-v2 {
+.explore-product-card-v2 {
     transition:
         transform 0.18s ease,
         box-shadow 0.18s ease;
 }
-.explore-event-card-v2:hover {
+.explore-product-card-v2:hover {
     transform: translateY(-3px);
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
 }
@@ -1086,21 +1086,6 @@ button:focus-visible {
 @media (prefers-reduced-motion: reduce) {
     .shim::after { animation: none; }
     .shim { animation: shimmer-breathe 1.8s ease-in-out infinite; }
-}
-/* ── Cart skeleton (shown during SSR / pre-hydration) ───────────────────────── */
-.cart-skeleton {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    padding: 0 0 20px;
-}
-
-.cart-item-shim {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 16px;
-    border-bottom: 1px solid var(--border-soft);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1519,9 +1504,6 @@ button:focus-visible {
 .sticky-footer {
     z-index: var(--z-footer);
 }
-.cart-footer {
-    z-index: var(--z-footer);
-}
 .pay-bar {
     z-index: var(--z-footer);
 }
@@ -1937,7 +1919,7 @@ button:focus-visible {
 }
 
 /* td-event-title inside hero — white text over image */
-.td-hero-content .td-event-title {
+.td-hero-content .td-product-title {
     color: #fff;
     font-size: 34px;
     line-height: 1;
@@ -2234,7 +2216,7 @@ button:focus-visible {
         rgba(0, 0, 0, 0.85) 100%
     );
 }
-[data-theme="light"] .td-hero-content .td-event-title {
+[data-theme="light"] .td-hero-content .td-product-title {
     color: #fff; /* always white over image */
 }
 [data-theme="light"] .td-page-title {
@@ -2245,7 +2227,7 @@ button:focus-visible {
 /* ── EventGrid (komponen daftar event reusable) ─────────────────────────────
    <EventGrid/> memakai kontainer .exp-mkt-grid + kartu .exp-mkt-card (styling di
    09-page-explore.css) — SATU desain kartu dipakai Explore, Event Detail, /m/:id. */
-.event-grid-empty {
+.product-grid-empty {
     color: var(--text-muted);
     font-size: 14px;
     padding: 18px 0;

@@ -70,7 +70,7 @@ pub trait MerchantRepository: Send + Sync {
     // ── Profil publik + rating & follow ──────────────────────────────────────
 
     /// Profil merchant untuk halaman publik: info toko + agregat follower,
-    /// jumlah event aktif, rata-rata & jumlah rating (satu query).
+    /// jumlah product aktif, rata-rata & jumlah rating (satu query).
     async fn public_profile(&self, merchant_id: &str) -> Result<Option<MerchantPublicProfile>>;
 
     /// Ringkasan rating: avg, total, distribusi per bintang (FILTER agregat).
@@ -216,8 +216,8 @@ impl MerchantRepository for PgMerchantRepository {
                 md.header_url, md.verified,
                 (SELECT COUNT(*)::BIGINT FROM merchant_follows f
                   WHERE f.merchant_id = md.user_id)                          AS followers,
-                (SELECT COUNT(*)::BIGINT FROM events e
-                  WHERE e.merchant_id = md.user_id AND e.status = 'active')  AS events_count,
+                (SELECT COUNT(*)::BIGINT FROM products e
+                  WHERE e.merchant_id = md.user_id AND e.status = 'active')  AS products_count,
                 -- Rating agregat: dibaca langsung dari kolom denormalisasi
                 -- (dijaga trigger reviews_rating_buckets) → tanpa scan `reviews`.
                 md.total_avg_review                                          AS rating_avg,
@@ -238,7 +238,7 @@ impl MerchantRepository for PgMerchantRepository {
                 header_url: r.try_get("header_url")?,
                 verified: r.try_get("verified")?,
                 followers: r.try_get("followers")?,
-                events_count: r.try_get("events_count")?,
+                products_count: r.try_get("products_count")?,
                 rating_avg: r.try_get("rating_avg")?,
                 rating_count: r.try_get("rating_count")?,
             })
@@ -410,9 +410,9 @@ impl MerchantRepository for PgMerchantRepository {
             INSERT INTO reviews (merchant_id, user_id, rating, comment, order_id)
             SELECT $1, $2, $3, $4, o.id
             FROM   orders o
-            JOIN   order_items    oi ON oi.order_id = o.id
-            JOIN   ticket_variants tv ON tv.id = oi.ticket_variant_id
-            JOIN   events         e  ON e.id = tv.event_id
+            JOIN   cart_items     ci ON ci.cart_id = o.cart_id
+            JOIN   product_variants tv ON tv.id = ci.ticket_variant_id
+            JOIN   products         e  ON e.id = tv.event_id
             WHERE  o.customer_id = $2
               AND  e.merchant_id = $1
               AND  o.status = 'paid'
@@ -438,9 +438,9 @@ impl MerchantRepository for PgMerchantRepository {
             SELECT EXISTS (
                 SELECT 1
                 FROM   orders o
-                JOIN   order_items    oi ON oi.order_id = o.id
-                JOIN   ticket_variants tv ON tv.id = oi.ticket_variant_id
-                JOIN   events         e  ON e.id = tv.event_id
+                JOIN   cart_items     ci ON ci.cart_id = o.cart_id
+                JOIN   product_variants tv ON tv.id = ci.ticket_variant_id
+                JOIN   products         e  ON e.id = tv.event_id
                 WHERE  o.customer_id = $2
                   AND  e.merchant_id = $1
                   AND  o.status = 'paid'

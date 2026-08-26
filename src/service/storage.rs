@@ -119,7 +119,7 @@ impl StorageService {
     /// Upload bytes ke RustFS, return public URL.
     ///
     /// Public URL: `{public_url}/{bucket}/{folder}/{uuid}.{ext}`
-    /// e.g. `https://image.ulalaapi.store/image/events/550e.jpg`
+    /// e.g. `https://image.ulalaapi.store/image/products/550e.jpg`
     ///
     /// FIX: removed unused `set_bucket_public_read` method and
     /// removed `.acl(PublicRead)` which RustFS silently ignores or rejects.

@@ -1,25 +1,25 @@
 mod analytics_tab;
 mod banners_tab;
-mod events_tab;
+mod products_tab;
 mod review_tab;
 
 use analytics_tab::{view_analytics_admin, view_finance_admin, view_settings_admin};
 use banners_tab::view_banners;
-use events_tab::view_all_events;
+use products_tab::view_all_products;
 use review_tab::view_review;
 
 use leptos::prelude::*;
 use leptos_router::components::A;
 
-use crate::web::api::{get_admin_events, get_admin_stats, get_banners};
+use crate::web::api::{get_admin_products, get_admin_stats, get_banners};
 use crate::web::app::AuthResource;
-use crate::web::components::{BottomNav, MerchantEventCardShimmer, ThemeToggle};
-use crate::web::models::{Event, PaginatedEvents};
+use crate::web::components::{BottomNav, MerchantProductCardShimmer, ThemeToggle};
+use crate::web::models::{Product, PaginatedProducts};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum AdminTab {
     Review,
-    Events,
+    Products,
     Banners,
     Analytics,
     Finance,
@@ -30,7 +30,7 @@ impl AdminTab {
     fn label(self) -> &'static str {
         match self {
             Self::Review    => "Review",
-            Self::Events    => "Acara",
+            Self::Products    => "Acara",
             Self::Banners   => "Spanduk",
             Self::Analytics => "Analitik",
             Self::Finance   => "Keuangan",
@@ -51,13 +51,13 @@ pub fn AdminPage() -> impl IntoView {
             .unwrap_or(false)
     };
 
-    let all_events_res = Resource::new(
+    let all_products_res = Resource::new(
         move || is_admin(),
         |ok| async move {
             if ok {
-                get_admin_events(Some(1), None).await
+                get_admin_products(Some(1), None).await
             } else {
-                Ok(PaginatedEvents {
+                Ok(PaginatedProducts {
                     data: vec![], total: 0, page: 1, per_page: 50, total_pages: 0,
                 })
             }
@@ -68,9 +68,9 @@ pub fn AdminPage() -> impl IntoView {
         move || is_admin(),
         |ok| async move {
             if ok {
-                get_admin_events(Some(1), Some("edited".to_string())).await
+                get_admin_products(Some(1), Some("edited".to_string())).await
             } else {
-                Ok(PaginatedEvents {
+                Ok(PaginatedProducts {
                     data: vec![], total: 0, page: 1, per_page: 50, total_pages: 0,
                 })
             }
@@ -93,15 +93,15 @@ pub fn AdminPage() -> impl IntoView {
         |ok| async move { if ok { get_banners().await } else { Ok(vec![]) } },
     );
 
-    let all_events: RwSignal<Vec<Event>>     = RwSignal::new(vec![]);
-    let pending_events: RwSignal<Vec<Event>> = RwSignal::new(vec![]);
+    let all_products: RwSignal<Vec<Product>>     = RwSignal::new(vec![]);
+    let pending_products: RwSignal<Vec<Product>> = RwSignal::new(vec![]);
     let all_loaded     = RwSignal::new(false);
     let pending_loaded = RwSignal::new(false);
 
     Effect::new(move |_| {
         if !all_loaded.get() {
-            if let Some(Ok(pg)) = all_events_res.get() {
-                all_events.set(pg.data);
+            if let Some(Ok(pg)) = all_products_res.get() {
+                all_products.set(pg.data);
                 all_loaded.set(true);
             }
         }
@@ -109,14 +109,14 @@ pub fn AdminPage() -> impl IntoView {
     Effect::new(move |_| {
         if !pending_loaded.get() {
             if let Some(Ok(pg)) = pending_res.get() {
-                pending_events.set(pg.data);
+                pending_products.set(pg.data);
                 pending_loaded.set(true);
             }
         }
     });
 
-    let total_sold   = move || all_events.with(|v| v.iter().map(|e| e.total_sold).sum::<i32>());
-    let total_quota  = move || all_events.with(|v| v.iter().map(|e| e.total_quota).sum::<i32>());
+    let total_sold   = move || all_products.with(|v| v.iter().map(|e| e.total_sold).sum::<i32>());
+    let total_quota  = move || all_products.with(|v| v.iter().map(|e| e.total_quota).sum::<i32>());
     let capacity_pct = move || {
         let q = total_quota();
         if q == 0 { 0u32 } else { ((total_sold() as f64 / q as f64) * 100.0).round() as u32 }
@@ -127,7 +127,7 @@ pub fn AdminPage() -> impl IntoView {
 
     let tabs = [
         AdminTab::Review,
-        AdminTab::Events,
+        AdminTab::Products,
         AdminTab::Banners,
         AdminTab::Analytics,
         AdminTab::Finance,
@@ -222,7 +222,7 @@ pub fn AdminPage() -> impl IntoView {
                             {t.label()}
                             {move || {
                                 if t == AdminTab::Review {
-                                    let cnt = pending_events.with(|v| v.len());
+                                    let cnt = pending_products.with(|v| v.len());
                                     if cnt > 0 {
                                         return view! {
                                             <span style="background:#ef4444;color:#fff;border-radius:99px;\
@@ -251,13 +251,13 @@ pub fn AdminPage() -> impl IntoView {
             })}
 
             <Suspense fallback=move || {
-                (0..3).map(|_| view! { <MerchantEventCardShimmer /> }).collect_view()
+                (0..3).map(|_| view! { <MerchantProductCardShimmer /> }).collect_view()
             }>
                 {move || {
                     let evs_all = if all_loaded.get() {
-                        all_events.get()
+                        all_products.get()
                     } else {
-                        all_events_res.get()
+                        all_products_res.get()
                             .and_then(|r| r.ok())
                             .map(|pg| pg.data)
                             .unwrap_or_default()
@@ -268,8 +268,8 @@ pub fn AdminPage() -> impl IntoView {
                         .unwrap_or_default();
 
                     match active_page.get() {
-                        AdminTab::Review    => view_review(pending_events, all_events, toast).into_any(),
-                        AdminTab::Events    => view_all_events(evs_all).into_any(),
+                        AdminTab::Review    => view_review(pending_products, all_products, toast).into_any(),
+                        AdminTab::Products    => view_all_products(evs_all).into_any(),
                         AdminTab::Banners   => {
                             view_banners(banners_list, move || banners_res.refetch()).into_any()
                         }

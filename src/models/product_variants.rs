@@ -7,7 +7,7 @@ use validator::Validate;
 use crate::utils::ulid::hex_to_ulid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EventVariant {
+pub struct ProductVariant {
     pub id: String,
     pub event_id: String,
     pub name: String,
@@ -25,7 +25,7 @@ pub struct EventVariant {
     pub updated_at: DateTime<Utc>,
 }
 
-impl EventVariant {
+impl ProductVariant {
     /// Harga efektif: gunakan sale_price jika sedang dalam periode sale,
     /// fallback ke price biasa.
     pub fn effective_price(&self) -> f64 {
@@ -50,8 +50,8 @@ impl EventVariant {
 }
 
 /// Komparator effective_price ASC — untuk menemukan variant termurah
-/// sebagai representasi harga event di list.
-pub fn cmp_by_effective_price(a: &EventVariant, b: &EventVariant) -> Ordering {
+/// sebagai representasi harga product di list.
+pub fn cmp_by_effective_price(a: &ProductVariant, b: &ProductVariant) -> Ordering {
     a.effective_price()
         .partial_cmp(&b.effective_price())
         .unwrap_or(Ordering::Equal)
@@ -60,7 +60,7 @@ pub fn cmp_by_effective_price(a: &EventVariant, b: &EventVariant) -> Ordering {
 // ── JSON helper untuk deserialisasi variants_json dari jsonb_agg ──────────────
 
 #[derive(serde::Deserialize)]
-pub struct EventVariantJson {
+pub struct ProductVariantJson {
     id: String,
     event_id: String,
     name: String,
@@ -78,13 +78,13 @@ pub struct EventVariantJson {
     updated_at: DateTime<Utc>,
 }
 
-impl EventVariantJson {
-    pub fn into_variant(self) -> Result<EventVariant> {
+impl ProductVariantJson {
+    pub fn into_variant(self) -> Result<ProductVariant> {
         let to_dt = |d: NaiveDate| -> DateTime<Utc> {
             Utc.from_utc_datetime(&d.and_hms_opt(0, 0, 0).unwrap())
         };
 
-        Ok(EventVariant {
+        Ok(ProductVariant {
             id: hex_to_ulid(&self.id).context("variant id hex→ulid")?,
             event_id: hex_to_ulid(&self.event_id).context("variant event_id hex→ulid")?,
             name: self.name,
@@ -107,7 +107,7 @@ impl EventVariantJson {
 // ── Response ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, Clone)]
-pub struct EventVariantResponse {
+pub struct ProductVariantResponse {
     pub id: String,
     pub event_id: String,
     pub name: String,
@@ -130,8 +130,8 @@ pub struct EventVariantResponse {
     pub sort_order: i32,
 }
 
-impl From<EventVariant> for EventVariantResponse {
-    fn from(v: EventVariant) -> Self {
+impl From<ProductVariant> for ProductVariantResponse {
+    fn from(v: ProductVariant) -> Self {
         let effective_price = v.effective_price();
         let is_sale_active = v.is_sale_active();
         let available = v.quota - v.sold;
@@ -159,7 +159,7 @@ impl From<EventVariant> for EventVariantResponse {
 // ── Request DTOs ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, Validate)]
-pub struct CreateEventVariantRequest {
+pub struct CreateProductVariantRequest {
     #[validate(length(min = 1, max = 255))]
     pub name: String,
     pub description: Option<String>,
@@ -179,7 +179,7 @@ pub struct CreateEventVariantRequest {
 }
 
 #[derive(Debug, Deserialize, Validate)]
-pub struct UpdateEventVariantRequest {
+pub struct UpdateProductVariantRequest {
     #[validate(length(min = 1, max = 255))]
     pub name: Option<String>,
     pub description: Option<String>,

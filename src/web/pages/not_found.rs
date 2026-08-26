@@ -82,11 +82,11 @@ pub fn NotFoundPage() -> impl IntoView {
             <style>
                 "
                 .nf-page { min-height:100vh; position:relative; overflow:hidden; display:flex; flex-direction:column; }
-                .nf-grid-bg { position:absolute; inset:0; pointer-events:none; z-index:0; }
+                .nf-grid-bg { position:absolute; inset:0; pointer-products:none; z-index:0; }
                 .nf-grid-line { position:absolute; background:rgba(200,255,94,0.04); }
                 .nf-grid-h { left:0; right:0; height:1px; }
                 .nf-grid-v { top:0; bottom:0; width:1px; }
-                .nf-orb { position:absolute; border-radius:50%; pointer-events:none; filter:blur(80px); }
+                .nf-orb { position:absolute; border-radius:50%; pointer-products:none; filter:blur(80px); }
                 .nf-orb-1 { width:300px; height:300px; background:rgba(200,255,94,0.07); top:-80px; right:-80px; z-index:0; }
                 .nf-orb-2 { width:250px; height:250px; background:rgba(100,80,255,0.08); bottom:80px; left:-60px; z-index:0; }
                 .nf-content { position:relative; z-index:10; flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px 24px 60px; text-align:center; }

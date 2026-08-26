@@ -17,8 +17,8 @@ static TICKET_DETAIL_COLS: &str = r#"
     t.used_at,
     t.created_at,
 
-    oi.id           AS order_item_id,
-    oi.unit_price::FLOAT8 AS unit_price,
+    ci.id           AS order_item_id,
+    ci.unit_price::FLOAT8 AS unit_price,
 
     o.id            AS order_id,
     o.order_code,
@@ -39,10 +39,10 @@ static TICKET_DETAIL_COLS: &str = r#"
 
 static FROM_JOINS: &str = r#"
       FROM tickets t
-      JOIN order_items oi    ON t.order_item_id = oi.id
-      JOIN orders o          ON oi.order_id = o.id
-      JOIN event_variants tv ON oi.ticket_variant_id = tv.id
-      JOIN events e           ON tv.event_id = e.id
+      JOIN cart_items ci       ON t.cart_item_id = ci.id
+      JOIN orders o            ON t.order_id = o.id
+      JOIN product_variants tv ON ci.ticket_variant_id = tv.id
+      JOIN products e          ON tv.event_id = e.id
 "#;
 
 static FIND_BY_ID: LazyLock<String> = LazyLock::new(|| {
@@ -122,7 +122,7 @@ impl PgTicketRepository {
         let ticket_bytes: Vec<u8> = row.try_get("ticket_id").context("ticket_id")?;
         let order_bytes: Vec<u8> = row.try_get("order_id").context("order_id")?;
         let variant_bytes: Vec<u8> = row.try_get("variant_id").context("variant_id")?;
-        let event_bytes: Vec<u8> = row.try_get("event_id").context("event_id")?;
+        let product_bytes: Vec<u8> = row.try_get("event_id").context("event_id")?;
         let customer_bytes: Vec<u8> = row.try_get("customer_id").context("customer_id")?;
         let merchant_bytes: Vec<u8> = row.try_get("merchant_id").context("merchant_id")?;
 
@@ -134,7 +134,7 @@ impl PgTicketRepository {
             created_at: row.try_get("created_at")?,
             order_id: bin_to_ulid(order_bytes)?,
             order_code: row.try_get("order_code")?,
-            event_id: bin_to_ulid(event_bytes)?,
+            event_id: bin_to_ulid(product_bytes)?,
             event_name: row.try_get("event_name")?,
             event_slug: row.try_get("event_slug")?,
             event_date: row.try_get("event_date")?,
@@ -230,7 +230,7 @@ impl TicketRepository for PgTicketRepository {
                 SET status = 'used', used_at = NOW()
                 WHERE id = $1
                 RETURNING id, ticket_code, status, used_at,
-                          created_at, order_item_id
+                          created_at, cart_item_id, order_id
             )
             SELECT
                 u.id            AS ticket_id,
@@ -239,8 +239,8 @@ impl TicketRepository for PgTicketRepository {
                 u.used_at,
                 u.created_at,
 
-                oi.id           AS order_item_id,
-                oi.unit_price::FLOAT8 AS unit_price,
+                ci.id           AS order_item_id,
+                ci.unit_price::FLOAT8 AS unit_price,
 
                 o.id            AS order_id,
                 o.order_code,
@@ -258,10 +258,10 @@ impl TicketRepository for PgTicketRepository {
                 e.cover_url     AS cover_url,
                 e.merchant_id
             FROM updated u
-            JOIN order_items oi    ON u.order_item_id = oi.id
-            JOIN orders o          ON oi.order_id = o.id
-            JOIN event_variants tv ON oi.ticket_variant_id = tv.id
-            JOIN events e          ON tv.event_id = e.id
+            JOIN cart_items ci       ON u.cart_item_id = ci.id
+            JOIN orders o            ON u.order_id = o.id
+            JOIN product_variants tv ON ci.ticket_variant_id = tv.id
+            JOIN products e          ON tv.event_id = e.id
         "#;
 
         let detail_stmt = tx.prepare_cached(VALIDATE_DETAIL_SQL).await?;

@@ -379,3 +379,49 @@
 }
 .vp-secure-footer svg { opacity: 0.5; }
 
+
+/* ── Virtual Account (order menunggu pembayaran) ────────────────────────────
+   Nomor VA menggantikan kartu QR untuk kanal transfer. Angkanya dibuat besar,
+   berjarak, dan `user-select: all` supaya sekali sentuh sudah tersalin — ini
+   satu-satunya hal yang harus dipindahkan pembeli ke aplikasi banknya, dan
+   salah satu digit saja membuat pembayarannya tidak terverifikasi.            */
+.vp-va-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 22px 18px;
+    margin: 16px 0;
+    background: var(--bg-card);
+    border: 1px dashed var(--border-strong);
+    border-radius: 18px;
+}
+.vp-va-label {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+.vp-va-num {
+    font-family: var(--font-mono, monospace);
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--text-primary);
+    user-select: all;
+}
+.vp-va-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+    line-height: 1.5;
+    margin: 0;
+}
+
+/* Instruksi bebas dari kolom `payment_methods.instruction`. */
+.vp-howto-text {
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--text-secondary);
+    margin: 12px 0 0;
+}

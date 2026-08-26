@@ -693,13 +693,13 @@
     color: var(--text-muted);
     letter-spacing: 0.06em;
 }
-.mhub-event-progress-row {
+.mhub-product-progress-row {
     display: flex;
     flex-direction: column;
     gap: 4px;
     margin-top: 2px;
 }
-.mhub-event-progress-bar {
+.mhub-product-progress-bar {
     width: 100%;
     height: 4px;
     background: var(--bg-elevated);
@@ -1795,17 +1795,17 @@
 }
 
 /* ── Events section ──────────────────────────────────────────────────────────── */
-.mhub-events-section {
+.mhub-products-section {
     padding: 16px 16px 100px;
 }
 
-.mhub-events-header {
+.mhub-products-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     margin-bottom: 16px;
 }
-.mhub-events-title {
+.mhub-products-title {
     font-family: var(--font-display);
     font-size: 26px;
     letter-spacing: 1px;
@@ -1870,7 +1870,7 @@
 }
 
 /* ── Event card ──────────────────────────────────────────────────────────────── */
-.mhub-event-card {
+.mhub-product-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: 18px;
@@ -1880,28 +1880,28 @@
         border-color 0.2s,
         transform 0.15s;
 }
-.mhub-event-card:hover {
+.mhub-product-card:hover {
     border-color: var(--border-strong);
 }
 
 /* Image area */
-.mhub-event-card-img-wrap {
+.mhub-product-card-img-wrap {
     position: relative;
     overflow: hidden;
 }
-.mhub-event-card-img {
+.mhub-product-card-img {
     width: 100%;
     aspect-ratio: 16 / 8;
     object-fit: cover;
     display: block;
     transition: transform 0.3s;
 }
-.mhub-event-card:hover .mhub-event-card-img {
+.mhub-product-card:hover .mhub-product-card-img {
     transform: scale(1.02);
 }
 
 /* Status badge — sits on image */
-.mhub-event-status {
+.mhub-product-status {
     position: absolute;
     top: 10px;
     right: 10px;
@@ -1922,24 +1922,24 @@
     color: var(--text-secondary);
     border: 1px solid var(--border-strong);
 }
-.mhub-event-status--presale {
+.mhub-product-status--presale {
     background: var(--accent-violet);
     color: #fff;
 }
 
 /* Body */
-.mhub-event-card-body {
+.mhub-product-card-body {
     padding: 14px 14px 12px;
 }
 
-.mhub-event-card-top-row {
+.mhub-product-card-top-row {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     gap: 10px;
     margin-bottom: 6px;
 }
-.mhub-event-card-title {
+.mhub-product-card-title {
     font-family: var(--font-display);
     font-size: 19px;
     letter-spacing: 0.4px;
@@ -1947,11 +1947,11 @@
     margin: 0;
     line-height: 1.2;
 }
-.mhub-event-card-price-block {
+.mhub-product-card-price-block {
     text-align: right;
     flex-shrink: 0;
 }
-.mhub-event-price-label {
+.mhub-product-price-label {
     display: block;
     font-family: var(--font-body);
     font-size: 9px;
@@ -1959,7 +1959,7 @@
     color: var(--text-muted);
     margin-bottom: 2px;
 }
-.mhub-event-price-value {
+.mhub-product-price-value {
     display: block;
     font-family: var(--font-display);
     font-size: 18px;
@@ -1968,7 +1968,7 @@
     white-space: nowrap;
 }
 
-.mhub-event-card-meta {
+.mhub-product-card-meta {
     font-family: var(--font-body);
     font-size: 11px;
     color: var(--text-secondary);
@@ -1976,16 +1976,16 @@
 }
 
 /* Progress */
-.mhub-event-progress-section {
+.mhub-product-progress-section {
     margin-bottom: 12px;
 }
-.mhub-event-progress-row {
+.mhub-product-progress-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 6px;
 }
-.mhub-event-progress-key {
+.mhub-product-progress-key {
     font-family: var(--font-body);
     font-size: 10px;
     letter-spacing: 0.08em;
@@ -2002,7 +2002,7 @@
     font-weight: 700;
 }
 
-.mhub-event-progress-bar {
+.mhub-product-progress-bar {
     height: 5px;
     background: var(--bg-elevated);
     border-radius: 3px;
@@ -2035,12 +2035,12 @@
 }
 
 /* Actions row */
-.mhub-event-card-actions {
+.mhub-product-card-actions {
     display: flex;
     align-items: center;
     gap: 8px;
 }
-.mhub-event-manage-btn {
+.mhub-product-manage-btn {
     flex: 1;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
@@ -2059,7 +2059,7 @@
         background 0.2s,
         border-color 0.2s;
 }
-.mhub-event-manage-btn:hover {
+.mhub-product-manage-btn:hover {
     background: var(--bg-elevated-2);
     border-color: var(--border-strong);
 }

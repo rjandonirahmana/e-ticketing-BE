@@ -5,6 +5,8 @@ use validator::Validate;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ticket {
     pub id: String,
+    /// Id baris pesanan. Sejak `order_items` dihapus, ini adalah id baris
+    /// `cart_items` dari keranjang yang sudah ditutup.
     pub order_item_id: String,
     pub ticket_code: String,
     pub status: String,
@@ -13,7 +15,7 @@ pub struct Ticket {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Ticket enriched with the event/variant context the customer typically wants
+/// Ticket enriched with the product/variant context the customer typically wants
 /// to see in their wallet view.
 #[derive(Debug, Serialize)]
 pub struct TicketResponse {

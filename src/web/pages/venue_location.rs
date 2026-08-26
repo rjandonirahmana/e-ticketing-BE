@@ -1,4 +1,4 @@
-//! venue_location.rs — Halaman Lokasi Venue Event (SSR + peta OpenStreetMap).
+//! venue_location.rs — Halaman Lokasi Venue Product (SSR + peta OpenStreetMap).
 //!
 //! Memakai sistem desain aplikasi (.page / .page-header / back-btn / ThemeToggle)
 //! agar lebar & gaya konsisten dengan halaman lain.
@@ -6,7 +6,7 @@
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
-use crate::web::api::get_event_detail;
+use crate::web::api::get_product_detail;
 use crate::web::hooks::ThemeToggle;
 use crate::web::utils::{map_destroy, map_viewer};
 
@@ -50,11 +50,11 @@ pub fn VenueLocationPage() -> impl IntoView {
     let params = use_params_map();
     let slug = move || params.read().get("slug").unwrap_or_default();
 
-    let event = Resource::new(slug, |s| get_event_detail(s));
+    let product = Resource::new(slug, |s| get_product_detail(s));
 
-    // Render peta OpenStreetMap begitu koordinat event tersedia.
+    // Render peta OpenStreetMap begitu koordinat product tersedia.
     Effect::new(move |_| {
-        if let Some(Ok(ev)) = event.get() {
+        if let Some(Ok(ev)) = product.get() {
             if let (Some(la), Some(lo)) = (ev.latitude, ev.longitude) {
                 let label = ev.venue.clone().unwrap_or_else(|| ev.name.clone());
                 map_viewer("venue-map-mount", la, lo, &label);
@@ -98,7 +98,7 @@ pub fn VenueLocationPage() -> impl IntoView {
 
             <Suspense fallback=|| view! { <LocationSkeleton /> }>
                 {move || {
-                    match event.get() {
+                    match product.get() {
                         Some(Ok(ev)) => {
                             let venue = ev.venue.clone().unwrap_or_else(|| "Venue TBA".into());
                             let city = ev.city.clone().unwrap_or_default();
@@ -232,7 +232,7 @@ pub fn VenueLocationPage() -> impl IntoView {
                                         "Lokasi belum tersedia"
                                     </p>
                                     <p style="font-size:13px;margin:0">
-                                        "Event tidak ditemukan atau lokasi belum diatur."
+                                        "Product tidak ditemukan atau lokasi belum diatur."
                                     </p>
                                 </div>
                             }

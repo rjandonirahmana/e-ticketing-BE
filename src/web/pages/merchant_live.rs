@@ -204,7 +204,7 @@ pub fn MerchantLivePage() -> impl IntoView {
             // tetap menyala meski PC ditutup (penyebab "kamera tidak berhenti").
             if let Some(conn) = pc.get_untracked() {
                 // Detach onicecandidate SEBELUM menutup & drop closure → cegah
-                // "closure invoked after drop" bila event ICE masih menyusul.
+                // "closure invoked after drop" bila product ICE masih menyusul.
                 conn.set_onicecandidate(None);
                 stop_pc_senders(&conn);
                 let _ = conn.close();
@@ -522,8 +522,8 @@ async fn create_publisher(
     // drop" → panic).
     let ws_ref = ws.clone();
     let on_ice = Closure::<dyn FnMut(web_sys::RtcPeerConnectionIceEvent)>::new(
-        move |event: web_sys::RtcPeerConnectionIceEvent| {
-            if let Some(candidate) = event.candidate() {
+        move |product: web_sys::RtcPeerConnectionIceEvent| {
+            if let Some(candidate) = product.candidate() {
                 let msg = serde_json::json!({
                     "type": "candidate",
                     "candidate": candidate.candidate(),

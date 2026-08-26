@@ -89,9 +89,9 @@ static FIND_DETAIL: LazyLock<String> = LazyLock::new(|| {
                     'event_slug',   e.slug
                 )
                 FROM tickets t
-                JOIN order_items    oi ON oi.id = t.order_item_id
-                JOIN event_variants ev ON ev.id = oi.ticket_variant_id
-                JOIN events         e  ON e.id  = ev.event_id
+                JOIN cart_items     ci ON ci.id = t.cart_item_id
+                JOIN product_variants ev ON ev.id = ci.ticket_variant_id
+                JOIN products         e  ON e.id  = ev.event_id
                 WHERE t.id = n.target_id
             )
             ELSE NULL

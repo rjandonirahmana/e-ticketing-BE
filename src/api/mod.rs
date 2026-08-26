@@ -12,11 +12,26 @@
 //!     POST /api/auth/refresh
 //!     POST /api/auth/logout
 //!
-//!   Events & Banners (public):
-//!     GET  /api/events
-//!     GET  /api/events/:slug
-//!     GET  /api/events/:slug/location
+//!   Products & Banners (public):
+//!     GET  /api/products
+//!     GET  /api/products/:slug
+//!     GET  /api/products/:slug/location
 //!     GET  /api/banners
+//!
+//!   Cart & Payment & Checkout (private):
+//!     GET    /api/cart/view
+//!     GET    /api/cart/count
+//!     POST   /api/cart/create
+//!     POST   /api/cart/add
+//!     PUT    /api/cart/quantity
+//!     DELETE /api/cart/item/:variant_id
+//!     DELETE /api/cart/clear
+//!     POST   /api/cart/promo
+//!     POST   /api/cart/payment
+//!     GET    /api/payments
+//!     POST   /api/checkout
+//!     POST   /api/orders/:id/pay
+//!     POST   /api/orders/:id/cancel
 //!
 //!   Orders & Tickets & Promos (private):
 //!     GET  /api/orders
@@ -33,12 +48,12 @@
 //!     POST /api/notifications/read-all
 //!
 //!   Merchant (private):
-//!     GET  /api/merchant/events
-//!     GET  /api/merchant/events/:slug
+//!     GET  /api/merchant/products
+//!     GET  /api/merchant/products/:slug
 //!
 //!   Admin (private, role=admin):
-//!     GET  /api/admin/events
-//!     PUT  /api/admin/events/:id
+//!     GET  /api/admin/products
+//!     PUT  /api/admin/products/:id
 //!
 //!   Stories (private):
 //!     GET    /api/stories
@@ -52,7 +67,7 @@
 //!
 //!   Chat & WebSocket (handled in ws/routes.rs):
 //!     GET  /api/chat/rooms
-//!     GET  /api/chat/events/:event_id/room
+//!     GET  /api/chat/products/:event_id/room
 //!     POST /api/chat/rooms/:room_id/join
 //!     GET  /api/chat/rooms/:room_id/history
 //!     GET  /api/chat/rooms/:room_id/sent_count
@@ -65,7 +80,8 @@ use crate::state::AppState;
 
 mod extractor;
 mod auth;
-mod events;
+mod cart;
+mod products;
 mod orders;
 mod notifications;
 mod merchant;
@@ -79,8 +95,9 @@ pub fn rest_router() -> Router<Arc<AppState>> {
             "/api",
             Router::new()
                 .merge(auth::router())
-                .merge(events::router())
+                .merge(products::router())
                 .merge(orders::router())
+                .merge(cart::router())
                 .merge(notifications::router())
                 .merge(merchant::router())
                 .merge(admin::router())

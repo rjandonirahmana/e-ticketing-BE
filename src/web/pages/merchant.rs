@@ -4,26 +4,26 @@ use leptos::prelude::*;
 use leptos_router::components::A;
 
 use crate::web::api::{
-    get_merchant_events, get_merchant_public_events, get_merchant_public_profile,
+    get_merchant_products, get_merchant_public_products, get_merchant_public_profile,
     update_merchant_profile,
 };
 use crate::web::app::AuthResource;
-use crate::web::components::{BottomNav, MerchantEventCardShimmer, ThemeToggle};
-use crate::web::models::{format_date, format_price, Event, PaginatedEvents};
+use crate::web::components::{BottomNav, MerchantProductCardShimmer, ThemeToggle};
+use crate::web::models::{format_date, format_price, Product, PaginatedProducts};
 
 use super::merchant_public::fmt_count;
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
 #[derive(Clone, PartialEq)]
-enum EventStatus {
+enum ProductStatus {
     OnSale,
     SoldOut,
     Presale,
 }
 
-impl EventStatus {
-    fn from_event(e: &Event) -> Self {
+impl ProductStatus {
+    fn from_product(e: &Product) -> Self {
         if e.total_quota > 0 && e.total_sold >= e.total_quota {
             Self::SoldOut
         } else if e.status == "active" {
@@ -34,9 +34,9 @@ impl EventStatus {
     }
     fn css_mod(&self) -> &'static str {
         match self {
-            Self::OnSale  => "mhub-event-status mhub-event-status--sale",
-            Self::SoldOut => "mhub-event-status mhub-event-status--sold",
-            Self::Presale => "mhub-event-status mhub-event-status--presale",
+            Self::OnSale  => "mhub-product-status mhub-product-status--sale",
+            Self::SoldOut => "mhub-product-status mhub-product-status--sold",
+            Self::Presale => "mhub-product-status mhub-product-status--presale",
         }
     }
     fn label(&self) -> &'static str {
@@ -56,13 +56,13 @@ pub fn MerchantPage() -> impl IntoView {
 
     let is_logged_in = move || auth.get().and_then(|r| r.ok()).flatten().is_some();
 
-    let events = Resource::new(
+    let products = Resource::new(
         move || is_logged_in(),
         |logged_in| async move {
             if logged_in {
-                get_merchant_events(Some(1)).await
+                get_merchant_products(Some(1)).await
             } else {
-                Ok(PaginatedEvents {
+                Ok(PaginatedProducts {
                     data: vec![],
                     total: 0,
                     page: 1,
@@ -76,7 +76,7 @@ pub fn MerchantPage() -> impl IntoView {
     let active_page = RwSignal::new("tickets");
 
     let evs_list = move || {
-        events
+        products
             .get()
             .and_then(|r| r.ok())
             .map(|pg| pg.data)
@@ -206,7 +206,7 @@ pub fn MerchantPage() -> impl IntoView {
 
             // ── Content ───────────────────────────────────────────────────────
             <Suspense fallback=move || {
-                (0..3).map(|_| view! { <MerchantEventCardShimmer /> }).collect_view()
+                (0..3).map(|_| view! { <MerchantProductCardShimmer /> }).collect_view()
             }>
                 {move || {
                     let evs = evs_list();
@@ -223,7 +223,7 @@ pub fn MerchantPage() -> impl IntoView {
         <BottomNav active="merchant" />
 
         // ── FAB ───────────────────────────────────────────────────────────────
-        <A href="/merchant/events/create" attr:class="mhub-fab" attr:aria-label="Event baru">
+        <A href="/merchant/products/create" attr:class="mhub-fab" attr:aria-label="Product baru">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
                 <line x1="12" y1="5" x2="12" y2="19"/>
@@ -235,11 +235,11 @@ pub fn MerchantPage() -> impl IntoView {
 
 // ─── Tickets tab ──────────────────────────────────────────────────────────────
 
-fn view_tickets(evs: Vec<Event>) -> impl IntoView {
+fn view_tickets(evs: Vec<Product>) -> impl IntoView {
     view! {
-        <section class="mhub-events-section">
-            <div class="mhub-events-header">
-                <h3 class="mhub-events-title">"Event Saya"</h3>
+        <section class="mhub-products-section">
+            <div class="mhub-products-header">
+                <h3 class="mhub-products-title">"Product Saya"</h3>
                 <span class="mhub-live-badge">
                     <span class="mhub-live-dot"></span>
                     "Live"
@@ -255,11 +255,11 @@ fn view_tickets(evs: Vec<Event>) -> impl IntoView {
                                 <line x1="1" y1="10" x2="23" y2="10"/>
                             </svg>
                         </div>
-                        <p class="mhub-empty-title">"Belum Ada Event"</p>
+                        <p class="mhub-empty-title">"Belum Ada Product"</p>
                         <p class="mhub-empty-body">
-                            "Buat event pertamamu dan mulai jual tiket ke audiensmu."
+                            "Buat product pertamamu dan mulai jual tiket ke audiensmu."
                         </p>
-                        <A href="/merchant/events/create" attr:class="mhub-empty-cta">
+                        <A href="/merchant/products/create" attr:class="mhub-empty-cta">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
                                  stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
                                 <line x1="12" y1="5" x2="12" y2="19"/>
@@ -281,7 +281,7 @@ fn view_tickets(evs: Vec<Event>) -> impl IntoView {
                                 "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=600&q=80",
                             )
                             .to_string();
-                        let status = EventStatus::from_event(&ev);
+                        let status = ProductStatus::from_product(&ev);
                         let title  = ev.name.clone();
                         let date   = format_date(&ev.event_date);
                         let venue_str = match (ev.venue.as_deref(), ev.city.as_deref()) {
@@ -296,26 +296,26 @@ fn view_tickets(evs: Vec<Event>) -> impl IntoView {
                             ((sold as f64 / quota as f64) * 100.0).round() as u32
                         } else { 0 };
                         let fill_style = format!("width:{pct}%");
-                        let (val_text, val_cls) = if status == EventStatus::SoldOut {
+                        let (val_text, val_cls) = if status == ProductStatus::SoldOut {
                             (
                                 "100% Sold Out".to_string(),
-                                "mhub-event-progress-val mhub-event-progress-val--sold",
+                                "mhub-product-progress-val mhub-product-progress-val--sold",
                             )
                         } else if quota == 0 {
-                            ("—".to_string(), "mhub-event-progress-val")
+                            ("—".to_string(), "mhub-product-progress-val")
                         } else {
-                            (format!("{sold}/{quota} Terjual"), "mhub-event-progress-val")
+                            (format!("{sold}/{quota} Terjual"), "mhub-product-progress-val")
                         };
                         let remaining_text =
                             if quota == 0 { String::new() } else { format!("{avail} sisa") };
                         let fill_cls = match &status {
-                            EventStatus::SoldOut => {
-                                "mhub-event-progress-fill mhub-event-progress-fill--sold"
+                            ProductStatus::SoldOut => {
+                                "mhub-product-progress-fill mhub-product-progress-fill--sold"
                             }
-                            EventStatus::Presale => {
-                                "mhub-event-progress-fill mhub-event-progress-fill--lime"
+                            ProductStatus::Presale => {
+                                "mhub-product-progress-fill mhub-product-progress-fill--lime"
                             }
-                            _ => "mhub-event-progress-fill",
+                            _ => "mhub-product-progress-fill",
                         };
                         let price     = format_price(ev.display_price);
                         let slug      = ev.slug.clone();
@@ -323,33 +323,33 @@ fn view_tickets(evs: Vec<Event>) -> impl IntoView {
                         let status_lbl = status.label();
 
                         view! {
-                            <div class="mhub-event-card">
-                                <div class="mhub-event-card-img-wrap">
-                                    <img src=cover alt=title.clone() class="mhub-event-card-img"/>
+                            <div class="mhub-product-card">
+                                <div class="mhub-product-card-img-wrap">
+                                    <img src=cover alt=title.clone() class="mhub-product-card-img"/>
                                     <span class=status_css>{status_lbl}</span>
                                 </div>
-                                <div class="mhub-event-card-body">
-                                    <div class="mhub-event-card-top-row">
-                                        <p class="mhub-event-card-title">{title}</p>
-                                        <div class="mhub-event-card-price-block">
-                                            <span class="mhub-event-price-label">"Mulai dari"</span>
-                                            <span class="mhub-event-price-value">{price}</span>
+                                <div class="mhub-product-card-body">
+                                    <div class="mhub-product-card-top-row">
+                                        <p class="mhub-product-card-title">{title}</p>
+                                        <div class="mhub-product-card-price-block">
+                                            <span class="mhub-product-price-label">"Mulai dari"</span>
+                                            <span class="mhub-product-price-value">{price}</span>
                                         </div>
                                     </div>
-                                    <p class="mhub-event-card-meta">{date}" • "{venue_str}</p>
+                                    <p class="mhub-product-card-meta">{date}" • "{venue_str}</p>
 
-                                    <div class="mhub-event-progress-section">
-                                        <div class="mhub-event-progress-row">
-                                            <span class="mhub-event-progress-key">"Penjualan"</span>
+                                    <div class="mhub-product-progress-section">
+                                        <div class="mhub-product-progress-row">
+                                            <span class="mhub-product-progress-key">"Penjualan"</span>
                                             <span class=val_cls>{val_text}</span>
                                         </div>
-                                        <div class="mhub-event-progress-bar">
+                                        <div class="mhub-product-progress-bar">
                                             <div class=fill_cls style=fill_style></div>
                                         </div>
                                         {(!remaining_text.is_empty()).then(|| {
                                             view! {
-                                                <div class="mhub-event-remaining-row">
-                                                    <span class="mhub-event-remaining-badge">
+                                                <div class="mhub-product-remaining-row">
+                                                    <span class="mhub-product-remaining-badge">
                                                         <svg width="10" height="10" viewBox="0 0 24 24"
                                                              fill="none" stroke="currentColor" stroke-width="2.5">
                                                             <circle cx="12" cy="12" r="10"/>
@@ -363,16 +363,16 @@ fn view_tickets(evs: Vec<Event>) -> impl IntoView {
                                         })}
                                     </div>
 
-                                    <div class="mhub-event-card-actions">
+                                    <div class="mhub-product-card-actions">
                                         <A
-                                            href=format!("/merchant/events/{slug}/edit")
-                                            attr:class="mhub-event-manage-btn">
+                                            href=format!("/merchant/products/{slug}/edit")
+                                            attr:class="mhub-product-manage-btn">
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                                                  stroke="currentColor" stroke-width="2" stroke-linecap="round">
                                                 <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
                                                 <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
                                             </svg>
-                                            "Edit Event"
+                                            "Edit Product"
                                         </A>
                                     </div>
                                 </div>
@@ -388,7 +388,7 @@ fn view_tickets(evs: Vec<Event>) -> impl IntoView {
 
 // ─── Analytics tab ────────────────────────────────────────────────────────────
 
-fn view_analytics(evs: Vec<Event>) -> impl IntoView {
+fn view_analytics(evs: Vec<Product>) -> impl IntoView {
     let total        = evs.len();
     let active_count = evs.iter().filter(|e| e.status == "active").count();
     let top          = evs.iter().max_by_key(|e| e.total_sold).cloned();
@@ -396,7 +396,7 @@ fn view_analytics(evs: Vec<Event>) -> impl IntoView {
     view! {
         <section class="merchant-stats">
             <div class="merchant-card merchant-velocity" style="margin-bottom:12px">
-                <h3 class="merchant-section-title">"Event Terlaris"</h3>
+                <h3 class="merchant-section-title">"Product Terlaris"</h3>
                 {if let Some(t) = top {
                     let pct = if t.total_quota > 0 {
                         ((t.total_sold as f64 / t.total_quota as f64) * 100.0).round() as u32
@@ -486,7 +486,7 @@ fn view_settings() -> impl IntoView {
             <h3 class="merchant-section-title">"Profil Bisnis"</h3>
             <div class="mhub-form-row" style="margin-top:12px">
                 <label class="mhub-form-label">"NAMA BISNIS"</label>
-                <input type="text" class="mhub-form-input" value="Stellar Events Indonesia"/>
+                <input type="text" class="mhub-form-input" value="Stellar Products Indonesia"/>
             </div>
             <div class="mhub-form-row" style="margin-top:10px">
                 <label class="mhub-form-label">"EMAIL KONTAK"</label>
@@ -586,11 +586,11 @@ fn MerchantProfileCard() -> impl IntoView {
         // jadi profil sendiri tak pernah NotFound → tak perlu fallback kosong.
         get_merchant_public_profile(id).await
     });
-    let events = Resource::new(my_id, |id| async move {
+    let products = Resource::new(my_id, |id| async move {
         if id.is_empty() {
             return Err(ServerFnError::ServerError("not_ready".into()));
         }
-        get_merchant_public_events(id, Some(1)).await
+        get_merchant_public_products(id, Some(1)).await
     });
 
     // Editor state (di-seed sekali dari profile).
@@ -619,14 +619,14 @@ fn MerchantProfileCard() -> impl IntoView {
     });
 
     let event_cover = move || {
-        events
+        products
             .get()
             .and_then(|r| r.ok())
             .and_then(|pe| pe.data.first().and_then(|e| e.cover_url.clone()))
             .filter(|c| !c.is_empty())
     };
     let city = move || {
-        events
+        products
             .get()
             .and_then(|r| r.ok())
             .and_then(|pe| pe.data.first().and_then(|e| e.city.clone()))
@@ -788,7 +788,7 @@ fn MerchantProfileCard() -> impl IntoView {
                     {move || {
                         let p = profile.get().and_then(|r| r.ok());
                         let (f, e, r) = p
-                            .map(|p| (p.followers, p.events_count, p.rating_avg))
+                            .map(|p| (p.followers, p.products_count, p.rating_avg))
                             .unwrap_or((0, 0, 0.0));
                         let followers_href = format!("/m/{}/followers", my_id());
                         view! {

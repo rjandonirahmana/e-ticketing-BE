@@ -25,7 +25,7 @@ fn item_to_order(b: OrderListItem) -> Order {
         .event_name
         .clone()
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "Event".into());
+        .unwrap_or_else(|| "Product".into());
 
     let status = match b.status.to_lowercase().as_str() {
         "paid" | "completed" => "PAID",

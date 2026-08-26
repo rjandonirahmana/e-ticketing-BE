@@ -87,3 +87,52 @@ pub fn mime_to_type(mime: &str) -> &'static str {
         "file"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Teks → byte → teks harus utuh. Seluruh id di database disimpan sebagai
+    /// BYTEA 16 byte dan ditampilkan sebagai teks; kalau perjalanan itu tak
+    /// setia, id yang dibaca aplikasi bukan id yang tersimpan.
+    #[test]
+    fn bolak_balik_utuh() {
+        let a = new_ulid();
+        assert_eq!(a.len(), 26);
+        let bytes = ulid_to_vec(&a).unwrap();
+        assert_eq!(bytes.len(), 16);
+        assert_eq!(bin_to_ulid(bytes).unwrap(), a);
+    }
+
+    /// `id_to_vec` menerima DUA bentuk yang beredar di sistem ini: ULID 26
+    /// karakter dan hex 32 karakter. Keduanya harus menghasilkan byte yang sama
+    /// untuk id yang sama — kalau tidak, satu baris bisa "tak ditemukan" hanya
+    /// karena pemanggilnya memakai bentuk yang berbeda.
+    #[test]
+    fn dua_bentuk_id_menghasilkan_byte_sama() {
+        let ulid = new_ulid();
+        let hex = ulid_to_hex(&ulid).unwrap();
+        assert_eq!(hex.len(), 32);
+        assert_eq!(id_to_vec(&ulid).unwrap(), id_to_vec(&hex).unwrap());
+    }
+
+    /// Id cacat dari luar (URL, form) DITOLAK, bukan diam-diam berubah jadi id
+    /// lain yang kebetulan sah.
+    #[test]
+    fn id_cacat_ditolak() {
+        for jahat in ["", "bukan-id", "123", &"f".repeat(31), &"f".repeat(33)] {
+            assert!(id_to_vec(jahat).is_err(), "'{jahat}' seharusnya ditolak");
+        }
+        assert!(bin_to_ulid(vec![0u8; 4]).is_err(), "byte kurang dari 16 harus ditolak");
+    }
+
+    /// ULID harus urut-waktu: itu satu-satunya alasan memilihnya ketimbang
+    /// UUIDv4 acak, karena index primary key jadi tetap append-only.
+    #[test]
+    fn urut_waktu() {
+        let a = new_ulid();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let b = new_ulid();
+        assert!(a < b, "{a} seharusnya lebih kecil dari {b}");
+    }
+}

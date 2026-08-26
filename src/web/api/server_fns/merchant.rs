@@ -3,12 +3,12 @@ use leptos::prelude::*;
 #[cfg_attr(not(feature = "ssr"), allow(unused_imports))]
 use super::helpers::*;
 
-#[server(GetMerchantEvents, "/api-fn")]
-pub async fn get_merchant_events(page: Option<i64>) -> Result<PaginatedEvents, ServerFnError> {
-    use crate::models::events::EventListQuery;
+#[server(GetMerchantProducts, "/api-fn")]
+pub async fn get_merchant_products(page: Option<i64>) -> Result<PaginatedProducts, ServerFnError> {
+    use crate::models::products::ProductListQuery;
     let claims = require_roles(&["merchant", "admin"]).await?;
     let state = app_state().await?;
-    let q = EventListQuery {
+    let q = ProductListQuery {
         page,
         per_page: Some(20),
         city: None,
@@ -17,26 +17,28 @@ pub async fn get_merchant_events(page: Option<i64>) -> Result<PaginatedEvents, S
         status: None,
     };
     let result = state
-        .event_svc
+        .product_svc
         .list(q, Some(&claims.user_id))
         .await
         .map_err(map_app_error)?;
-    return Ok(srv_paginated_events_to_web(result));
+    return Ok(srv_paginated_products_to_web(result));
 }
 
-#[server(GetMerchantEventDetail, "/api-fn")]
-pub async fn get_merchant_event_detail(slug: String) -> Result<EventWithVariants, ServerFnError> {
-    let _claims = require_roles(&["merchant", "admin"]).await?;
+#[server(GetMerchantProductDetail, "/api-fn")]
+pub async fn get_merchant_product_detail(slug: String) -> Result<ProductWithVariants, ServerFnError> {
+    let claims = require_roles(&["merchant", "admin"]).await?;
     let state = app_state().await?;
+    // Peran `merchant` hanya menjawab "boleh memakai dasbor merchant", bukan
+    // "boleh melihat product INI". Kepemilikan diperiksa terpisah.
     let result = state
-        .event_svc
-        .get(&slug)
+        .product_svc
+        .get_for_merchant(&slug, &claims.user_id, claims.role == "admin")
         .await
         .map_err(map_app_error)?;
-    return Ok(srv_event_with_variants_to_web(result));
+    return Ok(srv_product_with_variants_to_web(result));
 }
 
-/// Batas jumlah varian per event (samakan dengan `MAX_VARIANTS` di
+/// Batas jumlah varian per product (samakan dengan `MAX_VARIANTS` di
 /// `web/components/variant_editor.rs`) — jangan percaya klien.
 #[cfg(feature = "ssr")]
 const MAX_VARIANTS_SRV: usize = 20;
@@ -57,7 +59,7 @@ fn parse_variants_json(raw: &str) -> Result<Option<Vec<crate::web::models::Varia
     Ok(Some(forms))
 }
 
-/// Batas foto detail per event (samakan dengan cap 6 di `detail_image_section.rs`).
+/// Batas foto detail per product (samakan dengan cap 6 di `detail_image_section.rs`).
 #[cfg(feature = "ssr")]
 const MAX_DETAIL_IMAGES_SRV: usize = 6;
 
@@ -71,12 +73,12 @@ const MAX_DETAIL_IMAGES_SRV: usize = 6;
 fn parse_detail_images_json(
     raw: &str,
     public_url: &str,
-) -> Result<Option<Vec<crate::models::events::DetailImageEntry>>, String> {
+) -> Result<Option<Vec<crate::models::products::DetailImageEntry>>, String> {
     let raw = raw.trim();
     if raw.is_empty() {
         return Ok(None);
     }
-    let mut items: Vec<crate::models::events::DetailImageEntry> =
+    let mut items: Vec<crate::models::products::DetailImageEntry> =
         serde_json::from_str(raw).map_err(|e| format!("Data foto tidak valid: {e}"))?;
     if items.len() > MAX_DETAIL_IMAGES_SRV {
         return Err(format!("Maksimal {MAX_DETAIL_IMAGES_SRV} foto detail."));
@@ -84,7 +86,7 @@ fn parse_detail_images_json(
     let base = public_url.trim_end_matches('/');
     for it in &mut items {
         // Terima URL absolut milik storage kita, atau path relatif — tolak URL
-        // eksternal agar tak menyimpan tautan sembarangan sebagai "foto event".
+        // eksternal agar tak menyimpan tautan sembarangan sebagai "foto product".
         if !(it.url.starts_with(base) || it.url.starts_with('/')) {
             return Err("URL foto tidak dikenal.".into());
         }
@@ -95,13 +97,13 @@ fn parse_detail_images_json(
         // Nilai ini berakhir di atribut `style`, jadi ia dibersihkan di sini —
         // satu-satunya pintu masuknya dari luar. Yang tak berbentuk "X% Y%"
         // jatuh ke tengah, bukan diteruskan apa adanya.
-        it.focus = crate::models::events::normalisasi_fokus(&it.focus);
+        it.focus = crate::models::products::normalisasi_fokus(&it.focus);
     }
     Ok(Some(items))
 }
 
-#[server(CreateMerchantEvent, "/api-fn")]
-pub async fn create_merchant_event(
+#[server(CreateMerchantProduct, "/api-fn")]
+pub async fn create_merchant_product(
     name: String,
     description: String,
     venue: String,
@@ -115,7 +117,7 @@ pub async fn create_merchant_event(
     cover_url: String,
     detail_images: String,
 ) -> Result<String, ServerFnError> {
-    use crate::models::events::{CreateEventRequest, CreateVariantInline};
+    use crate::models::products::{CreateProductRequest, CreateVariantInline};
     let claims = require_roles(&["merchant", "admin"]).await?;
     let state = app_state().await?;
 
@@ -194,7 +196,7 @@ pub async fn create_merchant_event(
         .map(|m| m.store_name)
         .unwrap_or_else(|_| claims.name.clone());
 
-    let req = CreateEventRequest {
+    let req = CreateProductRequest {
         merchant_name: merchant_name.clone(),
         name,
         description: if description.is_empty() {
@@ -215,15 +217,21 @@ pub async fn create_merchant_event(
     };
 
     let result = state
-        .event_svc
+        .product_svc
         .create(&claims.user_id, &merchant_name, req, cover.as_deref())
         .await
         .map_err(map_app_error)?;
+    // Daftar product & hitungan di profil merchant ikut berubah begitu ada product
+    // baru — sama alasannya dengan invalidasi di jalur update.
+    state
+        .pub_cache
+        .invalidate_product(&result.slug, &claims.user_id)
+        .await;
     return Ok(result.slug);
 }
 
-#[server(UpdateMerchantEvent, "/api-fn")]
-pub async fn update_merchant_event(
+#[server(UpdateMerchantProduct, "/api-fn")]
+pub async fn update_merchant_product(
     slug: String,
     name: String,
     description: String,
@@ -238,16 +246,29 @@ pub async fn update_merchant_event(
     cover_url: String,
     detail_images: String,
 ) -> Result<(), ServerFnError> {
-    use crate::models::events::{UpdateEventRequest, UpdateVariantInline};
+    use crate::models::products::{UpdateProductRequest, UpdateVariantInline, STATUS_MENUNGGU_REVIEW};
     let claims = require_roles(&["merchant", "admin"]).await?;
     let state = app_state().await?;
+
+    // Nama ditolak di server, bukan sekadar diabaikan.
+    //
+    // Sebelumnya nama kosong berubah jadi `None` dan COALESCE mempertahankan
+    // nama lama — server menjawab "tersimpan" untuk sesuatu yang tak tersimpan.
+    // Batas 3 karakter menyamai validasi di form supaya pesannya sama, dari
+    // mana pun permintaannya datang.
+    let name = name.trim().to_string();
+    if name.chars().count() < 3 {
+        return Err(ServerFnError::ServerError(
+            "Nama product minimal 3 karakter.".into(),
+        ));
+    }
 
     // Foto: cover kosong = pertahankan cover lama (None = COALESCE di repo);
     // detail_images kosong = tak disentuh, "[]" = hapus semua. FE mengirim URL
     // hasil upload ke /upload/merchant-image.
     let cover_new = { let c = cover_url.trim(); (!c.is_empty()).then(|| c.to_string()) };
     // Salinan untuk perbandingan foto lama vs baru di bawah — `cover_new` sendiri
-    // ikut berpindah ke dalam `UpdateEventRequest`.
+    // ikut berpindah ke dalam `UpdateProductRequest`.
     let cover_baru = cover_new.clone();
     let detail_imgs = parse_detail_images_json(&detail_images, &state.storage.public_url)
         .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e) })?;
@@ -304,16 +325,16 @@ pub async fn update_merchant_event(
         })?)
     };
 
-    // Find the event by slug to get its id and owner.
-    let event = state
-        .event_svc
+    // Find the product by slug to get its id and owner.
+    let product = state
+        .product_svc
         .get(&slug)
         .await
         .map_err(map_app_error)?;
 
-    // Admin can update any event; merchant can only update their own.
+    // Admin can update any product; merchant can only update their own.
     let effective_merchant_id = if claims.role == "admin" {
-        event.merchant_id.clone()
+        product.merchant_id.clone()
     } else {
         claims.user_id.clone()
     };
@@ -321,11 +342,11 @@ pub async fn update_merchant_event(
     // ── Jejak diagnosis ──────────────────────────────────────────────────────
     // Baris ini menjawab satu-satunya pertanyaan yang tak bisa dijawab dengan
     // membaca kode: apakah `merchant_id` yang dipakai untuk mencocokkan baris
-    // benar-benar sama dengan pemilik event-nya.
+    // benar-benar sama dengan pemilik product-nya.
     //
     // `UPDATE … WHERE id = $1 AND merchant_id = $2` mencocokkan nol baris bila
     // keduanya berbeda — dan keduanya BISA berbeda tanpa ada yang salah ketik:
-    // event menyimpan pemiliknya sebagai id user merchant, tapi bila di suatu
+    // product menyimpan pemiliknya sebagai id user merchant, tapi bila di suatu
     // pemasangan kolom itu ternyata merujuk baris tabel `merchants`, setiap
     // penyimpanan oleh merchant akan diam-diam tak mengenai apa pun.
     //
@@ -334,35 +355,45 @@ pub async fn update_merchant_event(
     // DEBUG hampir selalu dimatikan.
     tracing::info!(
         slug = %slug,
-        event_id = %event.id,
-        pemilik_event = %event.merchant_id,
+        event_id = %product.id,
+        pemilik_product = %product.merchant_id,
         pemakai = %claims.user_id,
         peran = %claims.role,
         merchant_id_dipakai = %effective_merchant_id,
-        cocok = event.merchant_id == effective_merchant_id,
-        "edit event: mulai menyimpan"
+        cocok = product.merchant_id == effective_merchant_id,
+        "edit product: mulai menyimpan"
     );
 
-    let req = UpdateEventRequest {
-        name: if name.is_empty() { None } else { Some(name) },
-        description: if description.is_empty() {
-            None
-        } else {
-            Some(description)
-        },
+    // ── Dikosongkan ≠ tidak dikirim ──────────────────────────────────────────
+    // Form edit SELALU mengirim seluruh isian, jadi string kosong di sini
+    // berarti "merchant menghapus isinya", bukan "field ini tak disertakan".
+    // Dulu keduanya sama-sama jadi `None`, dan `COALESCE($n, kolom)` di SQL
+    // mengembalikan nilai lama: deskripsi/venue/kota mustahil dikosongkan —
+    // dihapus, SIMPAN, lalu teks lamanya muncul lagi seolah tak terjadi apa-apa.
+    //
+    // Sekarang ketiganya selalu dikirim sebagai `Some`. String kosong tersimpan
+    // sebagai string kosong (COALESCE hanya melewati NULL, bukan '').
+    let req = UpdateProductRequest {
+        name: Some(name),
+        description: Some(description.trim().to_string()),
         cover_url: cover_new,
         // Form belum mengirim titik fokus cover → None = pertahankan yang lama.
         // Diisi begitu editor titik fokus terpasang di halaman buat/edit.
         cover_focus: None,
-        venue: if venue.is_empty() { None } else { Some(venue) },
-        city: if city.is_empty() { None } else { Some(city) },
+        venue: Some(venue.trim().to_string()),
+        city: Some(city.trim().to_string()),
         latitude,
         longitude,
         event_date: event_date_dt,
-        category: cats,
+        // `Some(vec![])` bila semua centang dilepas — kategori benar-benar
+        // dikosongkan, bukan diam-diam dikembalikan ke yang lama.
+        category: Some(cats),
         start_time: start_time_dt,
         end_time: None,
-        status: Some("edited".into()),
+        // Suntingan merchant selalu kembali ke antrean review admin. Aturan itu
+        // ditegakkan DI SINI, bukan di repository — repository kini meneruskan
+        // apa pun yang diminta (lihat catatan di `exec_update`).
+        status: Some(STATUS_MENUNGGU_REVIEW.to_string()),
         detail_images: detail_imgs,
         variants: variants_update,
     };
@@ -371,26 +402,37 @@ pub async fn update_merchant_event(
     // sesudahnya baris lamanya sudah tertimpa dan tak ada lagi yang tahu URL
     // mana yang dulu dipakai.
     let yatim = kumpulkan_foto_yatim(
-        event.cover_url.as_deref(),
-        &event.detail_images,
+        product.cover_url.as_deref(),
+        &product.detail_images,
         cover_baru.as_deref(),
         req.detail_images.as_deref(),
     );
 
-    if let Err(e) = state.event_svc.update(&event.id, &effective_merchant_id, req).await {
+    if let Err(e) = state.product_svc.update(&product.id, &effective_merchant_id, req).await {
         // Digemakan ke log SEBELUM diteruskan ke klien: pesan yang sampai ke
         // layar merchant sering tak pernah dilaporkan ulang apa adanya, dan
         // tanpa salinan di server tak ada yang bisa ditelusuri sesudahnya.
         tracing::error!(
             slug = %slug,
-            event_id = %event.id,
+            event_id = %product.id,
             merchant_id_dipakai = %effective_merchant_id,
             error = %e,
-            "edit event: GAGAL menyimpan"
+            "edit product: GAGAL menyimpan"
         );
         return Err(map_app_error(e));
     }
-    tracing::info!(slug = %slug, "edit event: tersimpan");
+    tracing::info!(slug = %slug, "edit product: tersimpan");
+
+    // Cache dibuang SEGERA sesudah DB menerima perubahannya.
+    //
+    // Tanpa ini, halaman publik, daftar product, dan REST masih menyajikan versi
+    // lama sampai TTL-nya lewat (30–60 detik). Dari sisi merchant yang baru saja
+    // menekan SIMPAN, jeda itu tak terbaca sebagai cache melainkan sebagai
+    // "perubahan saya tidak masuk" — dan ia akan menyimpan ulang berkali-kali.
+    state
+        .pub_cache
+        .invalidate_product(&slug, &product.merchant_id)
+        .await;
 
     // Baru SESUDAH database menerima perubahannya, objek lamanya dibuang.
     //
@@ -398,7 +440,7 @@ pub async fn update_merchant_event(
     // permintaannya: berkas BARU-nya memang sudah diunggah lebih dulu (front-end
     // mengirim URL hasil unggah, bukan berkasnya), jadi yang tersisa hanyalah
     // membuang yang lama. Kalau dibuang sebelum update tersimpan dan update itu
-    // gagal, event tetap menunjuk ke objek yang sudah tak ada — foto hilang dari
+    // gagal, product tetap menunjuk ke objek yang sudah tak ada — foto hilang dari
     // halaman padahal tak ada yang berubah. Hasil akhirnya sama (tak ada objek
     // yatim), tanpa jendela kehilangan foto.
     hapus_objek(&state, yatim).await;
@@ -442,7 +484,7 @@ pub async fn update_merchant_profile(
 
 // ── Pembersihan objek foto ────────────────────────────────────────────────────
 
-/// Kumpulkan URL foto yang TAK LAGI dipakai event sesudah pembaruan ini.
+/// Kumpulkan URL foto yang TAK LAGI dipakai product sesudah pembaruan ini.
 ///
 /// Dipisah dari pemanggilnya supaya bisa diuji tanpa database maupun object
 /// storage — inti dari benar-tidaknya pembersihan ada di sini, bukan di panggilan
@@ -458,7 +500,7 @@ pub async fn update_merchant_profile(
 /// Foto yang dipakai ulang (URL sama muncul di daftar baru) TIDAK ikut dihapus —
 /// termasuk saat sebuah foto hanya dipindah urutannya atau diganti keterangannya.
 ///
-/// Menerima DUA potong data lama, bukan seluruh `EventWithVariants`: hanya itu
+/// Menerima DUA potong data lama, bukan seluruh `ProductWithVariants`: hanya itu
 /// yang dipakai, dan struct penuhnya tak bisa dibangun di dalam uji (ia hanya
 /// `Serialize`, bukan `Deserialize`). Parameter sempit = uji tanpa perancah.
 ///
@@ -467,9 +509,9 @@ pub async fn update_merchant_profile(
 #[cfg(feature = "ssr")]
 fn kumpulkan_foto_yatim(
     cover_lama: Option<&str>,
-    detail_lama: &[crate::models::events::DetailImageEntry],
+    detail_lama: &[crate::models::products::DetailImageEntry],
     cover_baru: Option<&str>,
-    detail_baru: Option<&[crate::models::events::DetailImageEntry]>,
+    detail_baru: Option<&[crate::models::products::DetailImageEntry]>,
 ) -> Vec<String> {
     let mut yatim = Vec::new();
 
@@ -516,14 +558,14 @@ async fn hapus_objek(state: &std::sync::Arc<crate::state::AppState>, urls: Vec<S
 #[cfg(all(test, feature = "ssr"))]
 mod tests_foto {
     use super::kumpulkan_foto_yatim;
-    use crate::models::events::DetailImageEntry;
+    use crate::models::products::DetailImageEntry;
 
     fn foto(url: &str) -> DetailImageEntry {
         DetailImageEntry {
             url: url.into(),
             image_type: "other".into(),
             caption: String::new(),
-            focus: crate::models::events::fokus_tengah(),
+            focus: crate::models::products::fokus_tengah(),
         }
     }
     fn daftar(urls: &[&str]) -> Vec<DetailImageEntry> {

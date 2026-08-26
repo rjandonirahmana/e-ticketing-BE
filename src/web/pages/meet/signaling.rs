@@ -100,7 +100,7 @@ pub(super) async fn handle_msg(ctx: &Ctx, raw: &str) {
                 remove_tile(id);
                 if let Some(pc) = ctx.pcs.borrow_mut().remove(id) {
                     // Lepas handler sebelum drop closure (di baris berikut);
-                    // close() menghentikan event lanjutan.
+                    // close() menghentikan product lanjutan.
                     pc.set_onicecandidate(None);
                     pc.set_ontrack(None);
                     pc.close();
@@ -291,7 +291,7 @@ pub(super) fn teardown(ctx: &Ctx) {
     }
     let ws = ctx.ws.borrow().clone();
     if let Some(ws) = ws {
-        // Lepas handler sebelum drop closure di bawah; close() menghentikan event.
+        // Lepas handler sebelum drop closure di bawah; close() menghentikan product.
         ws.set_onmessage(None);
         ws.set_onopen(None);
         ws.set_onerror(None);

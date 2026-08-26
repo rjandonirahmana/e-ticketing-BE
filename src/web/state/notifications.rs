@@ -30,7 +30,7 @@ fn item_to_notif(n: NotificationItem) -> Notif {
     let (pill, pill_kind) = match n.kind.as_str() {
         "payment_success" | "order_paid" => (Some("PAID".into()), "live".to_string()),
         "promo" => (Some("PROMO".into()), "promo".to_string()),
-        "event_reminder" => (None, "new".to_string()),
+        "product_reminder" => (None, "new".to_string()),
         "artist_update" => (Some("NEW".into()), "new".to_string()),
         _ => (None, "new".to_string()),
     };

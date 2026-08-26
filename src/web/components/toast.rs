@@ -8,7 +8,7 @@
 //! punya pola signal + `set_timeout` (callback `Closure::once` → dibebaskan setelah
 //! fire, TIDAK bocor) dan WebSocket sendiri; menambah crate hanya menduplikasi.
 //! Implementasi ini ~1 file, zero-dep, dan aman SSR: daftar toast kosong di server
-//! (toast hanya ditambah di client via event handler / WS) → tak ada hydration
+//! (toast hanya ditambah di client via product handler / WS) → tak ada hydration
 //! mismatch. Tanpa memory leak: timer auto-dismiss satu-tembak, tak ada listener
 //! global yang perlu di-cleanup.
 

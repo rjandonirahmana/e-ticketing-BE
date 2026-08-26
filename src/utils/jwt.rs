@@ -86,3 +86,82 @@ impl JwtService {
             })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regresi: `sign()` pernah menulis mati 100 hari sambil mengabaikan
+    /// `JWT_EXPIRY_HOURS`, sementara respons login melaporkan angka konfigurasi.
+    /// Server menjanjikan 24 jam dan menerbitkan token seratus hari.
+    ///
+    /// Ini menguji yang PALING penting: yang dijanjikan == yang diterbitkan.
+    #[test]
+    fn exp_mengikuti_konfigurasi_bukan_angka_mati() {
+        let svc = JwtService::new("rahasia-uji", 24);
+        let token = svc.sign("u1", "Nama", "628123", "customer").unwrap();
+        let claims = svc.verify(&token).unwrap();
+
+        let sekarang = chrono::Utc::now().timestamp();
+        let umur = claims.exp - sekarang;
+        // 24 jam ± 1 menit (menampung waktu eksekusi uji).
+        assert!(
+            (24 * 3600 - 60..=24 * 3600 + 60).contains(&umur),
+            "umur token {umur} detik, seharusnya ~{} detik",
+            24 * 3600
+        );
+        assert_eq!(svc.expires_in_secs(), 24 * 3600);
+    }
+
+    /// `expires_in` yang dikirim ke klien harus SELALU sama dengan umur klaim.
+    #[test]
+    fn expires_in_konsisten_dengan_exp() {
+        for jam in [1, 6, 24, 720] {
+            let svc = JwtService::new("rahasia-uji", jam);
+            let claims = svc.verify(&svc.sign("u", "n", "p", "customer").unwrap()).unwrap();
+            let umur = claims.exp - chrono::Utc::now().timestamp();
+            let dijanjikan = svc.expires_in_secs();
+            assert!(
+                (dijanjikan - umur).abs() <= 60,
+                "jam={jam}: dijanjikan {dijanjikan}s, diterbitkan {umur}s",
+            );
+        }
+    }
+
+    /// Konfigurasi rusak (0/negatif) tak boleh menghasilkan token abadi atau
+    /// token yang langsung kedaluwarsa — ia jatuh ke nilai aman.
+    #[test]
+    fn konfigurasi_tak_masuk_akal_jatuh_ke_bawaan() {
+        for jam in [0, -5] {
+            let svc = JwtService::new("rahasia-uji", jam);
+            assert_eq!(svc.expires_in_secs(), EXPIRY_FALLBACK_HOURS * 3600);
+        }
+    }
+
+    /// Token yang ditandatangani secret LAIN harus ditolak.
+    #[test]
+    fn secret_berbeda_ditolak() {
+        let a = JwtService::new("secret-a", 24);
+        let b = JwtService::new("secret-b", 24);
+        let token = a.sign("u", "n", "p", "customer").unwrap();
+        assert!(b.verify(&token).is_err());
+    }
+}
+
+/// Umur cookie access token, dalam detik.
+///
+/// Dibaca dari `JWT_EXPIRY_HOURS` supaya cookie dan token yang dibungkusnya
+/// mati bersamaan. Cookie yang hidup lebih lama hanya menghasilkan permintaan
+/// yang membawa token mati; cookie yang mati lebih dulu membuang sesi yang
+/// tokennya masih sah.
+///
+/// Sesi tetap panjang bukan karena cookie ini, melainkan karena cookie refresh
+/// yang memperpanjangnya diam-diam lewat `middleware/silent_refresh.rs`.
+pub fn access_cookie_max_age() -> i64 {
+    std::env::var("JWT_EXPIRY_HOURS")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .filter(|h| *h > 0)
+        .unwrap_or(24)
+        * 3600
+}

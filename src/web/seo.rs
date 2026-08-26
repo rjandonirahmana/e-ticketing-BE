@@ -1,6 +1,6 @@
 //! seo.rs — Helper SEO untuk halaman publik ber-SSR: canonical, OpenGraph,
 //! Twitter Card, dan util JSON-LD (schema.org). JSON-LD sendiri bersifat
-//! per-halaman (Event, Organization, …) — komponen di sini hanya menyiapkan
+//! per-halaman (Product, Organization, …) — komponen di sini hanya menyiapkan
 //! meta standar + util penanaman <script> yang aman.
 
 use leptos::prelude::*;
@@ -40,7 +40,7 @@ pub fn safe_ld(value: &serde_json::Value) -> String {
 pub fn SeoMeta(
     #[prop(into)] title: String,
     #[prop(into)] description: String,
-    /// Path relatif halaman, mis. "/events/slug".
+    /// Path relatif halaman, mis. "/products/slug".
     #[prop(into)]
     path: String,
     /// URL gambar absolut untuk og:image/twitter:image. Kosong = tanpa gambar.

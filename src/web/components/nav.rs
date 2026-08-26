@@ -62,28 +62,46 @@ pub fn TopNav(#[prop(optional)] back_href: Option<&'static str>) -> impl IntoVie
                         .into_any()
                 }
             }} <span class="page-logo">"PULSE"</span> <div class="header-actions">
+                <CartButton />
                 <ThemeToggle />
-                <A href="/profile" attr:class="nav-avatar">
-                    <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                    >
-                        <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-                        <circle cx="12" cy="7" r="4" />
-                    </svg>
-                </A>
             </div>
         </header>
     }
 }
 
+/// Ikon keranjang beserta lencana jumlah barang.
+///
+/// Lencana membaca `CartSummary.cart_quantity` — SELURUH isi keranjang, bukan
+/// hanya yang dicentang. Angka di ikon harus menjawab "ada berapa barang saya
+/// simpan", bukan "berapa yang sedang saya bayar"; kalau ia ikut turun saat
+/// pembeli melepas centang, ia terbaca seolah barangnya hilang.
+#[component]
+pub fn CartButton() -> impl IntoView {
+    let cart = use_context::<crate::web::app::CartContext>();
+
+    view! {
+        <A href="/cart" attr:class="nav-cart" attr:aria-label="Keranjang">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                 stroke-linejoin="round">
+                <circle cx="9" cy="21" r="1"/>
+                <circle cx="20" cy="21" r="1"/>
+                <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/>
+            </svg>
+            {move || {
+                let n = cart.map(|c| c.count()).unwrap_or(0);
+                (n > 0).then(|| view! {
+                    <span class="nav-cart-badge">
+                        {if n > 99 { "99+".to_string() } else { n.to_string() }}
+                    </span>
+                })
+            }}
+        </A>
+    }
+}
+
 /// Bottom navigation bar.
-/// Tabs: EXPLORE | TICKETS | ORDERS | PROFILE | (MERCHANT if merchant) | (ADMIN if admin)
+/// Tabs: EXPLORE | LIVES | PULSE | ORDERS | PROFILE | (MERCHANT) | (ADMIN)
 #[component]
 pub fn BottomNav(#[prop(default = "")] active: &'static str) -> impl IntoView {
     let auth_ctx = use_auth();
@@ -152,23 +170,8 @@ pub fn BottomNav(#[prop(default = "")] active: &'static str) -> impl IntoView {
             </A>
 
             // 2. TICKETS
-            <A href="/tickets" attr:class=cls("tickets")>
-                <svg
-                    width="22"
-                    height="22"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <path d="M2 9a3 3 0 010-6h20a3 3 0 010 6H2zM2 15a3 3 0 000 6h20a3 3 0 000-6H2z" />
-                </svg>
-                <span class="bottom-label">"TICKETS"</span>
-            </A>
-
-            // 3. ORDERS (new — between TICKETS and PROFILE)
+            // ORDERS — riwayat pesanan. Tiket yang sudah terbit dijangkau dari
+            // detail pesanannya, jadi tab TICKETS tersendiri tak lagi diperlukan.
             <A href="/orders" attr:class=cls("orders")>
                 <svg
                     width="22"
