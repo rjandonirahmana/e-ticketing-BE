@@ -1,19 +1,19 @@
-// src/components/event_story_preview.rs
-// Inline story preview untuk form Create Event.
+// src/components/product_story_preview.rs
+// Inline story preview untuk form Create Product.
 // CSS-based (bukan canvas) supaya real-time tanpa async.
 
 use leptos::prelude::*;
 
 /// Inline 9:16 Instagram-frame preview.
-/// Dipasang di MerchantCreateEventPage setelah cover upload.
+/// Dipasang di MerchantCreateProductPage setelah cover upload.
 /// Update otomatis saat title / cover / desc berubah.
 #[component]
-pub fn EventStoryPreviewInline(
-    /// Signal judul event (f_name)
+pub fn ProductStoryPreviewInline(
+    /// Signal judul product (f_name)
     title: Signal<String>,
     /// Signal blob URL cover (cover_preview, Option<String>)
     cover_url: Signal<Option<String>>,
-    /// Signal deskripsi event (f_desc)
+    /// Signal deskripsi product (f_desc)
     description: Signal<String>,
     /// Callback saat user klik "Langsung Bagikan ke Cerita"
     /// Hanya muncul jika cover & title sudah diisi.
@@ -125,12 +125,12 @@ pub fn EventStoryPreviewInline(
                                     "LIVE PULSE"
                                 </div>
 
-                                // Judul event
+                                // Judul product
                                 <p class="esp-title">
                                     {move || {
                                         let t = title.get();
                                         if t.is_empty() {
-                                            "Judul event kamu…".to_string()
+                                            "Judul product kamu…".to_string()
                                         } else {
                                             t
                                         }
@@ -210,7 +210,7 @@ pub fn EventStoryPreviewInline(
                                             } else if !has_cover() {
                                                 "Upload cover untuk bisa berbagi ke cerita"
                                             } else {
-                                                "Isi judul event untuk bisa berbagi ke cerita"
+                                                "Isi judul product untuk bisa berbagi ke cerita"
                                             }
                                         }}
                                     </p>

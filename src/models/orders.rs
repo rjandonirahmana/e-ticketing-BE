@@ -9,8 +9,27 @@ pub struct Order {
     pub customer_id: String,
     pub order_code: String,
     pub status: String,
+
+    /// Angka yang DIBAYAR: `subtotal_amount - discount_amount + payment_charge`.
     pub total_amount: Decimal,
+    /// Harga tiket sebelum potongan dan sebelum biaya kanal.
+    pub subtotal_amount: Decimal,
+    pub discount_amount: Decimal,
+    pub promo_code: Option<String>,
+
+    /// Nama kanal lama (dipertahankan untuk jalur REST & data lawas); nilainya
+    /// kini selalu sama dengan `payment_code`.
     pub payment_method: Option<String>,
+    pub payment_vendor: Option<String>,
+    pub payment_code: Option<String>,
+    pub payment_charge: Decimal,
+    /// Batas waktu dari sisi KANAL — berbeda dari `expired_at` yang menahan stok.
+    pub payment_expired_at: Option<DateTime<Utc>>,
+    /// Nomor Virtual Account / referensi QRIS yang ditunjukkan ke pembeli.
+    pub payment_reference: Option<String>,
+    /// Halaman bayar milik gateway, bila kanalnya redirect.
+    pub link_pay: Option<String>,
+
     pub paid_at: Option<DateTime<Utc>>,
     pub expired_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -46,16 +65,31 @@ pub struct OrderDetailResponse {
     pub customer_id: String,
     pub order_code: String,
     pub status: String,
+
     pub total_amount: Decimal,
+    pub subtotal_amount: Decimal,
+    pub discount_amount: Decimal,
+    pub promo_code: Option<String>,
+
     pub payment_method: Option<String>,
+    pub payment_vendor: Option<String>,
+    pub payment_code: Option<String>,
+    /// Nama kanal yang enak dibaca ("BCA Virtual Account"), diisi jalur checkout.
+    pub payment_name: Option<String>,
+    pub payment_charge: Decimal,
+    pub payment_expired_at: Option<DateTime<Utc>>,
+    pub payment_reference: Option<String>,
+    pub payment_instruction: Option<String>,
+    pub link_pay: Option<String>,
+
     pub paid_at: Option<DateTime<Utc>>,
     pub expired_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub items: Vec<OrderItemResponse>,
 }
 
-/// Enriched order for list endpoint — includes first event's info.
-/// Eliminates the need for a per-order items fetch just to show the event name.
+/// Enriched order for list endpoint — includes first product's info.
+/// Eliminates the need for a per-order items fetch just to show the product name.
 #[derive(Debug, Serialize, Clone)]
 pub struct OrderListItem {
     pub id: String,
@@ -67,7 +101,7 @@ pub struct OrderListItem {
     pub paid_at: Option<DateTime<Utc>>,
     pub expired_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
-    // Enriched from the first order item's event (NULL if order has no items yet)
+    // Enriched from the first order item's product (NULL if order has no items yet)
     pub event_name: Option<String>,
     pub event_date: Option<DateTime<Utc>>,
     pub venue: Option<String>,
@@ -91,6 +125,25 @@ pub struct CreateOrderRequest {
     #[validate(length(min = 1, message = "items must not be empty"))]
     #[validate(nested)]
     pub items: Vec<CreateOrderItemRequest>,
+}
+
+/// Checkout dari keranjang yang tersimpan di database.
+///
+/// Perhatikan yang TIDAK ada di sini: daftar tiket dan harganya. Keduanya
+/// dibaca server dari keranjang milik pemanggil — persis seperti
+/// `POST /order/create` kiddoapi yang hanya menerima {vendor, code}. Klien
+/// tidak pernah bisa menyebut harga.
+#[derive(Debug, Clone, Deserialize, Validate)]
+pub struct CheckoutRequest {
+    /// Kode kanal pembayaran dari tabel `payment_methods`.
+    #[validate(length(min = 1, max = 50, message = "metode pembayaran wajib dipilih"))]
+    pub payment_code: String,
+    /// Bila kosong, kode promo yang sudah menempel di keranjang yang dipakai.
+    #[serde(default)]
+    pub promo_code: Option<String>,
+    /// Kunci idempotensi dari klien — mencegah dobel-klik melahirkan dua order.
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Validate)]

@@ -19,7 +19,7 @@ mod router;
 mod shell;
 
 pub use contexts::{
-    AuthResource, CartContext, PendingOrderCtx, PendingSubCtx, SuccessSnapshot,
+    AuthResource, CartContext, CartSummary, PendingOrderCtx, PendingSubCtx, SuccessSnapshot,
 };
 pub use router::App;
 

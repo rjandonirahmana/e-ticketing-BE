@@ -149,7 +149,7 @@ pub fn ChatRoomPage() -> impl IntoView {
                                     if v.iter().any(|x| x.id == m.id) { return; }
                                     // For self-messages: merge with matching optimistic entry
                                     // instead of pushing a new one.
-                                    // Prevents duplicate when broadcast arrives before ack
+                                    // Prproducts duplicate when broadcast arrives before ack
                                     // (server sends both new_message to all members AND ack to sender).
                                     if m.sender_id == my_id {
                                         if let Some(opt) = v.iter_mut().find(|x| {

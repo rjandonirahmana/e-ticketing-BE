@@ -2,16 +2,16 @@
 //! konkurensi Postgres nyata.
 //!
 //! Guard asli ada di `repository::order::STMT_BUMP_SOLD`:
-//!   `UPDATE event_variants SET sold = sold + qty
+//!   `UPDATE product_variants SET sold = sold + qty
 //!      WHERE id = $id AND (quota - sold) >= qty`
 //! Update bersyarat atomik ini + row-lock Postgres adalah yang mencegah
 //! penjualan melebihi kuota saat banyak pembeli bertarung pada varian sama.
 //!
 //! Test ini MEREPRODUKSI pola guard tsb. pada tabel test mandiri (bukan skema
 //! aplikasi penuh) supaya:
-//!   - bisa dijalankan hanya dengan satu Postgres, tanpa seed users/events,
-//!   - tidak rapuh terhadap drift migrasi (kode pakai `event_variants`,
-//!     `migration/001.sql` masih `ticket_variants`).
+//!   - bisa dijalankan hanya dengan satu Postgres, tanpa seed users/products,
+//!   - tidak rapuh terhadap drift migrasi (kode pakai `product_variants`,
+//!     `migration/001.sql` masih `product_variants`).
 //! Jika SQL guard di `repository/order.rs` berubah, sinkronkan pola di sini.
 //!
 //! Butuh Postgres hidup; di-`#[ignore]`. Jalankan:

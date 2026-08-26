@@ -26,22 +26,22 @@ const BENEFITS: &[Benefit] = &[
     Benefit {
         emoji: "⚡",
         title: "Prioritas Antrian Tiket",
-        desc: "Saat event sold-out, kamu masuk antrian prioritas sehingga peluang dapat tiket jauh lebih besar.",
+        desc: "Saat product sold-out, kamu masuk antrian prioritas sehingga peluang dapat tiket jauh lebih besar.",
     },
     Benefit {
         emoji: "🎯",
-        title: "Early Access Event",
+        title: "Early Access Product",
         desc: "Dapat notifikasi & akses pembelian tiket 24 jam sebelum dibuka ke publik umum.",
     },
     Benefit {
         emoji: "🏷️",
         title: "Diskon Tiket Eksklusif",
-        desc: "Nikmati potongan harga khusus subscriber di event-event pilihan partner PULSE.",
+        desc: "Nikmati potongan harga khusus subscriber di product-product pilihan partner PULSE.",
     },
     Benefit {
         emoji: "📍",
-        title: "Deep-Link Story ke Event",
-        desc: "Story yang kamu buat dari halaman event otomatis punya link ke detail event tersebut.",
+        title: "Deep-Link Story ke Product",
+        desc: "Story yang kamu buat dari halaman product otomatis punya link ke detail product tersebut.",
     },
     Benefit {
         emoji: "🎨",
@@ -51,12 +51,12 @@ const BENEFITS: &[Benefit] = &[
     Benefit {
         emoji: "🔔",
         title: "Notifikasi Real-Time",
-        desc: "Push notification instan saat tiket untuk event favoritmu mulai dijual.",
+        desc: "Push notification instan saat tiket untuk product favoritmu mulai dijual.",
     },
     Benefit {
         emoji: "💬",
         title: "Grup Chat VIP",
-        desc: "Bergabung ke ruang obrolan eksklusif sesama premium member dan panitia event.",
+        desc: "Bergabung ke ruang obrolan eksklusif sesama premium member dan panitia product.",
     },
 ];
 
@@ -267,7 +267,7 @@ pub fn SubscriptionPage() -> impl IntoView {
                     {[
                         ("Story per hari", "1x", "Unlimited"),
                         ("Prioritas tiket", "—", "✓"),
-                        ("Early access event", "—", "✓"),
+                        ("Early access product", "—", "✓"),
                         ("Diskon tiket", "—", "✓"),
                         ("Deep-link story", "✓", "✓"),
                         ("Filter premium", "—", "✓"),
@@ -295,7 +295,7 @@ pub fn SubscriptionPage() -> impl IntoView {
                     {[
                         (
                             "@rioazzam",
-                            "Udah 3x dapet tiket event sold-out karena antrian prioritas. Worth it banget!",
+                            "Udah 3x dapet tiket product sold-out karena antrian prioritas. Worth it banget!",
                         ),
                         (
                             "@ndavidina",
@@ -328,7 +328,7 @@ pub fn SubscriptionPage() -> impl IntoView {
                     <div class="sub-cta-already">
                         <span>"Kamu sudah Premium"</span>
                         <A href="/explore" attr:class="sub-cta-explore-link">
-                            "Explore Event →"
+                            "Explore Product →"
                         </A>
                     </div>
                 </Show>

@@ -53,7 +53,7 @@ pub struct MerchantPublicProfile {
     pub header_url: Option<String>,
     pub verified: bool,
     pub followers: i64,
-    pub events_count: i64,
+    pub products_count: i64,
     pub rating_avg: f64,
     pub rating_count: i64,
 }

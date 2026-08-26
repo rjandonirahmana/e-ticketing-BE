@@ -6,7 +6,7 @@ use validator::Validate;
 
 /// Row dari tabel `public.banners`.
 /// `id` adalah `bigserial` (i64), bukan ULID.
-/// `event_id` adalah `bytea` ULID — FK ke tabel `events`.
+/// `event_id` adalah `bytea` ULID — FK ke tabel `products`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Banner {
     pub id: i64, // bigserial
@@ -15,7 +15,7 @@ pub struct Banner {
     pub start_date: DateTime<Utc>,
     pub end_date: Option<DateTime<Utc>>,
     pub deleted_at: Option<DateTime<Utc>>,
-    pub event_id: Option<String>, // ULID string dari bytea FK events
+    pub event_id: Option<String>, // ULID string dari bytea FK products
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -24,7 +24,7 @@ pub struct Banner {
 
 #[derive(Debug, Deserialize)]
 pub struct ListBannersQuery {
-    /// Filter berdasarkan event (ULID string).
+    /// Filter berdasarkan product (ULID string).
     pub event_id: Option<String>,
 }
 
@@ -48,7 +48,7 @@ pub struct CreateBannerRequest {
     /// Tanggal berakhir tayang (opsional — None = tayang selamanya).
     pub end_date: Option<DateTime<Utc>>,
 
-    /// ULID event yang dikaitkan (opsional).
+    /// ULID product yang dikaitkan (opsional).
     pub event_id: Option<String>,
 }
 
@@ -69,6 +69,6 @@ pub struct UpdateBannerRequest {
     /// Tanggal berakhir baru.
     pub end_date: Option<DateTime<Utc>>,
 
-    /// ULID event baru (Some("...") = ganti, None = biarkan tanpa perubahan).
+    /// ULID product baru (Some("...") = ganti, None = biarkan tanpa perubahan).
     pub event_id: Option<String>,
 }

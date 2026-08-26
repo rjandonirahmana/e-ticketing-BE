@@ -7,7 +7,6 @@
 use leptos::prelude::*;
 
 use crate::web::api::get_session;
-use crate::web::models::CartItem;
 
 use super::contexts::{AuthResource, CartContext, PendingOrderCtx, PendingSubCtx};
 
@@ -15,7 +14,8 @@ use super::contexts::{AuthResource, CartContext, PendingOrderCtx, PendingSubCtx}
 ///
 /// Perbedaan SSR vs CSR:
 ///   - Auth   : SSR pakai `Resource::new_blocking` (tunggu cookie); CSR pakai server fn async.
-///   - Cart   : SSR pakai `CartContext` kosong (tidak perlu fetch); CSR sama.
+///   - Cart   : SSR kosong; CSR memuat dari server (sudah masuk) atau
+///              localStorage (tamu) begitu resource auth selesai.
 ///   - Stores : SSR panggil provide_*_store() yang sudah di-guard `if is_server()` di load().
 ///   - Theme  : Sama persis — `provide_theme()` aman di SSR (web_sys::window() → None).
 ///   - Premium: Sama persis — `provide_premium_store()` tidak ada spawn_local di provide.
@@ -35,43 +35,73 @@ pub(crate) fn provide_all_app_contexts() {
     // Daftar toast kosong di SSR (toast hanya ditambah di client) → aman.
     crate::web::components::toast::provide_toast();
 
-    // ── Cart: init dari localStorage di client, kosong di SSR ──────────────
-    let initial_cart: Vec<CartItem> = {
-        #[cfg(target_arch = "wasm32")]
-        {
-            web_sys::window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|s| s.get_item("pulse_cart").ok())
-                .flatten()
-                .and_then(|json| serde_json::from_str(&json).ok())
-                .unwrap_or_default()
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            vec![]
-        }
-    };
-    let cart_signal = RwSignal::new(initial_cart);
-    provide_context(CartContext { items: cart_signal });
+    // ── Cart ────────────────────────────────────────────────────────────────
+    // Kosong di SSR (server tak tahu keranjang siapa sebelum cookie dibaca), lalu
+    // diisi setelah hydration: dari server bila sudah masuk, dari localStorage
+    // bila masih tamu. Efek di bawah menunggu resource auth selesai supaya
+    // keputusan itu tidak diambil dua kali.
+    let cart = CartContext::new();
+    provide_context(cart);
 
-    // Cross-tab sync: storage event fires in OTHER tabs when localStorage changes.
     #[cfg(target_arch = "wasm32")]
-    if let Some(win) = web_sys::window() {
-        let cb = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::StorageEvent)>::new(
-            move |e: web_sys::StorageEvent| {
-                if e.key().as_deref() == Some("pulse_cart") {
-                    let new_items = e
-                        .new_value()
-                        .and_then(|json| serde_json::from_str::<Vec<CartItem>>(&json).ok())
-                        .unwrap_or_default();
-                    cart_signal.set(new_items);
+    {
+        // Dijalankan ulang setiap kali status auth berubah (masuk / keluar).
+        // `bootstrap()` menuang keranjang tamu ke keranjang milik user sekali,
+        // lalu membersihkan localStorage — lihat komentarnya di contexts.rs.
+        let mut was_authed: Option<bool> = None;
+        Effect::new(move |_| {
+            let Some(Ok(session)) = auth.get() else {
+                return;
+            };
+            let now_authed = session.is_some();
+            if was_authed == Some(now_authed) {
+                return;
+            }
+            was_authed = Some(now_authed);
+
+            if now_authed {
+                cart.bootstrap();
+            } else {
+                cart.authed.set(false);
+                cart.load_local();
+            }
+        });
+
+        // Kegagalan keranjang muncul sebagai toast, di halaman mana pun.
+        // Sebelumnya `CartContext.error` hanya terisi tanpa pernah dibaca, jadi
+        // penolakan server (mis. stok habis saat menambah) tak terlihat sama
+        // sekali dan barangnya seolah hilang begitu saja.
+        {
+            let toast = crate::web::components::toast::use_toast();
+            let mut terakhir = String::new();
+            Effect::new(move |_| {
+                let pesan = cart.error.get();
+                if pesan.is_empty() || pesan == terakhir {
+                    return;
                 }
-            },
-        );
-        use wasm_bindgen::JsCast;
-        let _ = win.add_event_listener_with_callback("storage", cb.as_ref().unchecked_ref());
-        cb.forget();
+                terakhir = pesan.clone();
+                toast.error(&pesan);
+            });
+        }
+
+        // Sinkronisasi antar-tab untuk keranjang TAMU. Pengguna yang sudah masuk
+        // tak memakai localStorage sebagai sumber kebenaran, jadi peristiwa ini
+        // sengaja diabaikan bagi mereka — kalau tidak, satu tab bisa menimpa
+        // keranjang server dengan sisa data tamu yang basi.
+        if let Some(win) = web_sys::window() {
+            let cb = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::StorageEvent)>::new(
+                move |e: web_sys::StorageEvent| {
+                    if e.key().as_deref() == Some(super::contexts::CART_KEY)
+                        && !cart.authed.get_untracked()
+                    {
+                        cart.load_local();
+                    }
+                },
+            );
+            use wasm_bindgen::JsCast;
+            let _ = win.add_event_listener_with_callback("storage", cb.as_ref().unchecked_ref());
+            cb.forget();
+        }
     }
 
     // ── PendingOrderCtx (dipakai checkout / order_created / payment_success) ──

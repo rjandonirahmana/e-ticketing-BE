@@ -1,3 +1,4 @@
+pub mod checkout;
 pub mod lock;
 mod metrics;
 #[cfg(test)]
@@ -19,7 +20,7 @@ use crate::models::orders::{
     PayOrderRequest,
 };
 use crate::repository::order::{
-    ItemRow, LockedVariant, OrderRepository, OrderTx, OversellError,
+    ItemRow, LockedVariant, OrderPaymentSpec, OrderRepository, OrderTx, OversellError,
 };
 use crate::repository::ticket::TicketRepository;
 use crate::service::background::BackgroundJobs;
@@ -44,6 +45,10 @@ const NOTIF_QUEUE_CAP: usize = 8192;
 
 pub struct OrderService {
     pub(super) repo: Arc<dyn OrderRepository>,
+    /// Keranjang: sumber kebenaran isi & harga saat checkout.
+    pub(super) cart: Arc<crate::service::cart::CartService>,
+    /// Kanal pembayaran & promo.
+    pub(super) payment: Arc<crate::service::payment::PaymentService>,
     pub(super) redis: redis::aio::ConnectionManager,
     pub(super) pool: Pool,
     pub(super) notifier: Arc<NotificationService>,
@@ -54,6 +59,7 @@ pub struct OrderService {
 }
 
 impl OrderService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         repo: Arc<dyn OrderRepository>,
         redis: redis::aio::ConnectionManager,
@@ -62,9 +68,13 @@ impl OrderService {
         notif_store: Arc<NotificationStoreService>,
         ticket_repo: Arc<dyn TicketRepository>,
         group_svc: Arc<GroupChatService>,
+        cart: Arc<crate::service::cart::CartService>,
+        payment: Arc<crate::service::payment::PaymentService>,
     ) -> Self {
         Self {
             repo,
+            cart,
+            payment,
             redis,
             pool,
             notifier,
@@ -77,11 +87,26 @@ impl OrderService {
 
     // ── Create ────────────────────────────────────────────────────────────────
 
+    /// Buat order dari daftar tiket yang disebut pemanggil (jalur REST lama).
     pub async fn create(
         &self,
         customer_id: &str,
         req: CreateOrderRequest,
         is_premium: bool,
+    ) -> AppResult<OrderDetailResponse> {
+        self.create_inner(customer_id, req, is_premium, None).await
+    }
+
+    /// Inti pembuatan order: kunci varian → transaksi → notifikasi.
+    ///
+    /// `pricing` berisi kanal pembayaran & promo bila order lahir dari halaman
+    /// checkout; `None` untuk jalur yang hanya menyebut tiket.
+    pub(super) async fn create_inner(
+        &self,
+        customer_id: &str,
+        req: CreateOrderRequest,
+        is_premium: bool,
+        pricing: Option<&self::checkout::CheckoutPricing<'_>>,
     ) -> AppResult<OrderDetailResponse> {
         req.validate()
             .map_err(|e| AppError::UnprocessableEntity(format!("{e}")))?;
@@ -109,7 +134,8 @@ impl OrderService {
 
             OrderMetrics::lock_acquired(variant_ids.len());
 
-            let tx_result = timeout(TX_TIMEOUT, self.create_in_tx(customer_id, &req)).await;
+            let tx_result =
+                timeout(TX_TIMEOUT, self.create_in_tx(customer_id, &req, pricing)).await;
 
             lock.release().await;
 
@@ -175,10 +201,11 @@ impl OrderService {
         )))
     }
 
-    async fn create_in_tx(
+    pub(super) async fn create_in_tx(
         &self,
         customer_id: &str,
         req: &CreateOrderRequest,
+        pricing: Option<&self::checkout::CheckoutPricing<'_>>,
     ) -> AppResult<OrderDetailResponse> {
         let mut conn = self
             .pool
@@ -268,14 +295,62 @@ impl OrderService {
         };
         let expired_at = chrono::Utc::now() + chrono::Duration::hours(2);
 
+        // `grand_total` sampai titik ini adalah SUBTOTAL: harga tiket menurut
+        // harga yang baru saja dikunci di dalam transaksi. Potongan promo dan
+        // biaya kanal dihitung di atasnya — dan sengaja dihitung DI SINI, bukan
+        // dari angka yang tadi ditampilkan di keranjang, supaya perubahan harga
+        // yang terjadi di sela-sela checkout tak pernah menagih angka lama.
+        let subtotal = grand_total;
+        let pay_calc = pricing.map(|p| p.compute(subtotal));
+        let payable = pay_calc.as_ref().map_or(subtotal, |c| c.total);
+
+        // Rakit spesifikasi pembayaran di sini agar seluruh pinjaman (&str)
+        // hidup sampai `insert_order` selesai.
+        let reference = pay_calc.as_ref().and_then(|c| c.reference.clone());
+        let spec = match (pricing, pay_calc.as_ref()) {
+            (Some(p), Some(c)) => OrderPaymentSpec {
+                cart_bytes: p.cart_bytes.as_deref(),
+                subtotal,
+                discount: c.discount,
+                promo_code: c.promo_code.as_deref(),
+                vendor: Some(p.method.vendor.as_str()),
+                code: Some(p.method.code.as_str()),
+                charge: c.charge,
+                payment_expired_at: c.payment_expired_at,
+                reference: reference.as_deref(),
+                link_pay: None,
+            },
+            // Jalur lama (REST `POST /api/orders`) tak menyebut kanal
+            // pembayaran: order lahir polos dan kanalnya tercatat saat `pay()`.
+            _ => OrderPaymentSpec::plain(subtotal),
+        };
+
+        // ── Keranjang tujuan ────────────────────────────────────────────
+        // Jalur checkout membawa keranjang yang sedang dipakai pembeli. Jalur
+        // beli-langsung tidak punya keranjang sama sekali, jadi dibuatkan
+        // keranjang sekali-pakai yang lahir sudah tertutup. Dua-duanya berakhir
+        // sebagai keranjang tertutup dengan baris pesanan di dalamnya, sehingga
+        // sisa sistem hanya perlu mengenal SATU bentuk.
+        let cart_bytes: Vec<u8> = match pricing.and_then(|p| p.cart_bytes.clone()) {
+            Some(b) => b,
+            None => {
+                let id = ulid_to_vec(&new_ulid()).map_err(AppError::Internal)?;
+                OrderTx::insert_closed_cart(&tx, &id, &customer_bytes)
+                    .await
+                    .map_err(AppError::Internal)?;
+                id
+            }
+        };
+
         let (order, is_new) = OrderTx::insert_order(
             &tx,
             &order_id_bytes,
             &customer_bytes,
             &order_code,
-            grand_total,
+            payable,
             expired_at,
             req.idempotency_key.as_deref(),
+            &spec,
         )
         .await
         .map_err(AppError::Internal)?;
@@ -295,9 +370,26 @@ impl OrderService {
             return Ok(build_detail_response(order, items));
         }
 
-        OrderTx::insert_order_items_batch(&tx, &order_id_bytes, &item_rows)
+        // Bekukan baris keranjang dengan harga yang baru dikunci, lalu tutup
+        // keranjangnya — keduanya di dalam transaksi yang sama dengan lahirnya
+        // order. Kalau ordernya batal, keranjang kembali terbuka utuh.
+        OrderTx::freeze_cart_items(&tx, &cart_bytes, &item_rows)
             .await
             .map_err(AppError::Internal)?;
+
+        OrderTx::close_cart(&tx, &cart_bytes)
+            .await
+            .map_err(AppError::Internal)?;
+
+        // Barang yang tidak dicentang pembeli diselamatkan ke keranjang baru.
+        // Hanya berlaku pada jalur checkout: jalur beli-langsung memakai
+        // keranjang sekali-pakai yang seluruh isinya memang dibeli.
+        if pricing.is_some() {
+            let next_cart = ulid_to_vec(&new_ulid()).map_err(AppError::Internal)?;
+            OrderTx::rescue_unselected(&tx, &cart_bytes, &next_cart, &customer_bytes)
+                .await
+                .map_err(AppError::Internal)?;
+        }
 
         let bump: Vec<(&[u8], i32)> = item_rows
             .iter()
@@ -331,7 +423,7 @@ impl OrderService {
             .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("commit: {e}")))?;
 
-        OrderMetrics::order_created(&order.id, grand_total, item_rows.len());
+        OrderMetrics::order_created(&order.id, payable, item_rows.len());
 
         let items: Vec<OrderItemResponse> = req
             .items
@@ -589,7 +681,21 @@ pub(super) fn build_detail_response(
         order_code: order.order_code,
         status: order.status,
         total_amount: order.total_amount,
+        subtotal_amount: order.subtotal_amount,
+        discount_amount: order.discount_amount,
+        promo_code: order.promo_code,
         payment_method: order.payment_method,
+        payment_vendor: order.payment_vendor,
+        payment_code: order.payment_code,
+        // Nama & instruksi kanal tidak ada di tabel `orders` — keduanya milik
+        // `payment_methods`. Jalur checkout mengisinya lewat `enrich_payment`;
+        // jalur lain membiarkannya kosong ketimbang menebak.
+        payment_name: None,
+        payment_charge: order.payment_charge,
+        payment_expired_at: order.payment_expired_at,
+        payment_reference: order.payment_reference,
+        payment_instruction: None,
+        link_pay: order.link_pay,
         paid_at: order.paid_at,
         expired_at: order.expired_at,
         created_at: order.created_at,

@@ -36,7 +36,7 @@ pub fn format_idr(n: i64) -> String {
 // memanggilnya via Reflect. Semua fungsi no-op di SSR (target non-wasm) sehingga
 // halaman tetap kompilasi & render server-side tanpa peta.
 
-/// Koordinat default bila event belum punya lokasi (Monas, Jakarta Pusat).
+/// Koordinat default bila product belum punya lokasi (Monas, Jakarta Pusat).
 pub const DEFAULT_LAT: f64 = -6.2088;
 pub const DEFAULT_LNG: f64 = 106.8456;
 
@@ -54,7 +54,7 @@ fn call_js(name: &str, args: &js_sys::Array) {
 
 /// Inisialisasi peta picker interaktif (OpenStreetMap). Saat user klik/geser
 /// marker, koordinat ditulis ke `<input id=lat_input_id>` & `<input id=lng_input_id>`
-/// lalu di-dispatch event `input` — sehingga signal Leptos (lewat on:input) ikut
+/// lalu di-dispatch product `input` — sehingga signal Leptos (lewat on:input) ikut
 /// ter-update tanpa perlu callback closure dari Rust.
 pub fn map_picker(map_id: &str, lat_input_id: &str, lng_input_id: &str, lat: f64, lng: f64) {
     #[cfg(target_arch = "wasm32")]
@@ -130,5 +130,26 @@ pub fn map_destroy(map_id: &str) {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let _ = map_id;
+    }
+}
+
+/// Penanda sekali-pakai dari klien, dipakai sebagai kunci idempotensi checkout.
+///
+/// Dobel-klik dan retry jaringan mengirim kunci yang SAMA, sehingga server
+/// mengembalikan order yang sudah ada alih-alih membuat order kedua. Nilainya
+/// tak perlu rahasia maupun unik secara global — cukup unik per percobaan
+/// checkout milik satu pengguna.
+pub fn client_nonce() -> String {
+    #[cfg(target_arch = "wasm32")]
+    {
+        format!(
+            "{:.0}-{:.0}",
+            js_sys::Date::now(),
+            js_sys::Math::random() * 1_000_000_000.0
+        )
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        String::new()
     }
 }

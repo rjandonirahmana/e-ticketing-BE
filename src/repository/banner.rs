@@ -26,8 +26,8 @@ const BANNER_COLS: &str =
 fn row_to_banner(row: &Row) -> Result<Banner> {
     // id adalah bigserial (i64) — bukan bytea/ULID
     let id: i64 = row.try_get("id")?;
-    // event_id adalah bytea ULID (FK ke events) — bisa NULL
-    let event_bytes: Option<Vec<u8>> = row.try_get("event_id")?;
+    // event_id adalah bytea ULID (FK ke products) — bisa NULL
+    let product_bytes: Option<Vec<u8>> = row.try_get("event_id")?;
     Ok(Banner {
         id,
         image_url: row.try_get("image_url")?,
@@ -35,7 +35,7 @@ fn row_to_banner(row: &Row) -> Result<Banner> {
         start_date: row.try_get("start_date")?,
         end_date: row.try_get("end_date")?,
         deleted_at: row.try_get("deleted_at")?,
-        event_id: event_bytes.map(bin_to_ulid).transpose()?,
+        event_id: product_bytes.map(bin_to_ulid).transpose()?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -164,7 +164,7 @@ impl BannerRepository for PgBannerRepository {
 
         // event_id: jika Some(ulid) = update, None = biarkan existing
         let eid_bytes: Option<Vec<u8>> = req.event_id.as_deref().map(id_to_vec).transpose()?;
-        let update_event_id = req.event_id.is_some();
+        let update_product_id = req.event_id.is_some();
 
         let sql = format!(
             "UPDATE public.banners
@@ -186,7 +186,7 @@ impl BannerRepository for PgBannerRepository {
                 &req.click_url,   // $3
                 &req.start_date,  // $4
                 &req.end_date,    // $5
-                &update_event_id, // $6 — apakah event_id di-update?
+                &update_product_id, // $6 — apakah event_id di-update?
                 &eid_bytes,       // $7 — value baru (atau NULL jika tidak di-update)
             ],
         )

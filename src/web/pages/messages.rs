@@ -97,7 +97,7 @@ pub fn MessagesPage() -> impl IntoView {
                                                         <EmptyState
                                                             icon="💬"
                                                             title="BELUM ADA GRUP"
-                                                            body="Beli tiket event untuk bergabung ke grup chat komunitas."
+                                                            body="Beli tiket product untuk bergabung ke grup chat komunitas."
                                                             cta_label="JELAJAHI EVENT"
                                                             cta_href="/explore"
                                                         />

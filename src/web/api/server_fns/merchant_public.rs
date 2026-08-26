@@ -1,6 +1,6 @@
 //! merchant_public.rs — Server functions profil merchant PUBLIK (sisi user).
 //!
-//! Halaman /m/{id} (profil + event) dan /m/{id}/reviews (rating & ulasan).
+//! Halaman /m/{id} (profil + product) dan /m/{id}/reviews (rating & ulasan).
 //! Semua endpoint baca bersifat publik; tulis (review/follow) butuh login.
 
 use crate::web::models::*;
@@ -51,39 +51,39 @@ pub async fn get_merchant_public_profile(
         header_url: p.header_url,
         verified: p.verified,
         followers: p.followers,
-        events_count: p.events_count,
+        products_count: p.products_count,
         rating_avg: p.rating_avg,
         rating_count: p.rating_count,
         is_following,
     })
 }
 
-/// SEMUA data halaman /m/{id} dalam satu panggilan: profil + events page-1 +
+/// SEMUA data halaman /m/{id} dalam satu panggilan: profil + products page-1 +
 /// ulasan (ringkasan + 20 pertama) + story. Satu round-trip HTTP dari klien
 /// (bukan 4 POST /api-fn terpisah) dan satu `futures::join!` di server —
 /// memanggil LAPISAN SERVICE langsung, bukan server-fn lain (server-fn yang
 /// memanggil server-fn menambah overhead ekstraksi context per panggilan).
-/// Profil = penentu halaman (gagal → error); events/ulasan/story best-effort
+/// Profil = penentu halaman (gagal → error); products/ulasan/story best-effort
 /// (gagal → kosong) agar satu bagian sekunder tak menjatuhkan seluruh halaman.
 #[server(GetMerchantPublicPage, "/api-fn")]
 pub async fn get_merchant_public_page(
     merchant_id: String,
 ) -> Result<MerchantPublicPageData, ServerFnError> {
-    use crate::models::events::EventListQuery;
+    use crate::models::products::ProductListQuery;
     let state = app_state().await?;
     let viewer = auth_claims().await.ok().map(|c| c.user_id);
 
-    let q = EventListQuery {
+    let q = ProductListQuery {
         page: Some(1),
         per_page: Some(12),
         city: None,
         category: None,
         search: None,
-        // Publik: hanya event aktif — jangan bocorkan draft/cancelled merchant.
+        // Publik: hanya product aktif — jangan bocorkan draft/cancelled merchant.
         status: Some("active".into()),
     };
 
-    let (profile_res, follow_res, events_res, summary_res, items_res, stories_res) = futures::join!(
+    let (profile_res, follow_res, products_res, summary_res, items_res, stories_res) = futures::join!(
         // Profil = sub-query terberat; cache 60 s (viewer-invariant). Hit cache →
         // 0 query DB untuk bagian ini, penting saat banyak user buka /m/{id}.
         async {
@@ -104,7 +104,7 @@ pub async fn get_merchant_public_page(
                 None => Ok(false),
             }
         },
-        state.event_svc.list(q, Some(&merchant_id)),
+        state.product_svc.list(q, Some(&merchant_id)),
         state.merchant_svc.review_summary(&merchant_id),
         state.merchant_svc.list_reviews(&merchant_id, 1, 20),
         // Story grup: cache 30 s (viewer-invariant), sama seperti get_merchant_stories.
@@ -136,14 +136,14 @@ pub async fn get_merchant_public_page(
         header_url: p.header_url,
         verified: p.verified,
         followers: p.followers,
-        events_count: p.events_count,
+        products_count: p.products_count,
         rating_avg: p.rating_avg,
         rating_count: p.rating_count,
         is_following: follow_res.unwrap_or(false),
     };
 
-    let events = events_res
-        .map(srv_paginated_events_to_web)
+    let products = products_res
+        .map(srv_paginated_products_to_web)
         .unwrap_or_default();
 
     let reviews = match (summary_res, items_res) {
@@ -179,34 +179,34 @@ pub async fn get_merchant_public_page(
 
     Ok(MerchantPublicPageData {
         profile,
-        events,
+        products,
         reviews,
         stories,
     })
 }
 
-#[server(GetMerchantPublicEvents, "/api-fn")]
-pub async fn get_merchant_public_events(
+#[server(GetMerchantPublicProducts, "/api-fn")]
+pub async fn get_merchant_public_products(
     merchant_id: String,
     page: Option<i64>,
-) -> Result<PaginatedEvents, ServerFnError> {
-    use crate::models::events::EventListQuery;
+) -> Result<PaginatedProducts, ServerFnError> {
+    use crate::models::products::ProductListQuery;
     let state = app_state().await?;
-    let q = EventListQuery {
+    let q = ProductListQuery {
         page,
         per_page: Some(12),
         city: None,
         category: None,
         search: None,
-        // Publik: hanya event aktif — jangan bocorkan draft/cancelled merchant.
+        // Publik: hanya product aktif — jangan bocorkan draft/cancelled merchant.
         status: Some("active".into()),
     };
     let result = state
-        .event_svc
+        .product_svc
         .list(q, Some(&merchant_id))
         .await
         .map_err(map_app_error)?;
-    Ok(srv_paginated_events_to_web(result))
+    Ok(srv_paginated_products_to_web(result))
 }
 
 /// Story milik merchant (profil publik /m/{id}). `merchant_id` == `user_id`
@@ -219,7 +219,7 @@ pub async fn get_merchant_stories(
     merchant_id: String,
 ) -> Result<Vec<crate::web::state::stories::StoryGroup>, ServerFnError> {
     let state = app_state().await?;
-    // Cache 30 s (viewer-invariant) — dipanggil tiap buka event detail (story
+    // Cache 30 s (viewer-invariant) — dipanggil tiap buka product detail (story
     // ring). Hit cache → 0 query DB.
     if let Some(cached) = state.pub_cache.merchant_stories.get(&merchant_id).await {
         return Ok(cached);
@@ -246,7 +246,7 @@ pub async fn get_reviews(
     let state = app_state().await?;
     // Ringkasan (store_name + rating) & daftar ulasan jalan paralel — satu
     // latensi round-trip, bukan tiga. store_name ikut di summary sehingga header
-    // tak butuh fetch profil lengkap (yang berat: 4 sub-query followers/events/…).
+    // tak butuh fetch profil lengkap (yang berat: 4 sub-query followers/products/…).
     let (summary, items) = futures::try_join!(
         state.merchant_svc.review_summary(&merchant_id),
         state

@@ -1,12 +1,12 @@
-//! web/services/event.rs — Tipe payload event (pengganti `csr::services::event`).
+//! web/services/product.rs — Tipe payload product (pengganti `csr::services::product`).
 //!
 //! Tipe-tipe ini dipakai `web::components::detail_image_section` untuk
-//! mengumpulkan foto detail event sebelum dikirim ke server function
-//! create/update event. Tidak ada network call di sini.
+//! mengumpulkan foto detail product sebelum dikirim ke server function
+//! create/update product. Tidak ada network call di sini.
 
 use serde::{Deserialize, Serialize};
 
-/// Metadata satu foto detail event.
+/// Metadata satu foto detail product.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DetailImageMeta {
     /// Jenis foto, mis. "venue", "lineup", "stage", dll. (bebas, sesuai UI).

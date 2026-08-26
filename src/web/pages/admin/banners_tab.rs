@@ -105,9 +105,9 @@ pub(super) fn view_banners(
     };
 
     view! {
-        <section class="mhub-events-section">
-            <div class="mhub-events-header">
-                <h3 class="mhub-events-title">"Pengelolaan Spanduk"</h3>
+        <section class="mhub-products-section">
+            <div class="mhub-products-header">
+                <h3 class="mhub-products-title">"Pengelolaan Spanduk"</h3>
             </div>
 
             // ── Form tambah banner ────────────────────────────────────────────
@@ -115,7 +115,7 @@ pub(super) fn view_banners(
                 <input type="file" accept="image/*" node_ref=new_file_ref />
                 <input
                     type="text"
-                    placeholder="Link tujuan klik (opsional, mis. /events/slug)"
+                    placeholder="Link tujuan klik (opsional, mis. /products/slug)"
                     prop:value=move || new_link.get()
                     on:input=move |ev| new_link.set(event_target_value(&ev))
                 />

@@ -72,12 +72,6 @@ pub fn OrderCreatedPage() -> impl IntoView {
                     </svg>
                 </A>
                 <span class="page-logo">"ORDER SUMMARY"</span>
-                <A href="/profile" attr:class="nav-avatar">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                        <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
-                        <circle cx="12" cy="7" r="4"/>
-                    </svg>
-                </A>
             </header>
 
             {move || {
@@ -120,7 +114,7 @@ pub fn OrderCreatedPage() -> impl IntoView {
                                 <div class="oc-live-dot"></div>
                                 <span class="oc-live-label">"LIVE NOW"</span>
                             </div>
-                            <h2 class="oc-event-name">{event_name}</h2>
+                            <h2 class="oc-product-name">{event_name}</h2>
 
                             <div class="oc-ticket-section">
                                 <div class="oc-section-row">

@@ -1,10 +1,10 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-// ── Events ────────────────────────────────────────────────────────────────────
+// ── Products ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Event {
+pub struct Product {
     pub id: String,
     pub merchant_id: String,
     pub name: String,
@@ -28,14 +28,14 @@ pub struct Event {
     pub status: String,
     pub total_sold: i32,
     pub total_quota: i32,
-    /// Nama toko penyelenggara — ditampilkan di kartu explore & event detail
+    /// Nama toko penyelenggara — ditampilkan di kartu explore & product detail
     /// menggantikan label generik "Penyelenggara".
     #[serde(default)]
     pub merchant_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EventVariant {
+pub struct ProductVariant {
     pub id: String,
     pub event_id: String,
     pub name: String,
@@ -52,7 +52,7 @@ pub struct EventVariant {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EventWithVariants {
+pub struct ProductWithVariants {
     pub id: String,
     pub merchant_id: String,
     pub name: String,
@@ -83,18 +83,18 @@ pub struct EventWithVariants {
     /// Nama toko penyelenggara (label organizer + bottom sheet info merchant).
     #[serde(default)]
     pub merchant_name: Option<String>,
-    /// Ringkasan profil penyelenggara — ikut payload detail event (1 query,
+    /// Ringkasan profil penyelenggara — ikut payload detail product (1 query,
     /// JOIN + agregat di server) sehingga bottom sheet TIDAK fetch kedua.
     #[serde(default)]
-    pub merchant: Option<EventMerchantInfo>,
+    pub merchant: Option<ProductMerchantInfo>,
     #[serde(default)]
-    pub event_variants: Vec<EventVariant>,
-    /// Foto detail event (denah/seat/harga/lainnya), terurut sesuai tampilan.
+    pub product_variants: Vec<ProductVariant>,
+    /// Foto detail product (denah/seat/harga/lainnya), terurut sesuai tampilan.
     #[serde(default)]
     pub detail_images: Vec<WebDetailImage>,
 }
 
-/// Satu foto detail event untuk sisi web (seed galeri di halaman edit).
+/// Satu foto detail product untuk sisi web (seed galeri di halaman edit).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebDetailImage {
     pub url: String,
@@ -108,21 +108,21 @@ pub struct WebDetailImage {
     pub focus: String,
 }
 
-/// Ringkasan merchant yang di-embed di detail event (isi bottom sheet
-/// penyelenggara). Nama toko ada di `EventWithVariants::merchant_name`.
+/// Ringkasan merchant yang di-embed di detail product (isi bottom sheet
+/// penyelenggara). Nama toko ada di `ProductWithVariants::merchant_name`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EventMerchantInfo {
+pub struct ProductMerchantInfo {
     pub logo_url: Option<String>,
     pub header_url: Option<String>,
     pub description: Option<String>,
     pub verified: bool,
     pub followers: i64,
-    pub events_count: i64,
+    pub products_count: i64,
     pub rating_avg: f64,
     pub rating_count: i64,
 }
 
-/// Payload varian dari form create/edit event. Dikirim ke server fn sebagai
+/// Payload varian dari form create/edit product. Dikirim ke server fn sebagai
 /// JSON string karena `crate::models` (tipe request server) tidak ter-compile
 /// di WASM. `id` Some = update varian lama, None = varian baru.
 /// `is_active: Some(false)` = varian lama "dihapus" dari form (dinonaktifkan,
@@ -139,8 +139,8 @@ pub struct VariantForm {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PaginatedEvents {
-    pub data: Vec<Event>,
+pub struct PaginatedProducts {
+    pub data: Vec<Product>,
     pub total: i64,
     pub page: i64,
     pub per_page: i64,
@@ -155,12 +155,12 @@ pub struct MerchantPublicProfile {
     pub store_name: String,
     pub description: Option<String>,
     pub logo_url: Option<String>,
-    /// Header/cover kustom merchant (kosong → hero fallback ke cover event terbaru).
+    /// Header/cover kustom merchant (kosong → hero fallback ke cover product terbaru).
     #[serde(default)]
     pub header_url: Option<String>,
     pub verified: bool,
     pub followers: i64,
-    pub events_count: i64,
+    pub products_count: i64,
     pub rating_avg: f64,
     pub rating_count: i64,
     /// Apakah viewer yang sedang login mem-follow merchant ini.
@@ -204,13 +204,13 @@ pub struct UserReviewsData {
     pub items: Vec<UserReviewItem>,
 }
 
-/// Payload lengkap halaman /m/{id}: profil + events page-1 + ulasan + story
+/// Payload lengkap halaman /m/{id}: profil + products page-1 + ulasan + story
 /// dalam SATU server fn (`get_merchant_public_page`) — 1 round-trip HTTP dari
 /// klien alih-alih 4, dan server men-join semua query secara paralel.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MerchantPublicPageData {
     pub profile: MerchantPublicProfile,
-    pub events: PaginatedEvents,
+    pub products: PaginatedProducts,
     pub reviews: MerchantReviewsData,
     pub stories: Vec<crate::web::state::stories::StoryGroup>,
 }
@@ -351,6 +351,29 @@ pub struct OrderDetail {
     pub created_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub items: Vec<OrderItem>,
+
+    // ── Rincian pembayaran ──────────────────────────────────────────────────
+    // Halaman detail order menampilkan nomor Virtual Account dan cara membayar
+    // untuk order yang masih menunggu; sebelum keranjang pindah ke database,
+    // data ini memang tidak ada di mana pun.
+    #[serde(default)]
+    pub subtotal_amount: f64,
+    #[serde(default)]
+    pub discount_amount: f64,
+    #[serde(default)]
+    pub promo_code: Option<String>,
+    #[serde(default)]
+    pub payment_code: Option<String>,
+    #[serde(default)]
+    pub payment_name: Option<String>,
+    #[serde(default)]
+    pub payment_charge: f64,
+    #[serde(default)]
+    pub payment_reference: Option<String>,
+    #[serde(default)]
+    pub payment_instruction: Option<String>,
+    #[serde(default)]
+    pub payment_expired_at: Option<DateTime<Utc>>,
 }
 
 // ── Notifications ─────────────────────────────────────────────────────────────
@@ -398,10 +421,10 @@ pub struct ChatMessage {
     pub message_type: String,
 }
 
-// ── Merchant Event Form ────────────────────────────────────────────────────────
+// ── Merchant Product Form ────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct MerchantEventForm {
+pub struct MerchantProductForm {
     pub name: String,
     pub description: String,
     pub venue: String,
@@ -445,6 +468,142 @@ pub struct OrderRef {
     pub expired_at: Option<String>,
     pub created_at: Option<String>,
     pub items: Vec<OrderItemRef>,
+
+    // ── Rincian pembayaran ──────────────────────────────────────────────────
+    // Semua bernilai default pada order lama / jalur yang tak menyebut kanal,
+    // sehingga halaman bisa memutuskan sendiri apakah panel instruksi perlu
+    // ditampilkan tanpa memanggil endpoint kedua.
+    #[serde(default)]
+    pub subtotal_amount: i64,
+    #[serde(default)]
+    pub discount_amount: i64,
+    #[serde(default)]
+    pub promo_code: Option<String>,
+    #[serde(default)]
+    pub payment_code: Option<String>,
+    /// Nama kanal yang enak dibaca ("BCA Virtual Account").
+    #[serde(default)]
+    pub payment_name: Option<String>,
+    #[serde(default)]
+    pub payment_charge: i64,
+    /// Nomor Virtual Account / referensi QRIS.
+    #[serde(default)]
+    pub payment_reference: Option<String>,
+    #[serde(default)]
+    pub payment_instruction: Option<String>,
+    /// Tenggat bayar menurut kanal (RFC 3339).
+    #[serde(default)]
+    pub payment_expired_at: Option<String>,
+}
+
+// ── Keranjang dari server ────────────────────────────────────────────────────
+
+/// Satu baris keranjang seperti yang dikirim server.
+///
+/// `tier_id` sengaja memakai nama lama untuk id varian: halaman product detail
+/// dan keranjang sudah berbicara dalam istilah itu, dan menggantinya hanya akan
+/// menyebar perubahan tanpa menambah kejelasan.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CartItemView {
+    pub id: String,
+    pub tier_id: String,
+    pub event_id: String,
+    #[serde(default)]
+    pub event_slug: String,
+    pub event_title: String,
+    pub tier_name: String,
+    #[serde(default)]
+    pub venue_name: String,
+    #[serde(default)]
+    pub event_cover: String,
+    #[serde(default)]
+    pub event_date: Option<DateTime<Utc>>,
+
+    pub quantity: i32,
+    /// Harga berlaku sekarang.
+    pub unit_price: i64,
+    /// Harga saat barang dimasukkan ke keranjang.
+    #[serde(default)]
+    pub unit_price_snapshot: i64,
+    pub subtotal: i64,
+
+    #[serde(default)]
+    pub available: i32,
+    #[serde(default)]
+    pub max_per_order: Option<i32>,
+    /// Jumlah melebihi sisa stok — tombol bayar dikunci sampai dikurangi.
+    #[serde(default)]
+    pub exceeds_stock: bool,
+    #[serde(default)]
+    pub price_changed: bool,
+    /// Dicentang untuk ikut dibayar.
+    #[serde(default = "crate::web::models::default_true")]
+    pub selected: bool,
+}
+
+/// Baris keranjang lahir dalam keadaan tercentang — sama dengan `DEFAULT TRUE`
+/// pada kolomnya, sehingga keranjang lama berperilaku persis seperti dulu.
+pub fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct CartView {
+    #[serde(default)]
+    pub cart_id: String,
+    pub items: Vec<CartItemView>,
+    pub subtotal: i64,
+    #[serde(default)]
+    pub discount: i64,
+    #[serde(default)]
+    pub promo_code: Option<String>,
+    #[serde(default)]
+    pub promo_message: String,
+    #[serde(default)]
+    pub payment_code: Option<String>,
+    /// Jumlah tiket yang DICENTANG — dipakai halaman checkout.
+    pub total_quantity: i32,
+    /// Jumlah SELURUH tiket di keranjang, untuk lencana navigasi.
+    #[serde(default)]
+    pub cart_quantity: i32,
+    /// Subtotal − diskon dari baris tercentang. Biaya kanal belum termasuk.
+    pub total: i64,
+    /// Pesan barang yang dibuang otomatis (stok habis / product tutup).
+    #[serde(default)]
+    pub notif: String,
+}
+
+/// Kanal pembayaran beserta biayanya untuk nominal yang sedang berlaku.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PaymentMethodView {
+    pub code: String,
+    pub name: String,
+    #[serde(default)]
+    pub vendor: String,
+    #[serde(default)]
+    pub category: String,
+    #[serde(default)]
+    pub image_url: String,
+    #[serde(default)]
+    pub description: String,
+    /// Biaya admin untuk nominal ini.
+    pub charge: i64,
+    /// Nominal + biaya admin.
+    pub total: i64,
+    #[serde(default)]
+    pub is_instant: bool,
+    #[serde(default)]
+    pub instruction: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PaymentOptions {
+    pub methods: Vec<PaymentMethodView>,
+    /// Nominal yang dipakai menghitung biaya tiap kanal (total keranjang).
+    pub amount: i64,
+    /// Kanal yang sebelumnya dipilih user, bila ada.
+    #[serde(default)]
+    pub selected: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -492,7 +651,7 @@ pub struct AdminStats {
     #[serde(default)]
     pub total_users: i64,
     #[serde(default)]
-    pub total_events: i64,
+    pub total_products: i64,
     #[serde(default)]
     pub total_orders: i64,
     #[serde(default)]

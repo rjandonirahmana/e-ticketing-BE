@@ -99,19 +99,32 @@ fn into_user_out(u: crate::models::users::UserResponse) -> UserOut {
 
 async fn login(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Json(body): Json<LoginReq>,
 ) -> Result<Json<AuthOut>, (StatusCode, Json<serde_json::Value>)> {
     use crate::models::users::LoginRequest;
     let req = LoginRequest { phone: body.phone, password: body.password };
     let auth = state.auth_svc.login(req).await.map_err(app_err)?;
-    // Backend belum implement refresh token; kirim access_token di kedua field.
-    // Next.js api.ts menyimpan keduanya dan pakai refreshToken untuk retry 401.
-    let token = auth.access_token.clone();
+
+    let refresh = state
+        .refresh_svc
+        .issue(&auth.user.id, None, user_agent(&headers))
+        .await
+        .map_err(app_err)?;
+
     Ok(Json(AuthOut {
         user: into_user_out(auth.user),
         access_token: auth.access_token,
-        refresh_token: token,
+        refresh_token: refresh,
     }))
+}
+
+/// User-Agent apa adanya, dipakai hanya untuk membantu pemilik akun mengenali
+/// perangkat pada daftar sesi. Tak pernah dipercaya sebagai identitas.
+fn user_agent(h: &axum::http::HeaderMap) -> &str {
+    h.get(axum::http::header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
 }
 
 async fn register(
@@ -131,6 +144,7 @@ async fn register(
 
 async fn verify_register(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Json(body): Json<VerifyOtpReq>,
 ) -> Result<Json<AuthOut>, (StatusCode, Json<serde_json::Value>)> {
     let auth = state
@@ -138,11 +152,17 @@ async fn verify_register(
         .verify_register(&body.phone, &body.otp)
         .await
         .map_err(app_err)?;
-    let token = auth.access_token.clone();
+
+    let refresh = state
+        .refresh_svc
+        .issue(&auth.user.id, None, user_agent(&headers))
+        .await
+        .map_err(app_err)?;
+
     Ok(Json(AuthOut {
         user: into_user_out(auth.user),
         access_token: auth.access_token,
-        refresh_token: token,
+        refresh_token: refresh,
     }))
 }
 
@@ -154,28 +174,62 @@ async fn forgot_password(
     Ok(Json(serde_json::json!({ "message": "Jika email terdaftar, link reset akan dikirim" })))
 }
 
+/// Tukar refresh token dengan sepasang token baru.
+///
+/// Refresh token LAMA dicabut di sini (rotasi), jadi klien WAJIB menyimpan
+/// `refreshToken` yang dikembalikan. Memakai token lama sekali lagi dianggap
+/// pencurian dan mencabut seluruh keluarga sesi — lihat `service/refresh.rs`.
+///
+/// Peran (`role`) di access token baru diambil ULANG dari database, bukan
+/// disalin dari token lama. Itulah yang membatasi umur hak akses yang sudah
+/// dicabut: paling lama sepanjang sisa umur access token, bukan sampai refresh
+/// berikutnya kedaluwarsa berhari-hari kemudian.
 async fn refresh(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Json(body): Json<RefreshReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    // Verifikasi refresh token (sama formatnya dengan access token).
-    // Jika valid, keluarkan access token baru dengan TTL segar.
-    let claims = state.jwt.verify(&body.refresh_token).map_err(|_| (
-        StatusCode::UNAUTHORIZED,
-        axum::Json(serde_json::json!({ "message": "Refresh token tidak valid" })),
-    ))?;
-    let new_token = state.jwt.sign(&claims.user_id, &claims.name, &claims.phone, &claims.role)
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            axum::Json(serde_json::json!({ "message": e.to_string() })),
-        ))?;
-    Ok(Json(serde_json::json!({ "accessToken": new_token })))
+    let ua = user_agent(&headers).to_string();
+    let hasil = state
+        .refresh_svc
+        .rotate(&body.refresh_token, &ua)
+        .await
+        .map_err(app_err)?;
+
+    Ok(Json(serde_json::json!({
+        "accessToken": hasil.access_token,
+        "refreshToken": hasil.refresh_token,
+        "expiresIn": hasil.expires_in,
+        "user": into_user_out(hasil.user),
+    })))
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogoutReq {
+    /// Opsional supaya klien lama yang tak mengirimkannya tetap jalan —
+    /// bagi mereka logout tetap sekadar membuang token di sisi klien.
+    #[serde(default)]
+    pub refresh_token: Option<String>,
+}
+
+/// Logout: cabut seluruh keluarga refresh token yang ditunjukkan.
+///
+/// Access token tetap berlaku sampai kedaluwarsa — itu sifat JWT, dan itulah
+/// alasan umurnya harus pendek. Yang dijamin di sini: sesi tak bisa lagi
+/// diperpanjang, jadi ia berakhir paling lama sepanjang sisa umur access token.
 async fn logout(
     _auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+    body: Option<Json<LogoutReq>>,
 ) -> StatusCode {
-    // JWT is stateless; client should discard the token.
+    if let Some(Json(b)) = body {
+        if let Some(rt) = b.refresh_token.filter(|s| !s.is_empty()) {
+            if let Err(e) = state.refresh_svc.revoke(&rt).await {
+                tracing::warn!(error = %e, "logout: gagal mencabut refresh token");
+            }
+        }
+    }
     StatusCode::NO_CONTENT
 }
 

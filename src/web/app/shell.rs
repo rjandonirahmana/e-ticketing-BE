@@ -76,6 +76,12 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                 // above-the-fold; app.css menyusul (biasanya puluhan ms) untuk
                 // seluruh gaya. Preload menjaga fetch prioritas tinggi; <noscript>
                 // fallback untuk klien tanpa JS. Cache 24 h tetap berlaku.
+                // Utility Tailwind (/pkg/e-ticketing.css). Dimuat blocking dan
+                // SEBELUM app.css: utility bersifat menimpa per-elemen, jadi ia
+                // harus kalah spesifisitas urutan terhadap kelas komponen —
+                // kalau dimuat belakangan, `bg-card` akan mengalahkan `.card`
+                // di elemen yang memakai keduanya.
+                <link rel="stylesheet" href="/pkg/e-ticketing.css" />
                 <link rel="preload" href="/styles/app.css" attr:as="style" />
                 <link rel="stylesheet" href="/styles/app.css" attr:media="print" id="pulse-appcss" />
                 <noscript>
@@ -91,7 +97,7 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                     rel="stylesheet"
                 />
 
-                // ── Leaflet (OpenStreetMap) untuk peta lokasi event ──────────
+                // ── Leaflet (OpenStreetMap) untuk peta lokasi product ──────────
                 // Leaflet di-self-host dari binary (bukan CDN unpkg) agar peta
                 // selalu ter-load — lihat web/assets.rs (serve_leaflet_js/css).
                 <link rel="stylesheet" href="/vendor/leaflet.css" />
@@ -222,8 +228,8 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                       var m = L.map(mapId).setView([lat,lng], 15); tile(m);
                       var mk = L.marker([lat,lng], {draggable:true, icon:pin()}).addTo(m);
                       function emit(p){
-                        if(latEl){ latEl.value = p.lat.toFixed(6); latEl.dispatchEvent(new Event('input',{bubbles:true})); }
-                        if(lngEl){ lngEl.value = p.lng.toFixed(6); lngEl.dispatchEvent(new Event('input',{bubbles:true})); }
+                        if(latEl){ latEl.value = p.lat.toFixed(6); latEl.dispatchEvent(new Product('input',{bubbles:true})); }
+                        if(lngEl){ lngEl.value = p.lng.toFixed(6); lngEl.dispatchEvent(new Product('input',{bubbles:true})); }
                       }
                       m.on('click', function(e){ mk.setLatLng(e.latlng); emit(e.latlng); });
                       mk.on('dragend', function(){ emit(mk.getLatLng()); });
@@ -236,7 +242,7 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                           b.href='#'; b.title='Lokasi saya'; b.setAttribute('role','button');
                           b.innerHTML='&#9678;';
                           L.DomEvent.on(b,'click',function(ev){
-                            L.DomEvent.preventDefault(ev); L.DomEvent.stopPropagation(ev);
+                            L.DomEvent.prproductDefault(ev); L.DomEvent.stopPropagation(ev);
                             if(!navigator.geolocation) return;
                             navigator.geolocation.getCurrentPosition(function(pos){
                               var ll={lat:pos.coords.latitude,lng:pos.coords.longitude};
@@ -283,7 +289,7 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                         parseFloat(el.getAttribute('data-lng')), el.getAttribute('data-label')||'Lokasi');
                     })(vs[j]); }
                   }
-                  // PICKER (create/update event) — JANGAN di-init saat DOMContentLoaded:
+                  // PICKER (create/update product) — JANGAN di-init saat DOMContentLoaded:
                   // kalau Leaflet mengisi div SEBELUM hydration WASM, Leptos menganggap
                   // div itu "harusnya kosong" → mismatch → peta terhapus / hydration gagal.
                   // Jadi picker di-init oleh Leptos Effect (post-hydration). Fungsi ini
@@ -303,9 +309,9 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                   // dirender server. Bila itu terjadi sebelum Leptos selesai
                   // menghidrasi, kursor hidrasi meleset tepat di titik itu, dan
                   // SEMUA yang ada sesudahnya dalam urutan dokumen tak pernah
-                  // dipasangi event delegation. Gejalanya: tombol dan tautan
+                  // dipasangi product delegation. Gejalanya: tombol dan tautan
                   // mati — klik tak memindahkan halaman sampai di-refresh, dan
-                  // tombol simpan di halaman ber-peta (mis. edit event, yang
+                  // tombol simpan di halaman ber-peta (mis. edit product, yang
                   // punya picker lokasi) tak melakukan apa pun tanpa satu pun
                   // pesan galat.
                   //
@@ -419,7 +425,7 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                 // Leptos fires 'leptos:hydrated' atau kita poll sampai klik jalan
                 var rm = function(){ var b=document.getElementById('hydration-loader'); if(b) b.remove(); };
                 document.addEventListener('leptos:hydrated', rm, {once:true});
-                // Fallback: hapus setelah 8 detik walau event tidak fire
+                // Fallback: hapus setelah 8 detik walau product tidak fire
                 setTimeout(rm, 8000);
                 })();
                 "# />

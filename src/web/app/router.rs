@@ -46,8 +46,8 @@ pub fn App() -> impl IntoView {
     provide_all_app_contexts();
 
     view! {
-        <Title text="PULSE — Tiket Event Digital" />
-        <Meta name="description" content="Platform tiket event terbaik di Indonesia." />
+        <Title text="PULSE — Tiket Product Digital" />
+        <Meta name="description" content="Platform tiket product terbaik di Indonesia." />
 
         <Router>
             <ScrollToTop />
@@ -59,7 +59,27 @@ pub fn App() -> impl IntoView {
             // Kolom halaman OPAQUE + ≤480px terpusat → grid hanya terlihat di
             // gutter kiri/kanan pada layar lebar (persis /lives & /login).
             <GridBackground />
-            <main>
+
+            // ── KOLOM MOBILE TUNGGAL ─────────────────────────────────────────
+            // Satu tampilan untuk semua ukuran layar: lebar dikunci 480px dan
+            // dipusatkan, jadi membuka dari laptop menghasilkan susunan yang
+            // persis sama dengan di ponsel.
+            //
+            // Kolomnya OPAQUE (`bg-page`) di atas `GridBackground` yang fixed —
+            // itulah yang membuat grid hanya terlihat di gutter kiri-kanan pada
+            // layar lebar, sesuai rancangan semula. Tanpa pembatas ini, isi
+            // halaman melar memenuhi layar sementara bilah melayang
+            // (bottom-nav, bilah bayar) tetap 480px — dua lebar yang berbeda
+            // pada halaman yang sama.
+            //
+            // `relative z-10` wajib: tanpanya kolom ini berada di bawah latar
+            // grid dan seluruh isinya tak bisa diklik.
+            //
+            // Elemen `position: fixed` di dalam halaman TIDAK terpengaruh
+            // pembatas ini — mereka mengacu ke viewport, dan masing-masing
+            // sudah memusatkan diri dengan lebar maksimum yang sama.
+            <main class="relative z-10 w-full max-w-[480px] mx-auto min-h-screen bg-page \
+                         shadow-[0_0_60px_rgba(0,0,0,0.35)]">
                 <ErrorBoundary fallback=|_| {
                     view! {
                         <div
@@ -91,7 +111,7 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/explore") view=ExplorePage />
                         <Route path=path!("/lives") view=LivesPage />
                         <Route path=path!("/meet/:id") view=MeetPage />
-                        <Route path=path!("/events/:slug") view=EventDetailPage />
+                        <Route path=path!("/products/:slug") view=ProductDetailPage />
                         <Route path=path!("/m/:id") view=MerchantPublicPage />
                         <Route path=path!("/m/:id/reviews") view=MerchantReviewsPage />
                         <Route path=path!("/m/:id/followers") view=MerchantFollowersPage />
@@ -279,7 +299,7 @@ pub fn App() -> impl IntoView {
                             }
                         />
                         <Route
-                            path=path!("/events/:slug/location")
+                            path=path!("/products/:slug/location")
                             view=|| {
                                 view! {
                                     <AuthGuard>
@@ -321,21 +341,21 @@ pub fn App() -> impl IntoView {
                             }
                         />
                         <Route
-                            path=path!("/merchant/events/create")
+                            path=path!("/merchant/products/create")
                             view=|| {
                                 view! {
                                     <MerchantGuard>
-                                        <MerchantCreateEventPage />
+                                        <MerchantCreateProductPage />
                                     </MerchantGuard>
                                 }
                             }
                         />
                         <Route
-                            path=path!("/merchant/events/:slug/edit")
+                            path=path!("/merchant/products/:slug/edit")
                             view=|| {
                                 view! {
                                     <MerchantGuard>
-                                        <MerchantEditEventPage />
+                                        <MerchantEditProductPage />
                                     </MerchantGuard>
                                 }
                             }

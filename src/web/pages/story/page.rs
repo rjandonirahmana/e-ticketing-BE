@@ -18,7 +18,7 @@ use super::canvas::{
     BgExport, canvas_to_blob,
     cover_factor, create_export_canvas, css_filter_string, export_ext,
     export_mime, export_story_canvas, get_dpr, gradient_colors,
-    load_img_to_canvas, preload_fonts, render_event_card_to_canvas,
+    load_img_to_canvas, preload_fonts, render_product_card_to_canvas,
     render_merchant_card_to_canvas,
     render_overlays_to_canvas, trigger_download_blob,
 };
@@ -28,7 +28,7 @@ use super::components::{PanelGeser, TombolAlat, TombolWarna};
 use super::types::{
     Alat, BG_GRADIENTS, BG_SOLID_COLORS, DAFTAR_FILTER, DAFTAR_MUSIK, STIKER, WARNA_TEKS,
 };
-use super::types::EventStoryMeta;
+use super::types::ProductStoryMeta;
 
 #[cfg(target_arch = "wasm32")]
 use super::upload::upload_story_file;
@@ -153,16 +153,16 @@ pub fn StoryPage() -> impl IntoView {
     let prefill_title   = move || query.with(|q| q.get("event_title").unwrap_or_default());
     let prefill_cover   = move || query.with(|q| q.get("event_cover").unwrap_or_default());
     let prefill_id      = move || query.with(|q| q.get("event_id").unwrap_or_default());
-    let prefill_desc    = move || query.with(|q| q.get("event_desc").unwrap_or_default());
+    let prefill_desc    = move || query.with(|q| q.get("product_desc").unwrap_or_default());
     let prefill_date    = move || query.with(|q| q.get("event_date").unwrap_or_default());
     let prefill_venue   = move || query.with(|q| q.get("event_venue").unwrap_or_default());
-    let prefill_price   = move || query.with(|q| q.get("event_price").unwrap_or_default());
+    let prefill_price   = move || query.with(|q| q.get("product_price").unwrap_or_default());
     // Ticket-share mode: story dibuat dari ticket detail. Tidak ada event_slug
-    // (jadi tidak pernah di-persist sebagai event link) — hanya tampil di kartu canvas.
+    // (jadi tidak pernah di-persist sebagai product link) — hanya tampil di kartu canvas.
     let prefill_is_ticket = move || query.with(|q| q.get("is_ticket").unwrap_or_default()) == "1";
     let prefill_ticket_ref = move || query.with(|q| q.get("ticket_ref").unwrap_or_default());
     // Merchant-share mode (dari /m/{id} atau halaman ulasan): kartu profil toko
-    // (bukan kartu event). event_slug memakai konvensi "m/{merchant_id}" —
+    // (bukan kartu product). event_slug memakai konvensi "m/{merchant_id}" —
     // viewer menerjemahkannya ke /m/{id}. event_cover = logo/header (boleh kosong
     // → renderer fallback gradient + inisial). review_* opsional (share ulasan).
     let prefill_is_merchant = move || query.with(|q| q.get("merchant").unwrap_or_default()) == "1";
@@ -173,8 +173,8 @@ pub fn StoryPage() -> impl IntoView {
     let prefill_followers = move || {
         query.with(|q| q.get("followers").unwrap_or_default()).parse::<i64>().unwrap_or(0)
     };
-    let prefill_events_count = move || {
-        query.with(|q| q.get("events_count").unwrap_or_default()).parse::<i64>().unwrap_or(0)
+    let prefill_products_count = move || {
+        query.with(|q| q.get("products_count").unwrap_or_default()).parse::<i64>().unwrap_or(0)
     };
     let prefill_rating = move || {
         query.with(|q| q.get("rating").unwrap_or_default()).parse::<f64>().unwrap_or(0.0)
@@ -188,11 +188,11 @@ pub fn StoryPage() -> impl IntoView {
     let prefill_review_comment =
         move || query.with(|q| q.get("review_comment").unwrap_or_default());
 
-    let has_event_prefill = Memo::new(move |_| !prefill_slug().is_empty() || prefill_is_ticket());
+    let has_product_prefill = Memo::new(move |_| !prefill_slug().is_empty() || prefill_is_ticket());
     let user_overrode_prefill = RwSignal::new(false);
-    let event_meta_sig  : RwSignal<Option<EventStoryMeta>> = RwSignal::new(None);
+    let product_meta_sig  : RwSignal<Option<ProductStoryMeta>> = RwSignal::new(None);
     let event_cover_url : StoredValue<String> = StoredValue::new(String::new());
-    let event_desc_sig  : StoredValue<String> = StoredValue::new(String::new());
+    let product_desc_sig  : StoredValue<String> = StoredValue::new(String::new());
     let last_prefilled_slug : StoredValue<String> = StoredValue::new(String::new());
 
     // ── Helper: navigasi kembali ──────────────────────────────────────────────
@@ -203,7 +203,7 @@ pub fn StoryPage() -> impl IntoView {
         exit_page_to(is_exiting, move || { nav(&from, Default::default()); }, EXIT_DURATION_MS);
     };
 
-    // ── Effect: inisiasi mode event ───────────────────────────────────────────
+    // ── Effect: inisiasi mode product ───────────────────────────────────────────
     Effect::new(move |_| {
         let slug      = prefill_slug();
         let title     = prefill_title();
@@ -222,12 +222,12 @@ pub fn StoryPage() -> impl IntoView {
             is_video.set(false);
             url_pratinjau.set(Some(cover.clone()));
             event_cover_url.set_value(cover.clone());
-            event_desc_sig.set_value(desc.clone());
+            product_desc_sig.set_value(desc.clone());
             last_prefilled_slug.set_value(slug.clone());
-            event_meta_sig.set(None);
+            product_meta_sig.set(None);
             return;
         }
-        // Dedup key: slug untuk mode event, "ticket:<ref>" untuk mode ticket-share
+        // Dedup key: slug untuk mode product, "ticket:<ref>" untuk mode ticket-share
         // (tidak pernah dikirim sebagai event_slug ke backend).
         let dedup_key = if is_ticket { format!("ticket:{}", ticket_ref) } else { slug.clone() };
         let last = last_prefilled_slug.get_value();
@@ -238,13 +238,13 @@ pub fn StoryPage() -> impl IntoView {
         is_video.set(false);
         url_pratinjau.set(Some(cover.clone()));
         event_cover_url.set_value(cover.clone());
-        event_desc_sig.set_value(desc.clone());
+        product_desc_sig.set_value(desc.clone());
 
         #[cfg(target_arch = "wasm32")]
         {
             let has_hero = web_sys::window().and_then(|w| w.session_storage().ok()).flatten()
                 .and_then(|s| s.get_item("story_hero_transition").ok()).flatten()
-                .map(|v| v == "event").unwrap_or(false);
+                .map(|v| v == "product").unwrap_or(false);
             if has_hero {
                 hero_transition.set(true);
                 if let Some(storage) = web_sys::window().and_then(|w| w.session_storage().ok()).flatten() {
@@ -267,12 +267,12 @@ pub fn StoryPage() -> impl IntoView {
         }
 
         // Slug dikirim juga di mode ticket agar story yang dipublish dari tiket
-        // tetap tertaut ke halaman event (viewer bisa tap-through).
+        // tetap tertaut ke halaman product (viewer bisa tap-through).
         let event_slug = slug;
-        event_meta_sig.set(Some(EventStoryMeta { event_id: id, event_slug, event_title: title }));
+        product_meta_sig.set(Some(ProductStoryMeta { event_id: id, event_slug, event_title: title }));
 
         // Mode ticket: sisipkan otomatis teks "Pembelian Berhasil" yang bisa
-        // digeser & diedit di layar story create/edit. Mode event biasa: kosong.
+        // digeser & diedit di layar story create/edit. Mode product biasa: kosong.
         if is_ticket {
             z_counter.set(1);
             overlays.set(vec![StoryOverlay {
@@ -366,7 +366,7 @@ pub fn StoryPage() -> impl IntoView {
     // Cover image readiness check
     Effect::new(move |_| {
         let Some(_url) = url_pratinjau.get() else { return; };
-        if !has_event_prefill.get() || user_overrode_prefill.get() { return; }
+        if !has_product_prefill.get() || user_overrode_prefill.get() { return; }
         let version_snapshot = cover_load_version.get_untracked();
         if cover_img_ready.get_untracked() { return; }
         spawn_local(async move {
@@ -375,7 +375,7 @@ pub fn StoryPage() -> impl IntoView {
                 #[cfg(target_arch = "wasm32")]
                 {
                     let ready = web_sys::window().and_then(|w| w.document())
-                        .and_then(|d| d.query_selector("img.sc-event-card-cover-img").ok().flatten())
+                        .and_then(|d| d.query_selector("img.sc-product-card-cover-img").ok().flatten())
                         .and_then(|el| el.dyn_into::<HtmlImageElement>().ok())
                         .map(|img| img.complete() && img.natural_width() > 0)
                         .unwrap_or(false);
@@ -428,7 +428,7 @@ pub fn StoryPage() -> impl IntoView {
                     let url_existing = web_sys::Url::create_object_url_with_blob(&file).unwrap();
                     alat_aktif.set(Alat::None);
                     bg_scale.set(1.0);
-                    event_meta_sig.set(None);
+                    product_meta_sig.set(None);
                     user_overrode_prefill.set(true);
                     last_prefilled_slug.set_value(String::new());
                     overlays.set(Vec::new());
@@ -467,7 +467,7 @@ pub fn StoryPage() -> impl IntoView {
         let filter = filter_dipilih.get_untracked();
         let scale  = bg_scale.get_untracked();
 
-        if has_event_prefill.get_untracked() && !user_overrode_prefill.get_untracked() {
+        if has_product_prefill.get_untracked() && !user_overrode_prefill.get_untracked() {
             let cover       = event_cover_url.get_value();
             let bg_m        = bg_mode.get_untracked();
             let bg_c        = bg_solid_color.get_untracked();
@@ -483,7 +483,7 @@ pub fn StoryPage() -> impl IntoView {
                 .map(|r| (r, prefill_review_comment()));
             let mch_header_d = prefill_mch_header();
             let followers_d = prefill_followers();
-            let events_count_d = prefill_events_count();
+            let products_count_d = prefill_products_count();
             let rating_d = prefill_rating();
             sedang_mengunduh.set(true);
             let navigate_sv2 = navigate_sv;
@@ -494,10 +494,10 @@ pub fn StoryPage() -> impl IntoView {
                 let render_res = if is_merchant_d {
                     render_merchant_card_to_canvas(
                         &ctx, cw, ch, &cover, &mch_header_d, &bg_m, &bg_c, &title,
-                        verified_d, followers_d, events_count_d, rating_d, review_d,
+                        verified_d, followers_d, products_count_d, rating_d, review_d,
                     ).await
                 } else {
-                    render_event_card_to_canvas(
+                    render_product_card_to_canvas(
                         &ctx, cw, ch, &cover, &bg_m, &bg_c, &ev_filter,
                         &title, &date, &venue, &price, is_ticket_d,
                     ).await
@@ -516,7 +516,7 @@ pub fn StoryPage() -> impl IntoView {
                 match canvas_to_blob(&canvas).await {
                     Ok(blob) => {
                         let ts = web_sys::js_sys::Date::now() as u64;
-                        trigger_download_blob(&blob, &format!("event_story_{}.{}", ts, export_ext()));
+                        trigger_download_blob(&blob, &format!("product_story_{}.{}", ts, export_ext()));
                         let from = read_from_page(); clear_from_page();
                         let nav = navigate_sv2.get_value();
                         exit_page_to(is_exiting, move || { nav(&from, Default::default()); }, EXIT_DURATION_MS);
@@ -547,7 +547,7 @@ pub fn StoryPage() -> impl IntoView {
 
     // ── Bagikan ───────────────────────────────────────────────────────────────
     let bagikan = move || {
-        let slug = event_meta_sig.get().map(|m| m.event_slug).filter(|s| !s.is_empty());
+        let slug = product_meta_sig.get().map(|m| m.event_slug).filter(|s| !s.is_empty());
 
         if let Some(file) = file_terpilih.get() {
             let ovls_snapshot: Vec<StoryOverlay> = overlays.with(|o| o.clone());
@@ -624,8 +624,8 @@ pub fn StoryPage() -> impl IntoView {
             return;
         }
 
-        // Mode B: event story
-        if has_event_prefill.get() && !user_overrode_prefill.get() {
+        // Mode B: product story
+        if has_product_prefill.get() && !user_overrode_prefill.get() {
             let cover        = event_cover_url.get_value();
             let ovls_snapshot: Vec<StoryOverlay> = overlays.with(|o| o.clone());
             let ev_filter    = filter_dipilih.get_untracked();
@@ -641,10 +641,10 @@ pub fn StoryPage() -> impl IntoView {
             let review_u = prefill_review_rating().map(|r| (r, prefill_review_comment()));
             let mch_header_u = prefill_mch_header();
             let followers_u = prefill_followers();
-            let events_count_u = prefill_events_count();
+            let products_count_u = prefill_products_count();
             let rating_u = prefill_rating();
             if cover.is_empty() && !is_merchant_u {
-                error_unggah.set(Some("Cover event tidak tersedia di URL.".into()));
+                error_unggah.set(Some("Cover product tidak tersedia di URL.".into()));
                 return;
             }
             sedang_mengunggah.set(true);
@@ -660,10 +660,10 @@ pub fn StoryPage() -> impl IntoView {
                 let render_res = if is_merchant_u {
                     render_merchant_card_to_canvas(
                         &render_ctx, cw, ch, &cover, &mch_header_u, &ev_bg_mode, &ev_bg_color,
-                        &title, verified_u, followers_u, events_count_u, rating_u, review_u,
+                        &title, verified_u, followers_u, products_count_u, rating_u, review_u,
                     ).await
                 } else {
-                    render_event_card_to_canvas(
+                    render_product_card_to_canvas(
                         &render_ctx, cw, ch, &cover, &ev_bg_mode, &ev_bg_color, &ev_filter,
                         &title, &date, &venue, &price, is_ticket_u,
                     ).await
@@ -684,14 +684,14 @@ pub fn StoryPage() -> impl IntoView {
                 canvas.set_width(0); canvas.set_height(0);
                 let bits = web_sys::js_sys::Array::new(); bits.push(&blob);
                 let opts = web_sys::FilePropertyBag::new(); opts.set_type(export_mime());
-                let file = match web_sys::File::new_with_blob_sequence_and_options(&bits, &format!("event_story.{}", export_ext()), &opts) {
+                let file = match web_sys::File::new_with_blob_sequence_and_options(&bits, &format!("product_story.{}", export_ext()), &opts) {
                     Ok(f) => f, Err(_) => { ctx.uploading.set(false); return; }
                 };
                 let title_opt = if title.is_empty() { None } else { Some(title.clone()) };
                 #[cfg(target_arch = "wasm32")]
                 match upload_story_file(&file, slug, title_opt).await {
                     Ok(_)  => { ctx.uploading.set(false); ctx.load(); }
-                    Err(e) => { ctx.uploading.set(false); web_sys::console::error_1(&format!("event story upload: {}", e).into()); }
+                    Err(e) => { ctx.uploading.set(false); web_sys::console::error_1(&format!("product story upload: {}", e).into()); }
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 { let _ = (file, slug, title_opt); ctx.uploading.set(false); }
@@ -764,8 +764,8 @@ pub fn StoryPage() -> impl IntoView {
         // Mode merchant tak digate cover_img_ready — kartu punya fallback & canvas
         // memuat gambarnya sendiri; header kosong tak boleh menghalangi share.
         let is_merchant_mode = prefill_is_merchant() && !user_overrode_prefill.get();
-        let is_event_mode = has_event_prefill.get() && !user_overrode_prefill.get() && !is_merchant_mode;
-        !is_event_mode || cover_img_ready.get()
+        let is_product_mode = has_product_prefill.get() && !user_overrode_prefill.get() && !is_merchant_mode;
+        !is_product_mode || cover_img_ready.get()
     });
 
     let on_swipe_start = move |ev: leptos::ev::TouchEvent| {
@@ -885,13 +885,13 @@ pub fn StoryPage() -> impl IntoView {
                             </div>
                         </Show>
 
-                        <Show when=move || bg_mode.get() == "blur" && !has_event_prefill.get()>
+                        <Show when=move || bg_mode.get() == "blur" && !has_product_prefill.get()>
                             {move || url_pratinjau.get().map(|url| view! {
                                 <div class="sc-canvas-bg" style=format!("background-image:url('{}');", url) />
                             })}
                         </Show>
 
-                        <Show when=move || bg_mode.get() != "blur" && (user_overrode_prefill.get() || !has_event_prefill.get())>
+                        <Show when=move || bg_mode.get() != "blur" && (user_overrode_prefill.get() || !has_product_prefill.get())>
                             <div class="sc-canvas-bg sc-canvas-bg--solid"
                                 style=move || {
                                     let mode = bg_mode.get();
@@ -905,12 +905,12 @@ pub fn StoryPage() -> impl IntoView {
                         <div node_ref=media_layer_ref class="sc-layer-media">
                             {move || url_pratinjau.get().map(|url| {
                                 // Mode merchant (share toko) memakai konvensi slug "m/{id}"
-                                // sehingga has_event_prefill juga true — WAJIB dicek lebih
+                                // sehingga has_product_prefill juga true — WAJIB dicek lebih
                                 // dulu agar pratinjau memakai kartu MERCHANT (hero+avatar+
                                 // container FOLLOWERS/EVENTS/RATING, mirip halaman /m/{id}),
-                                // bukan kartu event.
+                                // bukan kartu product.
                                 let is_merchant = prefill_is_merchant() && !user_overrode_prefill.get();
-                                let is_event = has_event_prefill.get() && !user_overrode_prefill.get() && !is_merchant;
+                                let is_product = has_product_prefill.get() && !user_overrode_prefill.get() && !is_merchant;
                                 let is_blob  = url.starts_with("blob:");
                                 if is_merchant {
                                     let initial: String = prefill_title().chars().next()
@@ -927,9 +927,9 @@ pub fn StoryPage() -> impl IntoView {
                                             <Show when=move || bg_mode.get() == "blur">
                                                 <img
                                                     src=move || { let h = prefill_mch_header(); if h.is_empty() { prefill_cover() } else { h } }
-                                                    class="sc-event-bg-img" alt=""
+                                                    class="sc-product-bg-img" alt=""
                                                     on:load=move |_| cover_img_ready.set(true) />
-                                                <div class="sc-event-dark-overlay" />
+                                                <div class="sc-product-dark-overlay" />
                                             </Show>
                                             <div class="sc-mch-card">
                                                 <div class="sc-mch-hero">
@@ -964,7 +964,7 @@ pub fn StoryPage() -> impl IntoView {
                                                             <span class="sc-mch-stat-label">"FOLLOWERS"</span>
                                                         </div>
                                                         <div class="sc-mch-stat">
-                                                            <span class="sc-mch-stat-num">{move || crate::web::pages::merchant_public::fmt_count(prefill_events_count())}</span>
+                                                            <span class="sc-mch-stat-num">{move || crate::web::pages::merchant_public::fmt_count(prefill_products_count())}</span>
                                                             <span class="sc-mch-stat-label">"EVENTS"</span>
                                                         </div>
                                                         <div class="sc-mch-stat">
@@ -980,10 +980,10 @@ pub fn StoryPage() -> impl IntoView {
                                             </div>
                                         </div>
                                     }.into_any()
-                                } else if is_event {
+                                } else if is_product {
                                     let url_sv = StoredValue::new(url.clone());
                                     view! {
-                                        <div class="sc-event-preview-frame"
+                                        <div class="sc-product-preview-frame"
                                             style=move || {
                                                 let mode = bg_mode.get();
                                                 if mode == "blur" { String::new() }
@@ -992,30 +992,30 @@ pub fn StoryPage() -> impl IntoView {
                                                 else { "background-color:#1a1a2e;".to_string() }
                                             }>
                                             <Show when=move || bg_mode.get() == "blur">
-                                                <img src=move || url_sv.get_value() class="sc-event-bg-img sc-media" alt=""
+                                                <img src=move || url_sv.get_value() class="sc-product-bg-img sc-media" alt=""
                                                     on:load=move |_| cover_img_ready.set(true) />
-                                                <div class="sc-event-dark-overlay" />
+                                                <div class="sc-product-dark-overlay" />
                                             </Show>
-                                            <div class="sc-event-card">
-                                                <div class="sc-event-card-cover-wrap">
-                                                    <img src=move || url_sv.get_value() class="sc-event-card-cover-img" alt=""
+                                            <div class="sc-product-card">
+                                                <div class="sc-product-card-cover-wrap">
+                                                    <img src=move || url_sv.get_value() class="sc-product-card-cover-img" alt=""
                                                         on:load=move |_| cover_img_ready.set(true) />
                                                 </div>
-                                                <div class="sc-event-card-body">
-                                                    <div class="sc-event-card-badge">
-                                                        <span class="sc-event-card-dot"></span>
+                                                <div class="sc-product-card-body">
+                                                    <div class="sc-product-card-badge">
+                                                        <span class="sc-product-card-dot"></span>
                                                         "KINETIC EXCLUSIVE"
                                                     </div>
-                                                    <h2 class="sc-event-card-title">{move || prefill_title()}</h2>
-                                                    <div class="sc-event-card-sep"></div>
-                                                    <span class="sc-event-card-meta-label">"DATE & VENUE"</span>
-                                                    <div class="sc-event-card-meta-row">
-                                                        <span class="sc-event-card-date">{move || prefill_date()}</span>
-                                                        <span class="sc-event-card-venue">{move || prefill_venue()}</span>
+                                                    <h2 class="sc-product-card-title">{move || prefill_title()}</h2>
+                                                    <div class="sc-product-card-sep"></div>
+                                                    <span class="sc-product-card-meta-label">"DATE & VENUE"</span>
+                                                    <div class="sc-product-card-meta-row">
+                                                        <span class="sc-product-card-date">{move || prefill_date()}</span>
+                                                        <span class="sc-product-card-venue">{move || prefill_venue()}</span>
                                                     </div>
-                                                    <div class="sc-event-card-price-pill">{move || prefill_price()}</div>
+                                                    <div class="sc-product-card-price-pill">{move || prefill_price()}</div>
                                                     <Show when=move || prefill_is_ticket()>
-                                                        <div class="sc-event-card-ticket-label">"✓ Tiket berhasil dibeli"</div>
+                                                        <div class="sc-product-card-ticket-label">"✓ Tiket berhasil dibeli"</div>
                                                     </Show>
                                                 </div>
                                             </div>
@@ -1052,22 +1052,22 @@ pub fn StoryPage() -> impl IntoView {
                             })}
                         </div>
 
-                        <Show when=move || !has_event_prefill.get() || user_overrode_prefill.get()>
+                        <Show when=move || !has_product_prefill.get() || user_overrode_prefill.get()>
                             <div class="sc-media-overlay" aria-hidden="true"></div>
                         </Show>
 
-                        <Show when=move || has_event_prefill.get() && !user_overrode_prefill.get()>
-                            <div class="sc-event-prefill-banner">
-                                <div class="sc-event-prefill-icon">
+                        <Show when=move || has_product_prefill.get() && !user_overrode_prefill.get()>
+                            <div class="sc-product-prefill-banner">
+                                <div class="sc-product-prefill-icon">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                                         <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
                                     </svg>
                                 </div>
-                                <div class="sc-event-prefill-text">
-                                    <span class="sc-event-prefill-label">"Berbagi event"</span>
-                                    <span class="sc-event-prefill-title">{move || prefill_title()}</span>
+                                <div class="sc-product-prefill-text">
+                                    <span class="sc-product-prefill-label">"Berbagi product"</span>
+                                    <span class="sc-product-prefill-title">{move || prefill_title()}</span>
                                 </div>
-                                <div class="sc-event-prefill-badge">"LIVE PULSE"</div>
+                                <div class="sc-product-prefill-badge">"LIVE PULSE"</div>
                             </div>
                         </Show>
 
@@ -1307,7 +1307,7 @@ pub fn StoryPage() -> impl IntoView {
                 <button class="sc-tombol-galeri" aria-label="Buka galeri"
                     on:click=move |_| { if let Some(i) = file_ref.get() { i.click(); } }>
                     {move || match url_pratinjau.get() {
-                        Some(url) if !has_event_prefill.get() || user_overrode_prefill.get() =>
+                        Some(url) if !has_product_prefill.get() || user_overrode_prefill.get() =>
                             view! { <img src=url class="sc-thumb-galeri" /> }.into_any(),
                         _ => view! {
                             <div class="sc-ikon-galeri">

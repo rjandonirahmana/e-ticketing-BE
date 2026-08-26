@@ -188,9 +188,9 @@ pub fn LiveStreamViewer(
             // reaktif Leptos) karena video_ref.get_untracked() bisa None.
             // Reactive Effect di bawah yang akan memasang srcObject + play().
             let on_track = {
-                Closure::<dyn FnMut(web_sys::RtcTrackEvent)>::new(move |event: web_sys::RtcTrackEvent| {
+                Closure::<dyn FnMut(web_sys::RtcTrackEvent)>::new(move |product: web_sys::RtcTrackEvent| {
                     // Selalu rakit SEMUA track masuk (audio + video) ke SATU
-                    // MediaStream. JANGAN pakai event.streams()[0]: str0m memberi
+                    // MediaStream. JANGAN pakai product.streams()[0]: str0m memberi
                     // msid berbeda per track, jadi memakai streams[0] akan MENIMPA
                     // stream tiap kali ontrack terpicu → hanya track terakhir
                     // (audio) yang tersisa, track video hilang → video 0x0/hitam.
@@ -202,7 +202,7 @@ pub fn LiveStreamViewer(
                         },
                     };
                     // add_track idempoten (spec): aman walau ontrack terpicu ulang.
-                    stream.add_track(&event.track());
+                    stream.add_track(&product.track());
                     // Signal update → reactive Effect merespons dan set srcObject.
                     remote_stream.set(Some(SendWrapper::new(stream)));
                 })
@@ -283,8 +283,8 @@ pub fn LiveStreamViewer(
             let on_ice = {
                 let ws_ref = ws.clone();
                 let cb = Closure::<dyn FnMut(web_sys::RtcPeerConnectionIceEvent)>::new(
-                    move |event: web_sys::RtcPeerConnectionIceEvent| {
-                        if let Some(candidate) = event.candidate() {
+                    move |product: web_sys::RtcPeerConnectionIceEvent| {
+                        if let Some(candidate) = product.candidate() {
                             let msg = serde_json::json!({
                                 "type": "candidate",
                                 "candidate": candidate.candidate(),
@@ -459,7 +459,7 @@ pub fn LiveStreamViewer(
         async move {
             if let Some(conn) = pc.get_untracked() {
                 // Lepas handler SEBELUM drop closure (cegah "closure invoked
-                // after drop"); close() juga menghentikan event lanjutan.
+                // after drop"); close() juga menghentikan product lanjutan.
                 conn.set_ontrack(None);
                 conn.set_onicecandidate(None);
                 let _ = conn.close();

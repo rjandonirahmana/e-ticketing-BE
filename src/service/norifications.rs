@@ -196,7 +196,7 @@ impl NotificationService {
             ));
         }
 
-        text.push_str("Tiketmu sudah aktif. Selamat menikmati event! 🎉");
+        text.push_str("Tiketmu sudah aktif. Selamat menikmati product! 🎉");
 
         self.send_wa(&phone, &text).await
     }

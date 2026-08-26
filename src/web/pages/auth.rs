@@ -77,7 +77,7 @@ pub fn LoginPage() -> impl IntoView {
 
             <section class="animate-fade-up animate-fade-up-delay-1">
                 <h1 class="hero-title">"MASUK KE"<br/>"AKUN"</h1>
-                <p class="hero-sub">"Akses tiket, pemesanan, dan pengalaman event kamu."</p>
+                <p class="hero-sub">"Akses tiket, pemesanan, dan pengalaman product kamu."</p>
             </section>
 
             <div class="auth-card animate-fade-up animate-fade-up-delay-2">
@@ -230,7 +230,7 @@ pub fn RegisterPage() -> impl IntoView {
 
     view! {
         <Title text="Daftar — PULSE" />
-        <Meta name="description" content="Buat akun PULSE gratis dan mulai beli tiket event favoritmu." />
+        <Meta name="description" content="Buat akun PULSE gratis dan mulai beli tiket product favoritmu." />
         <main class="auth-page">
             <header class="auth-header">
                 <A href="/login" attr:class="back-btn">
@@ -244,7 +244,7 @@ pub fn RegisterPage() -> impl IntoView {
 
             <section>
                 <h1 class="hero-title">"BUAT AKUN"<br/>"GRATIS"</h1>
-                <p class="hero-sub">"Daftar dan temukan ribuan event seru di seluruh Indonesia."</p>
+                <p class="hero-sub">"Daftar dan temukan ribuan product seru di seluruh Indonesia."</p>
             </section>
 
             <div class="auth-card">
@@ -312,7 +312,7 @@ pub fn RegisterPage() -> impl IntoView {
                                 on:change=move |ev| role.set(event_target_value(&ev))
                             >
                                 <option value="customer">"Pembeli Tiket"</option>
-                                <option value="merchant">"Event Organizer / Merchant"</option>
+                                <option value="merchant">"Product Organizer / Merchant"</option>
                             </select>
                         </div>
                     </div>

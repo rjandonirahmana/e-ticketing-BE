@@ -2,7 +2,7 @@
 //!
 //! GET  /api/ws/chat?token=...               WebSocket upgrade (auth via token)
 //! GET  /api/chat/rooms                      List rooms user yang sudah join
-//! GET  /api/chat/events/{event_id}/room     Get/buat room untuk event
+//! GET  /api/chat/products/{event_id}/room     Get/buat room untuk product
 //! POST /api/chat/rooms/{room_id}/join       Join room
 //! GET  /api/chat/rooms/{room_id}/history    History pesan
 //! GET  /api/chat/rooms/{room_id}/sent_count Berapa pesan user sudah kirim
@@ -48,9 +48,9 @@ async fn list_rooms(
     Ok(ok(rooms))
 }
 
-/// GET /chat/events/{event_id}/room — merchant memanggil ini saat create event
+/// GET /chat/products/{event_id}/room — merchant memanggil ini saat create product
 /// agar room dibuat sebelum ada buyer.
-async fn get_or_create_event_room(
+async fn get_or_create_product_room(
     auth: AuthUser,
     State(state): State<Arc<WsAppState>>,
     Path(event_id): Path<String>,
@@ -59,10 +59,10 @@ async fn get_or_create_event_room(
     auth.require_role("merchant")
         .or_else(|_| auth.require_role("admin"))?;
 
-    // Nama default: akan di-update saat event detail diambil
+    // Nama default: akan di-update saat product detail diambil
     let room = state
         .group_svc
-        .get_or_create_room(&event_id, "Event Group", None, auth.id())
+        .get_or_create_room(&event_id, "Product Group", None, auth.id())
         .await
         .map_err(|e| AppError::Internal(e))?;
 
@@ -132,8 +132,8 @@ pub fn chat_router(ws_state: Arc<WsAppState>, app_state: Arc<AppState>) -> Route
     let chat_routes = Router::new()
         .route("/api/chat/rooms", get(list_rooms))
         .route(
-            "/api/chat/events/{event_id}/room",
-            get(get_or_create_event_room),
+            "/api/chat/products/{event_id}/room",
+            get(get_or_create_product_room),
         )
         .route("/api/chat/rooms/{room_id}/join", post(join_room))
         .route("/api/chat/rooms/{room_id}/history", get(get_history))

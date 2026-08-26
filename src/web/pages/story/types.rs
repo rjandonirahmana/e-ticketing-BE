@@ -1,10 +1,10 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-//  STORY — Types: enums, constants, EventStoryMeta
+//  STORY — Types: enums, constants, ProductStoryMeta
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// ── EventStoryMeta ─────────────────────────────────────────────────────────────
+// ── ProductStoryMeta ─────────────────────────────────────────────────────────────
 #[derive(Clone, Debug)]
-pub struct EventStoryMeta {
+pub struct ProductStoryMeta {
     pub event_id: String,
     pub event_slug: String,
     pub event_title: String,

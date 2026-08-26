@@ -1,7 +1,7 @@
 //! merchant_live_pip.rs — Overlay "live melayang" (picture-in-picture) kecil,
 //! BISA DI-DRAG & ditutup.
 //!
-//! Saat merchant pemilik event sedang siaran (room SFU `live_{merchant_id}`
+//! Saat merchant pemilik product sedang siaran (room SFU `live_{merchant_id}`
 //! ada), tampilkan video live mini melayang. User bisa **menggeser** posisinya
 //! ke mana saja, **tap** untuk buka feed live fullscreen (`/lives`), dan **✕**
 //! untuk menutup. Status live dicek periodik dari keberadaan room SFU.

@@ -88,7 +88,7 @@
     border: 1px solid rgba(166, 217, 106, 0.35);
 }
 
-.td-event-title {
+.td-product-title {
     font-family: var(--font-display);
     font-size: 36px;
     color: #fff;
@@ -354,7 +354,7 @@
         rgba(0, 0, 0, 0.85) 100%
     );
 }
-[data-theme="light"] .td-event-title { color: #fff; }
+[data-theme="light"] .td-product-title { color: #fff; }
 [data-theme="light"] .td-page-title  { color: var(--text-primary); }
 [data-theme="light"] .td-qr { border: 1px solid var(--border); box-shadow: 0 4px 20px rgba(0,0,20,0.12); }
 [data-theme="light"] .td-pulse-strip { background: rgba(10, 112, 53, 0.06); border-color: rgba(10, 112, 53, 0.2); color: var(--live-green); }

@@ -11,13 +11,13 @@ use async_trait::async_trait;
 use deadpool_postgres::Pool;
 use tokio_postgres::Row;
 
-use crate::models::event_variants::{cmp_by_effective_price, EventVariant, EventVariantJson};
-use crate::models::events::{CreateEventRequest, CreateVariantInline, Event, UpdateEventRequest};
+use crate::models::product_variants::{cmp_by_effective_price, ProductVariant, ProductVariantJson};
+use crate::models::products::{CreateProductRequest, CreateVariantInline, Product, UpdateProductRequest};
 use crate::utils::ulid::{bin_to_ulid, id_to_vec};
 
 // ── Filter ────────────────────────────────────────────────────────────────────
 
-pub struct EventListFilter<'a> {
+pub struct ProductListFilter<'a> {
     pub city: Option<&'a str>,
     pub status: Option<&'a str>,
     pub category: Option<&'a str>,
@@ -29,7 +29,7 @@ pub struct EventListFilter<'a> {
 
 /// Owned copies of filter values, needed to keep borrows alive while building
 /// the params Vec for tokio-postgres.
-struct EventFilterOwned {
+struct ProductFilterOwned {
     mid_vec: Option<Vec<u8>>,
     city_pat: Option<String>,
     status_own: Option<String>,
@@ -37,8 +37,8 @@ struct EventFilterOwned {
     search_pat: Option<String>,
 }
 
-impl EventFilterOwned {
-    fn from_filter(f: &EventListFilter<'_>) -> Result<Self> {
+impl ProductFilterOwned {
+    fn from_filter(f: &ProductListFilter<'_>) -> Result<Self> {
         Ok(Self {
             mid_vec: f.merchant_id.map(id_to_vec).transpose()?,
             city_pat: f.city.map(|c| format!("%{}%", escape_like(c))),
@@ -91,42 +91,42 @@ impl EventFilterOwned {
 // ── Trait ─────────────────────────────────────────────────────────────────────
 
 #[async_trait]
-pub trait EventRepository: Send + Sync {
-    async fn list(&self, f: &EventListFilter<'_>) -> Result<Vec<Event>>;
-    async fn count(&self, f: &EventListFilter<'_>) -> Result<i64>;
-    async fn find_by_id(&self, id: &str) -> Result<Option<Event>>;
+pub trait ProductRepository: Send + Sync {
+    async fn list(&self, f: &ProductListFilter<'_>) -> Result<Vec<Product>>;
+    async fn count(&self, f: &ProductListFilter<'_>) -> Result<i64>;
+    async fn find_by_id(&self, id: &str) -> Result<Option<Product>>;
     async fn find_by_id_with_variants(
         &self,
         id: &str,
-    ) -> Result<Option<(Event, Vec<EventVariant>)>>;
+    ) -> Result<Option<(Product, Vec<ProductVariant>)>>;
     async fn list_categories(&self) -> Result<Vec<String>>;
     async fn find_by_slug_with_variants(
         &self,
         slug: &str,
-    ) -> Result<Option<(Event, Vec<EventVariant>)>>;
+    ) -> Result<Option<(Product, Vec<ProductVariant>)>>;
     async fn create(
         &self,
         merchant_id: &str,
         merchant_name: &str,
-        req: &CreateEventRequest,
+        req: &CreateProductRequest,
         cover_url: Option<&str>,
-    ) -> Result<Event>;
+    ) -> Result<Product>;
     async fn create_variants_bulk(
         &self,
         event_id: &str,
         variants: &[CreateVariantInline],
-    ) -> Result<Vec<EventVariant>>;
+    ) -> Result<Vec<ProductVariant>>;
     async fn create_with_variants(
         &self,
         merchant_id: &str,
         merchant_name: &str,
-        req: &CreateEventRequest,
+        req: &CreateProductRequest,
         variants: &[CreateVariantInline],
         cover_url: Option<&str>,
-    ) -> Result<(Event, Vec<EventVariant>)>;
-    async fn update(&self, id: &str, merchant_id: &str, req: &UpdateEventRequest) -> Result<()>;
+    ) -> Result<(Product, Vec<ProductVariant>)>;
+    async fn update(&self, id: &str, merchant_id: &str, req: &UpdateProductRequest) -> Result<()>;
     async fn delete(&self, id: &str, merchant_id: &str) -> Result<()>;
-    async fn find_variant(&self, id: &str) -> Result<Option<EventVariant>>;
+    async fn find_variant(&self, id: &str) -> Result<Option<ProductVariant>>;
     async fn update_variant(
         &self,
         id: &str,
@@ -143,24 +143,24 @@ pub trait EventRepository: Send + Sync {
         sort_order: Option<i32>,
     ) -> Result<()>;
     async fn delete_variant(&self, id: &str, merchant_id: &str) -> Result<()>;
-    async fn admin_list_by_status(&self, f: &EventListFilter<'_>) -> Result<Vec<Event>>;
-    async fn admin_count_by_status(&self, f: &EventListFilter<'_>) -> Result<i64>;
+    async fn admin_list_by_status(&self, f: &ProductListFilter<'_>) -> Result<Vec<Product>>;
+    async fn admin_count_by_status(&self, f: &ProductListFilter<'_>) -> Result<i64>;
     async fn admin_update_status(&self, id: &str, status: &str) -> Result<()>;
 }
 
 // ── Postgres impl ─────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
-pub struct PgEventRepository {
+pub struct PgProductRepository {
     pool: Pool,
 }
 
-impl PgEventRepository {
+impl PgProductRepository {
     pub fn new(pool: Pool) -> Self {
         Self { pool }
     }
 
-    fn row_to_event(row: &Row) -> Result<Event> {
+    fn row_to_product(row: &Row) -> Result<Product> {
         let id_bytes: Vec<u8> = row.try_get("id").context("id")?;
         let merchant_bytes: Vec<u8> = row.try_get("merchant_id").context("merchant_id")?;
         let category_json: Option<serde_json::Value> = row.try_get("category")?;
@@ -174,7 +174,7 @@ impl PgEventRepository {
             Some(json) => serde_json::from_value(json).unwrap_or_default(),
             None => Vec::new(),
         };
-        Ok(Event {
+        Ok(Product {
             id: bin_to_ulid(id_bytes)?,
             merchant_id: bin_to_ulid(merchant_bytes)?,
             name: row.try_get("name").context("name")?,
@@ -185,12 +185,12 @@ impl PgEventRepository {
             cover_url: row.try_get::<_, Option<String>>("cover_url")?,
             // Baris lama (sebelum migrasi 020) bisa saja belum punya kolomnya
             // saat aplikasi baru di-deploy mendahului migrasinya — jatuh ke
-            // tengah alih-alih menggagalkan seluruh pembacaan event.
+            // tengah alih-alih menggagalkan seluruh pembacaan product.
             cover_focus: row
                 .try_get::<_, Option<String>>("cover_focus")
                 .ok()
                 .flatten()
-                .unwrap_or_else(crate::models::events::fokus_tengah),
+                .unwrap_or_else(crate::models::products::fokus_tengah),
             price: row.try_get::<_, f64>("price").unwrap_or(0.0),
             sale_price: row.try_get("sale_price").ok().flatten(),
             sale_price_start_date: row.try_get("sale_price_start_date").ok().flatten(),
@@ -215,7 +215,7 @@ impl PgEventRepository {
         })
     }
 
-    fn row_to_event_no_agg(row: &Row) -> Result<Event> {
+    fn row_to_product_no_agg(row: &Row) -> Result<Product> {
         let id_bytes: Vec<u8> = row.try_get("id").context("id")?;
         let merchant_bytes: Vec<u8> = row.try_get("merchant_id").context("merchant_id")?;
         let category_json: Option<serde_json::Value> = row.try_get("category")?;
@@ -229,7 +229,7 @@ impl PgEventRepository {
             Some(json) => serde_json::from_value(json).unwrap_or_default(),
             None => Vec::new(),
         };
-        Ok(Event {
+        Ok(Product {
             id: bin_to_ulid(id_bytes)?,
             merchant_id: bin_to_ulid(merchant_bytes)?,
             name: row.try_get("name").context("name")?,
@@ -240,12 +240,12 @@ impl PgEventRepository {
             cover_url: row.try_get::<_, Option<String>>("cover_url")?,
             // Baris lama (sebelum migrasi 020) bisa saja belum punya kolomnya
             // saat aplikasi baru di-deploy mendahului migrasinya — jatuh ke
-            // tengah alih-alih menggagalkan seluruh pembacaan event.
+            // tengah alih-alih menggagalkan seluruh pembacaan product.
             cover_focus: row
                 .try_get::<_, Option<String>>("cover_focus")
                 .ok()
                 .flatten()
-                .unwrap_or_else(crate::models::events::fokus_tengah),
+                .unwrap_or_else(crate::models::products::fokus_tengah),
             price: 0.0,
             sale_price: None,
             sale_price_start_date: None,
@@ -273,26 +273,26 @@ impl PgEventRepository {
     /// Ringkasan merchant dari MERCHANT_INFO_COLS — toleran: None bila kolom
     /// tak ada di query (INSERT RETURNING) sehingga mapper tetap dipakai semua
     /// jalur. `merchant_verified` dijadikan kolom penanda keberadaan blok.
-    fn row_to_merchant_summary(row: &Row) -> Option<crate::models::events::MerchantSummary> {
+    fn row_to_merchant_summary(row: &Row) -> Option<crate::models::products::MerchantSummary> {
         let verified: bool = row.try_get("merchant_verified").ok()?;
-        Some(crate::models::events::MerchantSummary {
+        Some(crate::models::products::MerchantSummary {
             logo_url: row.try_get("merchant_logo").ok().flatten(),
             header_url: row.try_get("merchant_header").ok().flatten(),
             description: row.try_get("merchant_desc").ok().flatten(),
             verified,
             followers: row.try_get("merchant_followers").unwrap_or(0),
-            events_count: row.try_get("merchant_events_count").unwrap_or(0),
+            products_count: row.try_get("merchant_products_count").unwrap_or(0),
             rating_avg: row.try_get("merchant_rating_avg").unwrap_or(0.0),
             rating_count: row.try_get("merchant_rating_count").unwrap_or(0),
         })
     }
 
-    fn row_to_variant(row: &Row) -> Result<EventVariant> {
+    fn row_to_variant(row: &Row) -> Result<ProductVariant> {
         let id_bytes: Vec<u8> = row.try_get("id").context("id")?;
-        let event_bytes: Vec<u8> = row.try_get("event_id").context("event_id")?;
-        Ok(EventVariant {
+        let product_bytes: Vec<u8> = row.try_get("event_id").context("event_id")?;
+        Ok(ProductVariant {
             id: bin_to_ulid(id_bytes)?,
-            event_id: bin_to_ulid(event_bytes)?,
+            event_id: bin_to_ulid(product_bytes)?,
             name: row.try_get("name").context("name")?,
             description: row.try_get("description").context("description")?,
             price: row.try_get("price").context("price")?,
@@ -311,24 +311,24 @@ impl PgEventRepository {
         })
     }
 
-    fn apply_cheapest_variant_price(event: &mut Event, variants: &[EventVariant]) {
+    fn apply_cheapest_variant_price(product: &mut Product, variants: &[ProductVariant]) {
         if let Some(cheapest) = variants.iter().min_by(|a, b| cmp_by_effective_price(a, b)) {
-            event.price = cheapest.price;
-            event.sale_price = cheapest.sale_price;
-            event.sale_price_start_date = cheapest.sale_price_start_date;
-            event.sale_price_end_date = cheapest.sale_price_end_date;
-            event.display_price = cheapest.effective_price();
+            product.price = cheapest.price;
+            product.sale_price = cheapest.sale_price;
+            product.sale_price_start_date = cheapest.sale_price_start_date;
+            product.sale_price_end_date = cheapest.sale_price_end_date;
+            product.display_price = cheapest.effective_price();
         }
-        event.total_sold = variants.iter().map(|v| v.sold).sum();
-        event.total_quota = variants.iter().map(|v| v.quota).sum();
+        product.total_sold = variants.iter().map(|v| v.sold).sum();
+        product.total_quota = variants.iter().map(|v| v.quota).sum();
     }
 
-    fn parse_variants_json(row: &Row) -> Result<Vec<EventVariant>> {
+    fn parse_variants_json(row: &Row) -> Result<Vec<ProductVariant>> {
         let variants_json: serde_json::Value = row.try_get("variants_json")?;
-        serde_json::from_value::<Vec<EventVariantJson>>(variants_json)
+        serde_json::from_value::<Vec<ProductVariantJson>>(variants_json)
             .context("deserialize variants_json")?
             .into_iter()
-            .map(EventVariantJson::into_variant)
+            .map(ProductVariantJson::into_variant)
             .collect::<Result<_>>()
     }
 }
@@ -336,65 +336,65 @@ impl PgEventRepository {
 // ── Trait impl — delegates to sub-module inherent methods ─────────────────────
 
 #[async_trait]
-impl EventRepository for PgEventRepository {
-    async fn list(&self, f: &EventListFilter<'_>) -> Result<Vec<Event>> {
+impl ProductRepository for PgProductRepository {
+    async fn list(&self, f: &ProductListFilter<'_>) -> Result<Vec<Product>> {
         self.exec_list(f).await
     }
-    async fn count(&self, f: &EventListFilter<'_>) -> Result<i64> {
+    async fn count(&self, f: &ProductListFilter<'_>) -> Result<i64> {
         self.exec_count(f).await
     }
     async fn list_categories(&self) -> Result<Vec<String>> {
         self.exec_list_categories().await
     }
-    async fn find_by_id(&self, id: &str) -> Result<Option<Event>> {
+    async fn find_by_id(&self, id: &str) -> Result<Option<Product>> {
         self.exec_find_by_id(id).await
     }
     async fn find_by_id_with_variants(
         &self,
         id: &str,
-    ) -> Result<Option<(Event, Vec<EventVariant>)>> {
+    ) -> Result<Option<(Product, Vec<ProductVariant>)>> {
         self.exec_find_by_id_with_variants(id).await
     }
     async fn find_by_slug_with_variants(
         &self,
         slug: &str,
-    ) -> Result<Option<(Event, Vec<EventVariant>)>> {
+    ) -> Result<Option<(Product, Vec<ProductVariant>)>> {
         self.exec_find_by_slug_with_variants(slug).await
     }
     async fn create(
         &self,
         merchant_id: &str,
         merchant_name: &str,
-        req: &CreateEventRequest,
+        req: &CreateProductRequest,
         cover_url: Option<&str>,
-    ) -> Result<Event> {
+    ) -> Result<Product> {
         self.exec_create(merchant_id, merchant_name, req, cover_url).await
     }
     async fn create_variants_bulk(
         &self,
         event_id: &str,
         variants: &[CreateVariantInline],
-    ) -> Result<Vec<EventVariant>> {
+    ) -> Result<Vec<ProductVariant>> {
         self.exec_create_variants_bulk(event_id, variants).await
     }
     async fn create_with_variants(
         &self,
         merchant_id: &str,
         merchant_name: &str,
-        req: &CreateEventRequest,
+        req: &CreateProductRequest,
         variants: &[CreateVariantInline],
         cover_url: Option<&str>,
-    ) -> Result<(Event, Vec<EventVariant>)> {
+    ) -> Result<(Product, Vec<ProductVariant>)> {
         self.exec_create_with_variants(merchant_id, merchant_name, req, variants, cover_url)
             .await
     }
-    async fn update(&self, id: &str, merchant_id: &str, req: &UpdateEventRequest) -> Result<()> {
+    async fn update(&self, id: &str, merchant_id: &str, req: &UpdateProductRequest) -> Result<()> {
         self.exec_update(id, merchant_id, req).await
     }
     async fn delete(&self, id: &str, merchant_id: &str) -> Result<()> {
         self.exec_delete(id, merchant_id).await
     }
-    async fn find_variant(&self, id: &str) -> Result<Option<EventVariant>> {
+    async fn find_variant(&self, id: &str) -> Result<Option<ProductVariant>> {
         self.exec_find_variant(id).await
     }
     async fn update_variant(
@@ -431,10 +431,10 @@ impl EventRepository for PgEventRepository {
     async fn delete_variant(&self, id: &str, merchant_id: &str) -> Result<()> {
         self.exec_delete_variant(id, merchant_id).await
     }
-    async fn admin_list_by_status(&self, f: &EventListFilter<'_>) -> Result<Vec<Event>> {
+    async fn admin_list_by_status(&self, f: &ProductListFilter<'_>) -> Result<Vec<Product>> {
         self.exec_admin_list_by_status(f).await
     }
-    async fn admin_count_by_status(&self, f: &EventListFilter<'_>) -> Result<i64> {
+    async fn admin_count_by_status(&self, f: &ProductListFilter<'_>) -> Result<i64> {
         self.exec_admin_count_by_status(f).await
     }
     async fn admin_update_status(&self, id: &str, status: &str) -> Result<()> {

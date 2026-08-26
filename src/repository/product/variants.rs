@@ -1,13 +1,15 @@
 use anyhow::Result;
 
 use crate::repository::db::{exec_drop, exec_first};
-use super::helpers::{DELETE_VARIANT, FIND_VARIANT_BY_ID, UPDATE_VARIANT};
-use super::PgEventRepository;
-use crate::models::event_variants::EventVariant;
+use super::helpers::{
+    DELETE_VARIANT, DETACH_VARIANT_FROM_OPEN_CARTS, FIND_VARIANT_BY_ID, UPDATE_VARIANT,
+};
+use super::PgProductRepository;
+use crate::models::product_variants::ProductVariant;
 use crate::utils::ulid::id_to_vec;
 
-impl PgEventRepository {
-    pub(super) async fn exec_find_variant(&self, id: &str) -> Result<Option<EventVariant>> {
+impl PgProductRepository {
+    pub(super) async fn exec_find_variant(&self, id: &str) -> Result<Option<ProductVariant>> {
         let id_vec = id_to_vec(id)?;
         let row = exec_first(&self.pool, &FIND_VARIANT_BY_ID, &[&id_vec]).await?;
         row.as_ref().map(Self::row_to_variant).transpose()
@@ -56,6 +58,15 @@ impl PgEventRepository {
     pub(super) async fn exec_delete_variant(&self, id: &str, merchant_id: &str) -> Result<()> {
         let id_vec = id_to_vec(id)?;
         let mid_vec = id_to_vec(merchant_id)?;
+
+        // Lepaskan dulu dari keranjang yang masih terbuka. Foreign key
+        // `cart_items` ke varian bersifat RESTRICT karena tabel itu kini juga
+        // memuat rincian pesanan yang sudah dibayar — tanpa langkah ini, satu
+        // orang yang menaruhnya di keranjang sudah cukup untuk mengunci varian
+        // itu selamanya. Yang tersisa menghalangi hanyalah keranjang yang sudah
+        // menjadi pesanan, dan itu memang disengaja.
+        exec_drop(&self.pool, DETACH_VARIANT_FROM_OPEN_CARTS, &[&id_vec]).await?;
+
         exec_drop(&self.pool, DELETE_VARIANT, &[&id_vec, &mid_vec]).await?;
         Ok(())
     }

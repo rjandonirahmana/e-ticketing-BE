@@ -1,14 +1,14 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
-use crate::web::api::{get_categories, get_events};
-use crate::web::models::{format_date, Event};
+use crate::web::api::{get_categories, get_products};
+use crate::web::models::{format_date, Product};
 use crate::web::utils::format_number;
 
-// ── Frontend event model ──────────────────────────────────────────────────────
+// ── Frontend product model ──────────────────────────────────────────────────────
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ExploreEvent {
+pub struct ExploreProduct {
     pub id: String,
     /// Untuk link profil penyelenggara (/m/{merchant_id}) dari kartu explore.
     pub merchant_id: String,
@@ -29,11 +29,11 @@ pub struct ExploreEvent {
     pub total_quota: i32,
 }
 
-pub fn event_to_explore_pub(e: &Event) -> ExploreEvent {
-    event_to_explore(e)
+pub fn product_to_explore_pub(e: &Product) -> ExploreProduct {
+    product_to_explore(e)
 }
 
-pub(super) fn event_to_explore(e: &Event) -> ExploreEvent {
+pub(super) fn product_to_explore(e: &Product) -> ExploreProduct {
     let price_raw = e.display_price as i64;
     let price_str = if price_raw <= 0 {
         "FREE".into()
@@ -42,7 +42,7 @@ pub(super) fn event_to_explore(e: &Event) -> ExploreEvent {
     };
     let dt = e.start_time.unwrap_or(e.event_date);
 
-    ExploreEvent {
+    ExploreProduct {
         id: e.id.clone(),
         merchant_id: e.merchant_id.clone(),
         merchant_name: e.merchant_name.clone().unwrap_or_default(),
@@ -64,13 +64,13 @@ pub(super) fn event_to_explore(e: &Event) -> ExploreEvent {
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
-/// Jumlah event per "halaman" (chunk) fetch. Explore memuat sebagian dulu, lalu
+/// Jumlah product per "halaman" (chunk) fetch. Explore memuat sebagian dulu, lalu
 /// "Muat lebih banyak" mengambil chunk berikutnya via LIMIT/OFFSET (page+1).
 pub const PAGE_SIZE: i64 = 20;
 
 #[derive(Clone, Copy)]
-pub struct EventsCtx {
-    pub items: RwSignal<Vec<ExploreEvent>>,
+pub struct ProductsCtx {
+    pub items: RwSignal<Vec<ExploreProduct>>,
     pub categories: RwSignal<Vec<String>>,
     pub loading: RwSignal<bool>,
     /// True saat fetch chunk berikutnya (load_more) sedang berjalan.
@@ -121,7 +121,7 @@ fn pesan_galat_muat(raw: &str) -> String {
     "Gagal memuat data dari server. Coba muat ulang halaman.".to_string()
 }
 
-impl EventsCtx {
+impl ProductsCtx {
     pub fn load(&self) {
         self.load_cat(String::new());
     }
@@ -139,13 +139,13 @@ impl EventsCtx {
     /// supaya store mengambil alih TANPA refetch — datanya sudah tertanam di HTML
     /// yang di-SSR. Menghindari "lambat saat pertama diakses": tanpa ini feed baru
     /// terisi setelah bundle WASM diunduh+hydrate lalu memicu fetch tersendiri.
-    pub fn seed_first(&self, res: &crate::web::models::PaginatedEvents, category: String) {
+    pub fn seed_first(&self, res: &crate::web::models::PaginatedProducts, category: String) {
         self.cur_cat.set(category);
         self.page.set(1);
         self.has_more.set(res.page < res.total_pages);
         self.total.set(res.total);
         self.items
-            .set(res.data.iter().map(event_to_explore).collect());
+            .set(res.data.iter().map(product_to_explore).collect());
         self.error.set(String::new());
         self.loading.set(false);
         // Tandai aktif (fetch_gen 0→1) → feed ExplorePage beralih baca store.
@@ -187,7 +187,7 @@ impl EventsCtx {
             // sebenarnya baik-baik saja ikut DIBATALKAN tepat sebelum ia
             // menjawab — pengguna diberi tahu "tak bisa terhubung" oleh kode
             // yang barusan memutus hubungannya sendiri.
-            let fetch = get_events(Some(1), None, cat_opt, None, Some(PAGE_SIZE));
+            let fetch = get_products(Some(1), None, cat_opt, None, Some(PAGE_SIZE));
             let timeout = gloo_timers::future::TimeoutFuture::new(BATAS_MUAT_MS);
             let result = futures::future::select(Box::pin(fetch), Box::pin(timeout)).await;
 
@@ -198,7 +198,7 @@ impl EventsCtx {
                             Ok(res) => {
                                 has_more.set(res.page < res.total_pages);
                                 total.set(res.total);
-                                items.set(res.data.iter().map(event_to_explore).collect());
+                                items.set(res.data.iter().map(product_to_explore).collect());
                                 // Bersihkan galat lama secara eksplisit. Reset di
                                 // awal `load_cat` saja tak cukup: `load_more` dan
                                 // jalur muat lain memakai `error` yang sama, dan
@@ -254,12 +254,12 @@ impl EventsCtx {
 
         spawn_local(async move {
             let cat_opt = cat_to_opt(&cat);
-            let res = get_events(Some(next), None, cat_opt, None, Some(PAGE_SIZE)).await;
+            let res = get_products(Some(next), None, cat_opt, None, Some(PAGE_SIZE)).await;
             if fetch_gen.get_untracked() == gen {
                 if let Ok(res) = res {
                     has_more.set(res.page < res.total_pages);
                     total.set(res.total);
-                    let mut more: Vec<_> = res.data.iter().map(event_to_explore).collect();
+                    let mut more: Vec<_> = res.data.iter().map(product_to_explore).collect();
                     items.update(|v| v.append(&mut more));
                 }
             }
@@ -268,8 +268,8 @@ impl EventsCtx {
     }
 }
 
-pub fn provide_events_store() {
-    let ctx = EventsCtx {
+pub fn provide_products_store() {
+    let ctx = ProductsCtx {
         items: RwSignal::new(Vec::new()),
         categories: RwSignal::new(vec!["All".to_string()]),
         // Start as loading=true so SSR renders the shimmer. The client
@@ -304,7 +304,7 @@ pub fn provide_events_store() {
         // tick (agar tidak menabrak render hydration), lalu — jika belum ada
         // fetch yang dimulai (fetch_gen masih 0) dan masih loading — memicu fetch
         // sendiri. fetch_gen mencegah double-fetch bila Effect ExplorePage sempat
-        // jalan lebih dulu. Bonus: prefetch event untuk landing page.
+        // jalan lebih dulu. Bonus: prefetch product untuk landing page.
         let ctx_fb = ctx;
         spawn_local(async move {
             gloo_timers::future::TimeoutFuture::new(80).await;
@@ -317,6 +317,6 @@ pub fn provide_events_store() {
     provide_context(ctx);
 }
 
-pub fn use_events_store() -> EventsCtx {
-    use_context::<EventsCtx>().expect("EventsCtx not provided")
+pub fn use_products_store() -> ProductsCtx {
+    use_context::<ProductsCtx>().expect("ProductsCtx not provided")
 }

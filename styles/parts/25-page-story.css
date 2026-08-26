@@ -973,7 +973,7 @@
     to   { transform: scale(1) translateY(0);       opacity: 1;   filter: blur(0); }
 }
 
-.sc-hero-transition .sc-event-bg-img,
+.sc-hero-transition .sc-product-bg-img,
 .sc-hero-transition img.sc-media {
     animation: sc-hero-fly-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -1973,7 +1973,7 @@
 }
 
 /* ── Event Prefill Banner ── */
-.sc-event-prefill-banner {
+.sc-product-prefill-banner {
     position: absolute;
     top: 0;
     left: 0;
@@ -1996,7 +1996,7 @@
     to   { opacity: 1; transform: translateY(0); }
 }
 
-.sc-event-prefill-icon {
+.sc-product-prefill-icon {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2009,7 +2009,7 @@
     flex-shrink: 0;
 }
 
-.sc-event-prefill-text {
+.sc-product-prefill-text {
     display: flex;
     flex-direction: column;
     gap: 1px;
@@ -2017,7 +2017,7 @@
     min-width: 0;
 }
 
-.sc-event-prefill-label {
+.sc-product-prefill-label {
     font-size: 9px;
     color: rgba(255,255,255,0.5);
     letter-spacing: 0.12em;
@@ -2025,7 +2025,7 @@
     text-transform: uppercase;
 }
 
-.sc-event-prefill-title {
+.sc-product-prefill-title {
     font-size: 13px;
     font-weight: 700;
     color: #fff;
@@ -2034,7 +2034,7 @@
     text-overflow: ellipsis;
 }
 
-.sc-event-prefill-badge {
+.sc-product-prefill-badge {
     font-size: 9px;
     font-weight: 800;
     letter-spacing: 0.1em;
@@ -2206,7 +2206,7 @@
 /* ═══════════════════════════════════════════════════════════════════════
    EVENT CARD PREVIEW
    ═══════════════════════════════════════════════════════════════════════ */
-.sc-event-preview-frame {
+.sc-product-preview-frame {
     position: absolute;
     inset: 0;
     z-index: 2;
@@ -2219,7 +2219,7 @@
     container-name: event-frame;
 }
 
-.sc-event-bg-img {
+.sc-product-bg-img {
     position: absolute;
     inset: 0;
     width: 100%;
@@ -2228,7 +2228,7 @@
     display: block;
 }
 
-.sc-event-dark-overlay {
+.sc-product-dark-overlay {
     position: absolute;
     inset: 0;
     background: linear-gradient(160deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.52) 100%);
@@ -2236,7 +2236,7 @@
     pointer-events: none;
 }
 
-.sc-event-card {
+.sc-product-card {
     position: absolute;
     left: 5%;
     right: 5%;
@@ -2259,7 +2259,7 @@
         inset 0 1px 0 rgba(255,255,255,0.08);
 }
 
-.sc-event-card-badge {
+.sc-product-card-badge {
     display: inline-flex;
     align-items: center;
     gap: 7px;
@@ -2272,7 +2272,7 @@
     margin-bottom: clamp(10px, 3cqw, 16px);
 }
 
-.sc-event-card-dot {
+.sc-product-card-dot {
     width: clamp(7px, 1.8cqw, 10px);
     height: clamp(7px, 1.8cqw, 10px);
     border-radius: 50%;
@@ -2282,7 +2282,7 @@
     animation: sc-pulse 2.2s ease infinite;
 }
 
-.sc-event-card-title {
+.sc-product-card-title {
     margin: 0 0 clamp(12px, 3.5cqw, 20px);
     font-family: "Syne", "Syne Italic", "Arial Black", sans-serif;
     font-style: italic;
@@ -2295,14 +2295,14 @@
     letter-spacing: -0.02em;
 }
 
-.sc-event-card-sep {
+.sc-product-card-sep {
     width: 100%;
     height: 1px;
     background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.20) 30%, rgba(255,255,255,0.20) 70%, rgba(255,255,255,0) 100%);
     margin-bottom: clamp(10px, 3cqw, 16px);
 }
 
-.sc-event-card-meta-label {
+.sc-product-card-meta-label {
     font-family: -apple-system, BlinkMacSystemFont, sans-serif;
     font-size: clamp(9px, 2.2cqw, 13px);
     font-weight: 700;
@@ -2313,7 +2313,7 @@
     margin-bottom: clamp(6px, 1.8cqw, 10px);
 }
 
-.sc-event-card-meta-row {
+.sc-product-card-meta-row {
     width: 100%;
     display: flex;
     align-items: baseline;
@@ -2322,7 +2322,7 @@
     margin-bottom: clamp(14px, 4cqw, 22px);
 }
 
-.sc-event-card-date {
+.sc-product-card-date {
     font-family: -apple-system, BlinkMacSystemFont, sans-serif;
     font-size: clamp(18px, 5.2cqw, 30px);
     font-weight: 700;
@@ -2330,7 +2330,7 @@
     white-space: nowrap;
 }
 
-.sc-event-card-venue {
+.sc-product-card-venue {
     font-family: -apple-system, BlinkMacSystemFont, sans-serif;
     font-size: clamp(13px, 3.6cqw, 20px);
     font-weight: 500;
@@ -2342,7 +2342,7 @@
     max-width: 55%;
 }
 
-.sc-event-card-cover-wrap {
+.sc-product-card-cover-wrap {
     width: 100%;
     aspect-ratio: 16 / 9;
     overflow: hidden;
@@ -2350,7 +2350,7 @@
     position: relative;
 }
 
-.sc-event-card-cover-wrap::after {
+.sc-product-card-cover-wrap::after {
     content: '';
     position: absolute;
     bottom: 0;
@@ -2361,21 +2361,21 @@
     pointer-events: none;
 }
 
-.sc-event-card-cover-img {
+.sc-product-card-cover-img {
     width: 100%;
     height: 100%;
     object-fit: cover;
     display: block;
 }
 
-.sc-event-card-body {
+.sc-product-card-body {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     padding: clamp(14px, 4cqw, 22px) clamp(16px, 5cqw, 26px) clamp(18px, 5cqw, 28px);
 }
 
-.sc-event-card-price-pill {
+.sc-product-card-price-pill {
     display: inline-flex;
     align-items: center;
     padding: clamp(9px, 2.8cqw, 15px) clamp(20px, 6cqw, 32px);
@@ -2390,7 +2390,7 @@
     white-space: nowrap;
 }
 
-.sc-event-card-ticket-label {
+.sc-product-card-ticket-label {
     margin-top: clamp(6px, 1.8cqw, 10px);
     font-family: -apple-system, BlinkMacSystemFont, sans-serif;
     font-size: clamp(11px, 3.2cqw, 16px);

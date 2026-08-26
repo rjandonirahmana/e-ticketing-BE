@@ -154,7 +154,29 @@ fn order_view(
         }
     }
 
-    let pm = o.payment_method.clone().unwrap_or_default();
+    let pm = o
+        .payment_name
+        .clone()
+        .filter(|s| !s.is_empty())
+        .or_else(|| o.payment_code.clone())
+        .or_else(|| o.payment_method.clone())
+        .unwrap_or_default();
+
+    // Kanal transfer (Virtual Account) menunjukkan NOMOR, bukan kode QR.
+    // Sebelum kanal pembayaran tersimpan di database, halaman ini hanya bisa
+    // menampilkan satu bentuk pembayaran — QRIS — untuk order apa pun, termasuk
+    // yang pembelinya memilih transfer bank.
+    let va_number = o
+        .payment_reference
+        .clone()
+        .filter(|r| !r.is_empty() && o.payment_code.as_deref().is_some_and(|c| c.starts_with("va_")));
+    let show_qr = is_pending && va_number.is_none();
+    let show_va = is_pending && va_number.is_some();
+    let pay_instruction = o
+        .payment_instruction
+        .clone()
+        .filter(|s| !s.is_empty());
+    let pay_name = pm.clone();
     let paid_str = o
         .paid_at
         .map(|d| d.format("%Y-%m-%d").to_string())
@@ -204,8 +226,24 @@ fn order_view(
                 }}
             </div>
 
-            // ── QR CARD (pending) ─────────────────────────────────────
-            {is_pending
+            // ── KARTU VIRTUAL ACCOUNT (pending, kanal transfer) ───────
+            {show_va
+                .then(move || {
+                    let num = va_number.clone().unwrap_or_default();
+                    let label = pay_name.clone();
+                    view! {
+                        <div class="vp-va-card">
+                            <span class="vp-va-label">{label}</span>
+                            <span class="vp-va-num">{num}</span>
+                            <p class="vp-va-hint">
+                                "Transfer tepat sesuai total di bawah. Pembayaran terverifikasi otomatis."
+                            </p>
+                        </div>
+                    }
+                })}
+
+            // ── QR CARD (pending, kanal scan) ─────────────────────────
+            {show_qr
                 .then(|| {
                     view! {
                         <div class="vp-qr-card">
@@ -298,8 +336,8 @@ fn order_view(
                 <span class="vp-total-amount">{format_idr(total as i64)}</span>
             </div>
 
-            // ── Save QR (pending) ─────────────────────────────────────
-            {is_pending
+            // ── Save QR (pending, kanal scan) ─────────────────────────
+            {show_qr
                 .then(|| {
                     view! {
                         <button
@@ -332,9 +370,13 @@ fn order_view(
                     }
                 })}
 
-            // ── How to Pay (pending) ──────────────────────────────────
+            // ── Cara membayar (pending) ───────────────────────────────
+            // Langkahnya datang dari kolom `instruction` milik kanal di tabel
+            // `payment_methods`, sehingga menambah kanal baru tidak menuntut
+            // perubahan halaman ini. Tiga langkah generik di bawah hanya dipakai
+            // bila kanalnya belum menuliskan instruksi apa pun.
             {is_pending
-                .then(|| {
+                .then(move || {
                     view! {
                         <div class="vp-howto-card">
                             <div class="vp-howto-header">
@@ -344,30 +386,35 @@ fn order_view(
                                     <line x1="12" y1="8" x2="12" y2="12" />
                                     <line x1="12" y1="16" x2="12.01" y2="16" />
                                 </svg>
-                                <span class="vp-howto-title">"How to Pay"</span>
+                                <span class="vp-howto-title">"Cara Membayar"</span>
                             </div>
-                            <div class="vp-howto-steps">
-                                <div class="vp-step">
-                                    <span class="vp-step-num">"1"</span>
-                                    <p class="vp-step-text">
-                                        "Open your mobile banking or digital wallet app "
-                                        <span class="vp-step-italic">"(Gojek, OVO, Dana, etc)."</span>
-                                    </p>
-                                </div>
-                                <div class="vp-step">
-                                    <span class="vp-step-num">"2"</span>
-                                    <p class="vp-step-text">
-                                        "Select the "<strong>"Scan"</strong>" or "<strong>"Pay"</strong>
-                                        " option."
-                                    </p>
-                                </div>
-                                <div class="vp-step">
-                                    <span class="vp-step-num">"3"</span>
-                                    <p class="vp-step-text">
-                                        "Scan the QR code shown above or upload the saved image from your gallery."
-                                    </p>
-                                </div>
-                            </div>
+                            {match pay_instruction.clone() {
+                                Some(text) => view! {
+                                    <p class="vp-howto-text">{text}</p>
+                                }.into_any(),
+                                None => view! {
+                                    <div class="vp-howto-steps">
+                                        <div class="vp-step">
+                                            <span class="vp-step-num">"1"</span>
+                                            <p class="vp-step-text">
+                                                "Buka aplikasi mobile banking atau dompet digital Anda."
+                                            </p>
+                                        </div>
+                                        <div class="vp-step">
+                                            <span class="vp-step-num">"2"</span>
+                                            <p class="vp-step-text">
+                                                "Pilih menu "<strong>"Bayar"</strong>" atau "<strong>"Scan"</strong>"."
+                                            </p>
+                                        </div>
+                                        <div class="vp-step">
+                                            <span class="vp-step-num">"3"</span>
+                                            <p class="vp-step-text">
+                                                "Selesaikan pembayaran sesuai nominal yang tertera."
+                                            </p>
+                                        </div>
+                                    </div>
+                                }.into_any(),
+                            }}
                         </div>
                     }
                 })}

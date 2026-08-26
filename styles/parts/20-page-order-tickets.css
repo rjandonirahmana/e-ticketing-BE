@@ -85,13 +85,13 @@
 }
 
 /* ── Event header ────────────────────────────────────────────────────────────── */
-.yt-event-header {
+.yt-product-header {
     padding: 14px 24px 20px;
     display: flex;
     flex-direction: column;
     gap: 10px;
 }
-.yt-event-name {
+.yt-product-name {
     font-family: var(--font-display, "Bebas Neue", sans-serif);
     font-size: 30px;
     font-weight: 700;
@@ -141,14 +141,14 @@
     color: var(--accent-lime);
     letter-spacing: 0.01em;
 }
-.yt-event-meta {
+.yt-product-meta {
     display: flex;
     align-items: center;
     gap: 5px;
     font-size: 11px;
     color: var(--text-secondary);
 }
-.yt-event-meta svg { flex-shrink: 0; color: var(--text-muted); }
+.yt-product-meta svg { flex-shrink: 0; color: var(--text-muted); }
 .yt-meta-sep { color: var(--text-muted); }
 
 /* ── Ticket cards list ───────────────────────────────────────────────────────── */

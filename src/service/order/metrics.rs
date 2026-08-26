@@ -10,31 +10,31 @@ pub(super) struct OrderMetrics;
 
 impl OrderMetrics {
     pub fn lock_acquired(variant_count: usize) {
-        tracing::debug!(variant_count, event = "lock_acquired");
+        tracing::debug!(variant_count, product = "lock_acquired");
     }
     pub fn lock_conflict() {
-        tracing::warn!(event = "lock_conflict");
+        tracing::warn!(product = "lock_conflict");
     }
     pub fn tx_retry(attempt: u8, reason: &str) {
-        tracing::warn!(attempt, reason, event = "tx_retry");
+        tracing::warn!(attempt, reason, product = "tx_retry");
     }
     pub fn tx_timeout() {
-        tracing::error!(event = "tx_timeout", timeout_secs = TX_TIMEOUT.as_secs());
+        tracing::error!(product = "tx_timeout", timeout_secs = TX_TIMEOUT.as_secs());
     }
     pub fn oversell_rejected(variant_ids: &[String]) {
-        tracing::warn!(variants = ?variant_ids, event = "oversell_rejected");
+        tracing::warn!(variants = ?variant_ids, product = "oversell_rejected");
     }
     pub fn idempotency_conflict(customer_id: &str) {
-        tracing::info!(customer_id, event = "idempotency_conflict");
+        tracing::info!(customer_id, product = "idempotency_conflict");
     }
     pub fn order_created(order_id: &str, total: Decimal, item_count: usize) {
-        tracing::info!(order_id, total = %total, item_count, event = "order_created");
+        tracing::info!(order_id, total = %total, item_count, product = "order_created");
     }
     pub fn order_paid(order_id: &str, payment_method: &str) {
-        tracing::info!(order_id, payment_method, event = "order_paid");
+        tracing::info!(order_id, payment_method, product = "order_paid");
     }
     pub fn order_cancelled(order_id: &str) {
-        tracing::info!(order_id, event = "order_cancelled");
+        tracing::info!(order_id, product = "order_cancelled");
     }
 }
 

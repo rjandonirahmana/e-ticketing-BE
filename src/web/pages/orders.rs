@@ -13,7 +13,7 @@ use leptos_router::components::A;
 use crate::web::hooks::ThemeToggle;
 use crate::web::api::get_my_orders;
 use crate::web::app::AuthResource;
-use crate::web::components::{BottomNav, EmptyState, OrderCardShimmer};
+use crate::web::components::{BottomNav, CartButton, EmptyState, OrderCardShimmer};
 use crate::web::models::{format_date, format_price, OrderListItem};
 
 /// Klasifikasi status mentah backend → label tampilan + jenis.
@@ -81,6 +81,7 @@ pub fn OrdersPage() -> impl IntoView {
                 </A>
                 <span class="page-title">"Order History"</span>
                 <div class="header-actions">
+                    <CartButton />
                     <ThemeToggle />
                     <button class="icon-btn" aria-label="More">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
@@ -222,7 +223,7 @@ fn order_card(o: OrderListItem) -> impl IntoView {
         String::new()
     };
 
-    let title = o.event_name.clone().unwrap_or_else(|| "Event".into());
+    let title = o.event_name.clone().unwrap_or_else(|| "Product".into());
     let venue = o.venue.clone().unwrap_or_default();
     let date = o
         .event_date
@@ -245,7 +246,7 @@ fn order_card(o: OrderListItem) -> impl IntoView {
                 <div class="order-thumb">
                     {match cover {
                         Some(url) => {
-                            view! { <img src=url alt="event" class="order-thumb-img" /> }
+                            view! { <img src=url alt="product" class="order-thumb-img" /> }
                                 .into_any()
                         }
                         None => {
@@ -264,7 +265,7 @@ fn order_card(o: OrderListItem) -> impl IntoView {
 
                 <div class="order-info">
                     <div class="order-name-row">
-                        <h3 class="order-event-name">{title}</h3>
+                        <h3 class="order-product-name">{title}</h3>
                         <span class=pill_cls>{status_label}</span>
                     </div>
                     <div class="order-date-venue">

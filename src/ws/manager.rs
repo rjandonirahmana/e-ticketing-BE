@@ -450,9 +450,9 @@ impl WsManager {
 
     // ── Send ──────────────────────────────────────────────────────────────────
 
-    pub async fn send_to(&self, user_id: &str, event: WsEvent) {
+    pub async fn send_to(&self, user_id: &str, product: WsEvent) {
         // to_shared_json() — Arc<str> bisa di-pass ke deliver_local dan redis tanpa copy
-        let json = event.to_shared_json();
+        let json = product.to_shared_json();
         if !self.deliver_local(user_id, json.clone()).await {
             self.redis_publish_with_retry(&format!("{CH_USER}{user_id}"), &json)
                 .await;
@@ -476,8 +476,8 @@ impl WsManager {
     ///
     /// CATATAN: serialize SEKALI via to_shared_json(), Arc<str> clone ke
     /// subscriber = atomic bump — optimisasi ini masih berlaku.
-    pub async fn broadcast_room(&self, room_id: &str, event: WsEvent) {
-        let shared = event.to_shared_json();
+    pub async fn broadcast_room(&self, room_id: &str, product: WsEvent) {
+        let shared = product.to_shared_json();
         // Hanya publish ke Redis — subscriber lokal juga akan deliver ke semua member
         self.redis_publish_with_retry(&format!("{CH_ROOM}{room_id}"), &shared)
             .await;

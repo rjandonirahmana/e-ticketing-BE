@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroupRoom {
     pub id: String,       // ULID hex
-    pub event_id: String, // event yang punya room ini
+    pub event_id: String, // product yang punya room ini
     pub name: String,
     pub cover_url: Option<String>,
     pub created_by: String, // user_id merchant

@@ -83,7 +83,7 @@ impl<R: StoryRepository> StoryService<R> {
     /// `file_path`: path file temp berisi media (dihapus caller setelah selesai).
     /// `size`: ukuran file (byte) — sudah dibatasi handler saat streaming.
     /// `header`: byte-byte awal file untuk deteksi magic bytes (tanpa baca ulang).
-    /// `slug`: slug event (opsional, dikirim jika story dibuat dari event detail).
+    /// `slug`: slug product (opsional, dikirim jika story dibuat dari product detail).
     ///
     /// Alur:
     ///   1. Validasi ukuran & tipe file (magic bytes).
@@ -148,7 +148,7 @@ impl<R: StoryRepository> StoryService<R> {
             }
         }
 
-        // ── 4. Resolve event info dari slug (opsional) ────────────────────────
+        // ── 4. Resolve product info dari slug (opsional) ────────────────────────
         let (event_id, event_slug, event_title): (Option<String>, Option<String>, Option<String>) =
             match slug {
                 Some(s) if !s.is_empty() => (None, Some(s), title.filter(|t| !t.is_empty())),
@@ -253,7 +253,7 @@ impl<R: StoryRepository> StoryService<R> {
     ) -> AppResult<Vec<StoryGroupResponse>> {
         let page = page.max(1);
         let per_page = per_page.clamp(1, 48);
-        let offset = (page - 1) * per_page;
+        let offset = page.max(1).saturating_sub(1).saturating_mul(per_page);
         self.repo
             .list_user_groups_paged(per_page, offset)
             .await

@@ -23,9 +23,9 @@ pub struct LiveStreamService {
     // Broadcast daftar room terbaru ke klien WS `/ws/lives` setiap ada perubahan
     // (room dibuat/berhenti, penonton masuk/keluar) — pengganti polling HTTP.
     changes_tx: broadcast::Sender<Vec<RoomInfo>>,
-    // SFU berjalan di OS thread sendiri (loop blocking UDP), event loop di tokio task.
+    // SFU berjalan di OS thread sendiri (loop blocking UDP), product loop di tokio task.
     _sfu_handle: std::thread::JoinHandle<()>,
-    _event_handle: JoinHandle<()>,
+    _product_handle: JoinHandle<()>,
 }
 
 fn snapshot(rooms: &DashMap<String, Arc<LiveRoom>>) -> Vec<RoomInfo> {
@@ -88,14 +88,14 @@ fn detect_local_ip() -> Option<IpAddr> {
 impl LiveStreamService {
     pub fn new(sfu_bind_addr: SocketAddr) -> Arc<Self> {
         let (cmd_tx, cmd_rx) = mpsc::channel::<SfuCommand>(256);
-        let (event_tx, event_rx) = mpsc::channel::<SfuEvent>(256);
+        let (product_tx, product_rx) = mpsc::channel::<SfuEvent>(256);
 
         let candidate_ip = resolve_candidate_ip(sfu_bind_addr.ip());
         let candidate_addr = SocketAddr::new(candidate_ip, sfu_bind_addr.port());
         tracing::info!(%candidate_addr, "SFU advertising ICE host candidate");
 
         let sfu_handle = std::thread::spawn(move || {
-            SfuEngine::run(sfu_bind_addr, candidate_addr, cmd_rx, event_tx);
+            SfuEngine::run(sfu_bind_addr, candidate_addr, cmd_rx, product_tx);
         });
 
         let (changes_tx, _) = broadcast::channel::<Vec<RoomInfo>>(16);
@@ -103,11 +103,11 @@ impl LiveStreamService {
         let rooms: Arc<DashMap<String, Arc<LiveRoom>>> = Arc::new(DashMap::new());
         let rooms_clone = rooms.clone();
         let changes_evt = changes_tx.clone();
-        let event_handle = tokio::spawn(async move {
+        let product_handle = tokio::spawn(async move {
             // Konsumen tunggal — terima langsung dari receiver, tanpa Arc<Mutex>.
-            let mut event_rx = event_rx;
-            while let Some(event) = event_rx.recv().await {
-                match event {
+            let mut product_rx = product_rx;
+            while let Some(product) = product_rx.recv().await {
+                match product {
                     SfuEvent::StreamStopped { room_id } => {
                         tracing::info!(room_id, "Live stream stopped");
                         rooms_clone.remove(&room_id);
@@ -135,7 +135,7 @@ impl LiveStreamService {
             cmd_tx,
             changes_tx,
             _sfu_handle: sfu_handle,
-            _event_handle: event_handle,
+            _product_handle: product_handle,
         })
     }
 

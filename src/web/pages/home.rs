@@ -1,31 +1,31 @@
 use leptos::prelude::*;
 use leptos_router::components::A;
 
-use crate::web::api::{get_banners, get_events};
-use crate::web::components::EventCard;
+use crate::web::api::{get_banners, get_products};
+use crate::web::components::ProductCard;
 use crate::web::models::{format_date, format_price};
 
 #[component]
 pub fn HomePage() -> impl IntoView {
     let banners = Resource::new(|| (), |_| get_banners());
-    let featured = Resource::new(|| (), |_| get_events(Some(1), None, None, None, None));
+    let featured = Resource::new(|| (), |_| get_products(Some(1), None, None, None, None));
 
     view! {
         // ── Hero ─────────────────────────────────────────────────────────────
         <section class="hero">
             <div class="container">
-                <p class="hero__eyebrow">"// event platform terbaik di Indonesia"</p>
+                <p class="hero__eyebrow">"// product platform terbaik di Indonesia"</p>
                 <h1 class="hero__heading">
-                    "Temukan Event\nImpianmu, "
+                    "Temukan Product\nImpianmu, "
                     <span style="color:var(--clr-accent)">"Sekarang."</span>
                 </h1>
                 <p class="hero__sub">
-                    "Dari konser hingga festival, ribuan event tersedia di satu tempat.\n\
+                    "Dari konser hingga festival, ribuan product tersedia di satu tempat.\n\
                     Pesan tiket dalam hitungan detik, langsung ke genggamanmu."
                 </p>
                 <div class="hero__actions">
                     <A href="/explore" attr:class="btn btn--accent btn--lg">
-                        "Jelajahi Event"
+                        "Jelajahi Product"
                     </A>
                     <A href="/register" attr:class="btn btn--ghost btn--lg">
                         "Daftar Gratis"
@@ -34,7 +34,7 @@ pub fn HomePage() -> impl IntoView {
                 <div class="hero__stats">
                     <div>
                         <span class="hero__stat-num">"10K+"</span>
-                        <span class="hero__stat-label">"Event Aktif"</span>
+                        <span class="hero__stat-label">"Product Aktif"</span>
                     </div>
                     <div>
                         <span class="hero__stat-num">"500K+"</span>
@@ -94,11 +94,11 @@ pub fn HomePage() -> impl IntoView {
             </Suspense>
         </div>
 
-        // ── Featured Events ───────────────────────────────────────────────────
+        // ── Featured Products ───────────────────────────────────────────────────
         <section class="section">
             <div class="container">
                 <div class="section__header">
-                    <h2 class="section__title">"Event Pilihan"</h2>
+                    <h2 class="section__title">"Product Pilihan"</h2>
                     <A href="/explore" attr:class="section__link">
                         "Lihat semua →"
                     </A>
@@ -106,7 +106,7 @@ pub fn HomePage() -> impl IntoView {
 
                 <Suspense fallback=|| {
                     view! {
-                        <div class="events-grid">
+                        <div class="products-grid">
                             {(0..4)
                                 .map(|_| {
                                     view! {
@@ -139,9 +139,9 @@ pub fn HomePage() -> impl IntoView {
                                         view! {
                                             <div class="empty">
                                                 <div class="empty__icon">"🎪"</div>
-                                                <div class="empty__title">"Belum ada event"</div>
+                                                <div class="empty__title">"Belum ada product"</div>
                                                 <div class="empty__sub">
-                                                    "Nantikan event menarik yang akan hadir segera!"
+                                                    "Nantikan product menarik yang akan hadir segera!"
                                                 </div>
                                             </div>
                                         }
@@ -149,12 +149,12 @@ pub fn HomePage() -> impl IntoView {
                                     }
                                     Ok(pg) => {
                                         view! {
-                                            <div class="events-grid">
+                                            <div class="products-grid">
                                                 {pg
                                                     .data
                                                     .into_iter()
                                                     .map(|e| {
-                                                        let href = format!("/events/{}", e.slug);
+                                                        let href = format!("/products/{}", e.slug);
                                                         let img = e.cover_url.clone().unwrap_or_default();
                                                         let badge = e
                                                             .category
@@ -165,7 +165,7 @@ pub fn HomePage() -> impl IntoView {
                                                         let venue = e.venue.clone().unwrap_or_default();
                                                         let price = format_price(e.display_price);
                                                         view! {
-                                                            <EventCard
+                                                            <ProductCard
                                                                 href=href
                                                                 img=img
                                                                 alt=e.name.clone()
@@ -184,7 +184,7 @@ pub fn HomePage() -> impl IntoView {
                                     }
                                     Err(_) => {
                                         view! {
-                                            <div class="alert alert--error">"Gagal memuat event."</div>
+                                            <div class="alert alert--error">"Gagal memuat product."</div>
                                         }
                                             .into_any()
                                     }
@@ -198,9 +198,9 @@ pub fn HomePage() -> impl IntoView {
         // ── CTA Banner ────────────────────────────────────────────────────────
         <div class="container">
             <div class="cta-banner">
-                <h2>"Punya Event? Jual Tiket di PULSE."</h2>
+                <h2>"Punya Product? Jual Tiket di PULSE."</h2>
                 <p>
-                    "Kelola event, upload tiket, dan raih pembeli dari seluruh Indonesia.\n\
+                    "Kelola product, upload tiket, dan raih pembeli dari seluruh Indonesia.\n\
                     Dashboard merchant lengkap, realtime analytics, pembayaran otomatis."
                 </p>
                 <A href="/register" attr:class="btn btn--accent btn--lg">

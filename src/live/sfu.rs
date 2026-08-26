@@ -113,7 +113,7 @@ struct PeerState {
     mids: Vec<(Mid, MediaKind)>,
     // Sejak kapan peer berstatus ICE `Disconnected` (status TRANSIEN yang bisa
     // pulih). `None` = sedang tersambung. Peer baru dibuang jika tetap
-    // Disconnected melewati `DISCONNECT_GRACE`, bukan saat event pertama —
+    // Disconnected melewati `DISCONNECT_GRACE`, bukan saat product pertama —
     // mencegah penonton "keluar-masuk" karena blip jaringan sesaat.
     disconnected_since: Option<Instant>,
     // Alamat UDP remote yang terakhir kali dipetakan ke peer ini (lihat
@@ -193,7 +193,7 @@ impl SfuEngine {
         bind_addr: SocketAddr,
         candidate_addr: SocketAddr,
         cmd_rx: mpsc::Receiver<SfuCommand>,
-        event_tx: mpsc::Sender<SfuEvent>,
+        product_tx: mpsc::Sender<SfuEvent>,
     ) {
         let socket = UdpSocket::bind(bind_addr).expect("Failed to bind SFU UDP socket");
         // Socket BLOCKING dengan read-timeout: `recv_from` tidur hingga ada paket
@@ -232,7 +232,7 @@ impl SfuEngine {
         loop {
             engine.process_commands(&mut cmd_rx);
 
-            engine.poll_all_peers(&event_tx);
+            engine.poll_all_peers(&product_tx);
 
             // Adaptif: tanpa room & peer, tidur lebih lama di recv_from.
             let want_idle = engine.peers.is_empty() && engine.rooms.is_empty();
@@ -509,7 +509,7 @@ impl SfuEngine {
         }
     }
 
-    fn poll_all_peers(&mut self, event_tx: &mpsc::Sender<SfuEvent>) {
+    fn poll_all_peers(&mut self, product_tx: &mpsc::Sender<SfuEvent>) {
         let mut to_remove = Vec::new();
         let mut media_buf: Vec<(MediaKind, MediaData)> = Vec::new();
         // Subscriber yang minta keyframe → diteruskan ke publisher (lihat di bawah).
@@ -605,7 +605,7 @@ impl SfuEngine {
 
         for peer_id in to_remove {
             self.remove_peer(&peer_id);
-            self.handle_peer_gone(&peer_id, event_tx);
+            self.handle_peer_gone(&peer_id, product_tx);
         }
 
         for sub_id in keyframe_reqs {
@@ -750,7 +750,7 @@ impl SfuEngine {
     /// siaran berakhir: hapus room + peer penonton dan kabari service lewat
     /// `StreamStopped` (service akan melepas LiveRoom). Jika penonton, cukup
     /// lepas slot-nya dari room agar hitungan viewer akurat.
-    fn handle_peer_gone(&mut self, peer_id: &str, event_tx: &mpsc::Sender<SfuEvent>) {
+    fn handle_peer_gone(&mut self, peer_id: &str, product_tx: &mpsc::Sender<SfuEvent>) {
         let publisher_room = self
             .rooms
             .iter()
@@ -773,9 +773,9 @@ impl SfuEngine {
                 "Publisher gone — stopping stream"
             );
             // BUG FIX #4: Log kegagalan try_send agar room tidak diam-diam
-            // tetap terlihat di API jika channel event penuh.
-            if let Err(e) = event_tx.try_send(SfuEvent::StreamStopped { room_id: room_id.clone() }) {
-                tracing::error!(room_id, error = %e, "CRITICAL: StreamStopped event dropped — room will remain visible in API. Consider increasing event channel capacity.");
+            // tetap terlihat di API jika channel product penuh.
+            if let Err(e) = product_tx.try_send(SfuEvent::StreamStopped { room_id: room_id.clone() }) {
+                tracing::error!(room_id, error = %e, "CRITICAL: StreamStopped product dropped — room will remain visible in API. Consider increasing product channel capacity.");
             }
         } else {
             // Penonton putus: lepas dari room SFU + kabari service agar hitungan
@@ -790,11 +790,11 @@ impl SfuEngine {
             }
             if let Some(room_id) = room_id {
                 // BUG FIX #4 (lanjutan): Log kegagalan try_send SubscriberLeft.
-                if let Err(e) = event_tx.try_send(SfuEvent::SubscriberLeft {
+                if let Err(e) = product_tx.try_send(SfuEvent::SubscriberLeft {
                     room_id: room_id.clone(),
                     subscriber_id: peer_id.to_string(),
                 }) {
-                    tracing::warn!(room_id, peer_id, error = %e, "SubscriberLeft event dropped — viewer count may be inaccurate.");
+                    tracing::warn!(room_id, peer_id, error = %e, "SubscriberLeft product dropped — viewer count may be inaccurate.");
                 }
             }
         }

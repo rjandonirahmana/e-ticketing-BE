@@ -1,7 +1,7 @@
 //! upload.rs — Axum multipart handler for story media upload.
 //!
 //! POST /upload/story   — multipart/form-data
-//!   fields: file (required), slug (optional event slug), title (optional event title)
+//!   fields: file (required), slug (optional product slug), title (optional product title)
 //!
 //! Auth: HttpOnly cookie `pulse_token`.
 //!

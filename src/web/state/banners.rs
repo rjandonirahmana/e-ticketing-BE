@@ -1,9 +1,9 @@
-//! Banner slider di home page — diisi dari event terbaru via server function.
+//! Banner slider di home page — diisi dari product terbaru via server function.
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
-use crate::web::api::get_events;
-use crate::web::models::{format_date, Event};
+use crate::web::api::get_products;
+use crate::web::models::{format_date, Product};
 use crate::web::utils::format_number;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -18,7 +18,7 @@ pub struct Banner {
     pub href:     String,
 }
 
-fn event_to_banner(e: &Event) -> Banner {
+fn product_to_banner(e: &Product) -> Banner {
     let price = if e.display_price <= 0.0 {
         "FREE".into()
     } else {
@@ -33,7 +33,7 @@ fn event_to_banner(e: &Event) -> Banner {
         date:     format_date(&dt),
         price,
         cover:    e.cover_url.clone().unwrap_or_default(),
-        href:     format!("/events/{}", e.slug),
+        href:     format!("/products/{}", e.slug),
     }
 }
 
@@ -56,8 +56,8 @@ impl BannersCtx {
         let items   = self.items;
         let loading = self.loading;
         spawn_local(async move {
-            if let Ok(res) = get_events(Some(1), None, None, None, Some(5)).await {
-                let banners = res.data.iter().map(event_to_banner).collect();
+            if let Ok(res) = get_products(Some(1), None, None, None, Some(5)).await {
+                let banners = res.data.iter().map(product_to_banner).collect();
                 items.set(banners);
             }
             loading.set(false);
@@ -71,7 +71,7 @@ pub fn provide_banners_store() {
         loading: RwSignal::new(false),
     };
     // Tidak auto-load: home page pakai Resource::new sendiri, tidak ada komponen
-    // yang membaca dari store ini — menghindari get_events() yang sia-sia.
+    // yang membaca dari store ini — menghindari get_products() yang sia-sia.
     provide_context(ctx);
 }
 

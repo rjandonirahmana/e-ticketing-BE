@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use crate::web::components::{EmptyState, EventCardShimmer};
+use crate::web::components::{EmptyState, ProductCardShimmer};
 
 #[cfg(feature = "hydrate")]
 use leptos::task::spawn_local;
@@ -11,7 +11,7 @@ pub fn SearchOverlay(
     active_cat: RwSignal<String>,
     ph_text: RwSignal<String>,
     on_close: impl Fn() + Clone + Send + Sync + 'static,
-    store: crate::web::state::events::EventsCtx,
+    store: crate::web::state::products::ProductsCtx,
 ) -> impl IntoView {
     let input_ref: NodeRef<leptos::html::Input> = NodeRef::new();
 
@@ -30,8 +30,8 @@ pub fn SearchOverlay(
 
     let filtered = Memo::new(move |_| {
         let q = query.get().to_lowercase();
-        store.items.with(|events| {
-            events
+        store.items.with(|products| {
+            products
                 .iter()
                 .filter(|e| {
                     q.is_empty()
@@ -45,7 +45,7 @@ pub fn SearchOverlay(
     });
 
     // ── Pencarian merchant (server-side, di-debounce 250 ms) ────────────────────
-    // Event dicari client-side dari store; merchant tidak dimuat, jadi query ke
+    // Product dicari client-side dari store; merchant tidak dimuat, jadi query ke
     // server. Debounce agar tak menembak tiap ketik. Effect hanya jalan di client.
     let merch_query = RwSignal::new(String::new());
     let debounce_gen = StoredValue::new(0u32);
@@ -61,15 +61,15 @@ pub fn SearchOverlay(
                 merch_query.set(q.clone());
 
                 // ── Rekam PENCARIAN sebagai sinyal minat ("Untuk Kamu") ────
-                // Kategori diambil dari event yang cocok dengan kata kunci
+                // Kategori diambil dari product yang cocok dengan kata kunci
                 // (client-side, dari store yang sama dengan hasil tampil):
                 //  - anonim  → localStorage (behavior::record_view)
                 //  - login   → server (record_affinity, buffer batch)
                 // Dijalankan di debounce settle (bukan tiap ketik).
                 let ql = q.trim().to_lowercase();
                 if ql.len() >= 2 {
-                    let mut cats: Vec<String> = store.items.with_untracked(|events| {
-                        events
+                    let mut cats: Vec<String> = store.items.with_untracked(|products| {
+                        products
                             .iter()
                             .filter(|e| {
                                 e.title.to_lowercase().contains(&ql)
@@ -333,7 +333,7 @@ pub fn SearchOverlay(
                             .map(|i| {
                                 view! {
                                     <div style=format!("animation-delay:{}ms", i * 55)>
-                                        <EventCardShimmer />
+                                        <ProductCardShimmer />
                                     </div>
                                 }
                             })
@@ -356,7 +356,7 @@ pub fn SearchOverlay(
                         list.into_iter()
                             .enumerate()
                             .map(|(i, ev)| {
-                                let href = format!("/events/{}", ev.slug);
+                                let href = format!("/products/{}", ev.slug);
                                 let venue_str = if ev.city.is_empty() {
                                     ev.venue.to_uppercase()
                                 } else {

@@ -21,9 +21,20 @@ name = "e-ticketing"
 output-name = "e-ticketing"
 site-root = "target/site"
 site-pkg-dir = "pkg"
-# CSS asli app = styles/parts/*.css (digabung build.rs → /styles/app.css).
-# File ini cuma stub agar pipeline SASS cargo-leptos punya input valid.
-style-file = "styles/leptos.css"
+# CSS app ada di DUA tempat, dan keduanya memang dipakai:
+#   • styles/parts/*.css → digabung build.rs → di-embed binari → /styles/app.css
+#     (seluruh tampilan yang sudah ada, 2.555 kelas).
+#   • style/tailwind.css → di-compile cargo-leptos → /pkg/e-ticketing.css
+#     (utility Tailwind untuk markup baru).
+# Warna keduanya menarik dari token yang sama, lihat blok @theme di
+# style/tailwind.css (tak ada tailwind.config.js — Tailwind v4 dikonfigurasi
+# lewat CSS).
+#
+# ⚠️ /pkg/*.css HANYA dihasilkan `cargo leptos build|watch`. `make run`
+# (cargo run biasa) tidak membuatnya — halaman tetap bergaya lewat app.css yang
+# ter-embed, tetapi utility Tailwind tidak ada. Pakai `make dev` saat menggarap
+# markup ber-Tailwind.
+tailwind-input-file = "style/tailwind.css"
 assets-dir = "public"
 site-addr = "0.0.0.0:3000"
 reload-port = 3001
@@ -195,7 +206,19 @@ reqwest = { version = "0.13", features = ["json"] }
 
 # Storage & TLS
 aws-sdk-s3 = "1.132.0"
-rustls = { version = "0.23", features = ["ring"], default-features = false }
+# Backend kripto: aws_lc_rs, MENGIKUTI apa yang benar-benar dipanggil
+# `main.rs` (`rustls::crypto::aws_lc_rs::default_provider()`).
+#
+# Sebelumnya baris ini menyebut `ring`, dan kodenya tetap ter-compile — bukan
+# karena benar, melainkan karena `str0m` (SFU live streaming) menarik
+# `str0m-aws-lc-rs`, dan feature Cargo bersifat aditif lintas dependency,
+# sehingga `aws_lc_rs` menyala dari sana. Artinya build kita menumpang pada
+# pilihan TLS milik crate lain: begitu str0m berpindah backend, build patah
+# dengan pesan yang tak menyinggung str0m sama sekali.
+#
+# Menyebutnya di sini tidak menambah apa pun ke binari (aws-lc-rs sudah ikut
+# lewat str0m), hanya membuat ketergantungannya jujur.
+rustls = { version = "0.23", features = ["aws_lc_rs"], default-features = false }
 
 # Config / Validation / Logging
 dotenvy = "0.15"
@@ -210,6 +233,15 @@ str0m = "0.21.0"
 # Misc server utils
 rand = "0.10.2"
 hex = "0.4"
+# SHA-256 untuk hash refresh token. Versi ini SUDAH ada di pohon dependency
+# lewat crate lain, jadi menambahkannya tidak menambah waktu build.
+#
+# Sengaja BUKAN bcrypt: refresh token adalah 32 byte acak, bukan kata sandi
+# pilihan manusia. Tak ada yang bisa ditebak, jadi hash lambat tak menambah
+# keamanan — ia hanya membuat setiap refresh membayar ratusan milidetik.
+# Yang dibutuhkan di sini justru hash CEPAT dan deterministik supaya bisa
+# dicari lewat index.
+sha2 = "0.10"
 async-trait = "0.1"
 bytes = "1.12.0"
 ahash = "0.8.12"

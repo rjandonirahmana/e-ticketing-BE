@@ -1,8 +1,8 @@
 use leptos::prelude::*;
 
-use crate::web::models::{format_price, AdminStats, Event};
+use crate::web::models::{format_price, AdminStats, Product};
 
-pub(super) fn view_analytics_admin(evs: Vec<Event>, stats: Option<AdminStats>) -> impl IntoView {
+pub(super) fn view_analytics_admin(evs: Vec<Product>, stats: Option<AdminStats>) -> impl IntoView {
     let total        = evs.len();
     let active_count = evs.iter().filter(|e| e.status == "active").count();
     let top          = evs.iter().max_by_key(|e| e.total_sold).cloned();
@@ -17,7 +17,7 @@ pub(super) fn view_analytics_admin(evs: Vec<Event>, stats: Option<AdminStats>) -
                     </div>
                     <div class="merchant-tile merchant-tile--accent">
                         <span class="merchant-label">"TOTAL EVENT"</span>
-                        <span class="merchant-tile-value">{s.total_events}</span>
+                        <span class="merchant-tile-value">{s.total_products}</span>
                     </div>
                 </div>
                 <div class="merchant-tile-row" style="padding:0 16px">
@@ -79,11 +79,11 @@ pub(super) fn view_analytics_admin(evs: Vec<Event>, stats: Option<AdminStats>) -
     }
 }
 
-pub(super) fn view_finance_admin(evs: Vec<Event>) -> impl IntoView {
+pub(super) fn view_finance_admin(evs: Vec<Product>) -> impl IntoView {
     let total_sold  = evs.iter().map(|e| e.total_sold).sum::<i32>();
     let total_quota = evs.iter().map(|e| e.total_quota).sum::<i32>();
     let remaining   = (total_quota - total_sold).max(0);
-    let total_events = evs.len();
+    let total_products = evs.len();
     let live_count  = evs.iter().filter(|e| e.status == "active").count();
 
     view! {
@@ -104,7 +104,7 @@ pub(super) fn view_finance_admin(evs: Vec<Event>) -> impl IntoView {
             <div class="merchant-tile-row" style="margin-top:12px">
                 <div class="merchant-tile">
                     <span class="merchant-label">"TOTAL ACARA"</span>
-                    <span class="merchant-tile-value">{total_events}</span>
+                    <span class="merchant-tile-value">{total_products}</span>
                 </div>
                 <div class="merchant-tile merchant-tile--accent">
                     <span class="merchant-label">"LANGSUNG"</span>

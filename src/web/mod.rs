@@ -4,7 +4,7 @@
 //!   - app.rs      : Root App + AuthResource context
 //!   - models.rs   : Data models (JSON/client-facing)
 //!   - api/        : Server functions (cookie-based auth)
-//!   - components/ : UI components (Navbar, EventCard)
+//!   - components/ : UI components (Navbar, ProductCard)
 //!   - pages/      : Semua halaman aplikasi
 
 pub mod api;

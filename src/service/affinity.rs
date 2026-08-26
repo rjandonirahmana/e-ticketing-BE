@@ -35,10 +35,10 @@ const MAX_BUFFERED: usize = 100_000;
 /// Maksimum kategori yang dicatat per sinyal (samakan dengan versi lama).
 const MAX_CATS_PER_SIGNAL: usize = 3;
 
-/// Jenis perilaku user terhadap sebuah produk/event.
+/// Jenis perilaku user terhadap sebuah produk/product.
 #[derive(Debug, Clone, Copy)]
 pub enum AffinitySignal {
-    /// Membuka halaman detail event.
+    /// Membuka halaman detail product.
     View,
     /// Menambahkan tiket ke keranjang (memilih produk).
     Cart,
@@ -131,8 +131,8 @@ impl AffinityService {
         }
     }
 
-    /// Sinyal purchase dari order yang baru dibuat: kategori event diambil lewat
-    /// satu query join (order_items → ticket_variants → events) dan langsung
+    /// Sinyal purchase dari order yang baru dibuat: kategori product diambil lewat
+    /// satu query join (cart_items → product_variants → products) dan langsung
     /// di-upsert. Dijalankan background — checkout tidak menunggu.
     pub fn record_purchase(self: &Arc<Self>, user_id_hex: String, order_id_hex: String) {
         let svc = self.clone();
@@ -140,11 +140,12 @@ impl AffinityService {
             let sql = format!(
                 "INSERT INTO user_affinity (user_id, category, score, updated_at) \
                  SELECT decode($1,'hex'), cat.value, $3::float8, NOW() \
-                 FROM order_items oi \
-                 JOIN ticket_variants tv ON tv.id = oi.ticket_variant_id \
-                 JOIN events e ON e.id = tv.event_id \
+                 FROM orders o \
+                 JOIN cart_items ci ON ci.cart_id = o.cart_id \
+                 JOIN product_variants tv ON tv.id = ci.ticket_variant_id \
+                 JOIN products e ON e.id = tv.event_id \
                  CROSS JOIN LATERAL jsonb_array_elements_text(e.category) AS cat(value) \
-                 WHERE oi.order_id = decode($2,'hex') \
+                 WHERE o.id = decode($2,'hex') \
                    AND jsonb_typeof(e.category) = 'array' \
                  GROUP BY cat.value \
                  {}",

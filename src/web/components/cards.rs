@@ -2,11 +2,11 @@ use leptos::prelude::*;
 use leptos_router::components::A;
 use leptos_router::hooks::use_navigate;
 
-use crate::web::state::events::{event_to_explore_pub, ExploreEvent};
+use crate::web::state::products::{product_to_explore_pub, ExploreProduct};
 use crate::web::utils::format_number;
 
 #[component]
-pub fn EventCard(
+pub fn ProductCard(
     href: String,
     img: String,
     #[prop(into)] alt: String,
@@ -17,7 +17,7 @@ pub fn EventCard(
     #[prop(into)] price: String,
 ) -> impl IntoView {
     view! {
-        <A href=href attr:class="explore-event-card-v2">
+        <A href=href attr:class="explore-product-card-v2">
             <div class="explore-ecard-img-wrap">
                 <img src=img alt=alt class="explore-ecard-img" />
                 <span class="explore-ecard-cat">{badge}</span>
@@ -84,9 +84,9 @@ pub fn EventCard(
 }
 
 #[component]
-pub fn EventCardShimmer() -> impl IntoView {
+pub fn ProductCardShimmer() -> impl IntoView {
     view! {
-        <div class="shim-event-card">
+        <div class="shim-product-card">
             <div class="shim shim-img"></div>
             <div class="shim-body">
                 <div class="shim shim-cat"></div>
@@ -101,13 +101,13 @@ pub fn EventCardShimmer() -> impl IntoView {
     }
 }
 
-/// Kartu event "marketplace" — SATU sumber tunggal untuk daftar event di
-/// Explore, Event Detail, dan /m/:id. Menerima `ExploreEvent` (model tampil
+/// Kartu product "marketplace" — SATU sumber tunggal untuk daftar product di
+/// Explore, Product Detail, dan /m/:id. Menerima `ExploreProduct` (model tampil
 /// yang sudah berisi tanggal/harga terformat, is_live, dll). `index` dipakai
 /// untuk delay animasi cascade (`--i`).
 #[component]
-pub fn EventCardPub(ev: ExploreEvent, #[prop(default = 0)] index: usize) -> impl IntoView {
-    let href = format!("/events/{}", ev.slug);
+pub fn ProductCardPub(ev: ExploreProduct, #[prop(default = 0)] index: usize) -> impl IntoView {
+    let href = format!("/products/{}", ev.slug);
     let loc = if !ev.city.is_empty() {
         ev.city.clone()
     } else {
@@ -128,13 +128,13 @@ pub fn EventCardPub(ev: ExploreEvent, #[prop(default = 0)] index: usize) -> impl
     let org_href = format!("/m/{}", ev.merchant_id);
     // Navigasi SPA, bukan `location().assign()`.
     //
-    // Chip ini ada di SETIAP kartu event di beranda. Dengan `assign`, menekannya
+    // Chip ini ada di SETIAP kartu product di beranda. Dengan `assign`, menekannya
     // memicu MUAT ULANG DOKUMEN PENUH: seluruh HTML diambil lagi, WASM dimuat
     // dan dihidrasi lagi dari nol — beberapa detik untuk perpindahan yang
     // seharusnya seketika, dan persis terasa seperti "aplikasi nge-refresh
     // sendiri". Router sudah ada di halaman ini; tinggal dipakai.
     let ke_merchant = use_navigate();
-    // Nama toko penyelenggara di chip; event lama tanpa nama → fallback generik.
+    // Nama toko penyelenggara di chip; product lama tanpa nama → fallback generik.
     let org_label = if ev.merchant_name.is_empty() {
         "PENYELENGGARA \u{2192}".to_string()
     } else {
@@ -178,7 +178,7 @@ pub fn EventCardPub(ev: ExploreEvent, #[prop(default = 0)] index: usize) -> impl
                             // `stop_propagation` tetap perlu: tanpa itu klik ikut
                             // naik ke pendengar router di window, yang akan
                             // membaca anchor kartu (induknya) dan justru membuka
-                            // halaman event — bukan profil penyelenggara.
+                            // halaman product — bukan profil penyelenggara.
                             e.prevent_default();
                             e.stop_propagation();
                             ke_merchant(&org_href, Default::default());
@@ -250,26 +250,26 @@ pub fn EventCardPub(ev: ExploreEvent, #[prop(default = 0)] index: usize) -> impl
     }
 }
 
-/// Grid daftar event reusable (profil merchant, dsb). Menerima `Vec<Event>`,
-/// mengonversi ke `ExploreEvent`, dan merender kartu `EventCardPub` yang sama
+/// Grid daftar product reusable (profil merchant, dsb). Menerima `Vec<Product>`,
+/// mengonversi ke `ExploreProduct`, dan merender kartu `ProductCardPub` yang sama
 /// dengan Explore. Kosong → teks `empty`.
 #[component]
-pub fn EventGrid(
-    events: Vec<crate::web::models::Event>,
+pub fn ProductGrid(
+    products: Vec<crate::web::models::Product>,
     #[prop(optional, into)] empty: Option<String>,
 ) -> impl IntoView {
-    if events.is_empty() {
-        let msg = empty.unwrap_or_else(|| "Belum ada event.".into());
-        return view! { <p class="event-grid-empty">{msg}</p> }.into_any();
+    if products.is_empty() {
+        let msg = empty.unwrap_or_else(|| "Belum ada product.".into());
+        return view! { <p class="product-grid-empty">{msg}</p> }.into_any();
     }
     view! {
         <div class="exp-mkt-grid">
-            {events
+            {products
                 .into_iter()
                 .enumerate()
                 .map(|(i, e)| {
-                    let ev = event_to_explore_pub(&e);
-                    view! { <EventCardPub ev=ev index=i /> }
+                    let ev = product_to_explore_pub(&e);
+                    view! { <ProductCardPub ev=ev index=i /> }
                 })
                 .collect_view()}
         </div>
@@ -277,12 +277,12 @@ pub fn EventGrid(
         .into_any()
 }
 
-/// Skeleton loading untuk `EventGrid` — `count` kartu shimmer dalam grid sama.
+/// Skeleton loading untuk `ProductGrid` — `count` kartu shimmer dalam grid sama.
 #[component]
-pub fn EventGridShimmer(#[prop(default = 4)] count: usize) -> impl IntoView {
+pub fn ProductGridShimmer(#[prop(default = 4)] count: usize) -> impl IntoView {
     view! {
         <div class="exp-mkt-grid">
-            {(0..count).map(|_| view! { <EventCardShimmer /> }).collect_view()}
+            {(0..count).map(|_| view! { <ProductCardShimmer /> }).collect_view()}
         </div>
     }
 }
@@ -348,12 +348,12 @@ pub fn MerchantRowShimmer() -> impl IntoView {
     }
 }
 
-/// Skeleton that mirrors the `.mhub-event-card` layout used on the merchant &
+/// Skeleton that mirrors the `.mhub-product-card` layout used on the merchant &
 /// admin hubs (cover image, title/price row, meta, sales progress, action btn).
 /// The previous `MerchantRowShimmer` looked nothing like the real cards, which
 /// made the loading state jarring.
 #[component]
-pub fn MerchantEventCardShimmer() -> impl IntoView {
+pub fn MerchantProductCardShimmer() -> impl IntoView {
     view! {
         <div class="shim-mhub-card">
             <div class="shim shim-mhub-img"></div>

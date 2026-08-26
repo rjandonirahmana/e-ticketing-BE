@@ -73,8 +73,8 @@ pub(super) fn srv_user_to_web(u: crate::models::users::UserResponse) -> crate::w
 }
 
 #[cfg(feature = "ssr")]
-pub(super) fn srv_event_to_web(e: crate::models::events::Event) -> crate::web::models::Event {
-    crate::web::models::Event {
+pub(super) fn srv_product_to_web(e: crate::models::products::Product) -> crate::web::models::Product {
+    crate::web::models::Product {
         id: e.id,
         merchant_id: e.merchant_id,
         name: e.name,
@@ -100,10 +100,10 @@ pub(super) fn srv_event_to_web(e: crate::models::events::Event) -> crate::web::m
 }
 
 #[cfg(feature = "ssr")]
-pub(super) fn srv_event_variant_to_web(
-    v: crate::models::event_variants::EventVariantResponse,
-) -> crate::web::models::EventVariant {
-    crate::web::models::EventVariant {
+pub(super) fn srv_product_variant_to_web(
+    v: crate::models::product_variants::ProductVariantResponse,
+) -> crate::web::models::ProductVariant {
+    crate::web::models::ProductVariant {
         id: v.id,
         event_id: v.event_id,
         name: v.name,
@@ -119,10 +119,10 @@ pub(super) fn srv_event_variant_to_web(
 }
 
 #[cfg(feature = "ssr")]
-pub(super) fn srv_event_with_variants_to_web(
-    e: crate::models::events::EventWithVariants,
-) -> crate::web::models::EventWithVariants {
-    crate::web::models::EventWithVariants {
+pub(super) fn srv_product_with_variants_to_web(
+    e: crate::models::products::ProductWithVariants,
+) -> crate::web::models::ProductWithVariants {
+    crate::web::models::ProductWithVariants {
         id: e.id,
         merchant_id: e.merchant_id,
         name: e.name,
@@ -145,17 +145,17 @@ pub(super) fn srv_event_with_variants_to_web(
         total_sold: e.total_sold,
         total_quota: e.total_quota,
         merchant_name: e.merchant_name,
-        merchant: e.merchant.map(|m| crate::web::models::EventMerchantInfo {
+        merchant: e.merchant.map(|m| crate::web::models::ProductMerchantInfo {
             logo_url: m.logo_url,
             header_url: m.header_url,
             description: m.description,
             verified: m.verified,
             followers: m.followers,
-            events_count: m.events_count,
+            products_count: m.products_count,
             rating_avg: m.rating_avg,
             rating_count: m.rating_count,
         }),
-        event_variants: e.event_variants.into_iter().map(srv_event_variant_to_web).collect(),
+        product_variants: e.product_variants.into_iter().map(srv_product_variant_to_web).collect(),
         detail_images: e
             .detail_images
             .into_iter()
@@ -170,11 +170,11 @@ pub(super) fn srv_event_with_variants_to_web(
 }
 
 #[cfg(feature = "ssr")]
-pub(super) fn srv_paginated_events_to_web(
-    p: crate::models::events::PaginatedEvents,
-) -> crate::web::models::PaginatedEvents {
-    crate::web::models::PaginatedEvents {
-        data: p.data.into_iter().map(srv_event_to_web).collect(),
+pub(super) fn srv_paginated_products_to_web(
+    p: crate::models::products::PaginatedProducts,
+) -> crate::web::models::PaginatedProducts {
+    crate::web::models::PaginatedProducts {
+        data: p.data.into_iter().map(srv_product_to_web).collect(),
         total: p.total,
         page: p.page,
         per_page: p.per_page,
@@ -255,11 +255,20 @@ pub(super) fn srv_order_detail_to_web(
         order_code: o.order_code,
         status: o.status,
         total_amount: o.total_amount.to_f64().unwrap_or(0.0),
-        payment_method: o.payment_method,
+        payment_method: o.payment_method.clone(),
         paid_at: o.paid_at,
         expired_at: o.expired_at,
         created_at: Some(o.created_at),
         items,
+        subtotal_amount: o.subtotal_amount.to_f64().unwrap_or(0.0),
+        discount_amount: o.discount_amount.to_f64().unwrap_or(0.0),
+        promo_code: o.promo_code,
+        payment_code: o.payment_code.or(o.payment_method),
+        payment_name: o.payment_name,
+        payment_charge: o.payment_charge.to_f64().unwrap_or(0.0),
+        payment_reference: o.payment_reference,
+        payment_instruction: o.payment_instruction,
+        payment_expired_at: o.payment_expired_at,
     }
 }
 

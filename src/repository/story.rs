@@ -18,7 +18,7 @@ use crate::utils::ulid::{bin_to_ulid, bin_to_ulid_opt, id_to_vec, new_ulid, ulid
 fn row_to_story(row: &Row) -> Result<Story> {
     let id_bytes: Vec<u8> = row.try_get("id")?;
     let user_bytes: Vec<u8> = row.try_get("user_id")?;
-    let event_bytes: Option<Vec<u8>> = row.try_get("event_id")?;
+    let product_bytes: Option<Vec<u8>> = row.try_get("event_id")?;
 
     let overlays_json: Option<serde_json::Value> = row.try_get("overlays")?;
     let overlays: Vec<JsonValue> = match overlays_json {
@@ -33,7 +33,7 @@ fn row_to_story(row: &Row) -> Result<Story> {
         media_type: row.try_get("media_type")?,
         filter: row.try_get("filter")?,
         overlays,
-        event_id: bin_to_ulid_opt(event_bytes)?,
+        event_id: bin_to_ulid_opt(product_bytes)?,
         event_slug: row.try_get("event_slug")?,
         event_title: row.try_get("event_title")?,
         created_at: row.try_get("created_at")?,
@@ -60,7 +60,7 @@ fn row_to_subscription(row: &Row) -> Result<UserSubscription> {
 fn row_to_story_item(row: &Row) -> Result<StoryItemResponse> {
     let id_bytes: Vec<u8> = row.try_get("id")?;
     let user_bytes: Vec<u8> = row.try_get("user_id")?;
-    let event_bytes: Option<Vec<u8>> = row.try_get("event_id")?;
+    let product_bytes: Option<Vec<u8>> = row.try_get("event_id")?;
 
     let overlays_json: Option<serde_json::Value> = row.try_get("overlays")?;
     let overlays: Vec<JsonValue> = match overlays_json {
@@ -80,7 +80,7 @@ fn row_to_story_item(row: &Row) -> Result<StoryItemResponse> {
         created_at: row.try_get("created_at")?,
         expires_at: row.try_get("expires_at")?,
         viewed: row.try_get("viewed")?,
-        event_id: bin_to_ulid_opt(event_bytes)?,
+        event_id: bin_to_ulid_opt(product_bytes)?,
         event_slug: row.try_get("event_slug")?,
         event_title: row.try_get("event_title")?,
     })

@@ -1,4 +1,4 @@
-//! variant_editor.rs — Editor varian tiket untuk form create/edit event.
+//! variant_editor.rs — Editor varian tiket untuk form create/edit product.
 //!
 //! Desain: tiap baris memegang `RwSignal` sendiri (name/price/quota) sehingga
 //! mengetik TIDAK me-render ulang daftar (fokus input tak hilang); hanya
@@ -12,12 +12,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use leptos::prelude::*;
 
-use crate::web::models::{EventVariant, VariantForm};
+use crate::web::models::{ProductVariant, VariantForm};
 
 /// Penerbit key unik antar-baris (kebutuhan `<For>`; wasm single-thread, Relaxed cukup).
 static NEXT_KEY: AtomicU64 = AtomicU64::new(0);
 
-/// Maks varian per event — samakan dengan batas server fn.
+/// Maks varian per product — samakan dengan batas server fn.
 pub const MAX_VARIANTS: usize = 20;
 
 #[derive(Clone)]
@@ -41,8 +41,8 @@ pub fn new_variant_row(id: Option<String>, name: &str, price: &str, quota: &str)
     }
 }
 
-/// Prefill baris dari varian event tersimpan (halaman edit).
-pub fn rows_from_event(variants: &[EventVariant]) -> Vec<VariantRow> {
+/// Prefill baris dari varian product tersimpan (halaman edit).
+pub fn rows_from_product(variants: &[ProductVariant]) -> Vec<VariantRow> {
     variants
         .iter()
         .filter(|v| v.is_active)
@@ -172,7 +172,7 @@ pub fn VariantEditor(
                             type="button"
                             class="medit-cancel-btn"
                             style="width:100%;margin-top:2px"
-                            // Nonaktif bila ini baris terakhir — event wajib
+                            // Nonaktif bila ini baris terakhir — product wajib
                             // punya minimal satu varian. (Predikat didefinisikan
                             // di luar view! — lihat catatan `is_only_row`.)
                             disabled=is_only_row

@@ -91,7 +91,10 @@ async fn create_order(
         })
         .collect();
 
-    let _ = (body.payment_method, body.promo_code); // reserved for future use
+    // Jalur ini sengaja tak menerima kanal pembayaran maupun promo: keduanya
+    // butuh keranjang server untuk dihitung dengan benar. Pemanggil yang
+    // memerlukannya lewat `POST /api/checkout` (lihat api/cart.rs).
+    let _ = (body.payment_method, body.promo_code);
 
     let req = CreateOrderRequest { idempotency_key: None, items };
     let is_premium = state.story_svc.is_premium(&claims.user_id).await.unwrap_or(false);
@@ -111,7 +114,7 @@ async fn create_order(
             "expiredAt": order.expired_at.map(|d| d.to_rfc3339()),
             "createdAt": order.created_at.to_rfc3339(),
             "items": order.items.iter().map(|i| serde_json::json!({
-                "eventName": i.event_name,
+                "productName": i.event_name,
                 "variantName": i.variant_name,
                 "quantity": i.quantity,
                 "subtotal": i.subtotal,
@@ -171,14 +174,53 @@ struct ValidatePromoReq {
     subtotal: f64,
 }
 
+/// Periksa kode promo terhadap keranjang pemanggil.
+///
+/// `subtotal` yang dikirim klien hanya dipakai sebagai cadangan bila keranjang
+/// server kosong. Bila keranjangnya ada, angka DARI KERANJANG yang menang —
+/// kalau tidak, klien bisa menyebut subtotal besar untuk melewati syarat
+/// minimum belanja.
 async fn validate_promo(
-    AuthUser(_claims): AuthUser,
-    State(_state): State<Arc<AppState>>,
+    AuthUser(claims): AuthUser,
+    State(state): State<Arc<AppState>>,
     Json(body): Json<ValidatePromoReq>,
-) -> Json<serde_json::Value> {
-    let _ = (body.promo_code, body.subtotal);
-    // TODO: promo service belum diimplementasi
-    Json(serde_json::json!({ "valid": false, "discountIdr": 0, "message": "Kode promo tidak ditemukan" }))
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
+
+    let premium = state.story_svc.is_premium(&claims.user_id).await.unwrap_or(false);
+    let cart = state
+        .cart_svc
+        .view(&claims.user_id, premium)
+        .await
+        .map_err(app_err)?;
+
+    let (subtotal, qty) = if cart.items.is_empty() {
+        (
+            rust_decimal::Decimal::from_f64(body.subtotal.max(0.0)).unwrap_or_default(),
+            1,
+        )
+    } else {
+        (cart.subtotal, cart.total_quantity)
+    };
+
+    let check = state
+        .payment_svc
+        .validate_promo(
+            &claims.user_id,
+            &body.promo_code,
+            subtotal,
+            qty,
+            premium,
+            cart.payment_code.as_deref(),
+        )
+        .await
+        .map_err(app_err)?;
+
+    Ok(Json(serde_json::json!({
+        "valid": check.valid,
+        "discountIdr": check.discount.to_i64().unwrap_or(0),
+        "message": check.message,
+    })))
 }
 
 // ── Router ────────────────────────────────────────────────────────────────────

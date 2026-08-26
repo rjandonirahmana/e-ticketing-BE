@@ -1731,7 +1731,7 @@
 }
 
 /* EventCard (explore-event-card-v2) sizing inside this grid */
-.ed-related-grid .explore-event-card-v2 {
+.ed-related-grid .explore-product-card-v2 {
     display: flex;
     flex-direction: row;
     background: var(--bg-card);
@@ -1746,7 +1746,7 @@
         box-shadow 0.15s;
     min-height: 110px;
 }
-.ed-related-grid .explore-event-card-v2:hover {
+.ed-related-grid .explore-product-card-v2:hover {
     border-color: var(--border-strong);
     transform: translateY(-2px);
     box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
@@ -1766,7 +1766,7 @@
     display: block;
     transition: transform 0.3s;
 }
-.ed-related-grid .explore-event-card-v2:hover .explore-ecard-img {
+.ed-related-grid .explore-product-card-v2:hover .explore-ecard-img {
     transform: scale(1.05);
 }
 .ed-related-grid .explore-ecard-cat {
@@ -1849,7 +1849,7 @@
         background 0.15s,
         color 0.15s;
 }
-.ed-related-grid .explore-event-card-v2:hover .explore-ecard-arrow {
+.ed-related-grid .explore-product-card-v2:hover .explore-ecard-arrow {
     background: var(--accent-lime);
     color: var(--text-on-accent, #0a0a14);
     border-color: var(--accent-lime);
@@ -1881,11 +1881,11 @@
 [data-theme="light"] .ed-related-see-all:hover {
     color: #3d6600;
 }
-[data-theme="light"] .ed-related-grid .explore-event-card-v2 {
+[data-theme="light"] .ed-related-grid .explore-product-card-v2 {
     background: #fff;
     border-color: rgba(0, 0, 0, 0.08);
 }
-[data-theme="light"] .ed-related-grid .explore-event-card-v2:hover {
+[data-theme="light"] .ed-related-grid .explore-product-card-v2:hover {
     border-color: rgba(0, 0, 0, 0.14);
     box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
 }

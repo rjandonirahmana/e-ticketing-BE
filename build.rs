@@ -27,7 +27,39 @@ fn main() {
     let out = Path::new(&env::var("OUT_DIR").unwrap()).join("app.bundle.css");
     fs::write(&out, bundle).expect("write app.bundle.css");
 
+    // ── Embed daftar migrasi ───────────────────────────────────────────────────
+    // `migration/*.sql` di-embed ke binari sebagai (nama, isi), URUT NAMA FILE.
+    // Di-embed, bukan dibaca dari disk saat runtime, supaya container yang hanya
+    // memuat binari tetap bisa menjalankan migrasi — dan supaya berkas yang
+    // dipakai persis yang ikut ter-build, bukan yang kebetulan ada di server.
+    let mig_dir = Path::new("migration");
+    let mut migs: Vec<_> = fs::read_dir(mig_dir)
+        .expect("read migration/")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().map(|x| x == "sql").unwrap_or(false))
+        .collect();
+    migs.sort();
+
+    let mut list = String::from(
+        "/// (nama berkas, isi SQL) — urut nama, di-generate build.rs.\n\
+         pub static MIGRATIONS: &[(&str, &str)] = &[\n",
+    );
+    for p in &migs {
+        let name = p.file_name().unwrap().to_string_lossy().to_string();
+        let abs = fs::canonicalize(p).expect("canonicalize migration");
+        list.push_str(&format!(
+            "    ({:?}, include_str!({:?})),\n",
+            name,
+            abs.to_string_lossy()
+        ));
+    }
+    list.push_str("];\n");
+
+    let mig_out = Path::new(&env::var("OUT_DIR").unwrap()).join("migrations.rs");
+    fs::write(&mig_out, list).expect("write migrations.rs");
+
     // Rebuild bila ada perubahan CSS (part) atau folder styles lain.
     println!("cargo:rerun-if-changed=styles/");
     println!("cargo:rerun-if-changed=styles/parts");
+    println!("cargo:rerun-if-changed=migration");
 }

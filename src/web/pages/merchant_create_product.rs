@@ -1,15 +1,15 @@
-//! merchant_create_event.rs — Halaman Buat Event Baru (SSR + medit-* design).
+//! merchant_create_product.rs — Halaman Buat Product Baru (SSR + medit-* design).
 
 use leptos::prelude::*;
 use leptos_router::components::A;
 use leptos_router::hooks::use_navigate;
 
-use crate::web::api::create_merchant_event;
+use crate::web::api::create_merchant_product;
 use crate::web::app::AuthResource;
 use crate::web::components::detail_image_section::{DetailImageDraft, DetailImagesSection};
-use crate::web::components::event_story_preview::EventStoryPreviewInline;
+use crate::web::components::product_story_preview::ProductStoryPreviewInline;
 use crate::web::components::variant_editor::{new_variant_row, rows_to_json, VariantEditor, VariantRow};
-use crate::web::services::event::DetailImagePayload;
+use crate::web::services::product::DetailImagePayload;
 use crate::web::hooks::ThemeToggle;
 use crate::web::utils::{map_picker, map_set, DEFAULT_LAT, DEFAULT_LNG};
 
@@ -19,7 +19,7 @@ const CATEGORIES: &[&str] = &[
 ];
 
 #[component]
-pub fn MerchantCreateEventPage() -> impl IntoView {
+pub fn MerchantCreateProductPage() -> impl IntoView {
     let _auth = use_context::<AuthResource>().expect("AuthResource missing");
     let _navigate = use_navigate();
 
@@ -58,7 +58,7 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
     // URL permanen cover setelah di-upload ke /upload/merchant-image.
     let cover_url = RwSignal::new(String::new());
     let cover_uploading = RwSignal::new(false);
-    // Foto detail event (galeri multi-foto, bisa di-drag urutannya).
+    // Foto detail product (galeri multi-foto, bisa di-drag urutannya).
     let drafts: RwSignal<Vec<DetailImageDraft>> = RwSignal::new(vec![]);
 
     let submitting = RwSignal::new(false);
@@ -83,9 +83,18 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
                         leptos::task::spawn_local(async move {
                             match crate::web::pages::merchant::upload_merchant_image(&file).await {
                                 Ok(u) => cover_url.set(u),
-                                Err(e) => web_sys::console::error_1(
-                                    &format!("[Cover] upload gagal: {e}").into(),
-                                ),
+                                Err(e) => {
+                                    // Sama seperti di halaman edit: kegagalan
+                                    // yang hanya masuk console membuat product
+                                    // tersimpan tanpa cover, tanpa ada yang tahu.
+                                    web_sys::console::error_1(
+                                        &format!("[Cover] upload gagal: {e}").into(),
+                                    );
+                                    error_msg.set(format!(
+                                        "Foto cover gagal diunggah: {e}. Coba pilih ulang fotonya."
+                                    ));
+                                    cover_preview.set(None);
+                                }
                             }
                             cover_uploading.set(false);
                         });
@@ -100,7 +109,7 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
     // ── Umpan balik harus TERLIHAT ────────────────────────────────────────────
     // Banner sukses/galat dirender di PUNCAK form, sedangkan tombol simpan ada
     // di DASAR form yang panjang. Akibatnya setiap penolakan validasi —
-    // "Tanggal event wajib diisi", "Tunggu foto selesai diunggah", atau galat
+    // "Tanggal product wajib diisi", "Tunggu foto selesai diunggah", atau galat
     // dari server — muncul di layar yang sedang tak dilihat siapa pun: pengguna
     // menekan SIMPAN, halaman diam, dan satu-satunya kesimpulan yang masuk akal
     // baginya adalah tombolnya rusak.
@@ -127,13 +136,13 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
         success_msg.set(String::new());
 
         let name = f_name.get_untracked();
-        if name.trim().is_empty() { error_msg.set("Nama event wajib diisi.".into()); return; }
+        if name.trim().is_empty() { error_msg.set("Nama product wajib diisi.".into()); return; }
         let desc = f_desc.get_untracked();
-        if desc.trim().is_empty() { error_msg.set("Deskripsi event wajib diisi.".into()); return; }
+        if desc.trim().is_empty() { error_msg.set("Deskripsi product wajib diisi.".into()); return; }
         let cats = f_cat.get_untracked();
         if cats.is_empty() { error_msg.set("Pilih minimal satu kategori.".into()); return; }
         let date = f_date.get_untracked();
-        if date.trim().is_empty() { error_msg.set("Tanggal event wajib diisi.".into()); return; }
+        if date.trim().is_empty() { error_msg.set("Tanggal product wajib diisi.".into()); return; }
         let time = f_time.get_untracked();
         if time.trim().is_empty() {
             error_msg.set("Waktu mulai wajib diisi.".into()); return;
@@ -153,7 +162,17 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
         if cover_uploading.get_untracked() {
             error_msg.set("Tunggu foto cover selesai diunggah.".into()); return;
         }
-        if drafts.get_untracked().iter().any(|d| d.uploaded_url.is_none()) {
+        // Unggahan yang GAGAL tak akan pernah selesai — dibedakan supaya
+        // SIMPAN tidak tertahan permanen oleh pesan "tunggu".
+        let foto = drafts.get_untracked();
+        if foto.iter().any(|d| d.uploaded_url.is_none() && d.gagal.get_untracked()) {
+            error_msg.set(
+                "Ada foto detail yang gagal diunggah. Hapus foto itu, atau pilih ulang filenya."
+                    .into(),
+            );
+            return;
+        }
+        if foto.iter().any(|d| d.uploaded_url.is_none()) {
             error_msg.set("Tunggu semua foto detail selesai diunggah.".into()); return;
         }
         // Serialisasi foto detail terurut → JSON (foto lama & baru sama saja di
@@ -176,19 +195,19 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
         submitting.set(true);
 
         leptos::task::spawn_local(async move {
-            match create_merchant_event(name, desc, venue, city, start_iso.clone(), start_iso, cats_str, lat, lng, variants_json, cover, detail_json).await {
+            match create_merchant_product(name, desc, venue, city, start_iso.clone(), start_iso, cats_str, lat, lng, variants_json, cover, detail_json).await {
                 Ok(_slug) => {
-                    success_msg.set("Event berhasil dibuat!".into());
+                    success_msg.set("Product berhasil dibuat!".into());
                     submitting.set(false);
                     #[cfg(target_arch = "wasm32")]
                     if let Some(win) = web_sys::window() {
                         let path = if _slug.is_empty() { "/merchant".to_string() }
-                            else { format!("/merchant/events/{}/edit", _slug) };
+                            else { format!("/merchant/products/{}/edit", _slug) };
                         let _ = win.location().replace(&path);
                     }
                 }
                 Err(e) => {
-                    error_msg.set(format!("Gagal membuat event: {}", e));
+                    error_msg.set(format!("Gagal membuat product: {}", e));
                     submitting.set(false);
                 }
             }
@@ -296,7 +315,7 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
                     <label class="medit-field-label">"DESKRIPSI"</label>
                     <textarea
                         class="medit-input medit-textarea"
-                        placeholder="Ceritakan tentang event Anda..."
+                        placeholder="Ceritakan tentang product Anda..."
                         prop:value=move || f_desc.get()
                         on:input=move |e| f_desc.set(event_target_value(&e))
                     ></textarea>
@@ -365,7 +384,7 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
                     <DetailImagesSection drafts=drafts />
                 </div>
                 // ── STORY PREVIEW ─────────────────────────────────────────────
-                <EventStoryPreviewInline
+                <ProductStoryPreviewInline
                     title=Signal::derive(move || f_name.get())
                     cover_url=Signal::derive(move || cover_preview.get())
                     description=Signal::derive(move || f_desc.get())
@@ -379,7 +398,7 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
                                     "event_cover",
                                     &cover_preview.get_untracked().unwrap_or_default(),
                                 );
-                            params.append("event_desc", &f_desc.get_untracked());
+                            params.append("product_desc", &f_desc.get_untracked());
                             params.append("event_slug", "draft");
                             params.append("from_create", "1");
                             let qs = params.to_string();
@@ -499,7 +518,7 @@ pub fn MerchantCreateEventPage() -> impl IntoView {
                         disabled=move || submitting.get()
                         on:click=do_submit
                     >
-                        {move || if submitting.get() { "Membuat Event..." } else { "BUAT EVENT" }}
+                        {move || if submitting.get() { "Membuat Product..." } else { "BUAT EVENT" }}
                     </button>
                     <A href="/merchant" attr:class="medit-cancel-btn">
                         "BATAL"

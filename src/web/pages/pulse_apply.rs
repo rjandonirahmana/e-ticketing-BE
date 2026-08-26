@@ -32,7 +32,7 @@ pub fn PulseApplyPage() -> impl IntoView {
 
     view! {
         <Title text="Daftar Jadi Partner PULSE" />
-        <Meta name="description" content="Daftarkan eventmu ke PULSE dan mulai jual tiket sekarang. Proses cepat dan mudah." />
+        <Meta name="description" content="Daftarkan productmu ke PULSE dan mulai jual tiket sekarang. Proses cepat dan mudah." />
         <div class="pa-page">
             <header class="pa-topbar">
                 <A href="/pulse-landing" attr:class="pa-back" attr:aria-label="Kembali">

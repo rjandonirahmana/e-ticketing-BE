@@ -13,7 +13,9 @@ use crate::utils::ulid::{bin_to_ulid, id_to_vec, new_ulid, ulid_to_vec};
 // ── Static query strings ──────────────────────────────────────────────────────
 
 static ORDER_COLS: &str = "id, customer_id, order_code, status, total_amount, \
-     payment_method, paid_at, expired_at, created_at, updated_at";
+     subtotal_amount, discount_amount, promo_code, payment_method, payment_vendor, \
+     payment_code, payment_charge, payment_expired_at, payment_reference, link_pay, \
+     paid_at, expired_at, created_at, updated_at";
 
 static FIND_ORDER_BY_ID: LazyLock<String> =
     LazyLock::new(|| format!("SELECT {} FROM orders WHERE id = $1", ORDER_COLS));
@@ -28,8 +30,8 @@ static LIST_ORDERS_BY_CUSTOMER: LazyLock<String> = LazyLock::new(|| {
 
 /// Enriched list query — halaman order customer dulu (memakai index
 /// idx_orders_customer_date), baru LEFT JOIN LATERAL mengambil SATU item
-/// pertama per order (earliest by created_at) + info event-nya.
-/// Versi lama memakai CTE `DISTINCT ON` atas SELURUH order_items (semua user,
+/// pertama per order (earliest by created_at) + info product-nya.
+/// Versi lama memakai CTE `DISTINCT ON` atas SELURUH baris pesanan (semua user,
 /// tanpa filter customer) sehingga /orders makin lambat seiring tabel
 /// membesar — lateral hanya menyentuh baris milik halaman ini.
 static LIST_ORDERS_WITH_EVENT: &str = r#"
@@ -39,7 +41,8 @@ static LIST_ORDERS_WITH_EVENT: &str = r#"
         fi.event_name, fi.event_date, fi.venue, fi.cover_url
     FROM (
         SELECT id, customer_id, order_code, status, total_amount,
-               payment_method, paid_at, expired_at, created_at, updated_at
+               payment_method, paid_at, expired_at, created_at, updated_at,
+               cart_id
         FROM orders
         WHERE customer_id = $1
         ORDER BY created_at DESC
@@ -51,33 +54,37 @@ static LIST_ORDERS_WITH_EVENT: &str = r#"
             e.event_date  AS event_date,
             e.venue       AS venue,
             e.cover_url   AS cover_url
-        FROM order_items oi
-        JOIN event_variants ev ON oi.ticket_variant_id = ev.id
-        JOIN events e           ON ev.event_id = e.id
-        WHERE oi.order_id = o.id
-        ORDER BY oi.created_at
+        FROM cart_items ci
+        JOIN product_variants ev ON ci.ticket_variant_id = ev.id
+        JOIN products e           ON ev.event_id = e.id
+        WHERE ci.cart_id = o.cart_id
+        ORDER BY ci.created_at
         LIMIT 1
     ) fi ON TRUE
     ORDER BY o.created_at DESC
 "#;
 
-/// Query items dengan full join — dipakai oleh list_items (repo) dan
-/// fetch_items_detail (OrderTx, untuk response pay() dari dalam TX).
+/// Baris pesanan sebuah order. Sejak `order_items` dihapus, sumbernya adalah
+/// `cart_items` milik keranjang yang sudah ditutup — dihubungkan lewat
+/// `orders.cart_id`. `subtotal` tak lagi disimpan sebagai kolom karena ia
+/// selalu `unit_price * quantity`, dan satu-satunya gunanya dulu adalah
+/// menyimpan hasil perkalian itu.
 static QUERY_ITEMS_DETAIL: &str = r#"
     SELECT
-        oi.id                 AS item_id,
-        oi.ticket_variant_id,
-        oi.quantity,
-        oi.unit_price         AS unit_price,
-        oi.subtotal           AS subtotal,
-        tv.name               AS variant_name,
+        ci.id                       AS item_id,
+        ci.ticket_variant_id,
+        ci.quantity,
+        ci.unit_price               AS unit_price,
+        (ci.unit_price * ci.quantity) AS subtotal,
+        tv.name                     AS variant_name,
         tv.event_id,
-        e.name                AS event_name
-    FROM order_items oi
-    JOIN event_variants tv ON oi.ticket_variant_id = tv.id
-    JOIN events e           ON tv.event_id = e.id
-    WHERE oi.order_id = $1
-    ORDER BY oi.created_at
+        e.name                      AS event_name
+    FROM orders o
+    JOIN cart_items ci        ON ci.cart_id = o.cart_id
+    JOIN product_variants tv  ON ci.ticket_variant_id = tv.id
+    JOIN products e           ON tv.event_id = e.id
+    WHERE o.id = $1
+    ORDER BY ci.created_at
 "#;
 
 // ── Prepared statement SQL strings ───────────────────────────────────────────
@@ -101,19 +108,32 @@ static STMT_LOCK_VARIANTS: &str = r#"
         ev.name         AS variant_name,
         e.id            AS event_id_bytes,
         e.name          AS event_name
-    FROM event_variants ev
-    JOIN events e ON ev.event_id = e.id
+    FROM product_variants ev
+    JOIN products e ON ev.event_id = e.id
     WHERE ev.id = ANY($1)
     FOR UPDATE OF ev
 "#;
 
+/// Kolom & placeholder pembayaran dipakai dua kali (jalur biasa dan jalur
+/// idempoten); ditulis sekali di sini supaya keduanya mustahil berselisih.
+static PAY_COLS: &str = "cart_id, subtotal_amount, discount_amount, promo_code, \
+     payment_vendor, payment_code, payment_method, payment_charge, \
+     payment_expired_at, payment_reference, link_pay";
+
+/// `$12` sengaja muncul dua kali: `payment_code` dan `payment_method` selalu
+/// bernilai sama — kolom lama dipertahankan agar jalur REST dan data lawas
+/// tetap terbaca, tapi tak boleh lagi menyimpang dari yang baru.
+static PAY_VALS: &str = "$6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15";
+
 static STMT_INSERT_ORDER_SIMPLE: LazyLock<String> = LazyLock::new(|| {
     format!(
         r#"INSERT INTO orders
-           (id, customer_id, order_code, status, total_amount, expired_at)
-           VALUES ($1, $2, $3, 'pending', $4, $5)
-           RETURNING {}"#,
-        ORDER_COLS
+           (id, customer_id, order_code, status, total_amount, expired_at, {cols})
+           VALUES ($1, $2, $3, 'pending', $4, $5, {vals})
+           RETURNING {ret}"#,
+        cols = PAY_COLS,
+        vals = PAY_VALS,
+        ret = ORDER_COLS
     )
 });
 
@@ -122,8 +142,8 @@ static STMT_INSERT_ORDER_IDEMPOTENCY: LazyLock<String> = LazyLock::new(|| {
         r#"WITH ins AS (
                INSERT INTO orders
                    (id, customer_id, order_code, status, total_amount,
-                    expired_at, idempotency_key)
-               VALUES ($1, $2, $3, 'pending', $4, $5, $6)
+                    expired_at, {cols}, idempotency_key)
+               VALUES ($1, $2, $3, 'pending', $4, $5, {vals}, $16)
                ON CONFLICT (customer_id, idempotency_key)
                WHERE idempotency_key IS NOT NULL
                DO NOTHING
@@ -134,23 +154,78 @@ static STMT_INSERT_ORDER_IDEMPOTENCY: LazyLock<String> = LazyLock::new(|| {
            SELECT {0}, FALSE AS is_new
            FROM orders
            WHERE customer_id = $2
-             AND idempotency_key = $6
+             AND idempotency_key = $16
              AND NOT EXISTS (SELECT 1 FROM ins)
            LIMIT 1"#,
-        ORDER_COLS
+        ORDER_COLS,
+        cols = PAY_COLS,
+        vals = PAY_VALS
     )
 });
 
-static STMT_INSERT_ORDER_ITEMS: &str = r#"
-    INSERT INTO order_items
-    (id, order_id, ticket_variant_id, quantity, unit_price, subtotal)
-    SELECT t.id, $1, t.var_id, t.qty, t.price, t.subtotal
-    FROM UNNEST($2::bytea[], $3::bytea[], $4::int4[], $5::numeric[], $6::numeric[])
-        AS t(id, var_id, qty, price, subtotal)
+/// Bekukan baris keranjang menjadi baris pesanan.
+///
+/// Dipakai dua arah sekaligus:
+///   • jalur checkout — barisnya sudah ada, yang berubah hanya `unit_price`,
+///     ditimpa dengan harga yang BARU DIKUNCI di dalam transaksi ini;
+///   • jalur beli-langsung — barisnya belum ada, jadi INSERT yang berlaku.
+///
+/// Satu pernyataan untuk keduanya. `ON CONFLICT` di sini bukan kerapian, ia
+/// yang membuat dua jalur pembelian tak perlu punya kode penulisan sendiri
+/// yang bisa berselisih diam-diam.
+static STMT_FREEZE_CART_ITEMS: &str = r#"
+    INSERT INTO cart_items (id, cart_id, ticket_variant_id, quantity, unit_price)
+    SELECT t.id, $1, t.var_id, t.qty, t.price
+    FROM UNNEST($2::bytea[], $3::bytea[], $4::int4[], $5::numeric[])
+        AS t(id, var_id, qty, price)
+    ON CONFLICT (cart_id, ticket_variant_id) DO UPDATE
+        SET quantity   = EXCLUDED.quantity,
+            unit_price = EXCLUDED.unit_price,
+            updated_at = NOW()
+"#;
+
+/// Keranjang sekali-pakai untuk jalur beli-langsung, yang tak pernah punya
+/// keranjang terbuka. Ia lahir SUDAH tertutup (`deleted_at` terisi), sehingga
+/// tidak menyerempet unique index "satu keranjang aktif per user" dan tak
+/// pernah muncul sebagai keranjang milik siapa pun.
+static STMT_INSERT_CLOSED_CART: &str = r#"
+    INSERT INTO carts (id, user_id, position, deleted_at)
+    VALUES ($1, $2, 'direct', NOW())
+"#;
+
+/// Pindahkan barang yang TIDAK dipilih ke keranjang lain.
+///
+/// Sejak baris pesanan tinggal di `cart_items`, checkout menutup keranjangnya.
+/// Barang yang sengaja tidak dicentang pembeli karena itu harus dikeluarkan
+/// lebih dulu -- kalau tidak, ia ikut terkunci di dalam keranjang yang sudah
+/// jadi pesanan, dan dari sisi pembeli barangnya lenyap. Persis kebalikan dari
+/// yang ia minta ketika membiarkan kotaknya kosong.
+static STMT_MOVE_UNSELECTED: &str = r#"
+    UPDATE cart_items SET cart_id = $2, updated_at = NOW()
+     WHERE cart_id = $1 AND NOT selected
+"#;
+
+/// Keranjang terbuka baru untuk menampung barang yang tak jadi dibayar.
+static STMT_INSERT_OPEN_CART: &str = r#"
+    INSERT INTO carts (id, user_id) VALUES ($1, $2)
+"#;
+
+/// Buang keranjang penampung bila ternyata tak ada yang perlu dipindahkan.
+static STMT_DELETE_EMPTY_CART: &str = r#"
+    DELETE FROM carts c
+     WHERE c.id = $1
+       AND NOT EXISTS (SELECT 1 FROM cart_items ci WHERE ci.cart_id = c.id)
+"#;
+
+/// Tutup keranjang di dalam transaksi yang sama dengan lahirnya order, bukan
+/// sesudah commit. Kalau ordernya batal, keranjangnya ikut kembali terbuka.
+static STMT_CLOSE_CART: &str = r#"
+    UPDATE carts SET deleted_at = NOW(), updated_at = NOW()
+     WHERE id = $1 AND deleted_at IS NULL
 "#;
 
 static STMT_MINT_TICKETS: &str = r#"
-    INSERT INTO tickets (id, order_item_id, order_id, ticket_code, status)
+    INSERT INTO tickets (id, cart_item_id, order_id, ticket_code, status)
     SELECT id, item_id, order_id, code, 'active'
     FROM UNNEST($1::bytea[], $2::bytea[], $3::bytea[], $4::text[]) AS t(id, item_id, order_id, code)
 "#;
@@ -161,7 +236,7 @@ static STMT_BUMP_SOLD: &str = r#"
         FROM UNNEST($1::bytea[], $2::int4[]) AS t(id, qty)
         GROUP BY id
     )
-    UPDATE event_variants ev
+    UPDATE product_variants ev
        SET sold = ev.sold + agg.total_qty
       FROM agg
      WHERE ev.id = agg.id
@@ -169,16 +244,23 @@ static STMT_BUMP_SOLD: &str = r#"
 "#;
 
 static STMT_REFUND_SOLD: &str = r#"
-    UPDATE event_variants
+    UPDATE product_variants
        SET sold = GREATEST(0, sold - bump.qty)
       FROM UNNEST($1::bytea[], $2::int4[]) AS bump(id, qty)
-     WHERE event_variants.id = bump.id
+     WHERE product_variants.id = bump.id
 "#;
 
+/// `payment_code` ikut ditulis, bukan hanya `payment_method`: pembayaran yang
+/// masuk lewat jalur mana pun harus meninggalkan kanal yang sama di kedua kolom,
+/// kalau tidak laporan per-kanal akan melihat dua dunia yang berbeda.
 static STMT_MARK_PAID: LazyLock<String> = LazyLock::new(|| {
     format!(
         r#"UPDATE orders
-           SET status = 'paid', paid_at = NOW(), payment_method = $2
+           SET status         = 'paid',
+               paid_at        = NOW(),
+               updated_at     = NOW(),
+               payment_method = $2,
+               payment_code   = COALESCE(payment_code, $2)
          WHERE id = $1
            AND status = 'pending'
            AND expired_at > NOW()
@@ -190,10 +272,19 @@ static STMT_MARK_PAID: LazyLock<String> = LazyLock::new(|| {
 static STMT_CANCEL_ORDER: &str =
     "UPDATE orders SET status = 'cancelled' WHERE id = $1 AND status = 'pending'";
 
-static STMT_FETCH_ITEMS_FOR_MINT: &str = "SELECT id, quantity FROM order_items WHERE order_id = $1";
+static STMT_FETCH_ITEMS_FOR_MINT: &str = r#"
+    SELECT ci.id, ci.quantity
+      FROM orders o
+      JOIN cart_items ci ON ci.cart_id = o.cart_id
+     WHERE o.id = $1
+"#;
 
-static STMT_FETCH_ITEMS_FOR_REFUND: &str =
-    "SELECT ticket_variant_id, quantity FROM order_items WHERE order_id = $1";
+static STMT_FETCH_ITEMS_FOR_REFUND: &str = r#"
+    SELECT ci.ticket_variant_id, ci.quantity
+      FROM orders o
+      JOIN cart_items ci ON ci.cart_id = o.cart_id
+     WHERE o.id = $1
+"#;
 
 // ── Lua scripts ───────────────────────────────────────────────────────────────
 
@@ -265,7 +356,46 @@ pub struct LockedVariant {
     pub event_name: String,
 }
 
+/// Rincian pembayaran yang menempel pada satu order saat ia dibuat.
+///
+/// Dikemas sebagai satu struct alih-alih sepuluh argumen supaya urutan
+/// parameter SQL ($6..$15) hanya perlu benar di SATU tempat.
+pub struct OrderPaymentSpec<'a> {
+    pub cart_bytes: Option<&'a [u8]>,
+    pub subtotal: Decimal,
+    pub discount: Decimal,
+    pub promo_code: Option<&'a str>,
+    pub vendor: Option<&'a str>,
+    /// Kode kanal; ikut mengisi kolom lama `payment_method`.
+    pub code: Option<&'a str>,
+    pub charge: Decimal,
+    pub payment_expired_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub reference: Option<&'a str>,
+    pub link_pay: Option<&'a str>,
+}
+
+impl OrderPaymentSpec<'_> {
+    /// Order tanpa kanal pembayaran — jalur lama (REST `POST /api/orders`) yang
+    /// hanya menyebut tiket. Seluruh totalnya adalah harga tiket: tanpa
+    /// potongan, tanpa biaya kanal.
+    pub fn plain(subtotal: Decimal) -> Self {
+        Self {
+            cart_bytes: None,
+            subtotal,
+            discount: Decimal::ZERO,
+            promo_code: None,
+            vendor: None,
+            code: None,
+            charge: Decimal::ZERO,
+            payment_expired_at: None,
+            reference: None,
+            link_pay: None,
+        }
+    }
+}
+
 pub struct ItemRow {
+    /// Id baris keranjang yang akan dibekukan menjadi baris pesanan.
     pub oi_id: String,
     pub oi_bytes: Vec<u8>,
     pub var_bytes: Vec<u8>,
@@ -341,38 +471,58 @@ impl OrderTx {
         total: Decimal,
         expired_at: chrono::DateTime<chrono::Utc>,
         idempotency_key: Option<&str>,
+        pay: &OrderPaymentSpec<'_>,
     ) -> Result<(Order, bool)> {
+        // Urutan parameter pembayaran ($6..$15) sama persis untuk kedua
+        // pernyataan — lihat PAY_COLS/PAY_VALS.
+        let pay_params: [&(dyn ToSql + Sync); 10] = [
+            &pay.cart_bytes,
+            &pay.subtotal,
+            &pay.discount,
+            &pay.promo_code,
+            &pay.vendor,
+            &pay.code,
+            &pay.charge,
+            &pay.payment_expired_at,
+            &pay.reference,
+            &pay.link_pay,
+        ];
+
+        let base: [&(dyn ToSql + Sync); 5] = [
+            &id_bytes,
+            &customer_bytes,
+            &order_code,
+            &total,
+            &expired_at,
+        ];
+
+        let mut params: Vec<&(dyn ToSql + Sync)> = Vec::with_capacity(16);
+        params.extend_from_slice(&base);
+        params.extend_from_slice(&pay_params);
+
         if idempotency_key.is_none() {
             let stmt = tx
                 .prepare_cached(&STMT_INSERT_ORDER_SIMPLE)
                 .await
                 .context("insert_order prepare")?;
 
-            let params: &[&(dyn ToSql + Sync)] =
-                &[&id_bytes, &customer_bytes, &order_code, &total, &expired_at];
             let row = tx
-                .query_one(&stmt, params)
+                .query_one(&stmt, &params)
                 .await
                 .context("insert_order execute")?;
             return Ok((row_to_order(&row)?, true));
         }
 
         let key = idempotency_key.unwrap();
+        params.push(&key);
+
         let stmt = tx
             .prepare_cached(&STMT_INSERT_ORDER_IDEMPOTENCY)
             .await
             .context("insert_order_idempotency prepare")?;
 
-        let params: &[&(dyn ToSql + Sync)] = &[
-            &id_bytes,
-            &customer_bytes,
-            &order_code,
-            &total,
-            &expired_at,
-            &key,
-        ];
         let row = tx
-            .query_one(&stmt, params)
+            .query_one(&stmt, &params)
             .await
             .context("insert_order_idempotency execute")?;
 
@@ -380,9 +530,11 @@ impl OrderTx {
         Ok((row_to_order(&row)?, is_new))
     }
 
-    pub async fn insert_order_items_batch(
+    /// Bekukan baris keranjang menjadi baris pesanan, dengan harga yang baru
+    /// dikunci di dalam transaksi ini.
+    pub async fn freeze_cart_items(
         tx: &deadpool_postgres::Transaction<'_>,
-        order_id_bytes: &[u8],
+        cart_id_bytes: &[u8],
         items: &[ItemRow],
     ) -> Result<()> {
         if items.is_empty() {
@@ -393,21 +545,93 @@ impl OrderTx {
         let var_ids: Vec<&[u8]> = items.iter().map(|r| r.var_bytes.as_slice()).collect();
         let qtys: Vec<i32> = items.iter().map(|r| r.qty).collect();
         let prices: Vec<Decimal> = items.iter().map(|r| r.unit_price).collect();
-        let subtotals: Vec<Decimal> = items.iter().map(|r| r.subtotal).collect();
 
         let stmt = tx
-            .prepare_cached(STMT_INSERT_ORDER_ITEMS)
+            .prepare_cached(STMT_FREEZE_CART_ITEMS)
             .await
-            .context("insert_order_items_batch prepare")?;
+            .context("freeze_cart_items prepare")?;
 
-        let params: &[&(dyn ToSql + Sync)] =
-            &[&order_id_bytes, &ids, &var_ids, &qtys, &prices, &subtotals];
+        let params: &[&(dyn ToSql + Sync)] = &[&cart_id_bytes, &ids, &var_ids, &qtys, &prices];
 
         tx.execute(&stmt, params)
             .await
-            .context("insert_order_items_batch execute")?;
+            .context("freeze_cart_items execute")?;
 
         Ok(())
+    }
+
+    /// Buat keranjang sekali-pakai yang lahir sudah tertutup, untuk jalur
+    /// beli-langsung yang tak punya keranjang terbuka.
+    pub async fn insert_closed_cart(
+        tx: &deadpool_postgres::Transaction<'_>,
+        cart_id_bytes: &[u8],
+        customer_bytes: &[u8],
+    ) -> Result<()> {
+        let stmt = tx
+            .prepare_cached(STMT_INSERT_CLOSED_CART)
+            .await
+            .context("insert_closed_cart prepare")?;
+        tx.execute(&stmt, &[&cart_id_bytes, &customer_bytes])
+            .await
+            .context("insert_closed_cart execute")?;
+        Ok(())
+    }
+
+    /// Selamatkan barang yang tidak dicentang: pindahkan ke keranjang terbuka
+    /// yang baru, sebelum keranjang lama ditutup menjadi pesanan.
+    ///
+    /// Dipanggil SESUDAH `close_cart` — unique index "satu keranjang aktif per
+    /// user" tak mengizinkan dua keranjang terbuka berdampingan.
+    pub async fn rescue_unselected(
+        tx: &deadpool_postgres::Transaction<'_>,
+        old_cart_bytes: &[u8],
+        new_cart_bytes: &[u8],
+        customer_bytes: &[u8],
+    ) -> Result<u64> {
+        let insert = tx
+            .prepare_cached(STMT_INSERT_OPEN_CART)
+            .await
+            .context("rescue_unselected insert prepare")?;
+        tx.execute(&insert, &[&new_cart_bytes, &customer_bytes])
+            .await
+            .context("rescue_unselected insert execute")?;
+
+        let mv = tx
+            .prepare_cached(STMT_MOVE_UNSELECTED)
+            .await
+            .context("rescue_unselected move prepare")?;
+        let moved = tx
+            .execute(&mv, &[&old_cart_bytes, &new_cart_bytes])
+            .await
+            .context("rescue_unselected move execute")?;
+
+        // Tak ada yang dipindahkan berarti seluruh isi keranjang memang dibeli.
+        // Keranjang penampungnya dibuang supaya tak meninggalkan baris kosong.
+        if moved == 0 {
+            let del = tx
+                .prepare_cached(STMT_DELETE_EMPTY_CART)
+                .await
+                .context("rescue_unselected cleanup prepare")?;
+            tx.execute(&del, &[&new_cart_bytes])
+                .await
+                .context("rescue_unselected cleanup execute")?;
+        }
+
+        Ok(moved)
+    }
+
+    /// Tutup keranjang di dalam transaksi order.
+    pub async fn close_cart(
+        tx: &deadpool_postgres::Transaction<'_>,
+        cart_id_bytes: &[u8],
+    ) -> Result<u64> {
+        let stmt = tx
+            .prepare_cached(STMT_CLOSE_CART)
+            .await
+            .context("close_cart prepare")?;
+        tx.execute(&stmt, &[&cart_id_bytes])
+            .await
+            .context("close_cart execute")
     }
 
     pub async fn bump_sold_batch(
@@ -621,7 +845,7 @@ pub trait OrderRepository: Send + Sync {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<Order>>;
-    /// Enriched list — includes first event's name, date, venue, cover_url.
+    /// Enriched list — includes first product's name, date, venue, cover_url.
     async fn list_for_customer_enriched(
         &self,
         customer_id: &str,
@@ -692,7 +916,16 @@ pub(crate) fn row_to_order(row: &Row) -> Result<Order> {
         order_code: row.try_get("order_code").context("order_code")?,
         status: row.try_get("status").context("status")?,
         total_amount: row.try_get("total_amount").context("total_amount")?,
+        subtotal_amount: row.try_get("subtotal_amount").unwrap_or_default(),
+        discount_amount: row.try_get("discount_amount").unwrap_or_default(),
+        promo_code: row.try_get("promo_code").unwrap_or_default(),
         payment_method: row.try_get("payment_method").context("payment_method")?,
+        payment_vendor: row.try_get("payment_vendor").unwrap_or_default(),
+        payment_code: row.try_get("payment_code").unwrap_or_default(),
+        payment_charge: row.try_get("payment_charge").unwrap_or_default(),
+        payment_expired_at: row.try_get("payment_expired_at").unwrap_or_default(),
+        payment_reference: row.try_get("payment_reference").unwrap_or_default(),
+        link_pay: row.try_get("link_pay").unwrap_or_default(),
         paid_at: row.try_get("paid_at")?,
         expired_at: row.try_get("expired_at")?,
         created_at: row.try_get("created_at").context("created_at")?,

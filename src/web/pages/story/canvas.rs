@@ -459,7 +459,7 @@ async fn load_cover_img(src: &str) -> Result<HtmlImageElement, String> {
     // Only reuse the DOM element if it was loaded with crossOrigin="anonymous".
     // An element loaded without CORS would taint the canvas and make toBlob() fail.
     let reused = doc
-        .query_selector("img.sc-event-card-cover-img")
+        .query_selector("img.sc-product-card-cover-img")
         .ok().flatten()
         .and_then(|el| el.dyn_into::<HtmlImageElement>().ok())
         .filter(|img| {
@@ -498,14 +498,14 @@ async fn load_cover_img(src: &str) -> Result<HtmlImageElement, String> {
     Ok(img)
 }
 
-// ── Event card canvas render ──────────────────────────────────────────────────
+// ── Product card canvas render ──────────────────────────────────────────────────
 //
-// Renders the full story preview for an event: background, card (cover + body),
+// Renders the full story preview for an product: background, card (cover + body),
 // and returns so the caller can draw overlays on top.
 //
-// Mirrors the DOM layout of `.sc-event-preview-frame > .sc-event-card`.
+// Mirrors the DOM layout of `.sc-product-preview-frame > .sc-product-card`.
 
-pub(super) async fn render_event_card_to_canvas(
+pub(super) async fn render_product_card_to_canvas(
     ctx: &CanvasRenderingContext2d,
     cw: f64, ch: f64,
     cover_url: &str,
@@ -820,7 +820,7 @@ pub(super) fn export_story_canvas(
 
 // ─── Kartu MERCHANT / REVIEW untuk story ─────────────────────────────────────
 //
-// Bingkai KHUSUS profil toko (bukan bingkai event): meniru halaman /m/{id} —
+// Bingkai KHUSUS profil toko (bukan bingkai product): meniru halaman /m/{id} —
 // header image di atas (fade ke gelap), avatar logo bulat overlap dengan badge
 // centang lime, nama toko, lalu baris statistik FOLLOWERS · EVENTS · RATING
 // dalam kartu rounded (mode share-toko) ATAU blok bintang+kutipan (mode
@@ -837,7 +837,7 @@ pub(super) async fn render_merchant_card_to_canvas(
     name: &str,
     verified: bool,
     followers: i64,
-    events_count: i64,
+    products_count: i64,
     rating: f64,
     review: Option<(u8, String)>, // (rating 1..=5, komentar) — mode ulasan
 ) -> Result<(), String> {
@@ -1091,7 +1091,7 @@ pub(super) async fn render_merchant_card_to_canvas(
         let lbl_y = num_y + 10.0 + stat_lbl_fs;
         let vals = [
             (crate::web::pages::merchant_public::fmt_count(followers), "FOLLOWERS", false),
-            (crate::web::pages::merchant_public::fmt_count(events_count), "EVENTS", false),
+            (crate::web::pages::merchant_public::fmt_count(products_count), "EVENTS", false),
             (format!("{rating:.1}"), "RATING", true),
         ];
         ctx.set_text_align("center");

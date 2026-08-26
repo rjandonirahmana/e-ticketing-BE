@@ -51,7 +51,7 @@ enum DragAxis {
     Horizontal,
     /// Drag ke bawah → kecilkan + tutup viewer
     VerticalDown,
-    /// Drag ke atas → buka event (swipe-up "See More")
+    /// Drag ke atas → buka product (swipe-up "See More")
     VerticalUp,
 }
 
@@ -120,13 +120,13 @@ fn remove_el_style(el: &web_sys::HtmlElement, prop: &str) {
 
 // ── Helper: path tujuan tap-through story ─────────────────────────────────
 // `event_slug` menyimpan dua jenis tautan (konvensi, tanpa kolom DB baru):
-//   * slug event biasa      → /events/{slug}
+//   * slug product biasa      → /products/{slug}
 //   * "m/{merchant_id}"     → /m/{id}   (story merchant / story ulasan)
 fn story_link_path(slug: &str) -> String {
     if let Some(mid) = slug.strip_prefix("m/") {
         format!("/m/{mid}")
     } else {
-        format!("/events/{slug}")
+        format!("/products/{slug}")
     }
 }
 
@@ -189,14 +189,14 @@ pub fn StoryViewer() -> impl IntoView {
     let active_hearts = RwSignal::new(0_u32);
     // Instagram-style loading: true while image is loading, false once loaded
     let img_loading = RwSignal::new(false);
-    // Tap-to-reveal "klik detail" tag pada frame event — mirip product tag IG
+    // Tap-to-reveal "klik detail" tag pada frame product — mirip product tag IG
     let show_detail_tag = RwSignal::new(false);
     // Menu ⋮ pemilik story (opsi hapus) — hanya utk story milik user sendiri.
     let show_owner_menu = RwSignal::new(false);
 
     let last_tap = StoredValue::new(None::<(f64, f64, f64)>);
 
-    // FIX P0-b: suppress click event yang menyusul touchend swipe/close
+    // FIX P0-b: suppress click product yang menyusul touchend swipe/close
     let touch_handled: StoredValue<bool> = StoredValue::new(false);
 
     // ── RAF state ─────────────────────────────────────────────────────
@@ -680,7 +680,7 @@ pub fn StoryViewer() -> impl IntoView {
     // EVENT HANDLERS
     // ══════════════════════════════════════════════════════════════════
 
-    // Gesture cube pakai Pointer Events → satu jalur kode untuk mouse (desktop),
+    // Gesture cube pakai Pointer Products → satu jalur kode untuk mouse (desktop),
     // sentuhan (mobile), dan pen. Sebelumnya hanya on:touch* sehingga di desktop
     // (mouse) drag antar-user tidak pernah ter-trigger.
     let on_pointer_down = move |ev: leptos::ev::PointerEvent| {
@@ -947,7 +947,7 @@ pub fn StoryViewer() -> impl IntoView {
                 }
             }
 
-            // ── Swipe UP — navigasi ke event jika story punya event_slug ──
+            // ── Swipe UP — navigasi ke product jika story punya event_slug ──
             // Meniru gesture "See More" / swipe-up Instagram.
             DragAxis::VerticalUp => {
                 if -dy > SWIPE_THRESHOLD_PX && dt < 450.0 {
@@ -974,7 +974,7 @@ pub fn StoryViewer() -> impl IntoView {
                 }
             }
 
-            // Tap biasa: biarkan click event menangani (termasuk double-tap)
+            // Tap biasa: biarkan click product menangani (termasuk double-tap)
             DragAxis::None => {}
         }
     };
@@ -1174,7 +1174,7 @@ pub fn StoryViewer() -> impl IntoView {
         let _ = s.set_property("position", "absolute");
         let _ = s.set_property("left", &format!("{}px", x - 40.0));
         let _ = s.set_property("top", &format!("{}px", y - 40.0));
-        let _ = s.set_property("pointer-events", "none");
+        let _ = s.set_property("pointer-products", "none");
         let _ = s.set_property("z-index", "50");
         let _ = s.set_property("transform", "scale(0)");
         let _ = s.set_property("opacity", "1");
@@ -1462,9 +1462,9 @@ pub fn StoryViewer() -> impl IntoView {
                         })}
                     </div>
 
-                    // ── Instagram-style Event Detail Sheet ────────────────────
+                    // ── Instagram-style Product Detail Sheet ────────────────────
                     // Muncul saat frame di-tap (di tengah) dan story punya event_slug.
-                    // Bottom sheet slide-up dari bawah: cover image, judul event, CTA button.
+                    // Bottom sheet slide-up dari bawah: cover image, judul product, CTA button.
                     // Tap backdrop (luar sheet) → tutup dan resume RAF.
                     {move || {
                         if !show_detail_tag.get() {
@@ -1473,12 +1473,12 @@ pub fn StoryViewer() -> impl IntoView {
                         ctx.with_current_story(|s| {
                             let slug = s.event_slug.clone().filter(|e| !e.is_empty())?;
                             // Story merchant/ulasan (konvensi slug "m/{id}") →
-                            // eyebrow & label CTA berbeda dari story event.
+                            // eyebrow & label CTA berbeda dari story product.
                             let is_merchant = slug.starts_with("m/");
                             let (eyebrow, cta_label) = if is_merchant {
                                 ("PENYELENGGARA", "Kunjungi Profil")
                             } else {
-                                ("EVENT", "Lihat Event")
+                                ("EVENT", "Lihat Product")
                             };
                             let title = s.event_title.clone()
                                 .unwrap_or_else(|| cta_label.to_string());

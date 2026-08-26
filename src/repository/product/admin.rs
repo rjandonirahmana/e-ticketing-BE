@@ -2,18 +2,18 @@ use anyhow::Result;
 
 use crate::repository::db::{exec_drop, exec_one, exec_rows};
 use super::helpers::{ADMIN_UPDATE_EVENT_STATUS, EVENT_COLS, VARIANT_STATS_LATERAL};
-use super::{EventFilterOwned, EventListFilter, PgEventRepository};
-use crate::models::events::Event;
+use super::{ProductFilterOwned, ProductListFilter, PgProductRepository};
+use crate::models::products::Product;
 use crate::utils::ulid::id_to_vec;
 
-impl PgEventRepository {
+impl PgProductRepository {
     pub(super) async fn exec_admin_list_by_status(
         &self,
-        f: &EventListFilter<'_>,
-    ) -> Result<Vec<Event>> {
-        let owned = EventFilterOwned::from_filter(f)?;
+        f: &ProductListFilter<'_>,
+    ) -> Result<Vec<Product>> {
+        let owned = ProductFilterOwned::from_filter(f)?;
         let mut sql = format!(
-            "SELECT {cols} FROM events e {lateral} {mjoin} WHERE 1 = 1",
+            "SELECT {cols} FROM products e {lateral} {mjoin} WHERE 1 = 1",
             cols = EVENT_COLS,
             lateral = VARIANT_STATS_LATERAL,
             mjoin = super::helpers::MERCHANT_JOIN,
@@ -30,15 +30,15 @@ impl PgEventRepository {
         refs.push(&f.offset);
 
         let rows = exec_rows(&self.pool, &sql, &refs).await?;
-        rows.iter().map(Self::row_to_event).collect()
+        rows.iter().map(Self::row_to_product).collect()
     }
 
     pub(super) async fn exec_admin_count_by_status(
         &self,
-        f: &EventListFilter<'_>,
+        f: &ProductListFilter<'_>,
     ) -> Result<i64> {
-        let owned = EventFilterOwned::from_filter(f)?;
-        let mut sql = String::from("SELECT COUNT(*)::BIGINT AS c FROM events WHERE 1 = 1");
+        let owned = ProductFilterOwned::from_filter(f)?;
+        let mut sql = String::from("SELECT COUNT(*)::BIGINT AS c FROM products WHERE 1 = 1");
         let mut refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = Vec::with_capacity(4);
         let mut idx = 1usize;
         owned.push_where(&mut sql, &mut refs, &mut idx, "", false);

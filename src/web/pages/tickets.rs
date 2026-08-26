@@ -5,7 +5,7 @@ use leptos_router::components::A;
 
 use crate::web::api::get_my_tickets;
 use crate::web::app::AuthResource;
-use crate::web::components::{BottomNav, EmptyState, ThemeToggle, TicketCardShimmer};
+use crate::web::components::{BottomNav, CartButton, EmptyState, ThemeToggle, TicketCardShimmer};
 use crate::web::models::{format_date, format_price};
 
 /// QR display component using SSR-compatible SVG generation.
@@ -82,6 +82,7 @@ pub fn TicketsPage() -> impl IntoView {
                 </A>
                 <span class="page-logo">"PULSE"</span>
                 <div class="header-actions">
+                    <CartButton />
                     <ThemeToggle />
                     <A href="/notifications" attr:class="bell-btn">
                         <svg
@@ -98,20 +99,6 @@ pub fn TicketsPage() -> impl IntoView {
                             <path d="M13.73 21a2 2 0 01-3.46 0" />
                         </svg>
                         <span class="bell-dot"></span>
-                    </A>
-                    <A href="/profile" attr:class="nav-avatar">
-                        <svg
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                        >
-                            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-                            <circle cx="12" cy="7" r="4" />
-                        </svg>
                     </A>
                 </div>
             </header>
@@ -181,7 +168,7 @@ pub fn TicketsPage() -> impl IntoView {
                                             "active" => (
                                                 "🎫",
                                                 "BELUM ADA TIKET AKTIF",
-                                                "Beli tiket event favoritmu dan mulai pengalamanmu!",
+                                                "Beli tiket product favoritmu dan mulai pengalamanmu!",
                                             ),
                                             "used" => (
                                                 "🕐",
@@ -208,7 +195,7 @@ pub fn TicketsPage() -> impl IntoView {
                                     list.into_iter()
                                         .map(|t| {
                                             let code = t.ticket_code.clone();
-                                            let event = t.event_name.clone();
+                                            let product = t.event_name.clone();
                                             let var = t.variant_name.clone();
                                             let date = format_date(&t.event_date);
                                             let venue = t.event_venue.clone().unwrap_or_default();
@@ -242,7 +229,7 @@ pub fn TicketsPage() -> impl IntoView {
                                                             view! {
                                                                 <img
                                                                     src=url
-                                                                    alt=event.clone()
+                                                                    alt=product.clone()
                                                                     class="ticket-cover"
                                                                 />
                                                             }
@@ -258,8 +245,8 @@ pub fn TicketsPage() -> impl IntoView {
                                                         }
                                                     }}
                                                     <div class="ticket-body">
-                                                        <h3 class="ticket-event-title">{event}</h3>
-                                                        <p class="ticket-event-venue-date">
+                                                        <h3 class="ticket-product-title">{product}</h3>
+                                                        <p class="ticket-product-venue-date">
                                                             {format!("{} • {}", date, venue.to_uppercase())}
                                                         </p>
                                                         <div class="ticket-meta-grid">

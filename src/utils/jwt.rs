@@ -147,3 +147,21 @@ mod tests {
         assert!(b.verify(&token).is_err());
     }
 }
+
+/// Umur cookie access token, dalam detik.
+///
+/// Dibaca dari `JWT_EXPIRY_HOURS` supaya cookie dan token yang dibungkusnya
+/// mati bersamaan. Cookie yang hidup lebih lama hanya menghasilkan permintaan
+/// yang membawa token mati; cookie yang mati lebih dulu membuang sesi yang
+/// tokennya masih sah.
+///
+/// Sesi tetap panjang bukan karena cookie ini, melainkan karena cookie refresh
+/// yang memperpanjangnya diam-diam lewat `middleware/silent_refresh.rs`.
+pub fn access_cookie_max_age() -> i64 {
+    std::env::var("JWT_EXPIRY_HOURS")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .filter(|h| *h > 0)
+        .unwrap_or(24)
+        * 3600
+}

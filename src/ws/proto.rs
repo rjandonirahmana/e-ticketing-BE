@@ -6,7 +6,7 @@
 //! OPTIMISASI (vs versi original):
 //!
 //! 1. [proto.rs] Box<WsMessage> pada NewMessage — kurangi enum size dari ~256B → 24B.
-//!    Match statement atas ratusan ribu event/detik = cache locality jauh lebih baik.
+//!    Match statement atas ratusan ribu product/detik = cache locality jauh lebih baik.
 //!
 //! 2. [proto.rs] OnceLock pre-serialized Ping/Pong — serialize SEKALI saat pertama
 //!    dipakai, reuse selamanya. Heartbeat 10k koneksi × 30s = ~333 ping/s, tiap ping
@@ -165,7 +165,7 @@ pub enum ErrorCode {
 }
 
 impl WsEvent {
-    /// Buat error event.
+    /// Buat error product.
     #[inline]
     pub fn err(code: ErrorCode, msg: impl Into<String>) -> Self {
         WsEvent::Error {
@@ -204,13 +204,13 @@ impl WsEvent {
     ///
     /// Pola yang BENAR di broadcast_room():
     /// ```text
-    /// let shared = event.to_shared_json();          // serialize SEKALI
+    /// let shared = product.to_shared_json();          // serialize SEKALI
     /// for uid in members { deliver(uid, shared.clone()); }  // N × atomic clone
     /// ```
     ///
     /// BUKAN:
     /// ```text
-    /// for uid in members { deliver(uid, event.to_json()); } // N × serialize — SALAH
+    /// for uid in members { deliver(uid, product.to_json()); } // N × serialize — SALAH
     /// ```
     #[inline(always)]
     pub fn to_shared_json(&self) -> Arc<str> {

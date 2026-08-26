@@ -1,17 +1,17 @@
 use leptos::prelude::*;
 use leptos_router::components::A;
 
-use crate::web::models::{format_date, format_price, Event};
+use crate::web::models::{format_date, format_price, Product};
 
 #[derive(Clone, PartialEq)]
-pub(super) enum EventStatus {
+pub(super) enum ProductStatus {
     OnSale,
     SoldOut,
     Presale,
 }
 
-impl EventStatus {
-    pub(super) fn from_event(e: &Event) -> Self {
+impl ProductStatus {
+    pub(super) fn from_product(e: &Product) -> Self {
         if e.total_quota > 0 && e.total_sold >= e.total_quota {
             Self::SoldOut
         } else if e.status == "active" {
@@ -22,9 +22,9 @@ impl EventStatus {
     }
     pub(super) fn css_mod(&self) -> &'static str {
         match self {
-            Self::OnSale  => "mhub-event-status mhub-event-status--sale",
-            Self::SoldOut => "mhub-event-status mhub-event-status--sold",
-            Self::Presale => "mhub-event-status mhub-event-status--presale",
+            Self::OnSale  => "mhub-product-status mhub-product-status--sale",
+            Self::SoldOut => "mhub-product-status mhub-product-status--sold",
+            Self::Presale => "mhub-product-status mhub-product-status--presale",
         }
     }
     pub(super) fn label(&self) -> &'static str {
@@ -36,11 +36,11 @@ impl EventStatus {
     }
 }
 
-pub(super) fn view_all_events(evs: Vec<Event>) -> impl IntoView {
+pub(super) fn view_all_products(evs: Vec<Product>) -> impl IntoView {
     view! {
-        <section class="mhub-events-section">
-            <div class="mhub-events-header">
-                <h3 class="mhub-events-title">"Semua Acara Platform"</h3>
+        <section class="mhub-products-section">
+            <div class="mhub-products-header">
+                <h3 class="mhub-products-title">"Semua Acara Platform"</h3>
                 <span class="mhub-live-badge">
                     <span class="mhub-live-dot"></span>
                     "Langsung"
@@ -66,7 +66,7 @@ pub(super) fn view_all_events(evs: Vec<Event>) -> impl IntoView {
                         .filter(|s| !s.is_empty())
                         .unwrap_or("https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=600&q=80")
                         .to_string();
-                    let status     = EventStatus::from_event(&ev);
+                    let status     = ProductStatus::from_product(&ev);
                     let title      = ev.name.clone();
                     let date       = format_date(&ev.event_date);
                     let venue_str  = match (ev.venue.as_deref(), ev.city.as_deref()) {
@@ -81,18 +81,18 @@ pub(super) fn view_all_events(evs: Vec<Event>) -> impl IntoView {
                         ((sold as f64 / quota as f64) * 100.0).round() as u32
                     } else { 0 };
                     let fill_style = format!("width:{pct}%");
-                    let (val_text, val_cls) = if status == EventStatus::SoldOut {
-                        ("100% Habis Terjual".to_string(), "mhub-event-progress-val mhub-event-progress-val--sold")
+                    let (val_text, val_cls) = if status == ProductStatus::SoldOut {
+                        ("100% Habis Terjual".to_string(), "mhub-product-progress-val mhub-product-progress-val--sold")
                     } else if quota == 0 {
-                        ("—".to_string(), "mhub-event-progress-val")
+                        ("—".to_string(), "mhub-product-progress-val")
                     } else {
-                        (format!("{sold}/{quota} Terjual"), "mhub-event-progress-val")
+                        (format!("{sold}/{quota} Terjual"), "mhub-product-progress-val")
                     };
                     let remaining_text = if quota == 0 { String::new() } else { format!("{avail} sisa") };
                     let fill_cls = match &status {
-                        EventStatus::SoldOut => "mhub-event-progress-fill mhub-event-progress-fill--sold",
-                        EventStatus::Presale => "mhub-event-progress-fill mhub-event-progress-fill--lime",
-                        _                    => "mhub-event-progress-fill",
+                        ProductStatus::SoldOut => "mhub-product-progress-fill mhub-product-progress-fill--sold",
+                        ProductStatus::Presale => "mhub-product-progress-fill mhub-product-progress-fill--lime",
+                        _                    => "mhub-product-progress-fill",
                     };
                     let price      = format_price(ev.display_price);
                     let slug       = ev.slug.clone();
@@ -100,31 +100,31 @@ pub(super) fn view_all_events(evs: Vec<Event>) -> impl IntoView {
                     let status_lbl = status.label();
 
                     view! {
-                        <div class="mhub-event-card">
-                            <div class="mhub-event-card-img-wrap">
-                                <img src=cover alt=title.clone() class="mhub-event-card-img"/>
+                        <div class="mhub-product-card">
+                            <div class="mhub-product-card-img-wrap">
+                                <img src=cover alt=title.clone() class="mhub-product-card-img"/>
                                 <span class=status_css>{status_lbl}</span>
                             </div>
-                            <div class="mhub-event-card-body">
-                                <div class="mhub-event-card-top-row">
-                                    <p class="mhub-event-card-title">{title}</p>
-                                    <div class="mhub-event-card-price-block">
-                                        <span class="mhub-event-price-label">"Mulai dari"</span>
-                                        <span class="mhub-event-price-value">{price}</span>
+                            <div class="mhub-product-card-body">
+                                <div class="mhub-product-card-top-row">
+                                    <p class="mhub-product-card-title">{title}</p>
+                                    <div class="mhub-product-card-price-block">
+                                        <span class="mhub-product-price-label">"Mulai dari"</span>
+                                        <span class="mhub-product-price-value">{price}</span>
                                     </div>
                                 </div>
-                                <p class="mhub-event-card-meta">{date}" • "{venue_str}</p>
-                                <div class="mhub-event-progress-section">
-                                    <div class="mhub-event-progress-row">
-                                        <span class="mhub-event-progress-key">"Penjualan"</span>
+                                <p class="mhub-product-card-meta">{date}" • "{venue_str}</p>
+                                <div class="mhub-product-progress-section">
+                                    <div class="mhub-product-progress-row">
+                                        <span class="mhub-product-progress-key">"Penjualan"</span>
                                         <span class=val_cls>{val_text}</span>
                                     </div>
-                                    <div class="mhub-event-progress-bar">
+                                    <div class="mhub-product-progress-bar">
                                         <div class=fill_cls style=fill_style></div>
                                     </div>
                                     {(!remaining_text.is_empty()).then(|| view! {
-                                        <div class="mhub-event-remaining-row">
-                                            <span class="mhub-event-remaining-badge">
+                                        <div class="mhub-product-remaining-row">
+                                            <span class="mhub-product-remaining-badge">
                                                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
                                                      stroke="currentColor" stroke-width="2.5">
                                                     <circle cx="12" cy="12" r="10"/>
@@ -136,9 +136,9 @@ pub(super) fn view_all_events(evs: Vec<Event>) -> impl IntoView {
                                         </div>
                                     })}
                                 </div>
-                                <div class="mhub-event-card-actions">
-                                    <A href=format!("/admin/events/{slug}/edit")
-                                       attr:class="mhub-event-manage-btn">
+                                <div class="mhub-product-card-actions">
+                                    <A href=format!("/admin/products/{slug}/edit")
+                                       attr:class="mhub-product-manage-btn">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                                              stroke="currentColor" stroke-width="2" stroke-linecap="round">
                                             <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>

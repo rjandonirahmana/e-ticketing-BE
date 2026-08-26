@@ -8,7 +8,7 @@
 //!    Hemat 1 String allocation PER MESSAGE yang dikirim ke tiap koneksi.
 //!    Untuk 10k koneksi × N msg/s = N × 10k alloc dihapus.
 //!
-//! 2. Hello event: to_json() sudah kembalikan Arc<str>.
+//! 2. Hello product: to_json() sudah kembalikan Arc<str>.
 //!    Original: .to_json() → String → .into() (copy ke Bytes).
 //!    Sekarang: Arc<str> → &str → Bytes (zero-copy view).
 //!
@@ -135,7 +135,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<WsAppState>, claims: Claims
 
     // P0 FIX: Register rooms ke WS index SEBELUM Hello dikirim.
     // Tanpa ini, user ada di sessions tapi tidak di room_members — broadcast room
-    // tidak akan sampai ke user sampai ada event lain yang memanggil join_room.
+    // tidak akan sampai ke user sampai ada product lain yang memanggil join_room.
     // Penting saat reconnect: user harus langsung masuk ke semua room-nya.
     state.ws_mgr.register_rooms(&user_id, &rooms);
 

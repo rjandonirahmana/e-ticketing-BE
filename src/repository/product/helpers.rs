@@ -77,7 +77,7 @@ pub(super) static VARIANT_STATS_LATERAL: &str = r#"
             SELECT
                 COALESCE(SUM(sold)::INT,  0) AS total_sold,
                 COALESCE(SUM(quota)::INT, 0) AS total_quota
-            FROM event_variants
+            FROM product_variants
             WHERE event_id = e.id AND is_active = true
         ) agg
         LEFT JOIN LATERAL (
@@ -86,7 +86,7 @@ pub(super) static VARIANT_STATS_LATERAL: &str = r#"
                 sale_price::FLOAT8        AS sale_price,
                 sale_price_start_date     AS sale_start,
                 sale_price_end_date       AS sale_end
-            FROM event_variants
+            FROM product_variants
             WHERE event_id = e.id AND is_active = true
             ORDER BY (
                 CASE
@@ -135,16 +135,16 @@ pub(super) static EVENT_COLS: &str = r#"
     md.store_name                    AS merchant_name
 "#;
 
-/// JOIN nama toko penyelenggara (ditampilkan di kartu explore & event detail
+/// JOIN nama toko penyelenggara (ditampilkan di kartu explore & product detail
 /// menggantikan label generik "Penyelenggara"). Setiap query yang memakai
 /// EVENT_COLS / EVENT_COLS_NO_AGG WAJIB menyertakan join ini. INSERT RETURNING
 /// tidak bisa join → mapper membaca merchant_name secara toleran (ok().flatten()).
 pub(super) static MERCHANT_JOIN: &str =
     " LEFT JOIN merchant_details md ON md.user_id = e.merchant_id ";
 
-/// Ringkasan profil merchant untuk bottom sheet event detail — HANYA disertakan
+/// Ringkasan profil merchant untuk bottom sheet product detail — HANYA disertakan
 /// di query DETAIL (by slug/id). Jangan tambahkan ke list: subquery followers/
-/// events_count per baris membuat list mahal. Rating dari kolom denormalisasi
+/// products_count per baris membuat list mahal. Rating dari kolom denormalisasi
 /// (migrasi 014) → tanpa scan `reviews`.
 pub(super) static MERCHANT_INFO_COLS: &str = r#"
     md.logo_url                          AS merchant_logo,
@@ -155,8 +155,8 @@ pub(super) static MERCHANT_INFO_COLS: &str = r#"
     COALESCE(md.total_review, 0)         AS merchant_rating_count,
     (SELECT COUNT(*)::BIGINT FROM merchant_follows f
       WHERE f.merchant_id = e.merchant_id)                            AS merchant_followers,
-    (SELECT COUNT(*)::BIGINT FROM events e2
-      WHERE e2.merchant_id = e.merchant_id AND e2.status = 'active')  AS merchant_events_count
+    (SELECT COUNT(*)::BIGINT FROM products e2
+      WHERE e2.merchant_id = e.merchant_id AND e2.status = 'active')  AS merchant_products_count
 "#;
 
 pub(super) static EVENT_COLS_NO_AGG: &str = r#"
@@ -204,14 +204,14 @@ pub(super) static VARIANTS_JSONB_AGG: &str = r#"
             )
             ORDER BY v.sort_order ASC, v.created_at ASC
         )
-        FROM event_variants v
+        FROM product_variants v
         WHERE v.event_id = e.id AND v.is_active = true),
         '[]'::jsonb
     ) AS variants_json
 "#;
 
 pub(super) static ADMIN_UPDATE_EVENT_STATUS: &str = r#"
-    UPDATE events
+    UPDATE products
        SET status = $2
      WHERE id = $1
 "#;
@@ -220,7 +220,7 @@ pub(super) static ADMIN_UPDATE_EVENT_STATUS: &str = r#"
 
 pub(super) static FIND_EVENT_BY_ID: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {cols} FROM events e {lateral} {mjoin} WHERE e.id = $1",
+        "SELECT {cols} FROM products e {lateral} {mjoin} WHERE e.id = $1",
         cols = EVENT_COLS,
         lateral = VARIANT_STATS_LATERAL,
         mjoin = MERCHANT_JOIN,
@@ -229,7 +229,7 @@ pub(super) static FIND_EVENT_BY_ID: LazyLock<String> = LazyLock::new(|| {
 
 pub(super) static FIND_EVENT_WITH_VARIANTS_BY_SLUG: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {cols}, {minfo}, {agg} FROM events e {mjoin} WHERE e.slug = $1",
+        "SELECT {cols}, {minfo}, {agg} FROM products e {mjoin} WHERE e.slug = $1",
         cols = EVENT_COLS_NO_AGG,
         minfo = MERCHANT_INFO_COLS,
         agg = VARIANTS_JSONB_AGG,
@@ -239,7 +239,7 @@ pub(super) static FIND_EVENT_WITH_VARIANTS_BY_SLUG: LazyLock<String> = LazyLock:
 
 pub(super) static FIND_EVENT_WITH_VARIANTS_BY_ID: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {cols}, {minfo}, {agg} FROM events e {mjoin} WHERE e.id = $1",
+        "SELECT {cols}, {minfo}, {agg} FROM products e {mjoin} WHERE e.id = $1",
         cols = EVENT_COLS_NO_AGG,
         minfo = MERCHANT_INFO_COLS,
         agg = VARIANTS_JSONB_AGG,
@@ -249,10 +249,10 @@ pub(super) static FIND_EVENT_WITH_VARIANTS_BY_ID: LazyLock<String> = LazyLock::n
 
 // $13 category dan $15 detail_images adalah jsonb — tokio-postgres serialise
 // serde_json::Value langsung ke jsonb tanpa perlu ::jsonb cast di SQL.
-// FIX: INSERT_EVENT kini pakai RETURNING semua kolom yang dibutuhkan row_to_event_no_agg.
+// FIX: INSERT_EVENT kini pakai RETURNING semua kolom yang dibutuhkan row_to_product_no_agg.
 // Menghilangkan find_by_id post-insert (N+1 query) — data sudah tersedia dari RETURNING.
 pub(super) static INSERT_EVENT: &str = "\
-    INSERT INTO events \
+    INSERT INTO products \
         (id, merchant_id, name, slug, description, cover_url, price, venue, city, \
          event_date, start_time, end_time, category, status, detail_images, latitude, longitude, \
          cover_focus) \
@@ -263,7 +263,7 @@ pub(super) static INSERT_EVENT: &str = "\
         created_at, updated_at, category";
 
 pub(super) static UPDATE_EVENT: &str = r#"
-    UPDATE events
+    UPDATE products
        SET name          = COALESCE($3,  name),
            description   = COALESCE($4,  description),
            cover_url     = COALESCE($5,  cover_url),
@@ -281,7 +281,7 @@ pub(super) static UPDATE_EVENT: &str = r#"
      WHERE id = $1 AND merchant_id = $2
 "#;
 
-pub(super) static DELETE_EVENT: &str = "DELETE FROM events WHERE id = $1 AND merchant_id = $2";
+pub(super) static DELETE_EVENT: &str = "DELETE FROM products WHERE id = $1 AND merchant_id = $2";
 
 // ── Variant queries ───────────────────────────────────────────────────────────
 
@@ -304,12 +304,12 @@ pub(super) static VARIANT_COLS: &str = r#"
 "#;
 
 pub(super) static FIND_VARIANT_BY_ID: LazyLock<String> =
-    LazyLock::new(|| format!("SELECT {} FROM event_variants WHERE id = $1", VARIANT_COLS));
+    LazyLock::new(|| format!("SELECT {} FROM product_variants WHERE id = $1", VARIANT_COLS));
 
 pub(super) const VARIANT_INSERT_COLS: usize = 11;
 
 pub(super) static UPDATE_VARIANT: &str = r#"
-    UPDATE event_variants v
+    UPDATE product_variants v
        SET name                  = COALESCE($3,                     v.name),
            description           = COALESCE($4,                     v.description),
            price                 = COALESCE(($5::float8)::numeric,  v.price),
@@ -320,15 +320,34 @@ pub(super) static UPDATE_VARIANT: &str = r#"
            max_per_order         = COALESCE($10,                    v.max_per_order),
            is_active             = COALESCE($11,                    v.is_active),
            sort_order            = COALESCE($12,                    v.sort_order)
-      FROM events e
+      FROM products e
      WHERE v.id = $1
        AND v.event_id = e.id
        AND e.merchant_id = $2
 "#;
 
+/// Lepaskan varian dari keranjang yang masih TERBUKA sebelum ia dihapus.
+///
+/// Sejak `order_items` dilebur ke `cart_items`, tabel itu memuat dua hal
+/// sekaligus: isi keranjang yang masih hidup DAN rincian pesanan yang sudah
+/// dibayar. Foreign key-nya karena itu `ON DELETE RESTRICT` — varian yang
+/// pernah terjual tidak boleh bisa dihapus.
+///
+/// Tanpa pembersihan ini, satu orang yang kebetulan menaruh varian tersebut di
+/// keranjangnya sudah cukup untuk membuat merchant tak bisa menghapusnya
+/// selamanya. Yang dibuang hanya baris di keranjang `deleted_at IS NULL`;
+/// keranjang yang sudah menjadi pesanan sengaja dibiarkan menghalangi.
+pub(super) static DETACH_VARIANT_FROM_OPEN_CARTS: &str = r#"
+    DELETE FROM cart_items ci
+    USING carts c
+    WHERE ci.cart_id = c.id
+      AND ci.ticket_variant_id = $1
+      AND c.deleted_at IS NULL
+"#;
+
 pub(super) static DELETE_VARIANT: &str = r#"
-    DELETE FROM event_variants v
-    USING events e
+    DELETE FROM product_variants v
+    USING products e
     WHERE v.id = $1
       AND v.event_id = e.id
       AND e.merchant_id = $2
