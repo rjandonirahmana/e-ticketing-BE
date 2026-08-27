@@ -6,7 +6,7 @@ use tokio_postgres::Row;
 
 use super::db::{exec_drop, exec_first, exec_one, exec_rows};
 use crate::models::merchant::{
-    MerchantDetail, MerchantFollower, MerchantPublicProfile, MerchantReviewItem,
+    FollowedMerchant, MerchantDetail, MerchantFollower, MerchantPublicProfile, MerchantReviewItem,
     MerchantReviewSummary, MerchantSearchItem, UserPublicProfile, UserReviewItem,
 };
 use crate::utils::ulid::{bin_to_ulid, id_to_vec};
@@ -116,6 +116,16 @@ pub trait MerchantRepository: Send + Sync {
 
     /// Jumlah follower merchant.
     async fn count_followers(&self, merchant_id: &str) -> Result<i64>;
+
+    /// Toko yang DIIKUTI seorang pengguna (kebalikan `list_followers`).
+    async fn list_following(
+        &self,
+        follower_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<FollowedMerchant>>;
+
+    async fn count_following(&self, follower_id: &str) -> Result<i64>;
 
     /// Cari merchant berdasarkan nama toko (ILIKE), terverifikasi dulu.
     async fn search(&self, query: &str, limit: i64) -> Result<Vec<MerchantSearchItem>>;
@@ -523,6 +533,68 @@ impl MerchantRepository for PgMerchantRepository {
                 })
             })
             .collect()
+    }
+
+    /// Toko yang diikuti pengguna ini.
+    ///
+    /// JOIN ke `merchant_details`, bukan ke `users`: yang harus tampil di daftar
+    /// adalah nama TOKO dan logonya. `users.name` adalah nama pemilik akun, dan
+    /// keduanya kerap berbeda — menampilkan yang salah membuat daftar ini tak
+    /// bisa dicocokkan dengan toko yang tampak di halaman produk.
+    ///
+    /// INNER JOIN disengaja: baris `merchant_follows` yang tokonya sudah tak
+    /// punya `merchant_details` (akun dihapus) ikut tersaring keluar, alih-alih
+    /// muncul sebagai baris kosong tanpa nama yang tak bisa diklik.
+    ///
+    /// Index `idx_merchant_follows_follower (follower_id)` dari migrasi 017
+    /// sudah menopang WHERE-nya — tak perlu index baru.
+    async fn list_following(
+        &self,
+        follower_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<FollowedMerchant>> {
+        let fid = id_to_vec(follower_id)?;
+        let rows = exec_rows(
+            &self.pool,
+            r#"
+            SELECT f.merchant_id AS mid,
+                   d.store_name,
+                   d.logo_url,
+                   COALESCE(d.verified, FALSE) AS verified,
+                   f.created_at
+            FROM   merchant_follows f
+            JOIN   merchant_details d ON d.user_id = f.merchant_id
+            WHERE  f.follower_id = $1
+            ORDER BY f.created_at DESC
+            LIMIT $2 OFFSET $3
+            "#,
+            &[&fid, &limit, &offset],
+        )
+        .await?;
+        rows.iter()
+            .map(|r| {
+                let mid: Vec<u8> = r.try_get("mid")?;
+                Ok(FollowedMerchant {
+                    merchant_id: bin_to_ulid(mid)?,
+                    store_name: r.try_get("store_name")?,
+                    logo_url: r.try_get("logo_url")?,
+                    verified: r.try_get("verified")?,
+                    followed_at: r.try_get("created_at")?,
+                })
+            })
+            .collect()
+    }
+
+    async fn count_following(&self, follower_id: &str) -> Result<i64> {
+        let fid = id_to_vec(follower_id)?;
+        let row = exec_one(
+            &self.pool,
+            "SELECT COUNT(*)::BIGINT AS n FROM merchant_follows WHERE follower_id = $1",
+            &[&fid],
+        )
+        .await?;
+        Ok(row.try_get("n")?)
     }
 
     async fn count_followers(&self, merchant_id: &str) -> Result<i64> {

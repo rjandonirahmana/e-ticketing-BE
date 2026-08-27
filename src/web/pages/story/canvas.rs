@@ -679,14 +679,14 @@ pub(super) async fn render_product_card_to_canvas(
     ctx.set_fill_style_str("rgba(255,255,255,0.14)");
     ctx.fill_rect(card_x + pad, sep_y, card_w - 2.0 * pad, 2.0);
 
-    // "DATE & VENUE" eyebrow label
+    // "TANGGAL & LOKASI" eyebrow label
     let meta_lbl_top = sep_y + 2.0 + sep_gap;
     ctx.set_font(&format!(
         "{meta_lbl_fs}px -apple-system, BlinkMacSystemFont, sans-serif"
     ));
     ctx.set_fill_style_str("rgba(255,255,255,0.42)");
     ctx.set_text_baseline("top");
-    let _ = ctx.fill_text("DATE & VENUE", card_x + pad, meta_lbl_top);
+    let _ = ctx.fill_text("TANGGAL & LOKASI", card_x + pad, meta_lbl_top);
 
     // Date (left) + Venue (right)
     let meta_row_top = meta_lbl_top + meta_lbl_fs + 8.0 + 8.0;
@@ -736,7 +736,7 @@ pub(super) async fn render_product_card_to_canvas(
             ctx.set_fill_style_str("rgba(255,255,255,0.55)");
             ctx.set_text_baseline("middle");
             let _ = ctx.fill_text(
-                "✓ Tiket berhasil dibeli",
+                "✓ Pesanan berhasil dibuat",
                 card_x + pad,
                 lbl_top + ticket_lbl_h * 0.5,
             );
@@ -1091,7 +1091,7 @@ pub(super) async fn render_merchant_card_to_canvas(
         let lbl_y = num_y + 10.0 + stat_lbl_fs;
         let vals = [
             (crate::web::pages::merchant_public::fmt_count(followers), "FOLLOWERS", false),
-            (crate::web::pages::merchant_public::fmt_count(products_count), "EVENTS", false),
+            (crate::web::pages::merchant_public::fmt_count(products_count), "PRODUK", false),
             (format!("{rating:.1}"), "RATING", true),
         ];
         ctx.set_text_align("center");

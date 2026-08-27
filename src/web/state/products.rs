@@ -12,7 +12,7 @@ pub struct ExploreProduct {
     pub id: String,
     /// Untuk link profil penyelenggara (/m/{merchant_id}) dari kartu explore.
     pub merchant_id: String,
-    /// Nama toko penyelenggara (chip kartu; kosong → fallback "PENYELENGGARA").
+    /// Nama toko penyelenggara (chip kartu; kosong → fallback "TOKO").
     pub merchant_name: String,
     pub slug: String,
     pub title: String,

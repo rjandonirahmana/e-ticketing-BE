@@ -130,14 +130,28 @@ fn story_link_path(slug: &str) -> String {
     }
 }
 
-// ── Helper: jalankan closure sekali setelah `ms` — Closure::once sehingga
-//    captures dibebaskan setelah callback jalan (tidak leak permanen) ───
+// ── Helper: jalankan closure sekali setelah `ms` ─────────────────────────────
+//
+// `Closure::once_into_js`, BUKAN `Closure::once(..) + forget()`.
+//
+// Keduanya sama-sama membebaskan CAPTURES sesudah callback jalan — itu yang
+// diperbaiki catatan P1-a di kepala berkas, dan itu sudah benar. Yang masih
+// tersisa adalah `Closure` itu sendiri: `forget()` secara harfiah
+// `mem::forget(self)`, jadi pembungkusnya beserta slot tabel fungsi wasm-nya
+// tak pernah dibebaskan. Satu-dua panggilan tak berarti apa-apa, tetapi helper
+// ini dipakai enam tempat di penampil story dan jalur seperti letupan hati
+// berjalan setiap kali jempol menyentuh layar — bocornya kecil tapi TAK
+// BERBATAS sepanjang sesi.
+//
+// `once_into_js` menyerahkan closure ke JS tanpa menyisakan pembungkus di sisi
+// Rust: begitu fungsinya dipanggil, seluruhnya dibebaskan. Satu-satunya syarat
+// adalah ia HARUS dipanggil — dan di sini penjadwalnya (`setTimeout`/`rAF`)
+// yang menjaminnya.
 fn after_timeout(ms: i32, f: impl FnOnce() + 'static) {
     let Some(win) = web_sys::window() else { return };
-    let cb = Closure::once(f);
+    let cb = Closure::once_into_js(f);
     let _ =
-        win.set_timeout_with_callback_and_timeout_and_arguments_0(cb.as_ref().unchecked_ref(), ms);
-    cb.forget();
+        win.set_timeout_with_callback_and_timeout_and_arguments_0(cb.unchecked_ref(), ms);
 }
 
 // ── Face cube tetangga: preview story pertama user sebelah (ala IG) ────
@@ -1191,7 +1205,7 @@ pub fn StoryViewer() -> impl IntoView {
         // FIX P1-a: Closure::once → FnOnce semantics
         // Setelah callback dipanggil JS, semua captures di-move keluar / drop.
         // Satu-satunya leak adalah shell Closure struct kosong (beberapa byte).
-        let anim = Closure::once({
+        let anim = Closure::once_into_js({
             let el = el.clone();
             let win = win.clone();
             move || {
@@ -1200,7 +1214,7 @@ pub fn StoryViewer() -> impl IntoView {
 
                 // Clone el sebelum move ke fade closure
                 let el_fade = el.clone();
-                let fade = Closure::once(move || {
+                let fade = Closure::once_into_js(move || {
                     let h: &web_sys::HtmlElement = el_fade.unchecked_ref();
                     let _ = h.style().set_property("opacity", "0");
                     let _ = h.style().set_property("transform", "scale(1.6)");
@@ -1209,14 +1223,12 @@ pub fn StoryViewer() -> impl IntoView {
                     // el_fade, active_hearts di-drop di sini (FnOnce selesai)
                 });
                 let _ = win.set_timeout_with_callback_and_timeout_and_arguments_0(
-                    fade.as_ref().unchecked_ref(),
+                    fade.unchecked_ref(),
                     450,
                 );
-                fade.forget(); // one-shot; setelah 450ms JS GC bebaskan captures
             }
         });
-        let _ = win.request_animation_frame(anim.as_ref().unchecked_ref());
-        anim.forget(); // one-shot; setelah RAF fires JS GC bebaskan captures
+        let _ = win.request_animation_frame(anim.unchecked_ref());
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -1396,16 +1408,15 @@ pub fn StoryViewer() -> impl IntoView {
                                                      let rs = raf_state.clone();
                                                      // Closure::once → FnOnce: captures freed after first RAF tick,
                                                      // not leaked permanently like Closure::new(Fn) would be.
-                                                     let setup = Closure::once(move || {
+                                                     let setup = Closure::once_into_js(move || {
                                                          let st = rs.get_value();
                                                          if !st.cancelled && st.paused_at_ms == 0.0 && ri.get_value() == 0 {
                                                              start_raf(&rc, &ri);
                                                          }
                                                      });
                                                      if let Some(win) = web_sys::window() {
-                                                         let _ = win.request_animation_frame(setup.as_ref().unchecked_ref());
+                                                         let _ = win.request_animation_frame(setup.unchecked_ref());
                                                      }
-                                                     setup.forget();
                                                  }
                                              }
                                         />
@@ -1476,9 +1487,9 @@ pub fn StoryViewer() -> impl IntoView {
                             // eyebrow & label CTA berbeda dari story product.
                             let is_merchant = slug.starts_with("m/");
                             let (eyebrow, cta_label) = if is_merchant {
-                                ("PENYELENGGARA", "Kunjungi Profil")
+                                ("TOKO", "Kunjungi Profil")
                             } else {
-                                ("EVENT", "Lihat Product")
+                                ("EVENT", "Lihat Produk")
                             };
                             let title = s.event_title.clone()
                                 .unwrap_or_else(|| cta_label.to_string());

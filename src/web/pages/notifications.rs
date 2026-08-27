@@ -305,7 +305,7 @@ fn empty_state() -> impl IntoView {
 
             <h2 class="notif-empty-title">"SEMUA TENANG"</h2>
             <p class="notif-empty-body">
-                "Belum ada notifikasi untukmu. Notifikasi tentang tiket, promo, dan product akan muncul di sini."
+                "Belum ada notifikasi untukmu. Notifikasi tentang pesanan, promo, dan produk akan muncul di sini."
             </p>
 
             <A href="/explore" attr:class="notif-empty-cta">
@@ -314,7 +314,7 @@ fn empty_state() -> impl IntoView {
                     <circle cx="11" cy="11" r="8" />
                     <line x1="21" y1="21" x2="16.65" y2="16.65" />
                 </svg>
-                "JELAJAHI EVENT"
+                "JELAJAHI PRODUK"
             </A>
 
             <div class="notif-empty-tips">
@@ -327,7 +327,7 @@ fn empty_state() -> impl IntoView {
                         </svg>
                     </div>
                     <div class="notif-empty-tip-body">
-                        <span class="notif-empty-tip-title">"Konfirmasi tiket"</span>
+                        <span class="notif-empty-tip-title">"Konfirmasi pengambilan"</span>
                         <span class="notif-empty-tip-sub">
                             "Notifikasi muncul setelah pembelian berhasil."
                         </span>

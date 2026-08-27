@@ -113,6 +113,24 @@ pub struct MerchantFollower {
     pub created_at: DateTime<Utc>,
 }
 
+/// Satu merchant yang DIIKUTI oleh seorang pengguna.
+///
+/// Kebalikan arah dari [`MerchantFollower`], dan sengaja struct sendiri: yang
+/// dibutuhkan daftar "toko yang saya ikuti" adalah identitas TOKO (nama toko,
+/// logo, terverifikasi) — bukan identitas orang. Memakai ulang
+/// `MerchantFollower` akan memaksa daftar toko menampilkan `users.name`, yaitu
+/// nama pemilik akun, bukan nama tokonya.
+#[derive(Debug, Clone, Serialize)]
+pub struct FollowedMerchant {
+    pub merchant_id: String,
+    /// `merchant_details.store_name` — nama TOKO.
+    pub store_name: String,
+    pub logo_url: String,
+    pub verified: bool,
+    /// Kapan pengguna menekan ikuti. Dipakai untuk mengurutkan yang terbaru.
+    pub followed_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct MerchantReviewItem {
     pub user_id: String,

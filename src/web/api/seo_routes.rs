@@ -36,7 +36,7 @@ pub async fn sitemap_xml(Extension(state): Extension<Arc<AppState>>) -> Response
     .map(|p| format!("{SITE_BASE}{p}"))
     .collect();
 
-    // Product aktif (terbaru dulu). Cap 45k → sisakan ruang utk statis + merchant.
+    // Produk aktif (terbaru dulu). Cap 45k → sisakan ruang utk statis + merchant.
     if let Ok(rows) = exec_rows(
         &state.pool,
         "SELECT slug FROM products WHERE status = 'active' AND slug <> '' \

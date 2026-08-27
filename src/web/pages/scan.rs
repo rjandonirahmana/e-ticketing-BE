@@ -259,8 +259,8 @@ pub fn ScanPage() -> impl IntoView {
                     </svg>
                 </A>
                 <div class="scan-header-info">
-                    <span class="scan-header-title">"SCAN TIKET"</span>
-                    <span class="scan-header-sub">"Scan QR code tiket peserta"</span>
+                    <span class="scan-header-title">"PINDAI KODE AMBIL"</span>
+                    <span class="scan-header-sub">"Pindai kode pengambilan milik pembeli"</span>
                 </div>
                 <ThemeToggle/>
             </header>
@@ -353,7 +353,7 @@ pub fn ScanPage() -> impl IntoView {
                             <div class="scan-result scan-result--valid">
                                 <span class="scan-result-icon">"✅"</span>
                                 <div class="scan-result-body">
-                                    <p class="scan-result-title">"TIKET VALID"</p>
+                                    <p class="scan-result-title">"BOLEH DISERAHKAN"</p>
                                     <p class="scan-result-detail">
                                         {format!("{}\n{}", r.event_title, r.tier_name)}
                                     </p>
@@ -379,7 +379,7 @@ pub fn ScanPage() -> impl IntoView {
                             <div class="scan-result scan-result--invalid">
                                 <span class="scan-result-icon">"❌"</span>
                                 <div class="scan-result-body">
-                                    <p class="scan-result-title">"TIKET TIDAK VALID"</p>
+                                    <p class="scan-result-title">"KODE TIDAK BERLAKU"</p>
                                     <p class="scan-result-detail">{msg}</p>
                                 </div>
                                 <button class="scan-again-btn" on:click=move |_| scan_again()>
@@ -405,13 +405,13 @@ pub fn ScanPage() -> impl IntoView {
                 // ── Manual input ──────────────────────────────────────────────
                 <div class="scan-manual-wrap">
                     <p class="scan-manual-label">
-                        "Atau masukkan kode tiket secara manual"
+                        "Atau masukkan kode ambil secara manual"
                     </p>
                     <div class="scan-manual-row">
                         <input
                             type="text"
                             class="scan-manual-input"
-                            placeholder="Kode tiket / QR value..."
+                            placeholder="Kode ambil / isi QR..."
                             prop:value=move || manual_input.get()
                             on:input=move |e| manual_input.set(event_target_value(&e))
                             on:keydown=move |e| {

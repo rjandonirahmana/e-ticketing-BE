@@ -19,29 +19,30 @@ use crate::web::seo::SeoMeta;
 pub fn ProductDetailPage() -> impl IntoView {
     let params    = use_params_map();
     let slug      = Memo::new(move |_| params.read().get("slug").unwrap_or_default());
-    // ── BLOCKING HANYA DI SISI SERVER ────────────────────────────────────────
-    // `Resource::new_blocking` bukan sekadar urusan streaming SSR. Saat navigasi
-    // di klien, `leptos_router` MENUNGGU view rute baru selesai di-resolve
-    // sebelum menukarnya (`flat_router.rs:308` — `view.choose().await`),
-    // sementara pembaruan lokasi — termasuk GULIR KE ATAS — sudah terjadi lebih
-    // dulu. Resource blocking ikut ditunggu di jalur itu.
+    // ── `new_blocking` HANYA BERARTI DI SERVER ───────────────────────────────
+    // Flag `blocking` sebuah Resource dibaca leptos SATU tempat saja, dan tempat
+    // itu ada di balik `#[cfg(feature = "ssr")]`:
     //
-    // Akibatnya persis yang dilaporkan: klik kartu product dari beranda →
-    // halaman menggulir ke atas, URL berganti, tapi isinya tetap beranda sampai
-    // permintaan detail selesai. Bila permintaannya lambat, itu terbaca sebagai
-    // "tidak pindah halaman"; bila gagal/menggantung, ia tak pernah pindah.
+    //     // leptos_server-0.8.7/src/resource.rs:334
+    //     #[cfg(feature = "ssr")]
+    //     if let Some(shared_context) = shared_context {
+    //         if blocking { shared_context.defer_stream(...); }
     //
-    // `Suspense` di bawah sudah punya fallback shimmer — tapi fallback itu tak
-    // pernah terpakai selama resource-nya blocking, karena justru itu maknanya:
-    // "jangan tampilkan apa pun, tunggu".
+    // Parameternya bahkan ditandai `#[allow(unused)] // this is used with
+    // feature = "ssr"`. Artinya di bundel WASM `Resource::new_blocking` dan
+    // `Resource::new` menghasilkan perilaku yang PERSIS SAMA.
     //
-    // SSR tetap memakai blocking supaya HTML pertama sudah berisi detail product
-    // utuh (SEO + tanpa kedip pada kunjungan langsung). Klien memakai versi
-    // biasa supaya perpindahan halaman terjadi SEKETIKA dengan shimmer.
-    #[cfg(feature = "ssr")]
+    // Versi sebelumnya memecah baris ini dengan `#[cfg(feature = "ssr")]` /
+    // `#[cfg(not(...))]` untuk "membuat perpindahan halaman seketika". Pemecahan
+    // itu tidak mengubah apa pun — kedua cabang berkompilasi menjadi kode klien
+    // yang sama — dan gejala yang hendak diobatinya tetap ada. Akar sebenarnya
+    // ada di `web/app/guards.rs` (navigasi kedua di tengah pembangunan view);
+    // baca catatan panjang di sana.
+    //
+    // Blocking tetap dipakai karena SSR memang membutuhkannya: HTML pertama
+    // harus sudah berisi isi halaman, untuk SEO dan agar kunjungan langsung tak
+    // berkedip dari kerangka ke konten.
     let product_res = Resource::new_blocking(move || slug.get(), |s| get_product_detail(s));
-    #[cfg(not(feature = "ssr"))]
-    let product_res = Resource::new(move || slug.get(), |s| get_product_detail(s));
     // Kategori product ini → dipakai untuk (a) mencari product BERKAITAN, dan
     // (b) mencatat minat user untuk rekomendasi "Untuk Kamu".
     let rel_cat = Memo::new(move |_| {
@@ -95,7 +96,7 @@ pub fn ProductDetailPage() -> impl IntoView {
     });
 
     // Footer beli disembunyikan begitu user scroll melewati kartu venue
-    // ("Get Directions" = bagian detail terakhir) → area "Product Berkaitan"
+    // ("Get Directions" = bagian detail terakhir) → area "Produk Berkaitan"
     // bersih tanpa tombol beli menutupi konten.
     let past_dirs = RwSignal::new(false);
 
@@ -229,6 +230,18 @@ pub fn ProductDetailPage() -> impl IntoView {
 
     let is_logged_in = move || auth.get().and_then(|r| r.ok()).flatten().is_some();
 
+    // Id pengguna yang sedang masuk — dipakai membandingkan dengan pemilik
+    // produk. Dipisah jadi closure sendiri supaya pembacaan `auth` tetap satu
+    // tempat; membacanya langsung di tengah markup membuat setiap bagian
+    // halaman ikut berlangganan perubahan sesi tanpa alasan.
+    let my_id = move || {
+        auth.get()
+            .and_then(|r| r.ok())
+            .flatten()
+            .map(|u| u.id)
+            .unwrap_or_default()
+    };
+
     let shimmer = move || view! {
         // No .page wrapper here — .page is hoisted outside Suspense below
         <div class="shim" style="width:100%;height:280px;border-radius:0"></div>
@@ -298,13 +311,13 @@ pub fn ProductDetailPage() -> impl IntoView {
                                         <div style="font-size:3rem;margin-bottom:12px">"🔍"</div>
                                         <h2 style="font-size:1.1rem;font-weight:700;text-transform:uppercase;
                                         letter-spacing:.06em;margin-bottom:8px">
-                                            "EVENT TIDAK DITEMUKAN"
+                                            "PRODUK TIDAK DITEMUKAN"
                                         </h2>
                                         <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:20px">
-                                            "Product ini mungkin sudah selesai atau telah dihapus."
+                                            "Produk ini mungkin sudah tidak dijual atau telah dihapus."
                                         </p>
                                         <A href="/explore" attr:class="tier-add-btn">
-                                            "JELAJAHI EVENT"
+                                            "JELAJAHI PRODUK"
                                         </A>
                                     </div>
                                 }
@@ -323,6 +336,69 @@ pub fn ProductDetailPage() -> impl IntoView {
                                     let f = ev.cover_focus.trim();
                                     let f = if f.is_empty() { "50% 50%" } else { f };
                                     format!("object-position:{f}")
+                                };
+
+                                // ── Slide galeri produk ──────────────────────────
+                                // Cover lebih dulu, lalu foto detail sesuai urutan
+                                // yang disusun merchant. Urutan itu bukan sekadar
+                                // rapi-rapi: slide pertama adalah satu-satunya yang
+                                // pasti dilihat setiap pembeli.
+                                //
+                                // `image_type` (denah lokasi / peta kursi / info
+                                // harga) sengaja TIDAK lagi dibaca di sini. Itu
+                                // konsep dari masa aplikasi ini menjual tiket acara;
+                                // untuk sebuah barang, setiap foto adalah foto
+                                // produk dan semuanya masuk galeri yang sama.
+                                let slides: Vec<(String, String)> = {
+                                    let mut v: Vec<(String, String)> = Vec::new();
+                                    if !cover.is_empty() {
+                                        v.push((cover.clone(), cover_pos.clone()));
+                                    }
+                                    for d in ev.detail_images.iter() {
+                                        if d.url.trim().is_empty() {
+                                            continue;
+                                        }
+                                        let f = d.focus.trim();
+                                        let f = if f.is_empty() { "50% 50%" } else { f };
+                                        v.push((d.url.clone(), format!("object-position:{f}")));
+                                    }
+                                    v
+                                };
+                                let slide_count = slides.len();
+                                // `>` dihitung DI SINI, bukan di dalam `view!` —
+                                // parser makro memperlakukan `>` di dalam markup
+                                // sebagai penutup tag (lihat catatan yang sama di
+                                // `components/variant_editor.rs`).
+                                let banyak_slide = slide_count > 1;
+                                let slide_aktif = RwSignal::new(0usize);
+
+                                // Indeks slide dihitung dari posisi gulir, bukan
+                                // dari tombol: yang menggeser adalah jari, dan
+                                // scroll-snap-lah yang memutuskan slide mana yang
+                                // berhenti di tengah.
+                                let on_slide_scroll = move |_ev: leptos::ev::Event| {
+                                    #[cfg(target_arch = "wasm32")]
+                                    {
+                                        use wasm_bindgen::JsCast;
+                                        if let Some(el) = _ev
+                                            .target()
+                                            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+                                        {
+                                            let lebar = el.client_width();
+                                            if lebar != 0 {
+                                                let idx = (el.scroll_left() as f64 / lebar as f64)
+                                                    .round()
+                                                    .max(0.0)
+                                                    as usize;
+                                                // Dijaga: `set` tanpa perbandingan
+                                                // akan menjalankan ulang efek titik
+                                                // indikator pada SETIAP piksel gulir.
+                                                if slide_aktif.get_untracked() != idx {
+                                                    slide_aktif.set(idx);
+                                                }
+                                            }
+                                        }
+                                    }
                                 };
                                 let date_str = format_date(&ev.event_date);
                                 let venue_str = match (&ev.venue, &ev.city) {
@@ -343,11 +419,27 @@ pub fn ProductDetailPage() -> impl IntoView {
                                 let is_live = ev.status.eq_ignore_ascii_case("live");
                                 let live_room_id = format!("live_{}", ev.merchant_id);
                                 let organizer_href = format!("/m/{}", ev.merchant_id);
+
+                                // Tautan chat: alamatnya cukup dari `merchant_id`,
+                                // jadi tak ada panggilan server sama sekali di sini.
+                                let chat_href = format!("/pulse/toko/{}", ev.merchant_id);
+
+                                // ── PRODUK MILIK SENDIRI ────────────────────────
+                                // Merchant yang membuka produknya sendiri tak punya
+                                // lawan bicara. Server memang sudah menolaknya
+                                // (`ensure_dm` gagal bila kedua id sama), tapi
+                                // penolakan itu baru datang sesudah pesan diketik dan
+                                // dikirim — jauh lebih terlambat daripada perlu.
+                                let pemilik_id = ev.merchant_id.clone();
+                                let milik_sendiri = Memo::new(move |_| {
+                                    let me = my_id();
+                                    !me.is_empty() && me == pemilik_id
+                                });
                                 let organizer_name = ev
                                     .merchant_name
                                     .clone()
                                     .filter(|n| !n.is_empty())
-                                    .unwrap_or_else(|| "Penyelenggara".to_string());
+                                    .unwrap_or_else(|| "Toko".to_string());
                                 // Ringkasan merchant untuk bottom sheet — sudah ikut
                                 // payload detail (1 query di server, tanpa fetch kedua).
                                 let sheet_merchant = ev.merchant.clone();
@@ -388,7 +480,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                         params.append("product_price", &_share_price_str);
                                         if let Some(win) = web_sys::window() {
                                             if let Ok(Some(storage)) = win.session_storage() {
-                                                let _ = storage.set_item("story_hero_transition", "product");
+                                                let _ = storage.set_item("story_hero_transition", "produk");
                                                 let _ = storage.set_item("story_hero_cover", &_share_cover);
                                             }
                                         }
@@ -541,7 +633,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                 let meta_title = format!("{} — PULSE", title);
                                 let meta_desc = format!(
                                     "{} | {} | {}",
-                                    if desc.is_empty() { "Product seru di Indonesia" } else { &desc },
+                                    if desc.is_empty() { "Produk pilihan di Indonesia" } else { &desc },
                                     venue_str,
                                     date_str,
                                 );
@@ -551,7 +643,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                     &serde_json::json!(
                                         {
                                         "@context": "https://schema.org",
-                                        "@type": "Product",
+                                        "@type": "Produk",
                                         "name": ev.name.clone(),
                                         "description": (!desc.is_empty()).then(|| desc.clone()),
                                         "startDate": ev.event_date.to_rfc3339(),
@@ -659,9 +751,25 @@ pub fn ProductDetailPage() -> impl IntoView {
                                         </div>
                                     </header>
 
-                                    // ── Hero ─────────────────────────────────────────────
+                                    // ── Hero: GALERI YANG BISA DIGESER ───────────────────
+                                    // Dulu satu foto mati (cover saja). Foto detail
+                                    // yang diunggah merchant tersimpan di
+                                    // `products.detail_images` dan dikirim API —
+                                    // tapi TIDAK PERNAH dirender di mana pun, jadi
+                                    // pembeli tak pernah melihatnya. Ini yang
+                                    // menampilkannya.
+                                    //
+                                    // Geser memakai scroll-snap NATIF, bukan
+                                    // pustaka carousel dan bukan JS. Konsekuensinya
+                                    // penting: galerinya sudah bisa digeser sejak
+                                    // HTML server tiba, sebelum WASM diunduh —
+                                    // sedangkan carousel ber-JS baru hidup setelah
+                                    // hidrasi, dan pada kunjungan dingin itu berarti
+                                    // beberapa detik pertama foto tak bisa digeser
+                                    // sama sekali. Hidrasi di sini hanya menambah
+                                    // titik indikator.
                                     <div class="ed-hero">
-                                        {if cover.is_empty() {
+                                        {if slides.is_empty() {
                                             view! {
                                                 <div
                                                     class="ed-hero-img"
@@ -671,15 +779,65 @@ pub fn ProductDetailPage() -> impl IntoView {
                                                 .into_any()
                                         } else {
                                             view! {
-                                                <img
-                                                    src=cover
-                                                    alt=title.clone()
-                                                    class="ed-hero-img"
-                                                    style=cover_pos
-                                                />
+                                                <div
+                                                    class="absolute inset-0 flex overflow-x-auto \
+                                                           snap-x snap-mandatory no-scrollbar"
+                                                    on:scroll=on_slide_scroll
+                                                >
+                                                    {slides
+                                                        .iter()
+                                                        .map(|(url, pos)| {
+                                                            view! {
+                                                                <img
+                                                                    src=url.clone()
+                                                                    alt=title.clone()
+                                                                    // `flex-none w-full`: tanpa
+                                                                    // keduanya flexbox memampatkan
+                                                                    // semua slide ke dalam satu
+                                                                    // layar dan tak ada yang bisa
+                                                                    // digeser.
+                                                                    class="flex-none w-full h-full \
+                                                                           snap-start object-cover"
+                                                                    style=pos.clone()
+                                                                    // Foto pertama dimuat segera;
+                                                                    // sisanya menunggu digeser —
+                                                                    // galeri sepuluh foto kalau
+                                                                    // tidak akan mengunduh
+                                                                    // semuanya pada muat pertama.
+                                                                    loading="lazy"
+                                                                    decoding="async"
+                                                                />
+                                                            }
+                                                        })
+                                                        .collect_view()}
+                                                </div>
                                             }
                                                 .into_any()
-                                        }} <div class="ed-hero-gradient"></div>
+                                        }}
+                                        // Titik indikator — hanya bila memang ada
+                                        // lebih dari satu foto.
+                                        {banyak_slide
+                                            .then(|| {
+                                                view! {
+                                                    <div class="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 \
+                                                                flex items-center gap-1.5">
+                                                        {(0..slide_count)
+                                                            .map(|i| {
+                                                                view! {
+                                                                    <span class=move || {
+                                                                        if slide_aktif.get() == i {
+                                                                            "w-4 h-1.5 rounded-full bg-white transition-all"
+                                                                        } else {
+                                                                            "w-1.5 h-1.5 rounded-full bg-white/50 transition-all"
+                                                                        }
+                                                                    } />
+                                                                }
+                                                            })
+                                                            .collect_view()}
+                                                    </div>
+                                                }
+                                            })}
+                                        <div class="ed-hero-gradient"></div>
                                         <div class="ed-hero-overlay-content">
                                             <div class="ed-hero-badges">
                                                 {is_live
@@ -763,7 +921,21 @@ pub fn ProductDetailPage() -> impl IntoView {
                                         <div class="ed-main">
 
                                             // Social proof strip (gaya marketplace) — data asli variant
-                                            <div class="ed-social-proof">
+                                            //
+                                            // `px-5` = 20px, angka yang sama dengan
+                                            // `.section` di `08-page-event-detail.css` dan
+                                            // dengan baris toko+chat di bawah. `.ed-social-proof`
+                                            // sendiri hanya menyetel padding VERTIKAL
+                                            // (`12px 0 14px`), dan induknya `.ed-main` tak
+                                            // punya padding sama sekali — jadi strip ini
+                                            // menempel ke tepi kolom sementara seluruh
+                                            // tetangganya menjorok.
+                                            //
+                                            // Garis bawahnya ikut menjorok, dan itu memang
+                                            // yang diinginkan: pemisah yang membentang penuh
+                                            // sementara isinya menjorok akan terbaca sebagai
+                                            // dua sistem tata letak yang berbeda.
+                                            <div class="ed-social-proof px-5">
                                                 <div class="ed-sp-head">
                                                     <div class="ed-sp-item">
                                                         <svg
@@ -829,14 +1001,14 @@ pub fn ProductDetailPage() -> impl IntoView {
                                                                     {if low_stock {
                                                                         view! {
                                                                             <span>
-                                                                                "🔥 Segera habis — sisa "<b>{remaining}</b>" tiket"
+                                                                                "🔥 Segera habis — sisa "<b>{remaining}</b>" barang"
                                                                             </span>
                                                                         }
                                                                             .into_any()
                                                                     } else {
                                                                         view! {
                                                                             <span>
-                                                                                "Sisa "<b>{remaining}</b>" dari "{quota}" tiket"
+                                                                                "Sisa "<b>{remaining}</b>" dari "{quota}" barang"
                                                                             </span>
                                                                         }
                                                                             .into_any()
@@ -872,7 +1044,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                                             <button
                                                                 class="ed-story-ring"
                                                                 on:click=open_merchant_stories
-                                                                aria-label="Lihat story penyelenggara"
+                                                                aria-label="Lihat story toko"
                                                             >
                                                                 <span class="ed-story-ring-circle">
                                                                     {if ring_logo.is_empty() {
@@ -902,10 +1074,52 @@ pub fn ProductDetailPage() -> impl IntoView {
                                                 }
                                             }
 
-                                            // Klik → bottom sheet info merchant dulu
-                                            // (logo/header/rating), BUKAN langsung /m/{id}.
+                                            // Kartu toko dan ikon chat SEBARIS.
+                                            //
+                                            // Keduanya tak bisa disarangkan — kartu toko
+                                            // sudah `<button>` (membuka bottom sheet), dan
+                                            // tombol di dalam tombol adalah HTML tak sah
+                                            // yang perilaku kliknya berbeda-beda antar
+                                            // peramban. Jadi bersaudara di dalam flex.
+                                            //
+                                            // `flex-1` + `min-w-0` pada kartunya: tanpa
+                                            // `min-w-0`, nama toko yang panjang menolak
+                                            // mengecil dan mendorong ikon chat keluar dari
+                                            // kolom 480px.
+                                            //
+                                            // `items-stretch`, BUKAN `items-center`:
+                                            // itulah yang membuat ikon chat setinggi kartu
+                                            // toko tanpa satu pun angka ajaib. Tingginya
+                                            // ikut apa pun isi kartunya — nama toko yang
+                                            // membungkus ke dua baris tak akan membuat
+                                            // keduanya jadi berbeda tinggi.
+                                            //
+                                            // Margin `14px 0 4px` milik `.ed-organizer`
+                                            // dipindah ke pembungkus dan dimatikan di
+                                            // kartunya (`m-0`). Kalau dibiarkan, kotak
+                                            // margin kartu jadi lebih tinggi dari kotak
+                                            // borderna, dan `stretch` menarik ikon chat
+                                            // melewati tepi kartu — sejajar di angka,
+                                            // meleset di mata.
+                                            //
+                                            // `m-0` menang atas CSS lama karena utility
+                                            // Tailwind kini berada di layer SESUDAH
+                                            // `legacy` (lihat build.rs & style/tailwind.css).
+                                            //
+                                            // `px-5` = 20px, ANGKA YANG SAMA dengan
+                                            // `.section { padding: … 20px … }` di
+                                            // `08-page-event-detail.css`. Induknya
+                                            // (`.ed-main`) sendiri tak punya padding, jadi
+                                            // baris ini satu-satunya yang menempel ke tepi
+                                            // kolom sementara semua tetangganya menjorok —
+                                            // itulah yang membuatnya terlihat lepas.
+                                            //
+                                            // Kalau suatu saat angka di `.section` diubah,
+                                            // ubah juga di sini: keduanya harus sama, dan
+                                            // tak ada yang memaksanya.
+                                            <div class="flex items-stretch gap-3 mt-3.5 mb-1 px-5">
                                             <button
-                                                class="ed-organizer"
+                                                class="ed-organizer flex-1 min-w-0 m-0"
                                                 on:click=move |_| merchant_sheet.set(true)
                                             >
                                                 <span class="ed-org-icon">
@@ -945,6 +1159,76 @@ pub fn ProductDetailPage() -> impl IntoView {
                                                 </span>
                                             </button>
 
+                                            // ── Chat penjual ────────────────────────
+                                            // Menggantikan grup-otomatis-setelah-beli.
+                                            // Ditaruh TEPAT di bawah kartu toko, bukan di
+                                            // dekat tombol beli: yang membuka percakapan
+                                            // biasanya orang yang BELUM yakin, dan
+                                            // pertanyaannya tentang toko itu — stok,
+                                            // ukuran, ongkir, kapan bisa diambil.
+                                            //
+                                            // Tak mensyaratkan pernah membeli. Pertanyaan
+                                            // seperti itu justru datang sebelum orang
+                                            // memutuskan, dan mensyaratkan pesanan lebih
+                                            // dulu menutup percakapan tepat saat ia paling
+                                            // berguna.
+                                            // ── IKON CHAT SAJA ─────────────────────
+                                            // Sebelumnya baris penuh dengan judul dan
+                                            // keterangan. Di halaman yang sudah padat,
+                                            // baris sebesar itu untuk satu aksi kecil
+                                            // mendorong isi produk semakin ke bawah —
+                                            // dan keterangannya menjelaskan sesuatu yang
+                                            // sudah jelas dari ikonnya.
+                                            {move || if milik_sendiri.get() {
+                                                // Produk sendiri: ikon dihilangkan, diganti
+                                                // penanda kecil. Ikon chat yang ada tapi mati
+                                                // selalu terbaca sebagai rusak.
+                                                view! {
+                                                    <span class="self-stretch inline-flex items-center px-3 \
+                                                                 rounded-[14px] bg-elevated border border-solid \
+                                                                 border-line text-[10px] font-bold \
+                                                                 tracking-[0.08em] text-content-muted \
+                                                                 whitespace-nowrap">
+                                                        "PRODUKMU"
+                                                    </span>
+                                                }.into_any()
+                                            } else {
+                                                view! {
+                                                    // `<A>`, BUKAN `<button>` ber-`on:click`.
+                                                    //
+                                                    // Sejak room tak lagi dibuat saat diklik,
+                                                    // tak ada yang perlu ditunggu — jadi tak
+                                                    // ada pula alasan memakai tombol yang
+                                                    // menjalankan JS. Sebagai tautan sungguhan
+                                                    // ia sudah bisa diklik SEBELUM WASM turun,
+                                                    // bisa dibuka di tab baru, dan bisa disalin
+                                                    // alamatnya.
+                                                    //
+                                                    // Cincin berputarnya ikut hilang bersama
+                                                    // penantiannya: penantiannya pindah ke
+                                                    // halaman tujuan (memuat riwayat), dan
+                                                    // penandanya pindah ke sana juga.
+                                                    <A
+                                                        href=chat_href.clone()
+                                                        attr:class="relative self-stretch inline-flex items-center \
+                                                                    justify-center w-14 shrink-0 rounded-[14px] \
+                                                                    bg-elevated border border-solid border-line \
+                                                                    text-content transition-colors \
+                                                                    hover:bg-card-hover active:scale-95"
+                                                        attr:aria-label="Chat penjual"
+                                                        attr:title="Chat penjual"
+                                                    >
+                                                        <svg width="19" height="19" viewBox="0 0 24 24"
+                                                             fill="none" stroke="currentColor"
+                                                             stroke-width="2" stroke-linecap="round"
+                                                             stroke-linejoin="round">
+                                                            <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+                                                        </svg>
+                                                    </A>
+                                                }.into_any()
+                                            }}
+                                            </div>
+
                                             // Live stream (tampil saat product sedang live)
                                             {is_live
                                                 .then({
@@ -969,7 +1253,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                                     move || {
                                                         view! {
                                                             <section class="section">
-                                                                <p class="ed-section-eyebrow">"ABOUT THE EVENT"</p>
+                                                                <p class="ed-section-eyebrow">"TENTANG PRODUK"</p>
                                                                 <p class="about-text">{d.clone()}</p>
                                                             </section>
                                                         }
@@ -998,7 +1282,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                             // Select Tickets — varian dipindah ke bottom
                                             // sheet; di body cukup tombol pemicu.
                                             <div class="ed-tickets-header">
-                                                <span class="ed-tickets-title">"Select Tickets"</span>
+                                                <span class="ed-tickets-title">"Pilih Varian"</span>
                                                 <span class="ed-tickets-avail">
                                                     "Available until sale ends"
                                                 </span>
@@ -1009,7 +1293,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                                     on:click=move |_| tickets_sheet.set(true)
                                                 >
                                                     <span class="ed-tickets-trigger-text">
-                                                        "Pilih Tiket"
+                                                        "Pilih Varian"
                                                         <span class="ed-tickets-trigger-sub">
                                                             {format!(
                                                                 "{} varian · mulai {}",
@@ -1036,7 +1320,7 @@ pub fn ProductDetailPage() -> impl IntoView {
 
                                             // Venue
                                             <section class="section">
-                                                <h2 class="section-title">"The Venue"</h2>
+                                                <h2 class="section-title">"Lokasi"</h2>
                                             </section>
                                             <div class="map-card" id="ed-venue-card">
                                                 // Peta OpenStreetMap asli langsung tampil bila product
@@ -1098,7 +1382,7 @@ pub fn ProductDetailPage() -> impl IntoView {
 
                                             // ── Product lain (arah marketplace) ─────────
                                             <section class="section ed-more">
-                                                <h2 class="section-title">"Product Berkaitan"</h2>
+                                                <h2 class="section-title">"Produk Berkaitan"</h2>
                                                 {move || {
                                                     let cur = slug.get();
                                                     let items = rel_items.get();
@@ -1142,7 +1426,7 @@ pub fn ProductDetailPage() -> impl IntoView {
 
                                     // ── Sticky footer: starting price + Secure Tickets ───
                                     // Otomatis slide-down (hilang) begitu user melewati kartu
-                                    // venue — konten "Product Berkaitan" tampil tanpa halangan.
+                                    // venue — konten "Produk Berkaitan" tampil tanpa halangan.
                                     <div class=move || {
                                         if past_dirs.get() {
                                             "sticky-footer ed-mobile-footer ed-footer-hidden"
@@ -1165,7 +1449,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                                         <span class="footer-label">"IN CART"</span>
                                                         <span class="footer-cart-qty">
                                                             {format!(
-                                                                "{} TICKET{}",
+                                                                "{} BARANG{}",
                                                                 qty,
                                                                 if qty == 1 { "" } else { "S" },
                                                             )}
@@ -1193,7 +1477,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                                         class="ed-secure-btn"
                                                         on:click=move |_| tickets_sheet.set(true)
                                                     >
-                                                        "Secure Tickets"
+                                                        "Lanjut Belanja"
                                                     </button>
                                                 }
                                                     .into_any()
@@ -1220,7 +1504,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                         <div class="edsheet-panel">
                                             <div class="edsheet-grip"></div>
                                             <div class="edsheet-head">
-                                                <span class="edsheet-title">"Pilih Tiket"</span>
+                                                <span class="edsheet-title">"Pilih Varian"</span>
                                                 <button
                                                     class="edsheet-close"
                                                     aria-label="Tutup"
@@ -1246,7 +1530,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                                         view! {
                                                             <A href="/cart" attr:class="edsheet-mch-cta">
                                                                 {format!(
-                                                                    "Lanjut ke Keranjang ({ti} tiket)",
+                                                                    "Lanjut ke Keranjang ({ti} barang)",
                                                                 )}
                                                             </A>
                                                         }
@@ -1254,7 +1538,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                                     } else {
                                                         view! {
                                                             <span class="edsheet-mch-cta edsheet-cta--disabled">
-                                                                "Pilih tiket dulu"
+                                                                "Pilih varian dulu"
                                                             </span>
                                                         }
                                                             .into_any()
@@ -1276,7 +1560,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                         <div class="edsheet-panel">
                                             <div class="edsheet-grip"></div>
                                             <div class="edsheet-head">
-                                                <span class="edsheet-title">"Penyelenggara"</span>
+                                                <span class="edsheet-title">"Toko"</span>
                                                 <button
                                                     class="edsheet-close"
                                                     aria-label="Tutup"
@@ -1377,7 +1661,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                                                 </span>
                                                                 <span>
                                                                     <b>{products_count}</b>
-                                                                    " Products"
+                                                                    " Produk"
                                                                 </span>
                                                                 <span>
                                                                     <b>{format!("{rating_avg:.1}")}</b>

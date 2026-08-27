@@ -358,9 +358,33 @@ pub fn LiveStreamViewer(
             // JavaScript single-thread: onicecandidate tidak bisa menyela sebelum kita await.
             // Dengan mengirim offer sinkron di sini, kita jamin server menerima offer
             // lebih dulu daripada kandidat ICE apapun.
+            // Penonton yang belum login TETAP dikirimi identitas — identitas
+            // TAMU yang tersimpan di peramban, bukan `None`.
+            //
+            // Dengan `None`, server menerbitkan UUID baru pada SETIAP subscribe
+            // (lihat `live/api.rs`), sehingga satu tamu yang me-refresh atau
+            // pindah dari halaman produk ke `/lives` terhitung sebagai penonton
+            // baru berkali-kali. Angka penonton yang dipakai merchant untuk
+            // menilai siarannya jadi menggelembung tanpa ada orang tambahan,
+            // dan semua tamu tampil sebagai "Anonim" yang tak terbedakan.
+            //
+            // Lihat `web::utils::identitas_tamu`.
             let (viewer_id, viewer_name) = match &profile {
                 Some(p) => (Some(p.id.clone()), Some(p.name.clone())),
-                None => (None, None),
+                None => {
+                    let (id, nama) = crate::web::utils::identitas_tamu();
+                    // Kosong = padanan sisi server (lihat `utils::identitas_tamu`)
+                    // atau localStorage yang menolak dipakai. Dikembalikan ke
+                    // `None` supaya server memakai jalur lamanya — penonton tetap
+                    // bisa menonton, hanya tanpa penanda yang bertahan. Mengirim
+                    // string kosong justru lebih buruk: SEMUA tamu akan berbagi
+                    // satu identitas yang sama.
+                    if id.is_empty() || nama.is_empty() {
+                        (None, None)
+                    } else {
+                        (Some(id), Some(nama))
+                    }
+                }
             };
             let offer_msg = serde_json::json!({
                 "type": "subscribe_offer",

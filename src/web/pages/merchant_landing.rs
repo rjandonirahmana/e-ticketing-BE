@@ -34,7 +34,7 @@ fn SavingsCalculator() -> impl IntoView {
 
                 <div class="pl-slider-row">
                     <div class="pl-slider-label-row">
-                        <span>"Harga Tiket"</span>
+                        <span>"Harga Produk"</span>
                         <div class="pl-num-input-wrap">
                             <span class="pl-num-prefix">"Rp"</span>
                             <input type="number" class="pl-num-input"
@@ -63,7 +63,7 @@ fn SavingsCalculator() -> impl IntoView {
 
                 <div class="pl-slider-row">
                     <div class="pl-slider-label-row">
-                        <span>"Total Tiket Terjual"</span>
+                        <span>"Total Produk Terjual"</span>
                         <div class="pl-num-input-wrap">
                             <input type="number" class="pl-num-input"
                                    min="10" max="10000" step="10"
@@ -104,7 +104,7 @@ fn SavingsCalculator() -> impl IntoView {
                     </div>
                 </div>
 
-                <A href="/pulse-apply" attr:class="pl-cta-btn pl-cta-btn--lime">"Mulai Jual Tiket"</A>
+                <A href="/pulse-apply" attr:class="pl-cta-btn pl-cta-btn--lime">"Mulai Berjualan"</A>
             </div>
         </section>
     }
@@ -115,8 +115,8 @@ fn SavingsCalculator() -> impl IntoView {
 #[component]
 pub fn PulseLandingPage() -> impl IntoView {
     view! {
-        <Title text="Jadi Partner PULSE — Jual Tiket Productmu" />
-        <Meta name="description" content="Bergabung sebagai merchant PULSE. Jual tiket product dengan mudah, cepat, dan terpercaya." />
+        <Title text="Jadi Partner PULSE — Jual Produkmu" />
+        <Meta name="description" content="Bergabung sebagai merchant PULSE. Jual produk dengan mudah, cepat, dan terpercaya." />
         <div class="pl-page">
 
             <nav class="pl-nav">
@@ -138,7 +138,7 @@ pub fn PulseLandingPage() -> impl IntoView {
             <section class="pl-hero">
                 <p class="pl-hero-tagline">"Join the next generation of live entertainment."</p>
                 <h1 class="pl-hero-title">
-                    "Scale Your Product with "
+                    "Kembangkan Tokomu dengan "
                     <span class="pl-hero-accent">"PULSE"</span>
                 </h1>
                 <p class="pl-hero-sub">
@@ -265,7 +265,7 @@ pub fn PulseLandingPage() -> impl IntoView {
                     </blockquote>
                     <div class="pl-testi-author">
                         <span class="pl-testi-name">"Andre Pratama"</span>
-                        <span class="pl-testi-role">"CEO of Jakarta Groove Products"</span>
+                        <span class="pl-testi-role">"CEO of Jakarta Groove Produk"</span>
                     </div>
                 </div>
             </section>

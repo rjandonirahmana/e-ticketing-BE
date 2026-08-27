@@ -16,7 +16,7 @@ pub(super) fn view_analytics_admin(evs: Vec<Product>, stats: Option<AdminStats>)
                         <span class="merchant-tile-value">{s.total_users}</span>
                     </div>
                     <div class="merchant-tile merchant-tile--accent">
-                        <span class="merchant-label">"TOTAL EVENT"</span>
+                        <span class="merchant-label">"TOTAL PRODUK"</span>
                         <span class="merchant-tile-value">{s.total_products}</span>
                     </div>
                 </div>
@@ -34,7 +34,7 @@ pub(super) fn view_analytics_admin(evs: Vec<Product>, stats: Option<AdminStats>)
         })}
         <section class="merchant-stats">
             <div class="merchant-card merchant-velocity" style="margin-bottom:12px">
-                <h3 class="merchant-section-title">"Acara Terlaris (Platform)"</h3>
+                <h3 class="merchant-section-title">"Produk Terlaris (Platform)"</h3>
                 {if let Some(t) = top {
                     let pct = if t.total_quota > 0 {
                         ((t.total_sold as f64 / t.total_quota as f64) * 100.0).round() as u32
@@ -67,11 +67,11 @@ pub(super) fn view_analytics_admin(evs: Vec<Product>, stats: Option<AdminStats>)
             </div>
             <div class="merchant-tile-row" style="padding:0 16px">
                 <div class="merchant-tile">
-                    <span class="merchant-label">"TOTAL ACARA"</span>
+                    <span class="merchant-label">"TOTAL PRODUK"</span>
                     <span class="merchant-tile-value">{total}</span>
                 </div>
                 <div class="merchant-tile merchant-tile--accent">
-                    <span class="merchant-label">"ACARA AKTIF"</span>
+                    <span class="merchant-label">"PRODUK AKTIF"</span>
                     <span class="merchant-tile-value">{active_count}</span>
                 </div>
             </div>
@@ -89,7 +89,7 @@ pub(super) fn view_finance_admin(evs: Vec<Product>) -> impl IntoView {
     view! {
         <section class="merchant-stats">
             <div class="merchant-card merchant-card--earnings">
-                <span class="merchant-label">"TIKET TERJUAL (PLATFORM)"</span>
+                <span class="merchant-label">"BARANG TERJUAL (PLATFORM)"</span>
                 <h2 class="merchant-amount">{total_sold}</h2>
                 <div class="merchant-trend-row">
                     <span class="merchant-trend-meta">"Sisa: "{remaining}</span>
@@ -103,7 +103,7 @@ pub(super) fn view_finance_admin(evs: Vec<Product>) -> impl IntoView {
             <h3 class="merchant-section-title">"Ringkasan Platform"</h3>
             <div class="merchant-tile-row" style="margin-top:12px">
                 <div class="merchant-tile">
-                    <span class="merchant-label">"TOTAL ACARA"</span>
+                    <span class="merchant-label">"TOTAL PRODUK"</span>
                     <span class="merchant-tile-value">{total_products}</span>
                 </div>
                 <div class="merchant-tile merchant-tile--accent">
@@ -130,7 +130,7 @@ pub(super) fn view_settings_admin() -> impl IntoView {
         <section class="merchant-card merchant-velocity">
             <h3 class="merchant-section-title">"Notifikasi Admin"</h3>
             {[
-                ("Acara Baru Didaftarkan", true),
+                ("Produk Baru Didaftarkan", true),
                 ("Transaksi Platform", true),
                 ("Laporan Harian", false),
             ]

@@ -96,9 +96,9 @@ pub fn MessagesPage() -> impl IntoView {
                                                     view! {
                                                         <EmptyState
                                                             icon="💬"
-                                                            title="BELUM ADA GRUP"
-                                                            body="Beli tiket product untuk bergabung ke grup chat komunitas."
-                                                            cta_label="JELAJAHI EVENT"
+                                                            title="BELUM ADA PERCAKAPAN"
+                                                            body="Buka halaman produk, lalu tekan Chat Penjual untuk bertanya soal stok, ukuran, atau pengambilan."
+                                                            cta_label="JELAJAHI PRODUK"
                                                             cta_href="/explore"
                                                         />
                                                     }.into_any()

@@ -149,7 +149,7 @@ pub fn ChatRoomPage() -> impl IntoView {
                                     if v.iter().any(|x| x.id == m.id) { return; }
                                     // For self-messages: merge with matching optimistic entry
                                     // instead of pushing a new one.
-                                    // Prproducts duplicate when broadcast arrives before ack
+                                    // Prevents duplicate when broadcast arrives before ack
                                     // (server sends both new_message to all members AND ack to sender).
                                     if m.sender_id == my_id {
                                         if let Some(opt) = v.iter_mut().find(|x| {
@@ -256,15 +256,19 @@ pub fn ChatRoomPage() -> impl IntoView {
         Effect::new(move |_| {
             if history.get().is_some() {
                 let list_ref = msg_list_ref;
-                let cb = wasm_bindgen::closure::Closure::once(move || {
+                // `once_into_js`, bukan `once(..) + forget()`: `forget()` adalah
+                // `mem::forget`, jadi pembungkus closure dan slot tabel fungsi
+                // wasm-nya tak pernah dibebaskan. Efek ini berjalan SETIAP KALI
+                // riwayat pesan berubah — di ruang obrolan yang ramai itu berarti
+                // satu kebocoran kecil per pesan masuk, tanpa batas.
+                let cb = wasm_bindgen::closure::Closure::once_into_js(move || {
                     if let Some(el) = list_ref.get() {
                         el.set_scroll_top(el.scroll_height());
                     }
                 });
                 if let Some(win) = web_sys::window() {
-                    let _ = win.request_animation_frame(cb.as_ref().unchecked_ref());
+                    let _ = win.request_animation_frame(cb.unchecked_ref());
                 }
-                cb.forget();
             }
         });
     }

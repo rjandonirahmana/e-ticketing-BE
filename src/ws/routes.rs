@@ -15,7 +15,7 @@ use axum::{
     http::StatusCode,
     middleware::from_fn_with_state,
     response::IntoResponse,
-    routing::{get, post},
+    routing::get,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -48,44 +48,12 @@ async fn list_rooms(
     Ok(ok(rooms))
 }
 
-/// GET /chat/products/{event_id}/room — merchant memanggil ini saat create product
-/// agar room dibuat sebelum ada buyer.
-async fn get_or_create_product_room(
-    auth: AuthUser,
-    State(state): State<Arc<WsAppState>>,
-    Path(event_id): Path<String>,
-) -> Result<impl IntoResponse, AppError> {
-    // Hanya merchant/admin yang bisa init room
-    auth.require_role("merchant")
-        .or_else(|_| auth.require_role("admin"))?;
+// `get_or_create_product_room` dan `join_room` DIBUANG bersama grup produk
+// (migrasi 029). Percakapan kini berdua saja, lahir lewat server function
+// `open_chat_with_merchant` atas kemauan pembeli — bukan disiapkan merchant
+// per produk, dan tak ada lagi yang perlu "bergabung": kedua pesertanya sudah
+// ada di baris `chats` sejak ia lahir.
 
-    // Nama default: akan di-update saat product detail diambil
-    let room = state
-        .group_svc
-        .get_or_create_room(&event_id, "Product Group", None, auth.id())
-        .await
-        .map_err(|e| AppError::Internal(e))?;
-
-    Ok(ok(room))
-}
-
-/// POST /chat/rooms/{room_id}/join — dipanggil manual atau dari frontend setelah bayar
-async fn join_room(
-    auth: AuthUser,
-    State(state): State<Arc<WsAppState>>,
-    Path(room_id): Path<String>,
-) -> Result<impl IntoResponse, AppError> {
-    // FIX P2: Delegasikan ke service layer yang handle system message juga.
-    // Sebelumnya langsung call repo.add_member() tanpa system message —
-    // inkonsisten dengan auto_join_after_payment().
-    let room = state
-        .group_svc
-        .join_room(&room_id, auth.id(), auth.name())
-        .await
-        .map_err(|e| AppError::BadRequest(e.to_string()))?;
-
-    Ok(ok(json!({ "room_id": room.id, "joined": true })))
-}
 
 /// GET /chat/rooms/{room_id}/history
 async fn get_history(
@@ -131,11 +99,6 @@ pub fn chat_router(ws_state: Arc<WsAppState>, app_state: Arc<AppState>) -> Route
     // REST chat routes — WAJIB require_auth agar AuthUser extractor dapat claims
     let chat_routes = Router::new()
         .route("/api/chat/rooms", get(list_rooms))
-        .route(
-            "/api/chat/products/{event_id}/room",
-            get(get_or_create_product_room),
-        )
-        .route("/api/chat/rooms/{room_id}/join", post(join_room))
         .route("/api/chat/rooms/{room_id}/history", get(get_history))
         .route("/api/chat/rooms/{room_id}/sent_count", get(sent_count))
         .route_layer(from_fn_with_state(app_state, require_auth))

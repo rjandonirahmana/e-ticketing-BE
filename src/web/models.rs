@@ -29,7 +29,7 @@ pub struct Product {
     pub total_sold: i32,
     pub total_quota: i32,
     /// Nama toko penyelenggara — ditampilkan di kartu explore & product detail
-    /// menggantikan label generik "Penyelenggara".
+    /// menggantikan label generik "Toko".
     #[serde(default)]
     pub merchant_name: Option<String>,
 }
@@ -244,6 +244,26 @@ pub struct FollowerItem {
     /// tujuan tautan: "merchant" → /m/{id}, selain itu → /u/{id}.
     pub role: String,
     pub created_at: DateTime<Utc>,
+}
+
+/// Satu TOKO yang diikuti pengguna (halaman /following).
+///
+/// Berbeda dari [`FollowerItem`] yang menggambarkan ORANG: di sini yang penting
+/// nama toko dan logonya, karena itulah yang dikenali pembeli dari halaman
+/// produk. `users.name` (nama pemilik akun) sengaja tidak dipakai.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FollowingItem {
+    pub merchant_id: String,
+    pub store_name: String,
+    pub logo_url: String,
+    pub verified: bool,
+    pub followed_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FollowingData {
+    pub total: i64,
+    pub items: Vec<FollowingItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

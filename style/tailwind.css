@@ -27,7 +27,22 @@
  * `border-style: solid` sendiri, jadi tulis `border border-solid` bila butuh
  * garis. Bila kelak seluruh CSS lama sudah pindah, Preflight bisa dinyalakan.
  */
-@layer theme, base, components, utilities;
+/* ── URUTAN LAYER: `legacy` SEBELUM `utilities` ────────────────────────────
+ * `legacy` adalah pembungkus seluruh styles/parts/*.css — dipasang oleh
+ * `build.rs`, lihat catatan panjang di sana.
+ *
+ * Baris ini yang menentukan siapa menang. Sebelumnya CSS lama tak berlayer
+ * sama sekali, dan deklarasi tak berlayer MENGALAHKAN deklarasi berlayer
+ * tanpa memandang spesifisitas — sehingga satu baris `* { margin:0; padding:0 }`
+ * di 01-base.css mematikan setiap utility jarak Tailwind di seluruh aplikasi.
+ *
+ * Nama layer didaftarkan DI SINI, di berkas yang dimuat DULUAN (shell.rs
+ * menautkan /pkg/e-ticketing.css sebelum /styles/app.css). Posisi sebuah layer
+ * ditetapkan oleh kemunculan NAMANYA yang pertama, jadi mendaftarkannya di sini
+ * membuat urutannya pasti — tak bergantung pada kapan app.css selesai diunduh
+ * (ia dimuat non-blocking lewat media=print).
+ */
+@layer theme, base, components, legacy, utilities;
 
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
@@ -40,6 +55,25 @@
  * senyap di produksi — build dev bisa saja tetap tampak benar, yang membuatnya
  * makin sulit dilacak. */
 @source "../src/**/*.rs";
+
+/* ── Utility yang tak disediakan Tailwind ────────────────────────────────────
+ * `scrollbar-none` bukan bagian dari Tailwind inti (ia datang dari plugin), dan
+ * proyek ini tak memakai plugin apa pun. Galeri geser di halaman produk
+ * membutuhkannya: tanpa ini, batang gulir horizontal terpampang melintang di
+ * atas foto pada desktop dan mengubah galeri jadi terlihat seperti cacat
+ * tampilan.
+ *
+ * Ditaruh di `layer(utilities)` agar ikut aturan kemenangan yang sama dengan
+ * utility lain — lihat urutan layer di atas. */
+@layer utilities {
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
 
 /* ── Warna = token CSS yang sudah ada, bukan hex ──────────────────────────────
  * Satu sumber kebenaran dengan styles/parts/00-tokens.css. Nilai token berubah

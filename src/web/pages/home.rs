@@ -14,7 +14,7 @@ pub fn HomePage() -> impl IntoView {
         // ── Hero ─────────────────────────────────────────────────────────────
         <section class="hero">
             <div class="container">
-                <p class="hero__eyebrow">"// product platform terbaik di Indonesia"</p>
+                <p class="hero__eyebrow">"// produk platform terbaik di Indonesia"</p>
                 <h1 class="hero__heading">
                     "Temukan Product\nImpianmu, "
                     <span style="color:var(--clr-accent)">"Sekarang."</span>
@@ -34,7 +34,7 @@ pub fn HomePage() -> impl IntoView {
                 <div class="hero__stats">
                     <div>
                         <span class="hero__stat-num">"10K+"</span>
-                        <span class="hero__stat-label">"Product Aktif"</span>
+                        <span class="hero__stat-label">"Produk Aktif"</span>
                     </div>
                     <div>
                         <span class="hero__stat-num">"500K+"</span>
@@ -98,7 +98,7 @@ pub fn HomePage() -> impl IntoView {
         <section class="section">
             <div class="container">
                 <div class="section__header">
-                    <h2 class="section__title">"Product Pilihan"</h2>
+                    <h2 class="section__title">"Produk Pilihan"</h2>
                     <A href="/explore" attr:class="section__link">
                         "Lihat semua →"
                     </A>
@@ -139,9 +139,9 @@ pub fn HomePage() -> impl IntoView {
                                         view! {
                                             <div class="empty">
                                                 <div class="empty__icon">"🎪"</div>
-                                                <div class="empty__title">"Belum ada product"</div>
+                                                <div class="empty__title">"Belum ada produk"</div>
                                                 <div class="empty__sub">
-                                                    "Nantikan product menarik yang akan hadir segera!"
+                                                    "Nantikan produk menarik yang akan hadir segera!"
                                                 </div>
                                             </div>
                                         }
@@ -184,7 +184,7 @@ pub fn HomePage() -> impl IntoView {
                                     }
                                     Err(_) => {
                                         view! {
-                                            <div class="alert alert--error">"Gagal memuat product."</div>
+                                            <div class="alert alert--error">"Gagal memuat produk."</div>
                                         }
                                             .into_any()
                                     }
@@ -198,7 +198,7 @@ pub fn HomePage() -> impl IntoView {
         // ── CTA Banner ────────────────────────────────────────────────────────
         <div class="container">
             <div class="cta-banner">
-                <h2>"Punya Product? Jual Tiket di PULSE."</h2>
+                <h2>"Punya Produk? Jualan di PULSE."</h2>
                 <p>
                     "Kelola product, upload tiket, dan raih pembeli dari seluruh Indonesia.\n\
                     Dashboard merchant lengkap, realtime analytics, pembayaran otomatis."

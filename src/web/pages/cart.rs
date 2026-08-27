@@ -97,7 +97,7 @@ pub fn CartPage() -> impl IntoView {
                 return;
             }
             if blocked.get_untracked() {
-                toast.error("Kurangi jumlah tiket yang melebihi sisa stok.");
+                toast.error("Kurangi jumlah yang melebihi sisa stok.");
                 return;
             }
             navigate("/checkout", Default::default());
@@ -141,7 +141,7 @@ pub fn CartPage() -> impl IntoView {
             // ── Judul ───────────────────────────────────────────────────────
             <div class="px-5 pt-7 pb-1">
                 <h1 class="font-title text-5xl leading-[0.95] text-content">
-                    "YOUR"<br/>"PASSES"
+                    "ISI"<br/>"KERANJANG"
                 </h1>
                 <p class="mt-2 text-[13px] text-content-soft">
                     "Periksa pilihan Anda sebelum membayar."
@@ -180,7 +180,7 @@ pub fn CartPage() -> impl IntoView {
                                     <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/>
                                 </svg>
                             </div>
-                            <p class="text-sm text-content-muted">"Belum ada tiket yang dipilih."</p>
+                            <p class="text-sm text-content-muted">"Belum ada barang yang dipilih."</p>
                             <A href="/explore" attr:class=BTN_PRIMARY>"JELAJAHI PRODUK"</A>
                         </div>
                     }.into_any();
@@ -405,7 +405,7 @@ fn cart_row(cart: CartContext, item: CartItemView) -> impl IntoView {
 
                 {warn.then(|| view! {
                     <div class="mt-1 text-[11px] font-semibold leading-snug text-warning">
-                        {format!("Sisa {} tiket — kurangi jumlahnya", available.max(0))}
+                        {format!("Sisa {} stok — kurangi jumlahnya", available.max(0))}
                     </div>
                 })}
             </div>

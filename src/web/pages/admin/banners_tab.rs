@@ -115,7 +115,7 @@ pub(super) fn view_banners(
                 <input type="file" accept="image/*" node_ref=new_file_ref />
                 <input
                     type="text"
-                    placeholder="Link tujuan klik (opsional, mis. /products/slug)"
+                    placeholder="Link tujuan klik (opsional, mis. /produk/slug)"
                     prop:value=move || new_link.get()
                     on:input=move |ev| new_link.set(event_target_value(&ev))
                 />

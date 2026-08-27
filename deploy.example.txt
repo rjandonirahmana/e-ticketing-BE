@@ -1,0 +1,94 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# CONTOH isi /opt/ticketing/deploy.txt  —  JANGAN taruh berkas asli di repo ini.
+#
+# Berkas yang ASLI tinggal di server dan hanya di server, karena ia memuat
+# seluruh kredensial produksi. Yang ada di repo cuma contoh ini. Workflow
+# (.github/workflows/master.yml) menyalin berkas server lalu menjalankan
+# salinannya, dan mengirimkan SATU hal saja: tag image yang barusan dibangun.
+#
+# Pasang sekali di server:
+#   sudo mkdir -p /opt/ticketing/riwayat
+#   sudo nano /opt/ticketing/deploy.txt     # salin isi di bawah, isi rahasianya
+#   sudo chmod 600 /opt/ticketing/deploy.txt
+#
+# Uji manual tanpa menunggu CI:
+#   sudo bash /opt/ticketing/deploy.txt <user-dockerhub>/ticketing:latest
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set -euo pipefail
+
+# Tag image datang dari workflow lewat DUA jalur; pakai yang mana pun.
+# `${1:-...}` = argumen pertama kalau ada, kalau tidak variabel lingkungan.
+IMAGE="${1:-${TICKETING_IMAGE:?tag image tidak diberikan}}"
+NAMA=ticketing
+
+echo "→ Menarik $IMAGE"
+docker pull "$IMAGE"
+
+# Hentikan yang lama SESUDAH image baru berhasil ditarik, bukan sebelumnya.
+# Kalau `pull` gagal duluan (jaringan, kredensial, tag salah) dan container
+# sudah terlanjur dihentikan, situsnya mati tanpa ada pengganti yang siap.
+echo "→ Menghentikan container lama (bila ada)"
+docker rm -f "$NAMA" 2>/dev/null || true
+
+echo "→ Menjalankan $NAMA"
+docker run -d \
+  --name "$NAMA" \
+  --restart unless-stopped \
+  -p 3000:3000 \
+  `# SFU WebRTC. UDP, TERPISAH dari port HTTP. Tanpa baris ini penonton di luar` \
+  `# LAN tak pernah tersambung — ICE gagal diam-diam, tanpa pesan galat.` \
+  -p 4000:4000/udp \
+  `# ── Wajib ──────────────────────────────────────────────────────────────` \
+  -e DATABASE_URL='postgres://USER:SANDI@172.17.0.1:5432/ticketing' \
+  -e JWT_SECRET='ganti-dengan-rahasia-panjang-acak' \
+  -e INTERNAL_JWT_SECRET='ganti-juga-minimal-32-karakter' \
+  -e REDIS_URL='redis://172.17.0.1:6379' \
+  `# ── Penyimpanan objek (RustFS/MinIO/S3) ────────────────────────────────` \
+  `# ENDPOINT = alamat app→storage (server-ke-server). "127.0.0.1" di dalam` \
+  `# container menunjuk container itu sendiri, jadi WAJIB gateway bridge.` \
+  -e RUSTFS_ENDPOINT='http://172.17.0.1:9000' \
+  -e RUSTFS_PUBLIC_URL='https://image.ulalaapi.store' \
+  -e RUSTFS_ACCESS_KEY='...' \
+  -e RUSTFS_SECRET_KEY='...' \
+  `# ── SFU: WAJIB IP PUBLIK SERVER di produksi ─────────────────────────────` \
+  `# Kosong = deteksi IP LAN, dan itu hanya bekerja untuk localhost + WiFi` \
+  `# yang sama. Tidak boleh 0.0.0.0.` \
+  -e SFU_BIND_ADDR='0.0.0.0:4000' \
+  -e SFU_PUBLIC_IP='ISI.IP.PUBLIK.SERVER' \
+  `# ── Migrasi otomatis saat start, dijaga pg_advisory_lock ────────────────` \
+  -e AUTO_MIGRATE=true \
+  `# ── Temp upload: WAJIB di disk. Kalau tmpfs (RAM), streaming upload    ──` \
+  `# ── tetap memakan RAM dan justru menghidupkan lagi masalah yang        ──` \
+  `# ── streaming-nya dimaksudkan untuk menghilangkan.                     ──` \
+  -e UPLOAD_TMP_DIR=/var/tmp/e-ticketing-uploads \
+  -v /srv/ticketing/tmp:/var/tmp/e-ticketing-uploads \
+  `# ── Batas sumber daya di VPS kecil ─────────────────────────────────────` \
+  -e WORKER_THREADS=2 \
+  -e DB_POOL_MAX_SIZE=16 \
+  -e RUST_LOG='e_ticketing=info,tower_http=warn' \
+  `# Opsional: WAHA_BASE_URL / WAHA_SESSION / WAHA_API_KEY,` \
+  `#           TELEGRAM_BOT_TOKEN / TELEGRAM_ADMIN_CHAT_ID,` \
+  `#           CORS_ALLOW_ORIGIN, JWT_EXPIRY_HOURS, BCRYPT_COST` \
+  "$IMAGE"
+
+# Tunggu HEALTHCHECK benar-benar hijau sebelum melaporkan sukses. Tanpa ini
+# deploy dinyatakan berhasil pada detik container DIBUAT — bukan saat ia bisa
+# melayani — sehingga container yang crash-loop tetap tampil hijau di CI.
+echo "→ Menunggu container sehat"
+for i in $(seq 1 30); do
+  STATUS=$(docker inspect -f '{{.State.Health.Status}}' "$NAMA" 2>/dev/null || echo starting)
+  case "$STATUS" in
+    healthy) echo "✓ $NAMA sehat ($IMAGE)"; break ;;
+    unhealthy)
+      echo "✗ $NAMA unhealthy. 50 baris log terakhir:"
+      docker logs --tail 50 "$NAMA" || true
+      exit 1 ;;
+  esac
+  [ "$i" = 30 ] && { echo "✗ Tak kunjung sehat dalam 150 dtk:"; docker logs --tail 50 "$NAMA" || true; exit 1; }
+  sleep 5
+done
+
+# Image lama yang sudah tak dipakai container mana pun menumpuk diam-diam dan
+# menghabiskan disk VPS. Yang sedang dipakai tak tersentuh.
+docker image prune -f >/dev/null 2>&1 || true

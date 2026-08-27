@@ -546,7 +546,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                             // ── SEO: meta + JSON-LD Organization ──
                             let seo_title = format!("{} — PULSE", store_name);
                             let seo_desc = if desc.is_empty() {
-                                format!("Profil penyelenggara {store_name} di PULSE.")
+                                format!("Profil toko {store_name} di PULSE.")
                             } else {
                                 desc.clone()
                             };
@@ -676,7 +676,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                             <button
                                                                 class="mp-avatar-ring"
                                                                 on:click=move |_| open_story(list.clone(), 0)
-                                                                aria-label="Lihat story penyelenggara"
+                                                                aria-label="Lihat story toko"
                                                             >
                                                                 {avatar}
                                                             </button>
@@ -838,7 +838,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                         </a>
                                         <div class="mp-stat">
                                             <span class="mp-stat-num">{fmt_count(p.products_count)}</span>
-                                            <span class="mp-stat-label">"EVENTS"</span>
+                                            <span class="mp-stat-label">"PRODUK"</span>
                                         </div>
                                         <a class="mp-stat mp-stat-link" href=reviews_href.clone()>
                                             <span class="mp-stat-num">
@@ -853,7 +853,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                     // Klik ATAU geser (swipe) panel di bawah untuk
                                     // berpindah antar: EVENTS · TENTANG · ULASAN · STORY.
                                     <div class="mp-tabs">
-                                        {["EVENTS", "TENTANG", "ULASAN", "STORY"]
+                                        {["PRODUK", "TENTANG", "ULASAN", "STORY"]
                                             .into_iter()
                                             .enumerate()
                                             .map(|(i, label)| {
@@ -900,7 +900,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                                 view! {
                                                                     <ProductGrid
                                                                         products=all
-                                                                        empty="Belum ada product aktif."
+                                                                        empty="Belum ada produk aktif."
                                                                     />
                                                                     {move || {
                                                                         ev_has_more()
@@ -928,7 +928,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                                     .into_any()
                                                             }
                                                             Err(_) => {
-                                                                view! { <p class="mp-empty">"Gagal memuat product."</p> }
+                                                                view! { <p class="mp-empty">"Gagal memuat produk."</p> }
                                                                     .into_any()
                                                             }
                                                         })

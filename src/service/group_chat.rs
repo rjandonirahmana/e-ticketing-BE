@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 use std::sync::Arc;
 
 use crate::{
-    models::group_chat::{GroupMessage, GroupRoom, MemberRole, MsgType, TicketCard},
+    models::group_chat::{GroupMessage, GroupRoom, MsgType, TicketCard},
     repository::group_chat::GroupChatRepository,
     utils::ulid::new_ulid,
     ws::manager::WsManager,
@@ -28,16 +28,42 @@ impl GroupChatService {
 
     /// Buat atau dapatkan room untuk sebuah product.
     /// Merchant yang buat product memanggil ini saat publish product.
-    pub async fn get_or_create_room(
-        &self,
-        event_id: &str,
-        event_name: &str,
-        cover_url: Option<&str>,
-        merchant_id: &str,
-    ) -> Result<GroupRoom> {
-        self.repo
-            .upsert_product_room(event_id, event_name, cover_url, merchant_id)
-            .await
+    // `get_or_create_room` DIBUANG bersama grup produk (migrasi 029).
+    // Percakapan kini lahir lewat `ensure_dm` atas kemauan pembeli, bukan
+    // dibuatkan merchant per produk.
+
+
+    /// Nama & logo toko TIDAK lagi jadi parameter: sejak migrasi 029 keduanya
+    /// di-JOIN dari `merchant_details` saat dibaca. Menyalinnya ke baris chat
+    /// hanya melahirkan nama basi — toko yang berganti nama akan tetap tampil
+    /// dengan nama lamanya di inbox, selamanya.
+    /// Cari percakapan tanpa membuatnya. Dipakai halaman chat untuk memutuskan
+    /// apakah ia memuat riwayat atau menampilkan percakapan kosong.
+    pub async fn find_dm(&self, buyer_id: &str, merchant_id: &str) -> Result<Option<GroupRoom>> {
+        self.repo.find_dm(buyer_id, merchant_id).await
+    }
+
+    pub async fn ensure_dm(&self, buyer_id: &str, merchant_id: &str) -> Result<GroupRoom> {
+        if buyer_id == merchant_id {
+            anyhow::bail!("Tidak bisa membuka percakapan dengan diri sendiri.");
+        }
+        if let Some(room) = self.repo.find_dm(buyer_id, merchant_id).await? {
+            return Ok(room);
+        }
+        let room = self
+            .repo
+            .create_dm(buyer_id, merchant_id)
+            .await?;
+
+        // TIDAK menulis ke `group_members`, dan itu inti penyederhanaannya.
+        //
+        // Baris room sudah memuat `buyer_id` dan `merchant_id` — mereka MEMANG
+        // kedua anggotanya. Menyalinnya lagi ke tabel terpisah menciptakan
+        // sumber kebenaran kedua yang bisa berselisih dengan yang pertama, dan
+        // selisih itu berbentuk paling buruk: room yang ada tapi tak bisa
+        // dimasuki siapa pun. `is_member`/`get_member_ids` kini membacanya
+        // langsung dari baris room (lihat repository).
+        Ok(room)
     }
 
     pub async fn get_user_rooms(&self, user_id: &str) -> Result<Vec<GroupRoom>> {
@@ -54,101 +80,12 @@ impl GroupChatService {
     /// yang selalu kirim system message.
     ///
     /// Return: room yang di-join (untuk response JSON)
-    pub async fn join_room(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        user_name: &str,
-    ) -> Result<GroupRoom> {
-        let room = self
-            .repo
-            .find_by_id(room_id)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
+    // `join_room` dan `auto_join_after_payment` DIBUANG bersama grup produk.
+    // Tak ada lagi yang "bergabung": percakapan berdua sudah punya kedua
+    // pesertanya sejak baris `chats` lahir, dan keanggotaan dibaca dari baris
+    // itu — bukan dari tabel anggota yang sudah tak ada.
 
-        // Idempotent — jika sudah member, return OK tanpa duplikat system msg
-        if self.repo.is_member(room_id, user_id).await? {
-            return Ok(room);
-        }
 
-        self.repo
-            .add_member(room_id, user_id, MemberRole::Member)
-            .await?;
-
-        // System message — best-effort: member SUDAH ditambahkan di atas, jadi
-        // kegagalan menyimpan pesan sistem TIDAK boleh menggagalkan join (kalau
-        // di-`?` maka join balas error padahal user sudah member). Broadcast
-        // hanya bila tersimpan, agar klien tak menerima pesan yang absen di history.
-        let sys = self.build_system_msg(
-            room_id,
-            &format!("{user_name} bergabung ke grup"),
-        );
-        match self.repo.save_message(&sys).await {
-            Ok(()) => self.fanout(room_id, &sys).await,
-            Err(e) => tracing::warn!(user_id, room_id, error = %e,
-                "system join message gagal disimpan (join tetap sukses)"),
-        }
-
-        tracing::info!(user_id, room_id, "User joined room");
-        Ok(room)
-    }
-
-    // ── Auto-join setelah bayar product ─────────────────────────────────────────
-
-    /// Dipanggil oleh OrderService setelah `mark_paid_and_issue_tickets` sukses.
-    /// event_id diambil dari order items.
-    pub async fn auto_join_after_payment(
-        &self,
-        event_id: &str,
-        user_id: &str,
-        user_name: &str,
-    ) -> Result<()> {
-        let room = match self.repo.find_by_product(event_id).await? {
-            Some(r) => r,
-            None => {
-                // Room belum dibuat merchant — buat dengan nama placeholder
-                tracing::warn!(
-                    event_id,
-                    user_id,
-                    "No group room found for product, skipping auto-join"
-                );
-                return Ok(());
-            }
-        };
-
-        // Jika sudah member, skip
-        if self.repo.is_member(&room.id, user_id).await? {
-            return Ok(());
-        }
-
-        self.repo
-            .add_member(&room.id, user_id, MemberRole::Member)
-            .await?;
-
-        // Kirim system message ke room — best-effort (lihat catatan di join_room).
-        // Auto-join dipanggil dari background job order; jangan gagalkan hanya
-        // karena pesan sistem tak tersimpan (member sudah ditambahkan di atas).
-        let sys = self.build_system_msg(
-            &room.id,
-            &format!("{user_name} bergabung ke grup setelah membeli tiket"),
-        );
-        match self.repo.save_message(&sys).await {
-            Ok(()) => self.fanout(&room.id, &sys).await,
-            Err(e) => tracing::warn!(user_id, room_id = %room.id, error = %e,
-                "system auto-join message gagal disimpan (join tetap sukses)"),
-        }
-
-        tracing::info!(
-            user_id, room_id = %room.id, event_id,
-            "User auto-joined product group after payment"
-        );
-        Ok(())
-    }
-
-    // ── Messaging ─────────────────────────────────────────────────────────────
-
-    /// Kirim pesan teks.
-    /// `role` = Claims.role ("customer" | "merchant" | "admin")
     pub async fn send_text(
         &self,
         room_id: &str,
@@ -259,20 +196,10 @@ impl GroupChatService {
         Ok(())
     }
 
-    fn build_system_msg(&self, room_id: &str, content: &str) -> GroupMessage {
-        GroupMessage {
-            id: new_ulid(),
-            room_id: room_id.to_string(),
-            sender_id: "00000000000000000000000000".to_string(),
-            sender_name: "System Pulse".to_string(),
-            msg_type: MsgType::System,
-            content: content.to_string(),
-            media_url: None,
-            ticket_card: None,
-            sent_at: chrono::Utc::now(),
-            is_system: true,
-        }
-    }
+    // `build_system_msg` dibuang bersama grup produk: pesan sistem dulu hanya
+    // dipakai untuk mengumumkan "X bergabung". Skema masih mendukung
+    // `MsgType::System` bila kelak dibutuhkan lagi.
+
 
     /// FIX: Tidak ada tokio::spawn — await langsung.
     /// Spawn tanpa bound menyebabkan task buildup pada load tinggi (Redis retry

@@ -12,7 +12,7 @@ use crate::web::hooks::ThemeToggle;
 fn kind_eyebrow(kind: &str) -> &'static str {
     match kind {
         "order" | "order_paid" | "payment_success" => "ORDER UPDATE",
-        "ticket"  => "TICKET READY",
+        "ticket"  => "SIAP DIAMBIL",
         "story"   => "STORY UPDATE",
         "promo"   => "PROMO",
         "artist_update" => "ARTIST UPDATE",
@@ -161,7 +161,7 @@ pub fn NotificationDetailPage() -> impl IntoView {
                         });
                         let cta_label = match n.kind.as_str() {
                             "order"  => "Lihat Order",
-                            "ticket" => "View Ticket",
+                            "ticket" => "Lihat Kode Ambil",
                             _        => "",
                         };
                         let created = n.created_at

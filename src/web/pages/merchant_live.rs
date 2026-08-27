@@ -454,7 +454,7 @@ pub fn MerchantLivePage() -> impl IntoView {
                     <li>"Pastikan pencahayaan cukup terang"</li>
                     <li>"Gunakan koneksi WiFi yang stabil"</li>
                     <li>"Interaksi langsung dengan viewer meningkatkan konversi"</li>
-                    <li>"Tampilkan ticket QRIS selama live untuk impulse buying"</li>
+                    <li>"Tampilkan QRIS selama live untuk impulse buying"</li>
                 </ul>
             </div>
         </div>

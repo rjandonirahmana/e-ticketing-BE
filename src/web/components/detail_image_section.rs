@@ -30,6 +30,10 @@ pub struct DetailImageDraft {
     /// gagal membuat form menolak SIMPAN dengan "Tunggu semua foto selesai
     /// diunggah" SELAMANYA — menyuruh menunggu sesuatu yang sudah berhenti.
     pub gagal: RwSignal<bool>,
+    /// Persen unggahan 0–100. Foto lama dari BE langsung 100. Tetap 0 selama
+    /// peramban tak melaporkan panjang total — thumbnail menanganinya sebagai
+    /// "tanpa angka", bukan sebagai "macet di 0%".
+    pub progres: RwSignal<u8>,
     /// File asli — Some hanya untuk foto baru yang belum pernah di-upload.
     #[cfg(target_arch = "wasm32")]
     pub file: Option<web_sys::File>,
@@ -47,6 +51,7 @@ impl DetailImageDraft {
             preview_url,
             uploaded_url: None,
             gagal: RwSignal::new(false),
+            progres: RwSignal::new(0),
             file: Some(file),
             image_type: RwSignal::new("other".to_string()),
             caption: RwSignal::new(String::new()),
@@ -63,6 +68,9 @@ impl DetailImageDraft {
             uploaded_url: Some(payload.url.clone()),
             // Foto lama sudah ada di server — tak ada unggahan yang bisa gagal.
             gagal: RwSignal::new(false),
+            // Sudah utuh di server: 100, bukan 0. Kalau 0, thumbnail foto lama
+            // akan tampak seperti unggahan yang belum mulai.
+            progres: RwSignal::new(100),
             #[cfg(target_arch = "wasm32")]
             file: None,
             image_type: RwSignal::new(payload.image_type.clone()),
@@ -94,34 +102,20 @@ impl DetailImageDraft {
     }
 }
 
-// ─── Helper label & badge ─────────────────────────────────────────────────────
-
-fn type_label(t: &str) -> &'static str {
-    match t {
-        "map" => "Denah Lokasi",
-        "seat" => "Peta Kursi",
-        "price" => "Info Harga",
-        _ => "Lainnya",
-    }
-}
-
-fn type_badge_style(t: &str) -> &'static str {
-    match t {
-        "map" => "background:#1e3a5f;color:#93c5fd",
-        "seat" => "background:#134e38;color:#6ee7b7",
-        "price" => "background:#4a2c06;color:#fcd34d",
-        _ => "background:var(--bg-elevated);color:var(--text-muted)",
-    }
-}
-
-fn type_badge_short(t: &str) -> &'static str {
-    match t {
-        "map" => "DENAH",
-        "seat" => "KURSI",
-        "price" => "HARGA",
-        _ => "INFO",
-    }
-}
+// ─── Catatan: JENIS FOTO SUDAH DIPENSIUNKAN ───────────────────────────────────
+//
+// Dulu ada `type_label`, `type_badge_style`, dan `type_badge_short` yang memilah
+// foto menjadi `map` (Denah Lokasi), `seat` (Peta Kursi), dan `price` (Info
+// Harga). Ketiganya konsep dari masa aplikasi ini menjual tiket acara.
+//
+// Sebagai marketplace barang, setiap foto detail adalah foto produk — semuanya
+// masuk ke galeri geser yang sama di halaman detail (lihat
+// `pages/product_detail.rs`), tanpa kategori dan tanpa lencana.
+//
+// Medan `image_type` di payload SENGAJA dipertahankan dan selalu berisi
+// `"other"`. Membuangnya dari struktur akan memutus kompatibilitas dengan baris
+// `products.detail_images` yang sudah tersimpan; migrasi 026 menyeragamkan
+// nilainya, dan kolomnya bisa dibuang kapan saja nanti tanpa terburu-buru.
 
 // ─── Komponen utama ───────────────────────────────────────────────────────────
 
@@ -199,6 +193,14 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
         let match_key = url.clone();
         let file_for_upload = file.clone();
         drafts.update(|d| d.push(DetailImageDraft::from_file(file, url)));
+        // Signal progres draft ini diambil SEKARANG dan dipegang langsung oleh
+        // pelapor di bawah. Alternatifnya — `drafts.update(...)` pada tiap
+        // peristiwa progres — akan menulis ulang seluruh Vec puluhan kali per
+        // detik, dan setiap tulisan itu me-render ulang SEMUA thumbnail. Signal
+        // per-draft membuat pembaruannya berhenti di satu angka saja.
+        let progres_sig = drafts.with_untracked(|d| {
+            d.iter().find(|x| x.preview_url == match_key).map(|x| x.progres)
+        });
         active_idx.set(Some(new_idx));
         input.set_value("");
 
@@ -206,7 +208,17 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
         // Menghindari menyimpan `web_sys::File` sampai submit (rumit lintas-target)
         // dan menyederhanakan serialisasi: saat simpan semua draft sudah ber-URL.
         leptos::task::spawn_local(async move {
-            match crate::web::pages::merchant::upload_merchant_image(&file_for_upload).await {
+            let lapor = move |p: u8| {
+                if let Some(sig) = progres_sig {
+                    sig.set(p);
+                }
+            };
+            match crate::web::pages::merchant::upload_merchant_image_with_progress(
+                &file_for_upload,
+                lapor,
+            )
+            .await
+            {
                 Ok(permanent) => {
                     drafts.update(|d| {
                         if let Some(dr) = d.iter_mut().find(|x| x.preview_url == match_key) {
@@ -286,12 +298,12 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
                                                     .enumerate()
                                                     .map(|(idx, draft)| {
                                                         let is_active = move || active_idx.get() == Some(idx);
-                                                        let img_type = draft.image_type;
                                                         let preview = draft.preview_url.clone();
                                                         // Belum punya URL permanen: entah masih berjalan,
                                                         // entah sudah gagal — dibedakan oleh `gagal`.
                                                         let belum_terunggah = draft.uploaded_url.is_none();
                                                         let gagal = draft.gagal;
+                                                        let progres = draft.progres;
 
                                                         view! {
                                                             <button
@@ -347,23 +359,33 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
                                                                     };
                                                                     view! {
                                                                         <div style=gaya>
-                                                                            {if rusak { "GAGAL" } else { "MENGUNGGAH…" }}
+                                                                            // Angka menggantikan "MENGUNGGAH…"
+                                                                            // begitu terukur. Untuk foto besar,
+                                                                            // label statis tak terbedakan dari
+                                                                            // unggahan yang sudah mati.
+                                                                            // `!= 0`, BUKAN `> 0`: `>` di dalam
+                                                                            // makro view! diurai sebagai penutup tag.
+                                                                            {if rusak {
+                                                                                "GAGAL".to_string()
+                                                                            } else {
+                                                                                // 100% dari `upload.onprogress` cuma
+                                                                                // berarti byte sudah diserahkan ke jaringan;
+                                                                                // server masih meneruskannya ke storage.
+                                                                                // Menampilkan "100%" di situ membuat thumbnail
+                                                                                // tampak selesai padahal belum — dan justru
+                                                                                // di fase itulah menunggunya paling lama.
+                                                                                let p = progres.get();
+                                                                                if p >= 100 {
+                                                                                    "MEMPROSES…".to_string()
+                                                                                } else if p != 0 {
+                                                                                    format!("{p}%")
+                                                                                } else {
+                                                                                    "MENGUNGGAH…".to_string()
+                                                                                }
+                                                                            }}
                                                                         </div>
                                                                     }
                                                                 })}
-                                                                // Badge type — reaktif terhadap img_type
-                                                                {move || {
-                                                                    let t = img_type.get();
-                                                                    let short = type_badge_short(&t);
-                                                                    let style = format!(
-                                                                        "position:absolute;top:2px;right:2px;\
-                                                     padding:2px 6px;border-radius:4px;\
-                                                     font-size:8px;font-weight:700;\
-                                                     letter-spacing:.05em;{}",
-                                                                        type_badge_style(&t),
-                                                                    );
-                                                                    view! { <div style=style>{short}</div> }
-                                                                }}
                                                             </button>
                                                         }
                                                     })
@@ -385,7 +407,6 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
                             .with(|d| {
                                 d.get(idx)
                                     .map(|draft| {
-                                        let img_type = draft.image_type;
                                         let caption = draft.caption;
                                         let list_len = d.len();
                                         let preview = draft.preview_url.clone();
@@ -477,61 +498,6 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
                                                     </div>
                                                 </div>
 
-                                                // ── Tipe selector ────────────────────────────
-                                                <div style="display:flex;flex-direction:column;gap:6px">
-                                                    <label style="font-size:9px;font-weight:800;\
-                                                     letter-spacing:.14em;color:var(--text-muted);\
-                                                     text-transform:uppercase">"TIPE FOTO"</label>
-                                                    <div style="display:flex;gap:6px;flex-wrap:wrap">
-                                                        {["map", "seat", "price", "other"]
-                                                            .iter()
-                                                            .map(|&t| {
-                                                                let type_sig = img_type;
-                                                                view! {
-                                                                    <button
-                                                                        style=move || {
-                                                                            let active = type_sig.get() == t;
-                                                                            let base = "font-size:10px;font-weight:700;\
-                                                                    letter-spacing:.06em;padding:6px 12px;\
-                                                                    border-radius:100px;cursor:pointer;\
-                                                                    transition:all .15s;border:.5px solid;";
-                                                                            if active {
-                                                                                format!(
-                                                                                    "{}{}",
-                                                                                    base,
-                                                                                    match t {
-                                                                                        "map" => {
-                                                                                            "background:#1e3a5f;color:#93c5fd;border-color:#2563eb"
-                                                                                        }
-                                                                                        "seat" => {
-                                                                                            "background:#134e38;color:#6ee7b7;border-color:#059669"
-                                                                                        }
-                                                                                        "price" => {
-                                                                                            "background:#4a2c06;color:#fcd34d;border-color:#d97706"
-                                                                                        }
-                                                                                        _ => {
-                                                                                            "background:var(--bg-elevated-2);color:var(--text-primary);border-color:var(--border-strong)"
-                                                                                        }
-                                                                                    },
-                                                                                )
-                                                                            } else {
-                                                                                format!(
-                                                                                    "{}background:transparent;color:var(--text-muted);\
-                                                                     border-color:var(--border-soft)",
-                                                                                    base,
-                                                                                )
-                                                                            }
-                                                                        }
-                                                                        on:click=move |_| type_sig.set(t.to_string())
-                                                                    >
-                                                                        {type_label(t)}
-                                                                    </button>
-                                                                }
-                                                            })
-                                                            .collect_view()}
-                                                    </div>
-                                                </div>
-
                                                 // ── Input keterangan ────────────────────────
                                                 <div style="display:flex;flex-direction:column;gap:5px">
                                                     <label style="font-size:9px;font-weight:800;\
@@ -540,12 +506,12 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
                                                     <textarea
                                                         class="medit-input"
                                                         style="min-height:60px;resize:none;padding-top:9px;font-size:13px"
-                                                        placeholder="cth. Denah venue lantai 1 — akses Gate A & B"
+                                                        placeholder="cth. Tampak belakang — bahan katun, jahitan rangkap"
                                                         prop:value=move || caption.get()
                                                         on:input=move |e| caption.set(event_target_value(&e))
                                                     />
                                                     <p style="font-size:10px;color:var(--text-muted);line-height:1.5">
-                                                        "Keterangan singkat ditampilkan di bawah foto pada halaman detail product."
+                                                        "Keterangan singkat ditampilkan di bawah foto pada halaman detail produk."
                                                     </p>
                                                 </div>
 
@@ -600,7 +566,7 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
                                 </svg>
                                 <p style="font-size:12px;color:var(--text-muted);margin:0;line-height:1.6">
                                     "Tambahkan foto denah, peta kursi, atau info harga"<br />
-                                    "agar pengunjung tahu layout venue."
+                                    "agar pembeli tahu detail produknya."
                                 </p>
                             </div>
                         }

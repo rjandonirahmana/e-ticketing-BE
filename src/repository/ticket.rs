@@ -103,7 +103,13 @@ pub trait TicketRepository: Send + Sync {
     async fn find_by_id(&self, id: &str) -> Result<Option<(TicketResponse, String, String)>>;
 
     /// Lookup by code + atomically transition `active` → `used`.
-    async fn validate_by_code(&self, code: &str) -> Result<(TicketResponse, String)>;
+    /// Tukarkan kode pengambilan. `merchant_id` WAJIB — kepemilikan diperiksa
+    /// DI DALAM transaksi, sebelum baris ditandai terpakai.
+    async fn validate_by_code(
+        &self,
+        code: &str,
+        merchant_id: &str,
+    ) -> Result<TicketResponse>;
 }
 
 // ── PgTicketRepository ────────────────────────────────────────────────────────
@@ -197,15 +203,44 @@ impl TicketRepository for PgTicketRepository {
         row.as_ref().map(Self::row_to_response).transpose()
     }
 
-    async fn validate_by_code(&self, code: &str) -> Result<(TicketResponse, String)> {
+    /// ── KEPEMILIKAN DIPERIKSA SEBELUM MENANDAI, DI TRANSAKSI YANG SAMA ──────
+    ///
+    /// Versi sebelumnya menandai baris `used`, MELAKUKAN COMMIT, lalu
+    /// mengembalikan `merchant_id` supaya service membandingkannya. Urutan itu
+    /// membuat pemeriksaannya tak berguna: saat penolakan terjadi, kodenya sudah
+    /// hangus dan sudah tersimpan permanen.
+    ///
+    /// Akibatnya siapa pun yang punya akun merchant bisa membakar kode
+    /// pengambilan milik pembeli toko LAIN — cukup memindainya sekali. Ia
+    /// menerima 403, tapi pembelinya yang menanggung: kodenya sudah `used` dan
+    /// toko yang berhak tak akan pernah bisa menukarkannya. Satu pemindaian
+    /// tak sengaja di konter yang salah sudah cukup.
+    ///
+    /// `FOR UPDATE OF t` — bukan `FOR UPDATE` telanjang: dengan JOIN, yang
+    /// terakhir mencoba mengunci baris `products` dan `product_variants` juga.
+    /// Mengunci katalog produk pada setiap pengambilan barang akan membuat
+    /// kasir saling menunggu tanpa alasan, dan memblokir merchant yang kebetulan
+    /// sedang menyunting produknya.
+    async fn validate_by_code(
+        &self,
+        code: &str,
+        merchant_id: &str,
+    ) -> Result<TicketResponse> {
         let mut conn = get_conn(&self.pool).await?;
         let tx = conn.transaction().await?;
 
-        // prepare_cached: statement cache per-koneksi deadpool — scan tiket
-        // adalah jalur panas saat check-in, hindari parse+plan berulang.
-        let lock_stmt = tx
-            .prepare_cached("SELECT id, status FROM tickets WHERE ticket_code = $1 FOR UPDATE")
-            .await?;
+        // prepare_cached: statement cache per-koneksi deadpool — pemindaian kode
+        // adalah jalur panas di konter, hindari parse+plan berulang.
+        const LOCK_SQL: &str = r#"
+            SELECT t.id, t.status, e.merchant_id
+            FROM tickets t
+            JOIN cart_items ci       ON t.cart_item_id = ci.id
+            JOIN product_variants tv ON ci.ticket_variant_id = tv.id
+            JOIN products e          ON tv.event_id = e.id
+            WHERE t.ticket_code = $1
+            FOR UPDATE OF t
+        "#;
+        let lock_stmt = tx.prepare_cached(LOCK_SQL).await?;
         let row = tx
             .query_opt(&lock_stmt, &[&code])
             .await?
@@ -213,6 +248,14 @@ impl TicketRepository for PgTicketRepository {
 
         let id_bytes: Vec<u8> = row.try_get("id")?;
         let status: String = row.try_get("status")?;
+        let pemilik_bytes: Vec<u8> = row.try_get("merchant_id")?;
+        let pemilik = bin_to_ulid(pemilik_bytes)?;
+
+        // Kepemilikan LEBIH DULU, sebelum status: memberi tahu "sudah terpakai"
+        // untuk kode milik toko lain membocorkan bahwa kodenya memang ada.
+        if pemilik != merchant_id {
+            bail!("Ticket belongs to another merchant");
+        }
 
         match status.as_str() {
             "active" => {}
@@ -269,7 +312,7 @@ impl TicketRepository for PgTicketRepository {
 
         tx.commit().await?;
 
-        let (resp, _customer, merchant) = Self::row_to_response(&detail_row)?;
-        Ok((resp, merchant))
+        let (resp, _customer, _merchant) = Self::row_to_response(&detail_row)?;
+        Ok(resp)
     }
 }

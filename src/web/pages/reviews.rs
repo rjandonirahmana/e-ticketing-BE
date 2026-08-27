@@ -401,7 +401,7 @@ pub fn MerchantReviewsPage() -> impl IntoView {
                                     </div>
                                     <textarea
                                         class="medit-input medit-textarea"
-                                        placeholder="Ceritakan pengalamanmu dengan penyelenggara ini..."
+                                        placeholder="Ceritakan pengalamanmu berbelanja di toko ini..."
                                         prop:value=move || f_comment.get()
                                         on:input=move |e| f_comment.set(event_target_value(&e))
                                     ></textarea>

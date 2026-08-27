@@ -118,9 +118,9 @@ pub fn OrderCreatedPage() -> impl IntoView {
 
                             <div class="oc-ticket-section">
                                 <div class="oc-section-row">
-                                    <span class="oc-section-head">"TICKET DETAILS"</span>
+                                    <span class="oc-section-head">"RINCIAN PESANAN"</span>
                                     <span class="oc-section-badge">
-                                        {format!("{}× Tickets", items.iter().map(|i| i.quantity).sum::<i32>())}
+                                        {format!("{}× barang", items.iter().map(|i| i.quantity).sum::<i32>())}
                                     </span>
                                 </div>
                                 {items.iter().map(|item| {
@@ -131,7 +131,7 @@ pub fn OrderCreatedPage() -> impl IntoView {
                                         <div class="oc-ticket-row">
                                             <div>
                                                 <div class="oc-ticket-name">{name}</div>
-                                                <div class="oc-ticket-qty">{format!("{}× ticket", qty)}</div>
+                                                <div class="oc-ticket-qty">{format!("{}× barang", qty)}</div>
                                             </div>
                                             <div class="oc-ticket-price">{sub}</div>
                                         </div>
@@ -273,7 +273,7 @@ pub fn OrderCreatedPage() -> impl IntoView {
                         </div>
 
                         <p class="oc-terms">
-                            "BY CLICKING PROCEED, YOU AGREE TO THE PULSE TERMS OF SERVICE AND THE VENUE'S ENTRY POLICY. TICKETS ARE NON-REFUNDABLE ONCE PAYMENT IS FINALIZED."
+                            "DENGAN MELANJUTKAN, ANDA MENYETUJUI SYARAT LAYANAN PULSE DAN KEBIJAKAN TOKO. PESANAN TIDAK DAPAT DIBATALKAN SETELAH PEMBAYARAN SELESAI."
                         </p>
                     </div>
                 }.into_any()

@@ -73,24 +73,25 @@ impl TicketService {
         req.validate()
             .map_err(|e| AppError::UnprocessableEntity(format!("{e}")))?;
 
-        let (resp, owner_merchant) = self
+        // Kepemilikan TIDAK lagi diperiksa di sini. Ia dipindah ke dalam
+        // transaksi repository, sebelum baris ditandai terpakai — pemeriksaan
+        // di sini terjadi sesudah commit, jadi ia menolak pemanggilnya tapi
+        // kodenya sudah terlanjur hangus. Lihat catatan di `validate_by_code`.
+        let resp = self
             .repo
-            .validate_by_code(&req.ticket_code)
+            .validate_by_code(&req.ticket_code, merchant_id)
             .await
             .map_err(map_validate_err)?;
 
-        if owner_merchant != merchant_id {
-            return Err(AppError::Forbidden(
-                "This ticket belongs to another merchant's product".into(),
-            ));
-        }
         Ok(resp)
     }
 }
 
 fn map_validate_err(e: anyhow::Error) -> AppError {
     let msg = e.to_string();
-    if msg.contains("Ticket not found") {
+    if msg.contains("belongs to another merchant") {
+        AppError::Forbidden("Kode ini milik toko lain.".into())
+    } else if msg.contains("Ticket not found") {
         AppError::NotFound(msg)
     } else if msg.contains("already used")
         || msg.contains("refunded")
