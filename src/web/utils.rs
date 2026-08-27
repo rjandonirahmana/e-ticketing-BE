@@ -153,3 +153,82 @@ pub fn client_nonce() -> String {
         String::new()
     }
 }
+
+/// Kunci localStorage untuk identitas tamu. Satu kunci untuk seluruh aplikasi —
+/// tamu yang sama harus dikenali sama di halaman produk, `/lives`, maupun PiP.
+#[cfg(target_arch = "wasm32")]
+const KUNCI_TAMU: &str = "pulse.tamu";
+
+/// Identitas penonton TAMU yang bertahan antar-muat halaman: `(id, nama)`.
+///
+/// ── KENAPA HARUS DISIMPAN, BUKAN DIBUAT TIAP KALI ───────────────────────────
+/// Menonton siaran tidak pernah memerlukan login — rute `subscribe` di
+/// `live/api.rs` memang publik, dan itu disengaja karena siaran adalah umpan
+/// yang menarik orang SEBELUM mereka punya akun.
+///
+/// Yang bermasalah adalah cara tamu diberi nama. Sebelumnya klien mengirim
+/// `viewer_id: null`, dan server menjawabnya dengan UUID BARU pada setiap
+/// permintaan subscribe (`api.rs`, `sub_id`). Akibatnya:
+///
+///   • Satu tamu yang me-refresh, kehilangan sinyal sebentar, atau berpindah
+///     dari halaman produk ke `/lives` terhitung sebagai penonton BARU setiap
+///     kali. Angka penonton yang dilihat merchant menggelembung tanpa ada orang
+///     tambahan — dan angka itulah yang dipakai merchant untuk menilai apakah
+///     siarannya berhasil.
+///   • Semua tamu tampil sebagai "Anonim" yang identik, jadi merchant tak bisa
+///     membedakan sepuluh orang dari satu orang yang me-refresh sepuluh kali.
+///
+/// Identitas yang disimpan menyelesaikan keduanya sekaligus, tanpa akun dan
+/// tanpa satu pun data pribadi.
+///
+/// Nilainya TIDAK rahasia dan tak boleh dipakai untuk otorisasi apa pun: ia
+/// hanya label tampilan. Siapa pun bisa menyuntingnya di localStorage, dan itu
+/// tak apa-apa — yang paling bisa dilakukannya adalah mengganti nama samarannya
+/// sendiri di daftar penonton.
+///
+/// Gagal membaca/menulis localStorage (mode privat di sebagian peramban
+/// melemparnya) tidak dianggap galat: pemanggil tetap mendapat identitas yang
+/// sah, hanya saja ia tak bertahan sesudah tab ditutup.
+/// Padanan sisi server. Pemanggilnya (`components/live_stream.rs`) ada di dalam
+/// badan komponen yang dikompilasi untuk KEDUA target, jadi fungsi ini harus ada
+/// di dua-duanya — meski di server ia tak pernah benar-benar berjalan, karena
+/// menyambung ke SFU baru terjadi sesudah hidrasi.
+///
+/// Nilainya sengaja BUKAN identitas yang tampak sah. Kalau ia mengembalikan
+/// sesuatu seperti `("tamu_0", "Tamu-0000")`, dan suatu hari ada jalur SSR yang
+/// tak sengaja memanggilnya, seluruh pengunjung akan berbagi satu identitas yang
+/// sama tanpa ada yang menyadarinya — hitungan penonton runtuh jadi 1 dan tak
+/// ada pesan galat yang menjelaskannya. String kosong membuat kegagalan itu
+/// kelihatan.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn identitas_tamu() -> (String, String) {
+    (String::new(), String::new())
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn identitas_tamu() -> (String, String) {
+    let simpanan = web_sys::window().and_then(|w| w.local_storage().ok().flatten());
+
+    if let Some(s) = &simpanan {
+        if let Ok(Some(tersimpan)) = s.get_item(KUNCI_TAMU) {
+            if let Some((id, nama)) = tersimpan.split_once('|') {
+                if !id.is_empty() && !nama.is_empty() {
+                    return (id.to_string(), nama.to_string());
+                }
+            }
+        }
+    }
+
+    // Empat digit heksadesimal: cukup untuk membedakan penonton dalam satu
+    // siaran, cukup pendek untuk dibaca sekilas di daftar penonton. Tabrakan
+    // memang mungkin, dan konsekuensinya cuma dua tamu bernama sama.
+    let acak = (js_sys::Math::random() * 65_536.0) as u32 & 0xFFFF;
+    let nama = format!("Tamu-{acak:04X}");
+    // Id memakai stempel waktu supaya tetap unik walau labelnya kebetulan sama.
+    let id = format!("tamu_{:.0}_{acak:04x}", js_sys::Date::now());
+
+    if let Some(s) = &simpanan {
+        let _ = s.set_item(KUNCI_TAMU, &format!("{id}|{nama}"));
+    }
+    (id, nama)
+}

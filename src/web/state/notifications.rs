@@ -38,7 +38,7 @@ fn item_to_notif(n: NotificationItem) -> Notif {
     // CTA dan href berdasarkan kind + target_id
     let (cta, cta_href) = match (n.kind.as_str(), n.target_id.as_deref()) {
         ("order", Some(id))  => (Some("Lihat Order".into()), Some(format!("/orders/{}", id))),
-        ("ticket", Some(id)) => (Some("Lihat Tiket".into()), Some(format!("/tickets/{}", id))),
+        ("ticket", Some(id)) => (Some("Lihat Kode Ambil".into()), Some(format!("/tickets/{}", id))),
         _                    => (None, None),
     };
 

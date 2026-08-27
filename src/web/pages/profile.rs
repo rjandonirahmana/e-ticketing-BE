@@ -227,7 +227,7 @@ pub fn ProfilePage() -> impl IntoView {
                                         // ── Stat ringkas (mobile) ──────────────────
                                         <div class="stats-row stats-row--mobile-only">
                                             <div class="stat-card">
-                                                <span class="stat-label">"ACTIVE TICKETS"</span>
+                                                <span class="stat-label">"SIAP DIAMBIL"</span>
                                                 <span class="stat-value">{active_tickets}</span>
                                             </div>
                                             <div class="stat-card">
@@ -257,7 +257,7 @@ pub fn ProfilePage() -> impl IntoView {
                                                                         "Kinetic Premium"
                                                                     </span>
                                                                     <span class="profile-premium-sub">
-                                                                        "Story tak terbatas · Prioritas tiket"
+                                                                        "Story tak terbatas · Prioritas antrian"
                                                                     </span>
                                                                 </div>
                                                                 <span class="profile-premium-cta">
@@ -401,6 +401,50 @@ pub fn ProfilePage() -> impl IntoView {
                                                     }
                                                 }}
                                             </Suspense>
+                                        </div>
+
+                                        // ── Belanja ────────────────────────────────
+                                        // Bagian sendiri, bukan diselipkan ke
+                                        // "ACCOUNT CONTROL": mengikuti toko adalah
+                                        // kebiasaan BELANJA, bukan pengaturan akun.
+                                        // Menaruhnya bersama Edit Profil dan Keluar
+                                        // membuatnya terbaca sebagai urusan
+                                        // administratif dan nyaris tak pernah
+                                        // ditemukan orang.
+                                        <div class="menu-section">
+                                            <span class="menu-section-label">"BELANJA"</span>
+                                            <div class="menu-list">
+                                                <A href="/following" attr:class="menu-item">
+                                                    <div class="menu-item-icon">
+                                                        <svg
+                                                            width="18"
+                                                            height="18"
+                                                            viewBox="0 0 24 24"
+                                                            fill="none"
+                                                            stroke="currentColor"
+                                                            stroke-width="1.8"
+                                                            stroke-linecap="round"
+                                                            stroke-linejoin="round"
+                                                        >
+                                                            <path d="M3 7l1.5-3h15L21 7" />
+                                                            <path d="M3 7v13a1 1 0 001 1h16a1 1 0 001-1V7" />
+                                                            <path d="M9 11h6" />
+                                                        </svg>
+                                                    </div>
+                                                    <span class="menu-item-label">"Toko yang Diikuti"</span>
+                                                    <svg
+                                                        width="16"
+                                                        height="16"
+                                                        viewBox="0 0 24 24"
+                                                        fill="none"
+                                                        stroke="currentColor"
+                                                        stroke-width="2"
+                                                        stroke-linecap="round"
+                                                    >
+                                                        <polyline points="9 18 15 12 9 6" />
+                                                    </svg>
+                                                </A>
+                                            </div>
                                         </div>
 
                                         // ── Account control menu ───────────────────
@@ -590,12 +634,12 @@ pub fn ProfilePage() -> impl IntoView {
                                                         if upcoming.is_empty() {
                                                             view! {
                                                                 <p style="color:var(--clr-muted);font-size:.85rem;padding:.5rem 0">
-                                                                    "Belum ada tiket aktif. "
+                                                                    "Belum ada barang yang siap diambil. "
                                                                     <A
                                                                         href="/explore"
                                                                         attr:style="color:var(--clr-accent)"
                                                                     >
-                                                                        "Jelajahi product →"
+                                                                        "Jelajahi produk →"
                                                                     </A>
                                                                 </p>
                                                             }
@@ -664,7 +708,7 @@ pub fn ProfilePage() -> impl IntoView {
                                                                                         >
                                                                                             <path d="M2 9a3 3 0 010-6h20a3 3 0 010 6H2zM2 15a3 3 0 000 6h20a3 3 0 000-6H2z" />
                                                                                         </svg>
-                                                                                        "VIEW TICKET"
+                                                                                        "LIHAT KODE"
                                                                                     </A>
                                                                                     <span class="profile-exp-price">{price}</span>
                                                                                 </div>

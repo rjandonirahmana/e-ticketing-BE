@@ -55,7 +55,7 @@ fn ticket_card(t: TicketResponse, seq: usize) -> impl IntoView {
             <div class="yt-ticket-body">
                 <div class="yt-ticket-top-row">
                     <div class="yt-ticket-num-block">
-                        <span class="yt-ticket-num-label">"TICKET #"</span>
+                        <span class="yt-ticket-num-label">"KODE #"</span>
                         <span class="yt-ticket-code">{code_display}</span>
                     </div>
                     <div class=if is_active { "yt-status-badge yt-status-badge--active" } else { "yt-status-badge yt-status-badge--used" }>
@@ -83,7 +83,7 @@ fn ticket_card(t: TicketResponse, seq: usize) -> impl IntoView {
                 </div>
 
                 <A href=detail_href attr:class="yt-view-btn">
-                    "VIEW TICKET "
+                    "LIHAT KODE "
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
                          stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
                         <rect x="3" y="3" width="7" height="7" rx="1"/>
@@ -123,7 +123,7 @@ pub fn OrderTicketsPage() -> impl IntoView {
                         <polyline points="15 18 9 12 15 6"/>
                     </svg>
                 </A>
-                <span class="yt-header-title">"YOUR TICKETS"</span>
+                <span class="yt-header-title">"KODE PENGAMBILAN"</span>
                 <button class="icon-btn" attr:aria-label="Share">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
                          stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -147,7 +147,7 @@ pub fn OrderTicketsPage() -> impl IntoView {
                     Err(msg) => view! {
                         <div class="yt-empty">
                             <span class="yt-empty-icon">"⚠️"</span>
-                            <p class="yt-empty-title">"Gagal memuat tiket"</p>
+                            <p class="yt-empty-title">"Gagal memuat kode pengambilan"</p>
                             <p class="yt-empty-sub">{msg.to_string()}</p>
                             <A href="/orders" attr:class="yt-back-link">"← Kembali ke Orders"</A>
                         </div>
@@ -156,9 +156,9 @@ pub fn OrderTicketsPage() -> impl IntoView {
                     Ok(list) if list.is_empty() => view! {
                         <div class="yt-empty">
                             <span class="yt-empty-icon">"🎫"</span>
-                            <p class="yt-empty-title">"Tiket belum tersedia"</p>
+                            <p class="yt-empty-title">"Kode belum tersedia"</p>
                             <p class="yt-empty-sub">
-                                "Tiket akan muncul setelah pembayaran dikonfirmasi."
+                                "Kode pengambilan muncul setelah pembayaran dikonfirmasi."
                             </p>
                             <A href="/orders" attr:class="yt-back-link">"← Kembali ke Orders"</A>
                         </div>
@@ -184,7 +184,7 @@ pub fn OrderTicketsPage() -> impl IntoView {
                                                 <span class="yt-order-id-val">{"#"}{order_code}</span>
                                             </span>
                                             <span class="yt-ticket-count">
-                                                {count}" Digital Ticket"{if count != 1 { "s" } else { "" }}
+                                                {count}" Kode Ambil"{if count != 1 { "s" } else { "" }}
                                             </span>
                                         </div>
                                         <div class="yt-order-right">

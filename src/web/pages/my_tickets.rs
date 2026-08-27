@@ -29,7 +29,7 @@ pub fn MyTicketsPage() -> impl IntoView {
                         <polyline points="15 18 9 12 15 6"/>
                     </svg>
                 </A>
-                <span class="page-logo">"MY TICKETS"</span>
+                <span class="page-logo">"PENGAMBILAN SAYA"</span>
                 <div class="header-actions">
                     <ThemeToggle/>
                 </div>
@@ -55,7 +55,7 @@ pub fn MyTicketsPage() -> impl IntoView {
                             <EmptyState
                                 icon="🔒"
                                 title="HARUS MASUK"
-                                body="Kamu harus masuk untuk melihat tiket."
+                                body="Kamu harus masuk untuk melihat kode pengambilan."
                                 cta_label="MASUK"
                                 cta_href="/login"
                             />
@@ -66,9 +66,9 @@ pub fn MyTicketsPage() -> impl IntoView {
                         Ok(list) if list.is_empty() => view! {
                             <EmptyState
                                 icon="🎟"
-                                title="BELUM ADA TIKET"
-                                body="Beli tiket product favoritmu dan temukan pengalaman seru!"
-                                cta_label="JELAJAHI EVENT"
+                                title="BELUM ADA PENGAMBILAN"
+                                body="Belanja dulu, kode pengambilannya muncul di sini."
+                                cta_label="JELAJAHI PRODUK"
                                 cta_href="/explore"
                             />
                         }.into_any(),
@@ -122,7 +122,7 @@ pub fn MyTicketsPage() -> impl IntoView {
                             <EmptyState
                                 icon="⚠️"
                                 title="GAGAL MEMUAT"
-                                body="Gagal memuat tiket. Coba login ulang."
+                                body="Gagal memuat kode pengambilan. Coba login ulang."
                                 cta_label="LOGIN"
                                 cta_href="/login"
                             />

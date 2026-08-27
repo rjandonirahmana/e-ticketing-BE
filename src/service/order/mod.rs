@@ -555,24 +555,21 @@ impl OrderService {
 
         let paid_response = build_detail_response(paid_order, items);
 
-        let group_svc = self.group_svc.clone();
-        let uid = viewer_id.to_string();
-        let uname = user_name.to_string();
-        self.background.spawn(async move {
-            for event_id in event_ids {
-                if let Err(e) = group_svc
-                    .auto_join_after_payment(&event_id, &uid, &uname)
-                    .await
-                {
-                    tracing::warn!(
-                        error = %e,
-                        event_id,
-                        user_id = %uid,
-                        "auto_join_after_payment failed"
-                    );
-                }
-            }
-        });
+        // ── AUTO-JOIN GRUP DIHAPUS ──────────────────────────────────────────
+        // Membeli barang tidak lagi memasukkan pembeli ke grup produk. Alasan
+        // grup itu ada hanya masuk akal untuk tiket acara: orang yang pergi ke
+        // konser yang sama memang punya sesuatu untuk dibicarakan.
+        //
+        // Di marketplace barang, yang dibutuhkan pembeli adalah bertanya kepada
+        // PENJUALNYA — stok, ukuran, ongkir, kapan bisa diambil — dan
+        // pertanyaan itu tidak boleh terbaca oleh semua orang yang kebetulan
+        // membeli barang yang sama. Di dalamnya ada alamat, nomor pesanan, dan
+        // keluhan.
+        //
+        // Percakapan kini dibuka atas kemauan pembeli lewat tombol di halaman
+        // produk (`GroupChatService::ensure_dm`), bukan diciptakan diam-diam
+        // oleh pembayaran. Lihat migrasi 027.
+        let _ = (&self.group_svc, user_name, &event_ids);
 
         self.notifier
             .notify_order_paid(viewer_id.to_string(), paid_response.clone());

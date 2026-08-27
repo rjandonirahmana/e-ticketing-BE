@@ -100,7 +100,7 @@ pub fn VenueLocationPage() -> impl IntoView {
                 {move || {
                     match product.get() {
                         Some(Ok(ev)) => {
-                            let venue = ev.venue.clone().unwrap_or_else(|| "Venue TBA".into());
+                            let venue = ev.venue.clone().unwrap_or_else(|| "Lokasi belum diisi".into());
                             let city = ev.city.clone().unwrap_or_default();
                             let full_addr = if city.is_empty() {
                                 venue.clone()
@@ -126,7 +126,7 @@ pub fn VenueLocationPage() -> impl IntoView {
                                     // ── Kartu info venue ───────────────────────
                                     <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:16px;padding:18px">
                                         <p style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-muted);margin:0 0 6px">
-                                            "Lokasi Acara"
+                                            "Lokasi Toko"
                                         </p>
                                         <h1 style="font-family:var(--font-display);font-size:22px;line-height:1.15;color:var(--text-primary);margin:0 0 14px">
                                             {ev.name.clone()}

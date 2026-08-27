@@ -325,7 +325,7 @@ fn order_view(
                                     view! { <p class="vp-paid-method">"via "{pm.to_uppercase()}</p> }
                                 })}
                             <p class="vp-paid-date">{paid_str}</p>
-                            <A href="/tickets" attr:class="vp-view-ticket-btn">"Lihat E-Ticket"</A>
+                            <A href="/tickets" attr:class="vp-view-ticket-btn">"Lihat Kode Ambil"</A>
                         </div>
                     }
                 })}

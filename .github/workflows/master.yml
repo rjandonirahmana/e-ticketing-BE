@@ -1,9 +1,65 @@
 name: Rust Docker CI/CD
+
 on:
   push:
     branches: ["main"]
+  workflow_dispatch:
+
+# Dua push beruntun akan berebut cache layer yang sama dan saling memperlambat,
+# dan yang lebih buruk: dua deploy bisa tiba di server dengan urutan terbalik.
+# Yang baru menunggu, bukan bertabrakan.
+concurrency:
+  group: deploy-e-ticketing
+  cancel-in-progress: false
+
 jobs:
+  # ── TES — DI LUAR `docker build`, DISENGAJA ─────────────────────────────────
+  # Dockerfile sengaja tidak memuat satu pun langkah tes. Menaruhnya di dalam
+  # build image berarti membayar ulang seluruh pipeline hanya untuk mengetahui
+  # satu assert gagal, dan membuat kegagalan tes tak bisa dibedakan dari
+  # kegagalan build di dalam log Docker.
+  #
+  # Job ini juga yang menjaga KEDUA target tetap sehat. Crate ini dikompilasi ke
+  # dua target dari satu pohon sumber (native SSR + wasm32 hydrate), dan wasm32
+  # bisa patah tanpa menyentuh sisi server sama sekali — `docker build` akan
+  # menemukannya juga, tapi setelah belasan menit, bukan setelah dua.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tanpa `toolchain:` eksplisit, action ini membaca rust-toolchain.toml —
+      # versi yang SAMA dengan yang dipakai Dockerfile. Kalau keduanya berbeda,
+      # CI bisa hijau untuk compiler yang tak pernah membangun image.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+          targets: wasm32-unknown-unknown
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # protoc untuk build.rs (tonic-prost-build).
+      - name: Pasang protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Clippy (SSR)
+        run: cargo clippy --features ssr --all-targets -- -D warnings
+
+      # Sisi hydrate WAJIB diperiksa terpisah: `--no-default-features` karena
+      # default crate ini `ssr`, dan fitur Cargo bersifat aditif — tanpa
+      # mematikannya, wasm32 ikut menyalakan `leptos/ssr` bersama
+      # `leptos/hydrate`, kombinasi yang tidak sah.
+      - name: Periksa target WASM (hydrate)
+        run: >
+          cargo check --target wasm32-unknown-unknown
+          --no-default-features --features hydrate --lib
+
+      - name: Tes unit
+        run: cargo test --features ssr
+
   build-and-push:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -12,21 +68,71 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/kinetic:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/kinetic:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/ticketing:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/ticketing:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Deploy to Server
-        uses: appleboy/ssh-action@v1.0.3
+
+      # ── DEPLOY: SALIN LALU JALANKAN BERKAS MILIK SERVER ────────────────────
+      #
+      # Seluruh perintah `docker run` — port, volume, dan SEMUA env rahasia —
+      # tinggal di berkas milik server (`/opt/ticketing/deploy.txt`). Repo ini
+      # tak pernah memuatnya, jadi tak ada rahasia yang ikut ter-push ke GitHub
+      # maupun melintas di log CI. Yang dikirim workflow cuma satu hal: TAG
+      # IMAGE yang barusan dibangun.
+      #
+      # Kenapa DISALIN dulu, bukan dijalankan langsung: `bash berkas` membaca
+      # berkasnya sambil menjalankan. Kalau berkas aslinya disunting saat deploy
+      # berjalan, bash melanjutkan dari OFFSET BYTE yang sama di isi yang sudah
+      # berubah — perintah bisa terpotong di tengah dan berjalan separuh.
+      # Salinan bertanggal membuat tiap deploy memakai satu isi yang membeku,
+      # dan salinan itu tertinggal sebagai jejak apa yang benar-benar dijalankan.
+      #
+      # Tag memakai SHA commit, bukan `latest`: dua push beruntun bisa membuat
+      # `latest` di server menunjuk build yang BERBEDA dari yang barusan
+      # dibangun, dan tak ada cara mengetahuinya setelah kejadian.
+      - name: Deploy ke server
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
+          # `script_stop` + `set -e`: tanpa keduanya, satu perintah yang gagal di
+          # tengah tetap berakhir dengan status 0 dan deploy dilaporkan BERHASIL
+          # padahal containernya tak pernah naik.
+          script_stop: true
           script: |
-            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/kinetic:latest
+            set -euo pipefail
+
+            SUMBER=/opt/ticketing/deploy.txt
+            SALINAN=/opt/ticketing/riwayat/deploy-$(date +%Y%m%d-%H%M%S)-${{ github.sha }}.sh
+
+            # Berkasnya HARUS sudah ada. Tanpa penjagaan ini, deploy pada server
+            # yang belum disiapkan gagal dengan "No such file" dari bash — pesan
+            # yang tak memberi tahu apa yang harus dibuat.
+            if [ ! -f "$SUMBER" ]; then
+              echo "ERROR: $SUMBER tidak ada di server."
+              echo "Buat berkas itu (perintah docker run + env), lihat deploy.example.txt di repo."
+              exit 1
+            fi
+
+            mkdir -p /opt/ticketing/riwayat
+            cp "$SUMBER" "$SALINAN"
+            chmod 700 "$SALINAN"
+
+            # Tag dikirim DUA cara supaya berkas server bebas memakai yang mana
+            # pun: sebagai argumen ($1) dan sebagai variabel lingkungan.
+            export TICKETING_IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/ticketing:${{ github.sha }}"
+            echo "→ Menjalankan $SALINAN dengan image $TICKETING_IMAGE"
+            bash "$SALINAN" "$TICKETING_IMAGE"
+
+            # Simpan 10 salinan terakhir; sisanya dibuang supaya folder riwayat
+            # tak tumbuh tanpa batas.
+            ls -1t /opt/ticketing/riwayat/deploy-*.sh 2>/dev/null | tail -n +11 | xargs -r rm -f

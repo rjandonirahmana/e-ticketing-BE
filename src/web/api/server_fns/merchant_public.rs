@@ -391,6 +391,36 @@ pub async fn get_merchant_followers(
     })
 }
 
+/// Toko yang DIIKUTI pengguna yang sedang masuk.
+///
+/// Wajib login — dan sengaja TIDAK menerima `user_id` sebagai parameter.
+/// Daftar siapa mengikuti siapa adalah data pribadi; kalau id-nya boleh dikirim
+/// pemanggil, siapa pun bisa membaca daftar milik orang lain hanya dengan
+/// menukar satu nilai. Identitasnya diambil dari token, bukan dari permintaan.
+#[server(GetMyFollowing, "/api-fn")]
+pub async fn get_my_following(page: Option<i64>) -> Result<FollowingData, ServerFnError> {
+    let claims = auth_claims().await?;
+    let state = app_state().await?;
+    let (total, items) = state
+        .merchant_svc
+        .list_following(&claims.user_id, page.unwrap_or(1), 30)
+        .await
+        .map_err(map_app_error)?;
+    Ok(FollowingData {
+        total,
+        items: items
+            .into_iter()
+            .map(|m| FollowingItem {
+                merchant_id: m.merchant_id,
+                store_name: m.store_name,
+                logo_url: m.logo_url,
+                verified: m.verified,
+                followed_at: m.followed_at,
+            })
+            .collect(),
+    })
+}
+
 #[server(SubmitMerchantReview, "/api-fn")]
 pub async fn submit_merchant_review(
     merchant_id: String,

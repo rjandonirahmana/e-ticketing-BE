@@ -46,7 +46,7 @@ pub fn PaymentSuccessPage() -> impl IntoView {
                 return ord.event_name;
             }
         }
-        query.read().get("product").unwrap_or_else(|| "Acara Anda".to_string())
+        query.read().get("produk").unwrap_or_else(|| "Toko".to_string())
     };
 
     let total_amount = move || {
@@ -70,9 +70,9 @@ pub fn PaymentSuccessPage() -> impl IntoView {
         if prev.is_none() {
             let code = order_code();
             let msg = if code.is_empty() {
-                "Pembayaran berhasil. Tiket sudah terbit.".to_string()
+                "Pembayaran berhasil. Kode pengambilan sudah terbit.".to_string()
             } else {
-                format!("Order #{code} lunas. Tiket sudah terbit.")
+                format!("Order #{code} lunas. Kode pengambilan sudah terbit.")
             };
             toast.notify(
                 crate::web::components::ToastKind::Success,
@@ -103,7 +103,7 @@ pub fn PaymentSuccessPage() -> impl IntoView {
                     </div>
                 </div>
                 <h1 class="ps-title">"Pembayaran Berhasil"</h1>
-                <p class="ps-sub">"Tiketmu sudah siap. Sampai jumpa di acara!"</p>
+                <p class="ps-sub">"Kode pengambilanmu siap. Tunjukkan saat mengambil barang di toko."</p>
             </div>
 
             // ── Product summary card ───────────────────────────────────────
@@ -144,7 +144,7 @@ pub fn PaymentSuccessPage() -> impl IntoView {
             // ── CTA buttons ──────────────────────────────────────────────
             <div class="ps-actions">
                 <A href="/tickets" attr:class="ps-primary-btn">
-                    "Lihat Tiket Saya"
+                    "Lihat Kode Pengambilan"
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
                         <line x1="5" y1="12" x2="19" y2="12"/>
                         <polyline points="12 5 19 12 12 19"/>

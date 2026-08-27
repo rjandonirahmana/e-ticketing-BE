@@ -175,7 +175,7 @@ pub fn CheckoutPage() -> impl IntoView {
             return;
         }
         if items_sig.with_untracked(|v| v.iter().any(|i| i.exceeds_stock)) {
-            pay_error.set("Ada tiket yang melebihi sisa stok. Kurangi dulu di keranjang.".into());
+            pay_error.set("Ada barang yang melebihi sisa stok. Kurangi dulu di keranjang.".into());
             return;
         }
 
@@ -206,7 +206,7 @@ pub fn CheckoutPage() -> impl IntoView {
                             crate::web::components::ToastKind::Success,
                             "Pembayaran berhasil".into(),
                             Some(format!(
-                                "Order #{} lunas. Tiket sudah terbit.",
+                                "Order #{} lunas. Kode pengambilan sudah terbit.",
                                 order.order_code
                             )),
                             Some(order_href),
@@ -278,7 +278,7 @@ pub fn CheckoutPage() -> impl IntoView {
                 <div class="section-row">
                     <span class="section-head">"RINGKASAN PESANAN"</span>
                     <span class="section-badge">
-                        {move || format!("{} TIKET", summary.with(|s| s.total_quantity))}
+                        {move || format!("{} BARANG", summary.with(|s| s.total_quantity))}
                     </span>
                 </div>
                 <div class="order-items">
@@ -296,7 +296,7 @@ pub fn CheckoutPage() -> impl IntoView {
                                 <p class="empty-msg">
                                     "Keranjang kosong. "
                                     <A href="/explore" attr:class="auth-prompt-link">
-                                        "Jelajahi product"
+                                        "Jelajahi produk"
                                     </A>
                                 </p>
                             }.into_any();
@@ -317,12 +317,12 @@ pub fn CheckoutPage() -> impl IntoView {
                                         </div>
                                         {(item.quantity > 1).then(|| view! {
                                             <div class="order-item-qty">
-                                                {format!("{}× tiket", item.quantity)}
+                                                {format!("{}× barang", item.quantity)}
                                             </div>
                                         })}
                                         {item.exceeds_stock.then(|| view! {
                                             <div class="order-item-warn">
-                                                {format!("Sisa {} tiket", item.available.max(0))}
+                                                {format!("Sisa {} stok", item.available.max(0))}
                                             </div>
                                         })}
                                     </div>
@@ -574,12 +574,12 @@ fn order_done_panel(o: OrderRef) -> impl IntoView {
                 </h2>
                 <p class="co-done-sub">
                     {if is_paid {
-                        "Tiketmu sudah terbit. Sampai jumpa di venue!".to_string()
+                        "Kode pengambilanmu sudah terbit. Tunjukkan saat mengambil barang di toko.".to_string()
                     } else {
                         o.payment_name
                             .clone()
                             .map(|n| format!("Selesaikan pembayaran lewat {n}."))
-                            .unwrap_or_else(|| "Selesaikan pembayaran untuk menerbitkan tiketmu.".into())
+                            .unwrap_or_else(|| "Selesaikan pembayaran untuk menerbitkan kode pengambilan.".into())
                     }}
                 </p>
 
@@ -631,7 +631,7 @@ fn order_done_panel(o: OrderRef) -> impl IntoView {
                     .map(|s| view! { <p class="co-done-instruction">{s}</p> }))}
 
                 {if is_paid {
-                    view! { <A href="/tickets" attr:class="co-done-btn">"LIHAT E-TICKET"</A> }.into_any()
+                    view! { <A href="/tickets" attr:class="co-done-btn">"LIHAT KODE AMBIL"</A> }.into_any()
                 } else {
                     view! {
                         <A href=format!("/orders/{oid}") attr:class="co-done-btn">

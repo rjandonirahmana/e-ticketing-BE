@@ -459,7 +459,7 @@ fn wasm_bg_alias(site_root: &str, output_name: &str) -> Option<(String, std::pat
     Some((format!("/pkg/{output_name}_bg.wasm"), tersedia))
 }
 
-/// Prproduct browsers from caching /pkg/* (JS/WASM) across deploys.
+/// Prevent browsers from caching /pkg/* (JS/WASM) across deploys.
 /// Without this, stale JS + new WASM causes "is not a function" hydration crashes.
 async fn pkg_no_cache(
     req: axum::http::Request<axum::body::Body>,

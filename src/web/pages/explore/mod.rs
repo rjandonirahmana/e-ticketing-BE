@@ -49,37 +49,16 @@ pub fn ExplorePage() -> impl IntoView {
     // Di-key sekali oleh kategori AWAL (dari URL); pergantian kategori setelah itu
     // ditangani store di klien, jadi resource ini tak refetch berulang.
     let initial_cat_val = active_cat.get_untracked();
-    // Blocking HANYA di SSR — alasan yang sama dengan `pages::product_detail`:
-    // saat navigasi klien, router menunggu view rute baru selesai di-resolve
-    // sebelum menukarnya, sementara gulir-ke-atas sudah terjadi. Resource
-    // blocking membuat kembali ke beranda terasa "menggulir tapi tak pindah".
-    // Di klien, store yang mengambil alih feed (lihat `store.is_active()`),
-    // jadi versi non-blocking tak mengubah apa pun selain membuat perpindahan
-    // halaman terjadi seketika.
-    #[cfg(feature = "ssr")]
+    // Blocking di sini MURNI urusan SSR: flag `blocking` hanya dibaca leptos di
+    // balik `#[cfg(feature = "ssr")]` (resource.rs:334), jadi di WASM ia identik
+    // dengan `Resource::new`. Pemecahan `#[cfg]` yang dulu ada di sini karena itu
+    // tak pernah mengubah perilaku klien sedikit pun — lihat catatan lengkap di
+    // `pages/product_detail.rs`, dan akar masalah navigasinya di
+    // `web/app/guards.rs`.
+    //
+    // Yang tetap dibutuhkan: page-1 harus sudah ada di HTML pertama, supaya
+    // kunjungan dingin melihat kartu product tanpa menunggu bundel WASM turun.
     let ssr_first = Resource::new_blocking(
-        || (),
-        move |_| {
-            let cat = initial_cat_val.clone();
-            async move {
-                let cat_opt = if cat == "All" || cat.is_empty() {
-                    None
-                } else {
-                    Some(cat)
-                };
-                crate::web::api::get_products(
-                    Some(1),
-                    None,
-                    cat_opt,
-                    None,
-                    Some(crate::web::state::products::PAGE_SIZE),
-                )
-                .await
-            }
-        },
-    );
-#[cfg(not(feature = "ssr"))]
-    let ssr_first = Resource::new(
         || (),
         move |_| {
             let cat = initial_cat_val.clone();
@@ -328,7 +307,7 @@ pub fn ExplorePage() -> impl IntoView {
 
     let close_c = StoredValue::new(close_overlay);
 
-    let placeholders = vec!["search products, artists...", "cari tiket konser", "tiket stand up"];
+    let placeholders = vec!["search produk, artists...", "cari sepatu lari", "kaos polos"];
     let _ph_idx = RwSignal::new(0usize);
     let ph_text = RwSignal::new(placeholders[0].to_string());
     let ph_show = RwSignal::new(true);
@@ -424,10 +403,10 @@ pub fn ExplorePage() -> impl IntoView {
     }
 
     view! {
-        <Title text="Jelajahi Product — PULSE" />
+        <Title text="Jelajahi Produk — PULSE" />
         <Meta
             name="description"
-            content="Temukan konser, festival, dan product seru di kotamu. Beli tiket sekarang di PULSE."
+            content="Temukan produk pilihan dari toko-toko di kotamu. Belanja sekarang di PULSE."
         />
         <div class="page explore-page exp-page">
             <header class="page-header exp-header">
@@ -480,7 +459,7 @@ pub fn ExplorePage() -> impl IntoView {
                 <button
                     class="exp-searchbar"
                     on:click=move |_| open_overlay()
-                    aria-label="Cari acara"
+                    aria-label="Cari produk"
                 >
                     <svg
                         width="15"
@@ -531,7 +510,7 @@ pub fn ExplorePage() -> impl IntoView {
                                     "UPGRADE TO VIP" <br /> "PULSE PASS"
                                 </h2>
                                 <p class="exp-promo-desc">
-                                    "Early access, backstage tours, dan premium lounge untuk semua festival musim panas."
+                                    "Akses lebih awal, diskon khusus, dan prioritas antrian untuk produk pilihan."
                                 </p>
                                 <button class="exp-promo-cta">"Claim Offer"</button>
                             </div>
@@ -649,7 +628,7 @@ pub fn ExplorePage() -> impl IntoView {
             <div class="exp-section-hdr-row">
                 <div class="exp-section-hdr-left">
                     <span class="exp-section-eyebrow">"TRENDING NOW"</span>
-                    <h2 class="exp-section-title">"Story Products"</h2>
+                    <h2 class="exp-section-title">"Story Produk"</h2>
                 </div>
                 // Arsip publik semua story yang pernah ada (bukan list product).
                 <A href="/stories" attr:class="exp-view-all">
@@ -690,7 +669,7 @@ pub fn ExplorePage() -> impl IntoView {
 
             <div class="exp-results-bar">
                 <div class="exp-results-left">
-                    <span class="exp-results-eyebrow">"Acara Tersedia"</span>
+                    <span class="exp-results-eyebrow">"Produk Tersedia"</span>
                     <span class="exp-results-count">
                         // TOTAL dari COUNT server (semua halaman), bukan jumlah
                         // item yang baru termuat. Saat user mengetik pencarian
@@ -707,7 +686,7 @@ pub fn ExplorePage() -> impl IntoView {
                                 }
                             }}
                         </Suspense>
-                        " acara tersedia"
+                        " produk tersedia"
                     </span>
                 </div>
                 <div class="exp-results-right">
@@ -804,7 +783,7 @@ pub fn ExplorePage() -> impl IntoView {
                                 <div class="exp-empty">
                                     <EmptyState
                                         icon="🔍"
-                                        title="Belum Ada Acara"
+                                        title="Belum Ada Produk"
                                         body="Coba pilih kategori lain atau ubah filter."
                                     />
                                     <button
@@ -833,7 +812,7 @@ pub fn ExplorePage() -> impl IntoView {
                                             // Shimmer load_more menyatu di grid yang SAMA
                                             // (bukan grid terpisah di bawah) — kartu shimmer
                                             // langsung tergantikan data di posisinya, sama
-                                            // seperti "Product Berkaitan" di detail product.
+                                            // seperti "Produk Berkaitan" di detail product.
                                             view! {
                                                 <div class="exp-shimmer-wrap">
                                                     <ProductCardShimmer />

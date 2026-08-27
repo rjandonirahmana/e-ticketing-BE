@@ -29,7 +29,7 @@ pub async fn get_merchant_product_detail(slug: String) -> Result<ProductWithVari
     let claims = require_roles(&["merchant", "admin"]).await?;
     let state = app_state().await?;
     // Peran `merchant` hanya menjawab "boleh memakai dasbor merchant", bukan
-    // "boleh melihat product INI". Kepemilikan diperiksa terpisah.
+    // "boleh melihat produk INI". Kepemilikan diperiksa terpisah.
     let result = state
         .product_svc
         .get_for_merchant(&slug, &claims.user_id, claims.role == "admin")
@@ -86,13 +86,19 @@ fn parse_detail_images_json(
     let base = public_url.trim_end_matches('/');
     for it in &mut items {
         // Terima URL absolut milik storage kita, atau path relatif — tolak URL
-        // eksternal agar tak menyimpan tautan sembarangan sebagai "foto product".
+        // eksternal agar tak menyimpan tautan sembarangan sebagai "foto produk".
         if !(it.url.starts_with(base) || it.url.starts_with('/')) {
             return Err("URL foto tidak dikenal.".into());
         }
-        if !matches!(it.image_type.as_str(), "map" | "seat" | "price" | "other") {
-            it.image_type = "other".into();
-        }
+        // Jenis foto sudah dipensiunkan (migrasi 026): `map`/`seat`/`price`
+        // adalah konsep acara, sedangkan aplikasi ini kini menjual barang dan
+        // setiap foto detail adalah foto produk.
+        //
+        // Nilainya DIPAKSA, bukan divalidasi. Klien versi lama yang masih
+        // mengirim "seat" tak ditolak — permintaannya tetap berhasil, hanya
+        // nilainya diseragamkan. Menolaknya akan memutus merchant yang tab-nya
+        // belum di-reload, demi medan yang tak lagi dibaca siapa pun.
+        it.image_type = "other".into();
         it.caption.truncate(500);
         // Nilai ini berakhir di atribut `style`, jadi ia dibersihkan di sini —
         // satu-satunya pintu masuknya dari luar. Yang tak berbentuk "X% Y%"
@@ -259,7 +265,7 @@ pub async fn update_merchant_product(
     let name = name.trim().to_string();
     if name.chars().count() < 3 {
         return Err(ServerFnError::ServerError(
-            "Nama product minimal 3 karakter.".into(),
+            "Nama produk minimal 3 karakter.".into(),
         ));
     }
 
@@ -361,7 +367,7 @@ pub async fn update_merchant_product(
         peran = %claims.role,
         merchant_id_dipakai = %effective_merchant_id,
         cocok = product.merchant_id == effective_merchant_id,
-        "edit product: mulai menyimpan"
+        "edit produk: mulai menyimpan"
     );
 
     // ── Dikosongkan ≠ tidak dikirim ──────────────────────────────────────────
@@ -417,11 +423,11 @@ pub async fn update_merchant_product(
             event_id = %product.id,
             merchant_id_dipakai = %effective_merchant_id,
             error = %e,
-            "edit product: GAGAL menyimpan"
+            "edit produk: GAGAL menyimpan"
         );
         return Err(map_app_error(e));
     }
-    tracing::info!(slug = %slug, "edit product: tersimpan");
+    tracing::info!(slug = %slug, "edit produk: tersimpan");
 
     // Cache dibuang SEGERA sesudah DB menerima perubahannya.
     //

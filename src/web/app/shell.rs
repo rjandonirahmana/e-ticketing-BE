@@ -228,8 +228,8 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                       var m = L.map(mapId).setView([lat,lng], 15); tile(m);
                       var mk = L.marker([lat,lng], {draggable:true, icon:pin()}).addTo(m);
                       function emit(p){
-                        if(latEl){ latEl.value = p.lat.toFixed(6); latEl.dispatchEvent(new Product('input',{bubbles:true})); }
-                        if(lngEl){ lngEl.value = p.lng.toFixed(6); lngEl.dispatchEvent(new Product('input',{bubbles:true})); }
+                        if(latEl){ latEl.value = p.lat.toFixed(6); latEl.dispatchEvent(new Event('input',{bubbles:true})); }
+                        if(lngEl){ lngEl.value = p.lng.toFixed(6); lngEl.dispatchEvent(new Event('input',{bubbles:true})); }
                       }
                       m.on('click', function(e){ mk.setLatLng(e.latlng); emit(e.latlng); });
                       mk.on('dragend', function(){ emit(mk.getLatLng()); });
@@ -242,7 +242,7 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                           b.href='#'; b.title='Lokasi saya'; b.setAttribute('role','button');
                           b.innerHTML='&#9678;';
                           L.DomEvent.on(b,'click',function(ev){
-                            L.DomEvent.prproductDefault(ev); L.DomEvent.stopPropagation(ev);
+                            L.DomEvent.preventDefault(ev); L.DomEvent.stopPropagation(ev);
                             if(!navigator.geolocation) return;
                             navigator.geolocation.getCurrentPosition(function(pos){
                               var ll={lat:pos.coords.latitude,lng:pos.coords.longitude};

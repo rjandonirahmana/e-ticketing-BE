@@ -222,6 +222,32 @@ impl MerchantService {
         Ok((total, items))
     }
 
+    /// Toko yang diikuti seorang pengguna, terbaru lebih dulu.
+    ///
+    /// Batas per halaman disamakan dengan `list_followers` (maks 50) supaya satu
+    /// permintaan tak pernah menarik seluruh daftar pengguna yang mengikuti
+    /// ratusan toko.
+    pub async fn list_following(
+        &self,
+        follower_id: &str,
+        page: i64,
+        per_page: i64,
+    ) -> AppResult<(i64, Vec<crate::models::merchant::FollowedMerchant>)> {
+        let per_page = per_page.clamp(1, 50);
+        let offset = (page.max(1) - 1) * per_page;
+        let total = self
+            .repo
+            .count_following(follower_id)
+            .await
+            .map_err(AppError::Internal)?;
+        let items = self
+            .repo
+            .list_following(follower_id, per_page, offset)
+            .await
+            .map_err(AppError::Internal)?;
+        Ok((total, items))
+    }
+
     pub async fn set_follow(
         &self,
         merchant_id: &str,

@@ -117,7 +117,7 @@ pub fn StoriesArchivePage() -> impl IntoView {
                                 <div class="sarc-empty-icon">"📷"</div>
                                 <p class="sarc-empty-title">"Belum ada story"</p>
                                 <p class="sarc-empty-sub">
-                                    "Jadilah yang pertama membagikan cerita product!"
+                                    "Jadilah yang pertama membagikan cerita produk!"
                                 </p>
                                 <A href="/story" attr:class="sarc-empty-cta">"Buat Story"</A>
                             </div>

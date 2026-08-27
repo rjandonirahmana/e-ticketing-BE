@@ -40,7 +40,7 @@ pub(super) fn view_all_products(evs: Vec<Product>) -> impl IntoView {
     view! {
         <section class="mhub-products-section">
             <div class="mhub-products-header">
-                <h3 class="mhub-products-title">"Semua Acara Platform"</h3>
+                <h3 class="mhub-products-title">"Semua Produk Platform"</h3>
                 <span class="mhub-live-badge">
                     <span class="mhub-live-dot"></span>
                     "Langsung"
@@ -56,8 +56,8 @@ pub(super) fn view_all_products(evs: Vec<Product>) -> impl IntoView {
                                 <line x1="1" y1="10" x2="23" y2="10"/>
                             </svg>
                         </div>
-                        <p class="mhub-empty-title">"Belum Ada Acara"</p>
-                        <p class="mhub-empty-body">"Belum ada acara yang terdaftar di platform."</p>
+                        <p class="mhub-empty-title">"Belum Ada Produk"</p>
+                        <p class="mhub-empty-body">"Belum ada produk yang terdaftar di platform."</p>
                     </div>
                 }.into_any()
             } else {
@@ -144,7 +144,7 @@ pub(super) fn view_all_products(evs: Vec<Product>) -> impl IntoView {
                                             <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
                                             <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
                                         </svg>
-                                        "Sunting Acara"
+                                        "Sunting Produk"
                                     </A>
                                 </div>
                             </div>

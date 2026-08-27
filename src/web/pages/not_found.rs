@@ -50,7 +50,7 @@ pub fn NotFoundPage() -> impl IntoView {
                         </svg>
                         "BACK TO STAGE"
                     </A>
-                    <A href="/explore" attr:class="nf-btn-secondary">"EXPLORE EVENTS"</A>
+                    <A href="/explore" attr:class="nf-btn-secondary">"JELAJAHI PRODUK"</A>
                 </div>
                 <div class="nf-suggestions">
                     <span class="nf-suggestions-label">"QUICK LINKS"</span>
@@ -59,7 +59,7 @@ pub fn NotFoundPage() -> impl IntoView {
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                                 <path d="M2 9a3 3 0 110 6v2a2 2 0 002 2h16a2 2 0 002-2v-2a3 3 0 110-6V7a2 2 0 00-2-2H4a2 2 0 00-2 2v2z"/>
                             </svg>
-                            "My Tickets"
+                            "Pengambilan Saya"
                         </A>
                         <A href="/cart" attr:class="nf-suggestion-link">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">

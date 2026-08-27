@@ -208,7 +208,7 @@ pub fn MerchantFollowersPage() -> impl IntoView {
                                                 // trigger migrasi 016), jadi cukup cek role.
                                                 let is_merchant = f.role == "merchant";
                                                 let sub = if is_merchant {
-                                                    format!("Penyelenggara · {}", fmt_date(&f.created_at))
+                                                    format!("Toko · {}", fmt_date(&f.created_at))
                                                 } else {
                                                     format!("Mengikuti sejak {}", fmt_date(&f.created_at))
                                                 };

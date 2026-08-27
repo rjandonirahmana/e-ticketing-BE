@@ -140,6 +140,14 @@ web-sys = { version = "0.3", features = [
     "Request",
     "RequestInit",
     "Response",
+    # Unggah ber-PERSENTASE. `fetch` tak bisa dipakai untuk ini: ia sama sekali
+    # tak melaporkan progres BADAN PERMINTAAN yang naik — satu-satunya API
+    # peramban yang melakukannya adalah XMLHttpRequest lewat
+    # `xhr.upload.onprogress`. Lihat `web::pages::merchant::upload_merchant_image`.
+    "XmlHttpRequest",
+    "XmlHttpRequestUpload",
+    "XmlHttpRequestEventTarget",
+    "ProgressEvent",
     "MediaDevices",
     "MediaStream",
     "MediaStreamConstraints",

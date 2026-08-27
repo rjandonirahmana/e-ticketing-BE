@@ -48,6 +48,32 @@ impl ProductStatus {
     }
 }
 
+/// Tombol ikon bundar di header Merchant Hub.
+///
+/// Satu rangkaian dipakai bersama oleh MEET, SCAN, dan lonceng supaya ketiganya
+/// tak pernah bergeser ukuran atau warnanya satu sama lain — itu yang membuat
+/// deretan tombol sebelumnya terlihat acak. `relative` diperlukan oleh titik
+/// notifikasi yang diposisikan absolut di dalam tombol lonceng.
+const MHUB_ICON_BTN: &str = "relative inline-flex items-center justify-center w-9 h-9 shrink-0 \
+     rounded-full bg-elevated border border-solid border-line text-content \
+     transition-colors hover:bg-card-hover active:scale-95";
+
+/// Urutan tab, dan SATU-SATUNYA sumber urutannya.
+///
+/// Geser kiri/kanan berpindah ke tetangga di larik ini, jadi urutan di bilah tab
+/// dan urutan saat digeser mustahil berselisih — kalau keduanya ditulis terpisah,
+/// menambah satu tab di kemudian hari akan membuat gesernya melompati tab.
+const TABS: [(&str, &str); 4] = [
+    ("produk", "Produk"),
+    ("analytics", "Analitik"),
+    ("finance", "Keuangan"),
+    ("settings", "Pengaturan"),
+];
+const TAB_PRODUK: &str = TABS[0].0;
+
+/// Jarak minimum satu gesekan dianggap perpindahan tab (piksel CSS).
+const GESER_MIN: f64 = 56.0;
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 #[component]
@@ -73,7 +99,57 @@ pub fn MerchantPage() -> impl IntoView {
         },
     );
 
-    let active_page = RwSignal::new("tickets");
+    // Kunci tab ikut diganti, bukan cuma labelnya. `"tickets"` adalah sisa masa
+    // aplikasi ini menjual tiket, dan penyapuan istilah kemarin hanya menyentuh
+    // teks yang tampil — sehingga tab yang isinya DAFTAR PRODUK sempat berlabel
+    // "Pengambilan". Nama internal yang berbohong seperti itu justru yang
+    // menuntun ke salah ganti berikutnya.
+    let active_page = RwSignal::new(TAB_PRODUK);
+
+    // ── Geser antar-tab ─────────────────────────────────────────────────────
+    // Titik awal sentuhan disimpan di `StoredValue`, bukan `RwSignal`: nilainya
+    // dibaca sekali saat jari diangkat dan tak ada satu pun bagian tampilan yang
+    // perlu ikut berubah saat ia bergeser. `RwSignal` di sini akan memicu
+    // pembaruan reaktif puluhan kali per gesekan tanpa ada yang menontonnya.
+    let awal_x = StoredValue::new(0.0f64);
+    let awal_y = StoredValue::new(0.0f64);
+
+    let on_geser_mulai = move |e: web_sys::TouchEvent| {
+        if let Some(t) = e.touches().get(0) {
+            awal_x.set_value(t.client_x() as f64);
+            awal_y.set_value(t.client_y() as f64);
+        }
+    };
+
+    let on_geser_selesai = move |e: web_sys::TouchEvent| {
+        let Some(t) = e.changed_touches().get(0) else { return };
+        let dx = t.client_x() as f64 - awal_x.get_value();
+        let dy = t.client_y() as f64 - awal_y.get_value();
+
+        // Dua penjagaan, dan keduanya perlu:
+        //   * `GESER_MIN` — sentuhan pendek adalah KETUKAN. Tanpa ambang ini,
+        //     menekan tombol di dalam daftar ikut berpindah tab.
+        //   * `dx > dy * 1.4` — isinya daftar yang digulir vertikal. Gerakan
+        //     jari yang sedikit miring saat menggulir tak boleh dibaca sebagai
+        //     perpindahan tab, jadi horizontalnya harus jelas mendominasi.
+        if dx.abs() < GESER_MIN || dx.abs() < dy.abs() * 1.4 {
+            return;
+        }
+
+        let kini = active_page.get_untracked();
+        let i = TABS.iter().position(|(id, _)| *id == kini).unwrap_or(0);
+        // Geser ke KIRI (dx negatif) = maju ke tab berikutnya, mengikuti arah
+        // kertas yang ditarik. Di ujung, diam — bukan melingkar: melompat dari
+        // Pengaturan ke Produk terasa seperti tergelincir, bukan berpindah.
+        let tujuan = if dx < 0.0 {
+            (i + 1).min(TABS.len() - 1)
+        } else {
+            i.saturating_sub(1)
+        };
+        if tujuan != i {
+            active_page.set(TABS[tujuan].0);
+        }
+    };
 
     let evs_list = move || {
         products
@@ -94,28 +170,54 @@ pub fn MerchantPage() -> impl IntoView {
         <div class="page merchant-page mhub-mobile">
 
             // ── Header ────────────────────────────────────────────────────────
-            <header class="mhub-header">
-                <div class="mhub-header-left">
-                    <span class="mhub-header-title">"Merchant Hub"</span>
-                </div>
-                <div class="mhub-header-right">
-                    <A href="/merchant/live" attr:class="mhub-live-btn" attr:aria-label="Go Live">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                             stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            // Ditulis ulang dengan utility Tailwind, mengikuti `pages/cart.rs`.
+            //
+            // Yang salah pada versi sebelumnya: LIMA tombol BERLABEL berjejer di
+            // kolom yang lebarnya dikunci 480px. Judul "MERCHANT HUB" dan deretan
+            // itu berebut ruang yang tak cukup, sehingga judulnya terhimpit dan
+            // barisnya meluber. Tiap tombol juga memakai warna penuh yang berbeda
+            // — hijau, biru, zaitun, putih, lavender — sehingga tak satu pun
+            // terbaca sebagai aksi utama; semuanya berteriak sama keras.
+            //
+            // Sekarang: SATU aksi utama berlabel (LIVE, karena hanya itu yang
+            // mengubah keadaan ke publik), sisanya ikon bundar seragam di atas
+            // permukaan netral. Hierarkinya jadi terbaca, dan lebarnya muat
+            // dengan sisa ruang untuk judul.
+            <header class="sticky top-0 z-[60] flex items-center justify-between gap-3 \
+                           px-4 py-3 bg-base border-b border-solid border-line-soft">
+                // `min-w-0` + `truncate`: tanpa keduanya, judul menolak mengecil
+                // dan justru mendorong deretan tombol keluar dari kolom — persis
+                // luberan yang terlihat sebelumnya.
+                <span class="min-w-0 truncate font-title text-xl tracking-[0.06em] text-content">
+                    "Merchant Hub"
+                </span>
+
+                <div class="flex shrink-0 items-center gap-1.5">
+                    // Aksi utama: satu-satunya yang berlabel dan berwarna penuh.
+                    <A
+                        href="/merchant/live"
+                        attr:class="inline-flex items-center gap-1.5 h-9 px-3 rounded-full \
+                                    bg-brand text-on-brand font-sans text-[11px] font-bold \
+                                    tracking-[0.08em] transition-opacity hover:opacity-90 \
+                                    active:opacity-80"
+                        attr:aria-label="Mulai siaran langsung"
+                    >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                             <polygon points="5 3 19 12 5 21 5 3"/>
                         </svg>
-                        <span class="mhub-btn-label">"LIVE"</span>
+                        "LIVE"
                     </A>
-                    <A href="/meet/host" attr:class="mhub-meet-btn" attr:aria-label="Mulai Meet">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+
+                    <A href="/meet/host" attr:class=MHUB_ICON_BTN attr:aria-label="Mulai Meet">
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
                              stroke="currentColor" stroke-width="2" stroke-linecap="round">
                             <polygon points="23 7 16 12 23 17 23 7"/>
                             <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
                         </svg>
-                        <span class="mhub-btn-label">"MEET"</span>
                     </A>
-                    <A href="/scan" attr:class="mhub-scan-btn" attr:aria-label="Scan Tiket">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+
+                    <A href="/scan" attr:class=MHUB_ICON_BTN attr:aria-label="Pindai Ambil">
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
                              stroke="currentColor" stroke-width="2" stroke-linecap="round">
                             <polyline points="4 7 4 4 7 4"/>
                             <polyline points="20 7 20 4 17 4"/>
@@ -123,16 +225,20 @@ pub fn MerchantPage() -> impl IntoView {
                             <polyline points="20 17 20 20 17 20"/>
                             <rect x="8" y="8" width="8" height="8" rx="1"/>
                         </svg>
-                        <span class="mhub-btn-label">"SCAN"</span>
                     </A>
+
                     <ThemeToggle />
-                    <A href="/notifications" attr:class="mhub-bell-btn" attr:aria-label="Notifikasi">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+
+                    <A href="/notifications" attr:class=MHUB_ICON_BTN attr:aria-label="Notifikasi">
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
                              stroke="currentColor" stroke-width="2" stroke-linecap="round">
                             <path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
                             <path d="M13.73 21a2 2 0 01-3.46 0"/>
                         </svg>
-                        <span class="mhub-bell-badge"></span>
+                        // Titik notifikasi: `absolute` di dalam tombol yang
+                        // `relative` (lihat MHUB_ICON_BTN).
+                        <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full \
+                                     bg-danger border border-solid border-base"/>
                     </A>
                 </div>
             </header>
@@ -165,7 +271,7 @@ pub fn MerchantPage() -> impl IntoView {
                 </div>
                 <div class="mhub-stat-divider"></div>
                 <div class="mhub-stat-cell">
-                    <span class="mhub-stat-label">"SISA TIKET"</span>
+                    <span class="mhub-stat-label">"SISA STOK"</span>
                     <span class="mhub-stat-value">
                         {move || format!("{}", (total_quota() - total_sold()).max(0))}
                     </span>
@@ -180,12 +286,7 @@ pub fn MerchantPage() -> impl IntoView {
 
             // ── Tab bar ───────────────────────────────────────────────────────
             <div class="mhub-mobile-tabs">
-                {[
-                    ("tickets",  "Tiket"),
-                    ("analytics","Analitik"),
-                    ("finance",  "Keuangan"),
-                    ("settings", "Pengaturan"),
-                ]
+                {TABS
                 .iter()
                 .map(|(id, label)| {
                     let id = *id;
@@ -205,6 +306,19 @@ pub fn MerchantPage() -> impl IntoView {
             </div>
 
             // ── Content ───────────────────────────────────────────────────────
+            // Pendengar sentuhan dipasang di PEMBUNGKUS KONTEN, bukan di bilah
+            // tab: yang digeser orang adalah isinya, dan bilah tab sendiri
+            // terlalu tipis untuk digesek dengan nyaman.
+            //
+            // `touch-pan-y`: memberi tahu peramban bahwa gulir vertikal tetap
+            // miliknya, sementara gerakan horizontal boleh ditangani JS. Tanpa
+            // ini sebagian peramban menunda event sentuhnya untuk menunggu
+            // apakah halaman akan digulir, dan gesekan terasa tersendat.
+            <div
+                class="touch-pan-y"
+                on:touchstart=on_geser_mulai
+                on:touchend=on_geser_selesai
+            >
             <Suspense fallback=move || {
                 (0..3).map(|_| view! { <MerchantProductCardShimmer /> }).collect_view()
             }>
@@ -214,16 +328,17 @@ pub fn MerchantPage() -> impl IntoView {
                         "analytics" => view_analytics(evs).into_any(),
                         "finance"   => view_finance().into_any(),
                         "settings"  => view_settings().into_any(),
-                        _           => view_tickets(evs).into_any(),
+                        _           => view_products(evs).into_any(),
                     }
                 }}
             </Suspense>
+            </div>
 
         </div>
         <BottomNav active="merchant" />
 
         // ── FAB ───────────────────────────────────────────────────────────────
-        <A href="/merchant/products/create" attr:class="mhub-fab" attr:aria-label="Product baru">
+        <A href="/merchant/products/create" attr:class="mhub-fab" attr:aria-label="Produk baru">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
                 <line x1="12" y1="5" x2="12" y2="19"/>
@@ -235,11 +350,11 @@ pub fn MerchantPage() -> impl IntoView {
 
 // ─── Tickets tab ──────────────────────────────────────────────────────────────
 
-fn view_tickets(evs: Vec<Product>) -> impl IntoView {
+fn view_products(evs: Vec<Product>) -> impl IntoView {
     view! {
         <section class="mhub-products-section">
             <div class="mhub-products-header">
-                <h3 class="mhub-products-title">"Product Saya"</h3>
+                <h3 class="mhub-products-title">"Produk Saya"</h3>
                 <span class="mhub-live-badge">
                     <span class="mhub-live-dot"></span>
                     "Live"
@@ -255,9 +370,9 @@ fn view_tickets(evs: Vec<Product>) -> impl IntoView {
                                 <line x1="1" y1="10" x2="23" y2="10"/>
                             </svg>
                         </div>
-                        <p class="mhub-empty-title">"Belum Ada Product"</p>
+                        <p class="mhub-empty-title">"Belum Ada Produk"</p>
                         <p class="mhub-empty-body">
-                            "Buat product pertamamu dan mulai jual tiket ke audiensmu."
+                            "Buat produk pertamamu dan mulai berjualan."
                         </p>
                         <A href="/merchant/products/create" attr:class="mhub-empty-cta">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
@@ -265,7 +380,7 @@ fn view_tickets(evs: Vec<Product>) -> impl IntoView {
                                 <line x1="12" y1="5" x2="12" y2="19"/>
                                 <line x1="5" y1="12" x2="19" y2="12"/>
                             </svg>
-                            "BUAT EVENT PERTAMA"
+                            "BUAT PRODUK PERTAMA"
                         </A>
                     </div>
                 }
@@ -364,6 +479,31 @@ fn view_tickets(evs: Vec<Product>) -> impl IntoView {
                                     </div>
 
                                     <div class="mhub-product-card-actions">
+                                        // Pratinjau sisi pembeli. Halaman produk
+                                        // memang publik, jadi yang dibutuhkan cuma
+                                        // tautannya — tak ada mode khusus, dan
+                                        // karenanya tak ada risiko pratinjau
+                                        // menampilkan sesuatu yang berbeda dari
+                                        // yang benar-benar dilihat pembeli.
+                                        //
+                                        // `target="_blank"`: merchant biasanya
+                                        // memeriksa tampilan lalu kembali menyunting.
+                                        // Membuka di tab yang sama membuang posisi
+                                        // gulir daftar produknya setiap kali.
+                                        <A
+                                            href=format!("/products/{slug}")
+                                            attr:class="mhub-product-manage-btn"
+                                            attr:target="_blank"
+                                            attr:rel="noopener"
+                                            attr:title="Lihat seperti yang dilihat pembeli">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                                 stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                 stroke-linejoin="round">
+                                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                                <circle cx="12" cy="12" r="3"/>
+                                            </svg>
+                                            "Lihat"
+                                        </A>
                                         <A
                                             href=format!("/merchant/products/{slug}/edit")
                                             attr:class="mhub-product-manage-btn">
@@ -396,7 +536,7 @@ fn view_analytics(evs: Vec<Product>) -> impl IntoView {
     view! {
         <section class="merchant-stats">
             <div class="merchant-card merchant-velocity" style="margin-bottom:12px">
-                <h3 class="merchant-section-title">"Product Terlaris"</h3>
+                <h3 class="merchant-section-title">"Produk Terlaris"</h3>
                 {if let Some(t) = top {
                     let pct = if t.total_quota > 0 {
                         ((t.total_sold as f64 / t.total_quota as f64) * 100.0).round() as u32
@@ -431,11 +571,11 @@ fn view_analytics(evs: Vec<Product>) -> impl IntoView {
             </div>
             <div class="merchant-tile-row">
                 <div class="merchant-tile">
-                    <span class="merchant-label">"TOTAL EVENT"</span>
+                    <span class="merchant-label">"TOTAL PRODUK"</span>
                     <span class="merchant-tile-value">{total}</span>
                 </div>
                 <div class="merchant-tile merchant-tile--accent">
-                    <span class="merchant-label">"EVENT AKTIF"</span>
+                    <span class="merchant-label">"PRODUK AKTIF"</span>
                     <span class="merchant-tile-value">{active_count}</span>
                 </div>
             </div>
@@ -486,7 +626,7 @@ fn view_settings() -> impl IntoView {
             <h3 class="merchant-section-title">"Profil Bisnis"</h3>
             <div class="mhub-form-row" style="margin-top:12px">
                 <label class="mhub-form-label">"NAMA BISNIS"</label>
-                <input type="text" class="mhub-form-input" value="Stellar Products Indonesia"/>
+                <input type="text" class="mhub-form-input" value="Stellar Produk Indonesia"/>
             </div>
             <div class="mhub-form-row" style="margin-top:10px">
                 <label class="mhub-form-label">"EMAIL KONTAK"</label>
@@ -535,36 +675,285 @@ fn view_settings() -> impl IntoView {
 /// Unggah gambar (logo/header) ke POST /upload/merchant-image → balas URL.
 /// `pub(crate)`: dipakai ulang admin (tab Spanduk) untuk unggah gambar banner —
 /// endpoint menerima role merchant DAN admin.
+///
+/// Unggah satu gambar merchant sambil MELAPORKAN PERSENTASE yang sudah naik.
+///
+/// ── KENAPA XMLHttpRequest, BUKAN `fetch` ─────────────────────────────────────
+/// Versi sebelumnya memakai `fetch`, dan itulah sebabnya tak ada persentase yang
+/// bisa ditampilkan: `fetch` tidak melaporkan progres BADAN PERMINTAAN yang
+/// sedang naik sama sekali. Yang bisa dipantaunya hanya respons yang turun
+/// (`response.body` sebagai stream) — arah yang salah untuk sebuah unggahan.
+/// `ReadableStream` sebagai request body memang ada, tapi butuh HTTP/2, ditolak
+/// sebagian proxy, dan masih perlu penghitungan manual.
+///
+/// `xhr.upload.onprogress` adalah satu-satunya API peramban yang melaporkan
+/// byte terkirim secara langsung, dan ia didukung di mana-mana. Itu sebabnya
+/// unggahan berpindah ke XHR di sini; perilaku selain pelaporan progresnya
+/// sengaja dibuat identik dengan versi `fetch` sebelumnya.
+///
+/// `on_progress` dipanggil dengan 0–100. Bila server tak mengirim panjang
+/// total (`length_computable == false`, mis. di balik proxy yang memotong
+/// `Content-Length`), callback TIDAK dipanggil sama sekali — pemanggil harus
+/// tetap menampilkan sesuatu yang masuk akal tanpa angka, bukan diam di 0%.
+/// Perkecil + kompres gambar DI PERAMBAN sebelum diunggah.
+///
+/// ── KENAPA DI KLIEN, BUKAN DI SERVER ────────────────────────────────────────
+/// Foto dari kamera ponsel lazimnya 3000–4000 piksel dan 4–8 MB. Yang terjadi
+/// pada berkas sebesar itu, berurutan: ia dikirim utuh lewat jaringan pengguna,
+/// dibaca UTUH ke RAM server (`web/api/upload.rs` memakai `field.bytes()`),
+/// didorong ke RustFS/S3, lalu — dan ini yang paling mahal — DIUNDUH ULANG oleh
+/// setiap pembeli yang membuka galeri produk. Galeri lima foto bisa berarti
+/// 30 MB per pengunjung.
+///
+/// Mengecilkannya di server berarti menambah crate pengolah gambar dan membakar
+/// CPU pada kotak 2 vCPU untuk setiap unggahan. Peramban sudah punya pengurai
+/// JPEG dan encoder WebP yang dipercepat perangkat keras, dan pekerjaannya
+/// terjadi di mesin yang tidak dibayar per jam.
+///
+/// Sisi 1600 piksel dipilih dari tempat fotonya dipakai: kolom aplikasi dikunci
+/// 480 px, jadi 1600 masih menyisakan margin untuk layar 3× dan untuk zoom.
+///
+/// Mengembalikan `None` berarti "pakai berkas aslinya" — dan itu keputusan yang
+/// benar pada tiga keadaan: GIF (menggambar ulang ke canvas hanya menyalin
+/// frame pertama dan animasinya mati), berkas yang memang sudah kecil, dan
+/// hasil kompresi yang ternyata TIDAK lebih kecil. Yang terakhir nyata terjadi
+/// pada tangkapan layar PNG beraut tajam, dan menukarnya tetap akan membuat
+/// berkasnya lebih besar.
 #[cfg(target_arch = "wasm32")]
-pub(crate) async fn upload_merchant_image(file: &web_sys::File) -> Result<String, String> {
+async fn kompres_gambar(file: &web_sys::File) -> Option<web_sys::Blob> {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use wasm_bindgen::closure::Closure;
     use wasm_bindgen::JsCast;
-    use wasm_bindgen_futures::JsFuture;
+
+    const MAKS_SISI: f64 = 1600.0;
+    /// Di bawah ini, menyandi ulang lebih sering memperbesar daripada
+    /// memperkecil — dan tetap membayar waktu penguraian gambarnya.
+    const AMBANG_BYTE: f64 = 300.0 * 1024.0;
+
+    if file.type_() == "image/gif" {
+        return None;
+    }
+    let ukuran_asal = file.size();
+
+    let win = web_sys::window()?;
+    let doc = win.document()?;
+    let url = web_sys::Url::create_object_url_with_blob(file).ok()?;
+
+    // RAII kecil: object URL WAJIB dicabut di SETIAP jalur keluar. Kalau tidak,
+    // peramban menahan seluruh isi berkas di memori sampai tab ditutup — persis
+    // kebocoran yang hendak dihindari fungsi ini.
+    struct UrlGuard(String);
+    impl Drop for UrlGuard {
+        fn drop(&mut self) {
+            let _ = web_sys::Url::revoke_object_url(&self.0);
+        }
+    }
+    let _guard = UrlGuard(url.clone());
+
+    let img: web_sys::HtmlImageElement = doc
+        .create_element("img")
+        .ok()?
+        .dyn_into::<web_sys::HtmlImageElement>()
+        .ok()?;
+
+    // Tunggu gambar selesai diurai. `onerror` ikut dipasang: berkas rusak atau
+    // format yang tak bisa diurai peramban harus JATUH KE ASLINYA, bukan
+    // menggantungkan unggahan selamanya.
+    let (tx, rx) = futures::channel::oneshot::channel::<bool>();
+    let tx = Rc::new(RefCell::new(Some(tx)));
+    let kirim = {
+        let tx = tx.clone();
+        move |ok: bool| {
+            if let Some(t) = tx.borrow_mut().take() {
+                let _ = t.send(ok);
+            }
+        }
+    };
+    let on_load = Closure::<dyn FnMut()>::new({
+        let kirim = kirim.clone();
+        move || kirim(true)
+    });
+    let on_error = Closure::<dyn FnMut()>::new(move || kirim(false));
+    img.set_onload(Some(on_load.as_ref().unchecked_ref()));
+    img.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+    img.set_src(&url);
+
+    let termuat = rx.await.unwrap_or(false);
+    img.set_onload(None);
+    img.set_onerror(None);
+    drop(on_load);
+    drop(on_error);
+    if !termuat {
+        return None;
+    }
+
+    let lebar = img.natural_width() as f64;
+    let tinggi = img.natural_height() as f64;
+    if lebar <= 0.0 || tinggi <= 0.0 {
+        return None;
+    }
+
+    let sisi_terpanjang = lebar.max(tinggi);
+    // Sudah kecil DAN sudah ringan → tak ada yang bisa diperbaiki.
+    if sisi_terpanjang <= MAKS_SISI && ukuran_asal <= AMBANG_BYTE {
+        return None;
+    }
+    let skala = (MAKS_SISI / sisi_terpanjang).min(1.0);
+    let w = (lebar * skala).round().max(1.0);
+    let h = (tinggi * skala).round().max(1.0);
+
+    let canvas: web_sys::HtmlCanvasElement = doc
+        .create_element("canvas")
+        .ok()?
+        .dyn_into::<web_sys::HtmlCanvasElement>()
+        .ok()?;
+    canvas.set_width(w as u32);
+    canvas.set_height(h as u32);
+    let ctx: web_sys::CanvasRenderingContext2d = canvas
+        .get_context("2d")
+        .ok()??
+        .dyn_into::<web_sys::CanvasRenderingContext2d>()
+        .ok()?;
+    ctx.draw_image_with_html_image_element_and_dw_and_dh(&img, 0.0, 0.0, w, h)
+        .ok()?;
+
+    // WebP: diterima server (`service/storage.rs` mendeteksinya lewat magic
+    // bytes dan memasukkannya ke whitelist) dan jauh lebih kecil daripada JPEG
+    // pada mutu setara. Peramban yang tak bisa menyandi WebP mengembalikan
+    // `null` di sini — jalur itu jatuh ke berkas asli, bukan gagal.
+    let (tx2, rx2) = futures::channel::oneshot::channel::<Option<web_sys::Blob>>();
+    let tx2 = RefCell::new(Some(tx2));
+    let on_blob = Closure::<dyn FnMut(wasm_bindgen::JsValue)>::new(move |v: wasm_bindgen::JsValue| {
+        if let Some(t) = tx2.borrow_mut().take() {
+            let _ = t.send(v.dyn_into::<web_sys::Blob>().ok());
+        }
+    });
+    canvas
+        .to_blob_with_type_and_encoder_options(
+            on_blob.as_ref().unchecked_ref(),
+            "image/webp",
+            &wasm_bindgen::JsValue::from_f64(0.82),
+        )
+        .ok()?;
+    let hasil = rx2.await.ok().flatten();
+    drop(on_blob);
+
+    let blob = hasil?;
+    // Menukar hanya bila memang lebih kecil.
+    if blob.size() >= ukuran_asal {
+        return None;
+    }
+    Some(blob)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) async fn upload_merchant_image_with_progress(
+    file: &web_sys::File,
+    on_progress: impl Fn(u8) + 'static,
+) -> Result<String, String> {
+    use wasm_bindgen::closure::Closure;
+    use wasm_bindgen::JsCast;
 
     let form = web_sys::FormData::new().map_err(|e| format!("{:?}", e))?;
-    form.append_with_blob("file", file).map_err(|e| format!("{:?}", e))?;
 
-    let opts = web_sys::RequestInit::new();
-    opts.set_method("POST");
-    opts.set_body(&form);
+    // ── Kompres SEBELUM mengirim ────────────────────────────────────────────
+    // Ini juga yang menjawab "kok lama padahal sudah 100%": bar progres mencapai
+    // 100% begitu byte masuk buffer soket, sedangkan sisa waktunya dihabiskan
+    // server untuk mendorong berkas itu ke storage. Memperkecil berkasnya
+    // memangkas KEDUA sisi sekaligus — yang dikirim dan yang didorong — bukan
+    // sekadar memindahkan tunggunya.
+    //
+    // `None` = pakai aslinya (GIF, berkas yang sudah kecil, atau hasil kompresi
+    // yang ternyata lebih besar). Lihat `kompres_gambar`.
+    let hasil = match kompres_gambar(file).await {
+        Some(kecil) => form.append_with_blob_and_filename("file", &kecil, "unggahan.webp"),
+        None => form.append_with_blob("file", file),
+    };
+    hasil.map_err(|e| format!("{:?}", e))?;
 
-    let req = web_sys::Request::new_with_str_and_init("/upload/merchant-image", &opts)
+    let xhr = web_sys::XmlHttpRequest::new().map_err(|e| format!("{:?}", e))?;
+    xhr.open_with_async("POST", "/upload/merchant-image", true)
         .map_err(|e| format!("{:?}", e))?;
-    let win = web_sys::window().ok_or_else(|| "no window".to_string())?;
-    let resp_val = JsFuture::from(win.fetch_with_request(&req))
-        .await
+
+    // ── Pelapor progres ─────────────────────────────────────────────────────
+    // Dipasang pada `xhr.upload`, BUKAN pada `xhr` sendiri: peristiwa progres di
+    // objek XHR menghitung respons yang TURUN, sedangkan yang ingin ditampilkan
+    // adalah berkas yang NAIK.
+    let upload = xhr.upload().map_err(|e| format!("{:?}", e))?;
+    let cb_progress = Closure::<dyn FnMut(web_sys::ProgressEvent)>::new(
+        move |e: web_sys::ProgressEvent| {
+            if !e.length_computable() {
+                return;
+            }
+            let total = e.total();
+            if total <= 0.0 {
+                return;
+            }
+            let persen = ((e.loaded() / total) * 100.0).round().clamp(0.0, 100.0);
+            on_progress(persen as u8);
+        },
+    );
+    upload.set_onprogress(Some(cb_progress.as_ref().unchecked_ref()));
+
+    // ── Penanda selesai ─────────────────────────────────────────────────────
+    // `loadend` menyala untuk SEMUA akhir — sukses, galat jaringan, maupun
+    // dibatalkan. Memakai `load` saja akan menggantung selamanya ketika
+    // koneksinya putus, dan halaman edit menahan tombol SIMPAN selama unggahan
+    // dianggap masih berjalan — jadi satu unggahan yang mati diam-diam akan
+    // mengunci seluruh form tanpa satu pun pesan.
+    let (tx, rx) = futures::channel::oneshot::channel::<()>();
+    let tx = std::cell::RefCell::new(Some(tx));
+    let cb_selesai = Closure::<dyn FnMut()>::new(move || {
+        if let Some(tx) = tx.borrow_mut().take() {
+            let _ = tx.send(());
+        }
+    });
+    xhr.set_onloadend(Some(cb_selesai.as_ref().unchecked_ref()));
+
+    xhr.send_with_opt_form_data(Some(&form))
         .map_err(|e| format!("{:?}", e))?;
-    let resp: web_sys::Response = resp_val.unchecked_into();
-    if !resp.ok() {
-        return Err(format!("HTTP {}", resp.status()));
+
+    let _ = rx.await;
+
+    // Closure dilepas SESUDAH permintaan selesai. Kalau di-`forget()` seperti
+    // pola yang lazim disalin, tiap unggahan meninggalkan closure yang tak
+    // pernah dibebaskan — pada halaman yang mengunggah belasan foto detail,
+    // kebocoran itu menumpuk sepanjang sesi.
+    upload.set_onprogress(None);
+    xhr.set_onloadend(None);
+    drop(cb_progress);
+    drop(cb_selesai);
+
+    let status = xhr.status().map_err(|e| format!("{:?}", e))?;
+    if status == 0 {
+        return Err("Koneksi terputus saat mengunggah.".to_string());
     }
-    let json = JsFuture::from(resp.json().map_err(|e| format!("{:?}", e))?)
-        .await
-        .map_err(|e| format!("{:?}", e))?;
+    if !(200..300).contains(&status) {
+        return Err(format!("HTTP {status}"));
+    }
+
+    let teks = xhr
+        .response_text()
+        .map_err(|e| format!("{:?}", e))?
+        .unwrap_or_default();
+    let json = js_sys::JSON::parse(&teks).map_err(|_| "Jawaban server bukan JSON".to_string())?;
     js_sys::Reflect::get(&json, &wasm_bindgen::JsValue::from_str("url"))
         .ok()
         .and_then(|v| v.as_string())
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "URL kosong dari server".to_string())
+}
+
+/// Unggah tanpa pelaporan progres — untuk pemanggil yang tak menampilkannya.
+/// Jalur kodenya sama persis, jadi tak ada dua perilaku unggah yang harus dijaga.
+///
+/// `cfg` wasm32 SAMA dengan fungsi di atas: keduanya menyentuh API peramban dan
+/// tak ada satu pun pemanggilnya di sisi server. Tanpa penjaga yang sama,
+/// build SSR gagal mencari fungsi yang memang tak pernah ada di sana.
+#[cfg(target_arch = "wasm32")]
+pub(crate) async fn upload_merchant_image(file: &web_sys::File) -> Result<String, String> {
+    upload_merchant_image_with_progress(file, |_| {}).await
 }
 
 #[component]
@@ -798,7 +1187,7 @@ fn MerchantProfileCard() -> impl IntoView {
                             </a>
                             <div class="mp-stat">
                                 <span class="mp-stat-num">{fmt_count(e)}</span>
-                                <span class="mp-stat-label">"EVENTS"</span>
+                                <span class="mp-stat-label">"PRODUK"</span>
                             </div>
                             <div class="mp-stat">
                                 <span class="mp-stat-num">

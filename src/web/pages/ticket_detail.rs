@@ -179,7 +179,7 @@ pub fn TicketDetailPage() -> impl IntoView {
                         <polyline points="15 18 9 12 15 6" />
                     </svg>
                 </A>
-                <span class="td-page-title">"Ticket Details"</span>
+                <span class="td-page-title">"Detail Pengambilan"</span>
                 <div class="header-actions">
                     <ThemeToggle />
                 </div>
@@ -192,7 +192,7 @@ pub fn TicketDetailPage() -> impl IntoView {
                             <div class="td-mobile-layout">
                                 <div class="td-empty-state">
                                     <h2>"Harus masuk"</h2>
-                                    <p>"Kamu harus masuk untuk melihat tiket."</p>
+                                    <p>"Kamu harus masuk untuk melihat kode pengambilan."</p>
                                     <A href="/login" attr:class="td-btn td-btn--primary">"Masuk"</A>
                                 </div>
                             </div>
@@ -211,15 +211,15 @@ pub fn TicketDetailPage() -> impl IntoView {
                                     view! {
                                         <div class="td-mobile-layout">
                                             <div class="td-empty-state">
-                                                <h2>"Tiket tidak ditemukan"</h2>
+                                                <h2>"Kode tidak ditemukan"</h2>
                                                 <p>
-                                                    "Tiket mungkin sudah dihapus atau ID tidak valid."
+                                                    "Kode mungkin sudah dipakai atau tidak valid."
                                                 </p>
                                                 <A
                                                     href="/tickets"
                                                     attr:class="td-btn td-btn--primary"
                                                 >
-                                                    "Kembali ke Tiket Saya"
+                                                    "Kembali ke Pengambilan"
                                                 </A>
                                             </div>
                                         </div>
@@ -278,7 +278,7 @@ pub fn TicketDetailPage() -> impl IntoView {
                                             params.append("ticket_ref",  &_masked_code);
                                             if let Some(win) = web_sys::window() {
                                                 if let Ok(Some(storage)) = win.session_storage() {
-                                                    let _ = storage.set_item("story_hero_transition", "product");
+                                                    let _ = storage.set_item("story_hero_transition", "produk");
                                                     let _ = storage.set_item("story_hero_cover", &_share_cover);
                                                 }
                                             }
@@ -310,7 +310,7 @@ pub fn TicketDetailPage() -> impl IntoView {
                                                 <div class="td-stub-top">
                                                     <div class="td-stub-row">
                                                         <div class="td-stub-cell">
-                                                            <span class="td-label">"TICKET REF"</span>
+                                                            <span class="td-label">"KODE AMBIL"</span>
                                                             <span class="td-val">
                                                                 {t.ticket_code.clone()}
                                                             </span>
@@ -334,7 +334,7 @@ pub fn TicketDetailPage() -> impl IntoView {
                                                     </div>
                                                     <div class="td-stub-row">
                                                         <div class="td-stub-cell td-stub-cell--full">
-                                                            <span class="td-label">"VENUE"</span>
+                                                            <span class="td-label">"LOKASI"</span>
                                                             <span class="td-val">{venue}</span>
                                                         </div>
                                                     </div>

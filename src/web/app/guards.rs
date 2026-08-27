@@ -8,6 +8,72 @@ use leptos::prelude::*;
 
 use super::contexts::AuthResource;
 
+/// Alihkan halaman TANPA menavigasi di tengah pembangunan view.
+///
+/// ── KENAPA BUKAN `<Redirect/>` ────────────────────────────────────────────
+/// Ini akar "klik navigasi, URL berganti, tapi layar tetap di halaman lama
+/// sampai di-refresh".
+///
+/// `leptos_router::components::Redirect` memanggil `navigate(...)` LANGSUNG di
+/// badan komponennya (leptos_router 0.8.15, `components.rs:601`) — bukan di
+/// dalam efek. Badan komponen itu dijalankan saat router sedang membangun view
+/// rute baru, di dalam `view.choose().await`. Jadi navigasi kedua terjadi
+/// SEBELUM rute pertama sempat dipasang ke DOM.
+///
+/// Yang terjadi berikutnya ada di `flat_router.rs:314`:
+///
+///     if current_url.read_untracked().path() == spawned_path {
+///         rebuild();          // ← DILEWATI kalau URL sudah berubah lagi
+///     }
+///     location.ready_to_complete();   // ← TETAP dijalankan
+///
+/// Router sudah lebih dulu menimpa pembukuannya sendiri (`initial_state.path`,
+/// `id`, dan `owner`) di awal `rebuild`, lalu `ready_to_complete()` menyetujui
+/// `pushState`. Hasilnya tiga hal yang saling bertentangan: URL menunjuk
+/// halaman baru, pembukuan router mengira halaman baru sudah terpasang, tetapi
+/// DOM masih halaman lama. Dan karena pembukuannya sudah "benar", navigasi
+/// berikutnya ke alamat itu berhenti di penjaga paling atas —
+/// `if url_snapshot.path() == initial_state.path { return; }` — sehingga layar
+/// TIDAK PERNAH menyusul sampai halaman dimuat ulang. Persis gejalanya.
+///
+/// `Effect` menutup celah itu: efek berjalan SESUDAH render selesai, jadi rute
+/// yang sekarang sudah benar-benar terpasang sebelum navigasi berikutnya
+/// dimulai. `replace: true` dipakai supaya halaman yang ditolak tak menumpuk di
+/// riwayat — kalau tidak, tombol Back memantul bolak-balik ke halaman yang
+/// memang tak boleh dibuka.
+///
+/// Di SSR `<Redirect/>` tetap yang benar dan tetap dipakai: di sana ia memasang
+/// status 302 lewat `ServerRedirectFunction`, sehingga permintaan langsung dan
+/// perayap menerima pengalihan sungguhan, bukan halaman kerangka kosong.
+#[component]
+fn GuardRedirect(path: &'static str) -> impl IntoView {
+    #[cfg(feature = "ssr")]
+    {
+        view! { <leptos_router::components::Redirect path=path /> }.into_any()
+    }
+    #[cfg(not(feature = "ssr"))]
+    {
+        let navigate = leptos_router::hooks::use_navigate();
+        Effect::new(move |sudah: Option<()>| {
+            // Efek ini tak melacak sinyal apa pun, jadi normalnya hanya sekali
+            // jalan. Penjaga ini tetap dipasang supaya satu re-run tak berarti
+            // dua entri navigasi.
+            if sudah.is_none() {
+                navigate(
+                    path,
+                    leptos_router::NavigateOptions {
+                        replace: true,
+                        ..Default::default()
+                    },
+                );
+            }
+        });
+        // Kerangka, bukan layar kosong: pengalihan baru terjadi satu frame lagi
+        // dan halaman tak boleh berkedip putih selama jeda itu.
+        guard_skeleton().into_any()
+    }
+}
+
 /// Skeleton fallback saat AuthResource masih loading.
 fn guard_skeleton() -> impl IntoView {
     view! {
@@ -60,7 +126,7 @@ pub(crate) fn AuthGuard(children: ChildrenFn) -> impl IntoView {
                     .map(|result| match result {
                         Ok(Some(_)) => children.with_value(|c| c()).into_any(),
                         _ => {
-                            view! { <leptos_router::components::Redirect path="/login" /> }
+                            view! { <GuardRedirect path="/login" /> }
                                 .into_any()
                         }
                     })
@@ -84,11 +150,11 @@ pub(crate) fn AdminGuard(children: ChildrenFn) -> impl IntoView {
                             children.with_value(|c| c()).into_any()
                         }
                         Ok(Some(_)) => {
-                            view! { <leptos_router::components::Redirect path="/explore" /> }
+                            view! { <GuardRedirect path="/explore" /> }
                                 .into_any()
                         }
                         _ => {
-                            view! { <leptos_router::components::Redirect path="/login" /> }
+                            view! { <GuardRedirect path="/login" /> }
                                 .into_any()
                         }
                     })
@@ -112,11 +178,11 @@ pub(crate) fn MerchantGuard(children: ChildrenFn) -> impl IntoView {
                             children.with_value(|c| c()).into_any()
                         }
                         Ok(Some(_)) => {
-                            view! { <leptos_router::components::Redirect path="/explore" /> }
+                            view! { <GuardRedirect path="/explore" /> }
                                 .into_any()
                         }
                         _ => {
-                            view! { <leptos_router::components::Redirect path="/login" /> }
+                            view! { <GuardRedirect path="/login" /> }
                                 .into_any()
                         }
                     })

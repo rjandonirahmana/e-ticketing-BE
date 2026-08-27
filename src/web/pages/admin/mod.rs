@@ -30,7 +30,7 @@ impl AdminTab {
     fn label(self) -> &'static str {
         match self {
             Self::Review    => "Review",
-            Self::Products    => "Acara",
+            Self::Products    => "Produk",
             Self::Banners   => "Spanduk",
             Self::Analytics => "Analitik",
             Self::Finance   => "Keuangan",
@@ -148,7 +148,7 @@ pub fn AdminPage() -> impl IntoView {
                     <span class="mhub-header-title">"Pusat Admin"</span>
                 </div>
                 <div class="mhub-header-right">
-                    <A href="/scan" attr:class="mhub-scan-btn" attr:aria-label="Scan Tiket">
+                    <A href="/scan" attr:class="mhub-scan-btn" attr:aria-label="Pindai Ambil">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
                              stroke="currentColor" stroke-width="2" stroke-linecap="round">
                             <polyline points="4 7 4 4 7 4"/>
@@ -195,7 +195,7 @@ pub fn AdminPage() -> impl IntoView {
                 </div>
                 <div class="mhub-stat-divider"></div>
                 <div class="mhub-stat-cell">
-                    <span class="mhub-stat-label">"SISA TIKET"</span>
+                    <span class="mhub-stat-label">"SISA STOK"</span>
                     <span class="mhub-stat-value">
                         {move || format!("{}", (total_quota() - total_sold()).max(0))}
                     </span>

@@ -46,8 +46,8 @@ pub fn App() -> impl IntoView {
     provide_all_app_contexts();
 
     view! {
-        <Title text="PULSE — Tiket Product Digital" />
-        <Meta name="description" content="Platform tiket product terbaik di Indonesia." />
+        <Title text="PULSE — Marketplace" />
+        <Meta name="description" content="Marketplace terbaik di Indonesia." />
 
         <Router>
             <ScrollToTop />
@@ -154,6 +154,21 @@ pub fn App() -> impl IntoView {
                                 view! {
                                     <AuthGuard>
                                         <ProfilePage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        // Daftar toko yang diikuti — data pribadi, jadi di balik
+                        // AuthGuard seperti /profile. Server function-nya juga
+                        // menolak anonim, jadi guard ini murni soal pengalaman:
+                        // yang belum masuk diarahkan ke /login, bukan disuguhi
+                        // halaman kosong yang tak pernah bisa terisi.
+                        <Route
+                            path=path!("/following")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <FollowingPage />
                                     </AuthGuard>
                                 }
                             }
@@ -284,6 +299,20 @@ pub fn App() -> impl IntoView {
                                 view! {
                                     <AuthGuard>
                                         <MessagesPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        // WAJIB di ATAS `/pulse/:id`. FlatRoutes mencocokkan
+                        // berurutan, dan `:id` akan menelan "toko" sebagai
+                        // sebuah room id — halaman chat lalu mencari room
+                        // bernama "toko" yang tak pernah ada.
+                        <Route
+                            path=path!("/pulse/toko/:merchant_id")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <ChatNewPage />
                                     </AuthGuard>
                                 }
                             }

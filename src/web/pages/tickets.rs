@@ -106,7 +106,7 @@ pub fn TicketsPage() -> impl IntoView {
             // ── Title + filter tabs ──────────────────────────────────────────────
             <div class="tickets-hero-row">
                 <div>
-                    <h1 class="tickets-title">"MY"<br />"TICKETS"</h1>
+                    <h1 class="tickets-title">"MY"<br />"PENGAMBILAN"</h1>
                     <p class="tickets-sub">
                         "Your upcoming stage access and past memories stored in high-fidelity."
                     </p>
@@ -153,7 +153,7 @@ pub fn TicketsPage() -> impl IntoView {
                                         <EmptyState
                                             icon="⚠️"
                                             title="GAGAL MEMUAT"
-                                            body="Gagal memuat tiket. Coba login ulang."
+                                            body="Gagal memuat kode pengambilan. Coba login ulang."
                                         />
                                     }
                                         .into_any()
@@ -167,18 +167,18 @@ pub fn TicketsPage() -> impl IntoView {
                                         let (icon, title, body) = match f.as_str() {
                                             "active" => (
                                                 "🎫",
-                                                "BELUM ADA TIKET AKTIF",
-                                                "Beli tiket product favoritmu dan mulai pengalamanmu!",
+                                                "BELUM ADA YANG SIAP DIAMBIL",
+                                                "Belanja dulu, kode pengambilannya muncul di sini.",
                                             ),
                                             "used" => (
                                                 "🕐",
                                                 "BELUM ADA RIWAYAT",
-                                                "Tiket yang sudah dipakai akan muncul di sini.",
+                                                "Barang yang sudah diambil muncul di sini.",
                                             ),
                                             _ => (
                                                 "📭",
-                                                "TIDAK ADA TIKET",
-                                                "Tiket kamu akan muncul di sini setelah pembelian.",
+                                                "TIDAK ADA PENGAMBILAN",
+                                                "Kode pengambilan muncul di sini setelah pembelian.",
                                             ),
                                         };
                                         return view! {
@@ -186,7 +186,7 @@ pub fn TicketsPage() -> impl IntoView {
                                                 icon=icon
                                                 title=title
                                                 body=body
-                                                cta_label="JELAJAHI EVENT"
+                                                cta_label="JELAJAHI PRODUK"
                                                 cta_href="/explore"
                                             />
                                         }
@@ -307,7 +307,7 @@ pub fn TicketsPage() -> impl IntoView {
                         (
                             "AUG 15, 2023",
                             "ECHOES OF SUMMER",
-                            "Ancol Beach City • Festival B",
+                            "Toko Contoh • Varian B",
                             "Rp850.000",
                         ),
                         (

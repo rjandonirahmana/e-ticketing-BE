@@ -58,6 +58,9 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
     // URL permanen cover setelah di-upload ke /upload/merchant-image.
     let cover_url = RwSignal::new(String::new());
     let cover_uploading = RwSignal::new(false);
+    // Persen unggahan cover (0–100). 0 = peramban tak melaporkan panjang total;
+    // UI menampilkannya tanpa angka, bukan sebagai "macet di 0%".
+    let cover_progress = RwSignal::new(0u8);
     // Foto detail product (galeri multi-foto, bisa di-drag urutannya).
     let drafts: RwSignal<Vec<DetailImageDraft>> = RwSignal::new(vec![]);
 
@@ -80,8 +83,14 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
                             cover_preview.set(Some(url));
                         }
                         cover_uploading.set(true);
+                        cover_progress.set(0);
                         leptos::task::spawn_local(async move {
-                            match crate::web::pages::merchant::upload_merchant_image(&file).await {
+                            let lapor = move |p: u8| cover_progress.set(p);
+                            match crate::web::pages::merchant::upload_merchant_image_with_progress(
+                                &file, lapor,
+                            )
+                            .await
+                            {
                                 Ok(u) => cover_url.set(u),
                                 Err(e) => {
                                     // Sama seperti di halaman edit: kegagalan
@@ -109,7 +118,7 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
     // ── Umpan balik harus TERLIHAT ────────────────────────────────────────────
     // Banner sukses/galat dirender di PUNCAK form, sedangkan tombol simpan ada
     // di DASAR form yang panjang. Akibatnya setiap penolakan validasi —
-    // "Tanggal product wajib diisi", "Tunggu foto selesai diunggah", atau galat
+    // "Tanggal produk wajib diisi", "Tunggu foto selesai diunggah", atau galat
     // dari server — muncul di layar yang sedang tak dilihat siapa pun: pengguna
     // menekan SIMPAN, halaman diam, dan satu-satunya kesimpulan yang masuk akal
     // baginya adalah tombolnya rusak.
@@ -136,19 +145,19 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
         success_msg.set(String::new());
 
         let name = f_name.get_untracked();
-        if name.trim().is_empty() { error_msg.set("Nama product wajib diisi.".into()); return; }
+        if name.trim().is_empty() { error_msg.set("Nama produk wajib diisi.".into()); return; }
         let desc = f_desc.get_untracked();
-        if desc.trim().is_empty() { error_msg.set("Deskripsi product wajib diisi.".into()); return; }
+        if desc.trim().is_empty() { error_msg.set("Deskripsi produk wajib diisi.".into()); return; }
         let cats = f_cat.get_untracked();
         if cats.is_empty() { error_msg.set("Pilih minimal satu kategori.".into()); return; }
         let date = f_date.get_untracked();
-        if date.trim().is_empty() { error_msg.set("Tanggal product wajib diisi.".into()); return; }
+        if date.trim().is_empty() { error_msg.set("Tanggal produk wajib diisi.".into()); return; }
         let time = f_time.get_untracked();
         if time.trim().is_empty() {
             error_msg.set("Waktu mulai wajib diisi.".into()); return;
         }
         let venue = f_venue.get_untracked();
-        if venue.trim().is_empty() { error_msg.set("Nama venue wajib diisi.".into()); return; }
+        if venue.trim().is_empty() { error_msg.set("Nama lokasi wajib diisi.".into()); return; }
         let city = f_city.get_untracked();
         if city.trim().is_empty() { error_msg.set("Kota wajib diisi.".into()); return; }
 
@@ -160,7 +169,15 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
 
         // Foto masih diunggah? Cegah simpan agar URL tak hilang.
         if cover_uploading.get_untracked() {
-            error_msg.set("Tunggu foto cover selesai diunggah.".into()); return;
+            let p = cover_progress.get_untracked();
+            error_msg.set(if p >= 100 {
+                "Foto cover sudah terkirim dan sedang diproses server. Sebentar lagi.".to_string()
+            } else if p != 0 {
+                format!("Foto cover baru terunggah {p}%. Tunggu sampai selesai.")
+            } else {
+                "Tunggu foto cover selesai diunggah.".to_string()
+            });
+            return;
         }
         // Unggahan yang GAGAL tak akan pernah selesai — dibedakan supaya
         // SIMPAN tidak tertahan permanen oleh pesan "tunggu".
@@ -173,7 +190,26 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
             return;
         }
         if foto.iter().any(|d| d.uploaded_url.is_none()) {
-            error_msg.set("Tunggu semua foto detail selesai diunggah.".into()); return;
+            let belum: Vec<u8> = foto
+                .iter()
+                .filter(|d| d.uploaded_url.is_none())
+                .map(|d| d.progres.get_untracked())
+                .collect();
+            let terkecil = belum.iter().copied().min().unwrap_or(0);
+            error_msg.set(if terkecil >= 100 {
+                format!(
+                    "{} foto detail sudah terkirim dan sedang diproses server. Sebentar lagi.",
+                    belum.len()
+                )
+            } else if terkecil != 0 {
+                format!(
+                    "{} foto detail masih diunggah (paling lambat {terkecil}%). Tunggu sampai selesai.",
+                    belum.len()
+                )
+            } else {
+                format!("{} foto detail masih diunggah. Tunggu sampai selesai.", belum.len())
+            });
+            return;
         }
         // Serialisasi foto detail terurut → JSON (foto lama & baru sama saja di
         // sini karena semuanya sudah punya URL permanen).
@@ -197,7 +233,7 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
         leptos::task::spawn_local(async move {
             match create_merchant_product(name, desc, venue, city, start_iso.clone(), start_iso, cats_str, lat, lng, variants_json, cover, detail_json).await {
                 Ok(_slug) => {
-                    success_msg.set("Product berhasil dibuat!".into());
+                    success_msg.set("Produk berhasil dibuat!".into());
                     submitting.set(false);
                     #[cfg(target_arch = "wasm32")]
                     if let Some(win) = web_sys::window() {
@@ -207,7 +243,7 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
                     }
                 }
                 Err(e) => {
-                    error_msg.set(format!("Gagal membuat product: {}", e));
+                    error_msg.set(format!("Gagal membuat produk: {}", e));
                     submitting.set(false);
                 }
             }
@@ -230,7 +266,7 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
                         <polyline points="15 18 9 12 15 6" />
                     </svg>
                 </A>
-                <span class="page-logo">"BUAT EVENT"</span>
+                <span class="page-logo">"BUAT PRODUK"</span>
                 <div class="header-actions">
                     <ThemeToggle />
                     <A href="/notifications" attr:class="bell-btn" attr:aria-label="Notifikasi">
@@ -302,11 +338,11 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
                     <span class="medit-section-label">"INFO DASAR"</span>
                 </div>
                 <div class="medit-field-group">
-                    <label class="medit-field-label">"NAMA EVENT"</label>
+                    <label class="medit-field-label">"NAMA PRODUK"</label>
                     <input
                         type="text"
                         class="medit-input"
-                        placeholder="cth. Konser Jazz Malam Akhir Pekan"
+                        placeholder="cth. Kaos Katun Lengan Panjang"
                         prop:value=move || f_name.get()
                         on:input=move |e| f_name.set(event_target_value(&e))
                     />
@@ -315,7 +351,7 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
                     <label class="medit-field-label">"DESKRIPSI"</label>
                     <textarea
                         class="medit-input medit-textarea"
-                        placeholder="Ceritakan tentang product Anda..."
+                        placeholder="Ceritakan tentang produk Anda..."
                         prop:value=move || f_desc.get()
                         on:input=move |e| f_desc.set(event_target_value(&e))
                     ></textarea>
@@ -374,8 +410,39 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
                                 }
                             })
                     }}
-                    {move || cover_uploading.get().then(|| view! {
-                        <p style="font-size:11px;color:var(--text-muted);margin-top:6px">"Mengunggah cover…"</p>
+                    // `!= 0`, BUKAN `> 0`: `>` di dalam nilai atribut makro
+                    // view! diurai sebagai penutup tag. Nilainya juga dihitung
+                    // di LUAR view! karena alasan yang sama.
+                    // Dua fase — alasan lengkapnya di `merchant_edit_product.rs`:
+                    // `xhr.upload.onprogress` melapor 100% begitu byte masuk buffer
+                    // soket, sedangkan server baru mulai meneruskannya ke storage.
+                    // 100% karena itu berganti jadi fase "memproses", bukan angka.
+                    {move || cover_uploading.get().then(|| {
+                        let p = cover_progress.get();
+                        let diproses = p >= 100;
+                        let terukur = p != 0 && !diproses;
+                        let kelas_bilah = if terukur {
+                            "h-full rounded-full bg-brand transition-[width] duration-200"
+                        } else {
+                            "h-full rounded-full bg-brand animate-pulse"
+                        };
+                        let gaya_bilah = if terukur { format!("width:{p}%") } else { "width:100%".to_string() };
+                        let label = if diproses { "Memproses di server…" } else { "Mengunggah cover…" };
+                        view! {
+                            <div class="mt-1.5 flex flex-col gap-1.5">
+                                <div class="flex items-center justify-between gap-2">
+                                    <span class="text-[11px] text-content-muted">{label}</span>
+                                    {terukur.then(|| view! {
+                                        <span class="text-[11px] font-bold text-brand tabular-nums">
+                                            {format!("{p}%")}
+                                        </span>
+                                    })}
+                                </div>
+                                <div class="h-1 w-full overflow-hidden rounded-full bg-elevated">
+                                    <div class=kelas_bilah style=gaya_bilah />
+                                </div>
+                            </div>
+                        }
                     })}
                 </div>
                 // ── FOTO DETAIL (galeri, bisa di-drag urutannya) ──────────────
@@ -408,7 +475,7 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
                 />
                 // ── TANGGAL & WAKTU ───────────────────────────────────────────
                 <div class="medit-field-group">
-                    <label class="medit-field-label">"TANGGAL EVENT"</label>
+                    <label class="medit-field-label">"TANGGAL"</label>
                     <input
                         type="date"
                         class="medit-input"
@@ -438,7 +505,7 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
                 </div>
                 // ── VENUE ─────────────────────────────────────────────────────
                 <div class="medit-field-group">
-                    <label class="medit-field-label">"NAMA VENUE"</label>
+                    <label class="medit-field-label">"NAMA LOKASI"</label>
                     <input
                         type="text"
                         class="medit-input"
@@ -464,7 +531,7 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
                     <span class="medit-section-label">"LOKASI DI PETA"</span>
                 </div>
                 <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">
-                    "Klik peta atau geser pin untuk menandai lokasi venue. Koordinat terisi otomatis."
+                    "Klik peta atau geser pin untuk menandai lokasi toko. Koordinat terisi otomatis."
                 </p>
                 <div
                     id="create-loc-map"
@@ -518,7 +585,7 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
                         disabled=move || submitting.get()
                         on:click=do_submit
                     >
-                        {move || if submitting.get() { "Membuat Product..." } else { "BUAT EVENT" }}
+                        {move || if submitting.get() { "Membuat Produk..." } else { "BUAT PRODUK" }}
                     </button>
                     <A href="/merchant" attr:class="medit-cancel-btn">
                         "BATAL"
