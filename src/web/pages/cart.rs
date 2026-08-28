@@ -342,11 +342,20 @@ fn cart_row(cart: CartContext, item: CartItemView) -> impl IntoView {
         item.event_cover.clone()
     };
 
-    // Batas tombol "+": yang paling ketat antara sisa stok dan batas per order.
-    let ceiling = match item.max_per_order {
-        Some(m) => m.min(available),
-        None => available,
-    };
+    // Batas tombol "+": SISA STOK, titik.
+    //
+    // Sebelumnya `max_per_order` ikut membatasi, dan itu keliru di dua sisi.
+    //
+    // Pertama, tak ada yang bisa mengaturnya: formulir merchant selalu
+    // mengirim `max_per_order: None`, jadi angkanya hanya bisa datang dari
+    // baris lama atau seed. Yang tersisa adalah plafon yang membatasi pembeli
+    // tanpa satu pun orang di aplikasi ini bisa melihat atau mengubahnya.
+    //
+    // Kedua, server tidak pernah menegakkannya. `CartService::add` dan
+    // `update_quantity` hanya memeriksa minimal 1 dan ketersediaan stok. Jadi
+    // plafon ini murni menahan tombol di layar, bukan menjaga aturan apa pun —
+    // pembeli yang lewat REST sudah bebas melampauinya sejak dulu.
+    let ceiling = available;
 
     // Rangkaian kelas ditulis LENGKAP dan literal, lalu dipilih salah satu —
     // bukan dirakit potong-potong. Pemindai Tailwind hanya melihat teks apa

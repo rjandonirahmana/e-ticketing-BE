@@ -186,6 +186,11 @@ pub struct SfuEngine {
     // sampai deadline ini (browser tidak selalu kirim PLI sendiri).
     keyframe_deadline: Option<Instant>,
     last_keyframe: Instant,
+    /// Kapan terakhir kali keadaan SFU dilaporkan saat TIDAK ada media.
+    ///
+    /// Tanpa ini kegagalan yang paling sering terjadi tidak meninggalkan jejak
+    /// apa pun — lihat catatan di `log_health_when_silent`.
+    last_health_log: Instant,
 }
 
 impl SfuEngine {
@@ -221,6 +226,7 @@ impl SfuEngine {
             ingest_logged: false,
             keyframe_deadline: None,
             last_keyframe: Instant::now(),
+            last_health_log: Instant::now(),
         };
 
         let mut cmd_rx = cmd_rx;
@@ -628,6 +634,8 @@ impl SfuEngine {
             }
         }
 
+        self.log_health_when_silent();
+
         if !media_buf.is_empty() {
             let before = self.frames_seen;
             self.frames_seen += media_buf.len() as u64;
@@ -674,6 +682,88 @@ impl SfuEngine {
                     "SFU media flowing (per-kind)"
                 );
             }
+        }
+    }
+
+    /// Laporkan keadaan SFU secara berkala SELAMA ada peer tetapi belum ada
+    /// satu pun media yang masuk.
+    ///
+    /// ── KENAPA INI ADA ──────────────────────────────────────────────────
+    /// Dua log yang sudah ada keduanya bergantung pada media yang MENGALIR:
+    /// `media PERTAMA masuk` menyala sekali saat frame pertama tiba, dan
+    /// ringkasan per-kind menyala tiap 250 frame. Keduanya benar — dan
+    /// keduanya diam sempurna pada kegagalan yang paling sering terjadi.
+    ///
+    /// Bila ICE tak pernah tersambung, `frames_seen` tetap nol selamanya. Tak
+    /// ada frame pertama, tak ada kelipatan 250. Yang dilihat operator adalah
+    /// log yang benar-benar kosong, dan dari kosong itu mustahil dibedakan
+    /// antara `belum ada yang siaran`, `publisher tersambung tapi diam`, dan
+    /// `paket UDP tak pernah sampai`. Ketiganya tampak sama persis.
+    ///
+    /// Baris ini mengubah senyap menjadi keterangan: berapa peer yang terdaftar
+    /// dan perannya apa, serta alamat kandidat yang diiklankan ke browser —
+    /// justru nilai yang paling sering salah di produksi (`SFU_PUBLIC_IP` tak
+    /// diisi, atau UDP port SFU tertutup di firewall).
+    ///
+    /// Hanya berbunyi saat ada peer: SFU yang menganggur tak perlu berisik.
+    fn log_health_when_silent(&mut self) {
+        if self.frames_seen > 0 || self.peers.is_empty() {
+            return;
+        }
+        let now = Instant::now();
+        if now.duration_since(self.last_health_log) < Duration::from_secs(5) {
+            return;
+        }
+        self.last_health_log = now;
+
+        let publishers = self
+            .peers
+            .values()
+            .filter(|p| matches!(p.role, PeerRole::Publisher))
+            .count();
+        let subscribers = self.peers.len() - publishers;
+
+        // Bedakan dua sebab yang gejalanya sama-sama `hitam`, karena
+        // penanganannya berbeda jauh.
+        let ada_ice = self.peers.values().any(|p| p.remote_addr.is_some());
+
+        if ada_ice {
+            // Paket JELAS sampai (ICE menemukan pasangan), tetapi tak satu pun
+            // media menyusul. Hampir selalu ini: alamat yang DIIKLANKAN bukan
+            // alamat yang benar-benar dipakai SFU saat MENGIRIM.
+            //
+            // Socket terikat `0.0.0.0`, jadi alamat sumber dipilih kernel
+            // menurut rute ke masing-masing tujuan. Bila kandidat yang
+            // diiklankan berasal dari antarmuka lain -- VPN/WireGuard sangat
+            // sering, karena rute ke 8.8.8.8 keluar lewat terowongan -- maka
+            // balasan SFU tiba dengan alamat sumber yang TIDAK cocok dengan
+            // pasangan kandidat yang disepakati.
+            //
+            // STUN memaafkan itu (ia hanya perlu paketnya sampai), DTLS tidak.
+            // Hasilnya: ICE `Connected`, lalu diam total, lalu putus saat
+            // consent freshness habis (~20 detik).
+            tracing::warn!(
+                publishers,
+                subscribers,
+                candidate = %self.candidate_addr,
+                "SFU: ICE tersambung TETAPI belum ada media sama sekali. Penyebab \
+                 tersering: alamat kandidat yang diiklankan bukan antarmuka yang \
+                 dipakai SFU saat mengirim balasan (khas mesin ber-VPN — rute \
+                 internet keluar lewat terowongan). DTLS menuntut alamat sumber \
+                 simetris, STUN tidak. Setel SFU_PUBLIC_IP ke alamat yang benar-benar \
+                 dipakai klien untuk menjangkau server ini — 127.0.0.1 saat menguji \
+                 di mesin yang sama, IP LAN untuk perangkat se-WiFi, IP publik di \
+                 produksi."
+            );
+        } else {
+            tracing::warn!(
+                publishers,
+                subscribers,
+                candidate = %self.candidate_addr,
+                "SFU: ada peer tetapi TIDAK ada paket UDP yang sampai sama sekali. \
+                 Periksa SFU_PUBLIC_IP (harus alamat yang bisa dijangkau klien, \
+                 bukan 0.0.0.0) dan apakah UDP port SFU terbuka di firewall."
+            );
         }
     }
 

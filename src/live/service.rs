@@ -47,7 +47,7 @@ fn resolve_candidate_ip(bind_ip: IpAddr) -> IpAddr {
             return ip;
         }
     }
-    let ip = detect_local_ip().unwrap_or(IpAddr::from([127, 0, 0, 1]));
+    let ip = detect_candidate_ip().unwrap_or(IpAddr::from([127, 0, 0, 1]));
     // Kandidat ICE yang diiklankan adalah satu-satunya alamat yang dipakai browser
     // penonton untuk menjangkau SFU. IP privat/loopback HANYA bisa dihubungi dari
     // mesin/LAN yang sama — penonton di seluler atau jaringan lain akan "gabisa
@@ -76,13 +76,73 @@ fn is_private(ip: IpAddr) -> bool {
     }
 }
 
-/// Deteksi IP outbound utama tanpa mengirim paket: `connect` UDP hanya menetapkan
-/// route, lalu `local_addr` memberi IP interface yang dipakai.
-fn detect_local_ip() -> Option<IpAddr> {
+/// Deteksi IP outbound tanpa mengirim paket: `connect` UDP hanya menetapkan
+/// route, lalu `local_addr` memberi IP interface yang akan dipakai.
+///
+/// `target` menentukan rute mana yang ditanyakan — dan itu penting, lihat
+/// `detect_candidate_ip`.
+fn detect_ip_for_route(target: &str) -> Option<IpAddr> {
     let sock = UdpSocket::bind("0.0.0.0:0").ok()?;
-    sock.connect("8.8.8.8:80").ok()?;
+    sock.connect(target).ok()?;
     let ip = sock.local_addr().ok()?.ip();
     if ip.is_unspecified() { None } else { Some(ip) }
+}
+
+/// Pilih alamat yang diiklankan sebagai ICE host candidate.
+///
+/// ── KENAPA TIDAK CUKUP BERTANYA RUTE KE 8.8.8.8 ─────────────────────────────
+///
+/// Versi sebelumnya hanya melakukan itu, dan hasilnya benar di mesin biasa
+/// tetapi SALAH di mesin ber-VPN: rute ke internet keluar lewat terowongan,
+/// sehingga yang terdeteksi adalah alamat WireGuard/Tailscale (mis.
+/// `10.13.13.2`) — antarmuka yang TIDAK dipakai untuk melayani browser di
+/// mesin atau LAN yang sama.
+///
+/// Kegagalannya sangat menyesatkan karena ICE tetap BERHASIL. Socket SFU
+/// terikat `0.0.0.0`, jadi paket ke alamat mana pun tetap sampai, dan STUN
+/// hanya butuh itu. Yang gagal adalah DTLS: balasan SFU keluar dengan alamat
+/// sumber yang dipilih kernel menurut rute ke browser — bukan alamat VPN yang
+/// tadi diiklankan — dan browser membuang paket yang tak cocok dengan pasangan
+/// kandidat yang sudah disepakati. Hasil akhirnya `Connected`, lalu diam total,
+/// lalu putus saat consent freshness habis. Layar hitam tanpa satu pun galat.
+///
+/// ── CARA MEMILIHNYA ─────────────────────────────────────────────────────────
+///
+/// Ditanyakan DUA rute lalu dibandingkan:
+///   * rute ke internet publik  → antarmuka default (bisa terowongan VPN)
+///   * rute ke alamat LAN privat → antarmuka jaringan lokal
+///
+/// Bila keduanya berbeda, yang dipakai adalah rute LAN: ia jauh lebih mungkin
+/// menjadi antarmuka yang sama dengan yang dipakai kernel saat membalas
+/// browser, dan kesimetrisan itulah satu-satunya syarat DTLS.
+///
+/// Heuristik ini sengaja tidak berpretensi selalu benar — tak ada jawaban yang
+/// selalu benar tanpa tahu di mana penontonnya berada. Karena itu ia hanya
+/// berlaku ketika `SFU_PUBLIC_IP` tidak diisi, dan `SFU_PUBLIC_IP` tetap satu-
+/// satunya cara yang pasti.
+fn detect_candidate_ip() -> Option<IpAddr> {
+    let publik = detect_ip_for_route("8.8.8.8:80");
+    // 10.255.255.255 tak perlu ada — `connect` UDP tidak mengirim apa pun, ia
+    // hanya meminta kernel memilih rute.
+    let lan = detect_ip_for_route("10.255.255.255:80")
+        .or_else(|| detect_ip_for_route("192.168.255.255:80"));
+
+    match (publik, lan) {
+        (Some(p), Some(l)) if p != l => {
+            tracing::warn!(
+                rute_internet = %p,
+                rute_lan = %l,
+                "SFU: rute internet dan rute LAN memakai antarmuka BERBEDA (khas \
+                 mesin ber-VPN). Mengiklankan alamat rute LAN, karena itu yang \
+                 dipakai kernel saat membalas klien di mesin/jaringan yang sama. \
+                 Setel SFU_PUBLIC_IP bila tebakan ini keliru."
+            );
+            Some(l)
+        }
+        (Some(p), _) => Some(p),
+        (None, Some(l)) => Some(l),
+        (None, None) => None,
+    }
 }
 
 impl LiveStreamService {

@@ -159,12 +159,17 @@
     color: var(--text-muted);
     margin: 0.1rem 0;
 }
-.admin-banner-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-    flex-shrink: 0;
-}
+/* `.admin-banner-actions` DIDEFINISIKAN DI `40-banner-slider.css`, bukan di sini.
+ *
+ * Dulu keduanya mendefinisikannya, dan itu tidak menghasilkan `yang belakangan
+ * menang` seperti yang biasa diharapkan — melainkan GABUNGAN. Berkas 40 hanya
+ * menyebut `display`, `gap`, `align-items`, dan `flex-wrap`; ia tak pernah
+ * menyebut `flex-direction`. Jadi `column` dari sini tetap berlaku, bertemu
+ * `flex-wrap: wrap` dari sana, dan tombolnya menumpuk ke bawah lalu melar
+ * selebar kartunya karena `align-items` bawaan flex adalah `stretch`.
+ *
+ * Aturan duplikat lintas-berkas seperti ini sulit dilihat justru karena
+ * keduanya `benar` saat dibaca sendiri-sendiri. Satu kelas, satu tempat. */
 .admin-del-btn {
     padding: 0.35rem 0.65rem;
     border-radius: 9px;

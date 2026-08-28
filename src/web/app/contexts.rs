@@ -65,6 +65,13 @@ pub struct CartContext {
     /// Sudah pernah dimuat sekali — pembeda "keranjang kosong" dari "belum tahu".
     pub ready: RwSignal<bool>,
     pub error: RwSignal<String>,
+    /// Penghitung perubahan kuantitas — dinaikkan tiap kali tombol +/- ditekan.
+    ///
+    /// Dipakai untuk meredam badai permintaan: setiap klik menaikkan angka ini,
+    /// lalu tugas yang tertunda memeriksa apakah angkanya masih miliknya
+    /// sebelum menembak server. Hanya klik TERAKHIR dalam satu rentetan yang
+    /// benar-benar dikirim.
+    qty_gen: RwSignal<u64>,
 }
 
 impl CartContext {
@@ -76,6 +83,7 @@ impl CartContext {
             authed: RwSignal::new(false),
             ready: RwSignal::new(false),
             error: RwSignal::new(String::new()),
+            qty_gen: RwSignal::new(0),
         }
     }
 
@@ -147,9 +155,55 @@ impl CartContext {
         if self.authed.get_untracked() {
             let this = *self;
             let tier = tier_id.to_string();
+
+            // ── KENAPA DIREDAM ───────────────────────────────────────────────
+            // Angka di layar sudah berubah di atas, seketika. Yang tersisa
+            // hanyalah memberi tahu server, dan itu TIDAK perlu terjadi sekali
+            // per ketukan jari.
+            //
+            // Sebelumnya setiap klik menembak satu permintaan. Menekan `+`
+            // lima kali cepat mengirim lima permintaan yang saling menyusul,
+            // dan tiap jawaban memanggil `apply()` yang MENGGANTI seluruh
+            // daftar. Jawaban ke-3 yang tiba sesudah ke-5 mengembalikan angka
+            // ke nilai lama — pengguna melihat hitungannya melompat mundur
+            // sendiri, lalu maju lagi. Itulah yang terasa sebagai `berat`:
+            // bukan lambat, melainkan berkedip dan melawan.
+            //
+            // Penghitung generasi menyelesaikan keduanya. Tiap klik menaikkan
+            // angkanya; tugas yang menunggu hanya melanjutkan bila angkanya
+            // masih miliknya. Rentetan sepanjang apa pun berakhir sebagai SATU
+            // permintaan berisi nilai terakhir, dan jawaban basi tak pernah
+            // sempat lahir untuk menimpa apa pun.
+            let gen = self.qty_gen.get_untracked().wrapping_add(1);
+            self.qty_gen.set(gen);
+
             spawn(async move {
-                match crate::web::api::update_cart_quantity(tier, qty.max(0)).await {
-                    Ok(view) => this.apply(view),
+                // Jeda sependek mungkin yang masih menampung ketukan beruntun.
+                // Terlalu pendek dan badainya kembali; terlalu panjang dan
+                // keranjang terasa tak tersimpan saat pengguna langsung
+                // berpindah halaman.
+                gloo_timers::future::TimeoutFuture::new(350).await;
+
+                // Sudah ada klik yang lebih baru — biarkan dia yang mengirim.
+                if this.qty_gen.get_untracked() != gen {
+                    return;
+                }
+
+                // Nilai dibaca ULANG di sini, bukan dari `qty` saat klik:
+                // yang harus sampai ke server adalah keadaan terakhir di layar.
+                let terkini = this
+                    .items
+                    .with_untracked(|v| v.iter().find(|i| i.tier_id == tier).map(|i| i.quantity))
+                    .unwrap_or(0);
+
+                match crate::web::api::update_cart_quantity(tier, terkini.max(0)).await {
+                    Ok(view) => {
+                        // Jawaban hanya diterapkan bila belum ada klik baru
+                        // selagi permintaan ini di jalan.
+                        if this.qty_gen.get_untracked() == gen {
+                            this.apply(view);
+                        }
+                    }
                     Err(e) => this.fail_and_resync(e),
                 }
             });

@@ -706,7 +706,7 @@
     border-radius: 2px;
     overflow: hidden;
 }
-.mhub-event-progress-fill {
+.mhub-product-progress-fill {
     height: 100%;
     background: var(--accent-lime);
     border-radius: 2px;
@@ -1913,11 +1913,11 @@
     padding: 4px 12px;
     pointer-events: none;
 }
-.mhub-event-status--sale {
+.mhub-product-status--sale {
     background: var(--accent-lime);
     color: var(--text-on-accent);
 }
-.mhub-event-status--sold {
+.mhub-product-status--sold {
     background: rgba(20, 20, 36, 0.85);
     color: var(--text-secondary);
     border: 1px solid var(--border-strong);
@@ -1991,13 +1991,13 @@
     letter-spacing: 0.08em;
     color: var(--text-muted);
 }
-.mhub-event-progress-val {
+.mhub-product-progress-val {
     font-family: var(--font-body);
     font-size: 10px;
     letter-spacing: 0.06em;
     color: var(--text-secondary);
 }
-.mhub-event-progress-val--sold {
+.mhub-product-progress-val--sold {
     color: var(--live-green);
     font-weight: 700;
 }
@@ -2008,16 +2008,16 @@
     border-radius: 3px;
     overflow: hidden;
 }
-.mhub-event-progress-fill {
+.mhub-product-progress-fill {
     height: 100%;
     border-radius: 3px;
     background: var(--accent-blue);
     transition: width 0.6s ease;
 }
-.mhub-event-progress-fill--lime {
+.mhub-product-progress-fill--lime {
     background: var(--accent-lime);
 }
-.mhub-event-progress-fill--sold {
+.mhub-product-progress-fill--sold {
     background: var(--live-green);
 }
 
@@ -2035,12 +2035,42 @@
 }
 
 /* Actions row */
+/* Baris sisa stok — dipakai kartu produk di hub merchant DAN panel admin.
+ *
+ * Kelas ini dirujuk markup sejak lama tetapi tak pernah punya aturan, jadi
+ * ikonnya dan teksnya jatuh sebagai teks polos rata-kiri di bawah bilah
+ * progres: satu baris yang tampak seperti sisa debug, bukan bagian kartu. */
+.mhub-product-remaining-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 6px;
+}
+.mhub-product-remaining-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 100px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-soft);
+    color: var(--text-muted);
+    font-family: var(--font-body);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
 .mhub-product-card-actions {
     display: flex;
     align-items: center;
     gap: 8px;
 }
 .mhub-product-manage-btn {
+    /* Dipakai pada <button> DAN pada <A> (`Sunting Produk`). CSS lama memberi
+     * garis bawah pada `a` polos, sehingga satu tombol dalam baris yang sama
+     * tampil bergaris bawah seperti tautan mentah dan dua lainnya tidak. */
+    text-decoration: none;
     flex: 1;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
