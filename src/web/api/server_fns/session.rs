@@ -10,6 +10,9 @@ pub const ACCESS_COOKIE: &str = "pulse_token";
 pub const REFRESH_COOKIE: &str = "pulse_refresh";
 
 /// Umur cookie refresh — samakan dengan `REFRESH_TTL_DAYS` di service.
+/// `cfg(ssr)`: satu-satunya pemakainya (`set_refresh_cookie`) juga ter-gate
+/// begitu. Di build WASM konstanta ini tak pernah dibaca siapa pun.
+#[cfg(feature = "ssr")]
 const REFRESH_COOKIE_MAX_AGE: i64 = 30 * 24 * 3600;
 
 /// Ambil satu cookie dari header `Cookie`.

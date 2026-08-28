@@ -34,6 +34,7 @@ async fn list_admin_products(
     }
     use crate::models::products::ProductListQuery;
     let query = ProductListQuery {
+        sort: None,
         page: q.page,
         per_page: Some(50),
         city: None,

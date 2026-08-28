@@ -63,27 +63,3 @@ pub async fn create_order(variant_id: String, quantity: i32) -> Result<String, S
     return Ok(order.id);
 }
 
-#[server(CreateOrderMulti, "/api-fn")]
-pub async fn create_order_multi(
-    variant_id: String,
-    quantity: i32,
-    _payment_method: String,
-) -> Result<String, ServerFnError> {
-    use crate::models::orders::{CreateOrderItemRequest, CreateOrderRequest};
-    let claims = auth_claims().await?;
-    let state = app_state().await?;
-    let req = CreateOrderRequest {
-        idempotency_key: None,
-        items: vec![CreateOrderItemRequest {
-            ticket_variant_id: variant_id,
-            quantity,
-        }],
-    };
-    let is_premium = state.story_svc.is_premium(&claims.user_id).await.unwrap_or(false);
-    let order = state
-        .order_svc
-        .create(&claims.user_id, req, is_premium)
-        .await
-        .map_err(map_app_error)?;
-    return Ok(order.id);
-}

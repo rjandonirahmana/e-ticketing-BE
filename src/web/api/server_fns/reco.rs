@@ -87,6 +87,7 @@ pub async fn get_recommended_products() -> Result<PaginatedProducts, ServerFnErr
 
     // Ambil product kategori itu lewat listing (pakai index GIN @> category).
     let q = ProductListQuery {
+        sort: None,
         page: Some(1),
         per_page: Some(12),
         city: None,

@@ -49,31 +49,6 @@ pub async fn get_chat_room_detail(room_id: String) -> Result<ChatRoom, ServerFnE
 // sudah memuat kedua pesertanya sejak baris `chats` lahir — tak ada keadaan di
 // mana seseorang perlu "bergabung" ke percakapannya sendiri.
 
-
-/// Cari percakapan dengan sebuah toko — TANPA membuatnya.
-///
-/// Menggantikan `open_chat_with_merchant` yang dulu langsung membuat room saat
-/// tombol chat ditekan. Membuat lebih awal berarti setiap orang yang sekadar
-/// menekan ikonnya lalu pergi meninggalkan percakapan kosong di inbox merchant
-/// — dan makin ramai produknya, makin banyak baris kosong yang harus disaring
-/// merchant untuk menemukan pertanyaan sungguhan.
-///
-/// `None` = belum pernah ada percakapan. Halaman chat menampilkannya sebagai
-/// percakapan kosong yang siap diketik, bukan sebagai galat.
-#[server(FindChatWithMerchant, "/api-fn")]
-pub async fn find_chat_with_merchant(
-    merchant_id: String,
-) -> Result<Option<String>, ServerFnError> {
-    let claims = auth_claims().await?;
-    let state = app_state().await?;
-    let room = state
-        .group_chat_svc
-        .find_dm(&claims.user_id, &merchant_id)
-        .await
-        .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })?;
-    return Ok(room.map(|r| r.id));
-}
-
 /// Kirim pesan PERTAMA ke sebuah toko: room dibuat di sini, lalu pesannya
 /// disimpan. Mengembalikan `room_id` supaya halaman bisa berpindah ke jalur
 /// WebSocket seperti percakapan biasa.

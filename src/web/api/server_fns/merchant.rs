@@ -9,6 +9,7 @@ pub async fn get_merchant_products(page: Option<i64>) -> Result<PaginatedProduct
     let claims = require_roles(&["merchant", "admin"]).await?;
     let state = app_state().await?;
     let q = ProductListQuery {
+        sort: None,
         page,
         per_page: Some(20),
         city: None,

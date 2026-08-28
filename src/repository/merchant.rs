@@ -227,7 +227,9 @@ impl MerchantRepository for PgMerchantRepository {
                 (SELECT COUNT(*)::BIGINT FROM merchant_follows f
                   WHERE f.merchant_id = md.user_id)                          AS followers,
                 (SELECT COUNT(*)::BIGINT FROM products e
-                  WHERE e.merchant_id = md.user_id AND e.status = 'active')  AS products_count,
+                  WHERE e.merchant_id = md.user_id
+                    AND e.status = 'active'
+                    AND e.deleted_at IS NULL)                                AS products_count,
                 -- Rating agregat: dibaca langsung dari kolom denormalisasi
                 -- (dijaga trigger reviews_rating_buckets) → tanpa scan `reviews`.
                 md.total_avg_review                                          AS rating_avg,

@@ -37,6 +37,7 @@ impl ProductService {
         let offset = page.max(1).saturating_sub(1).saturating_mul(per_page);
 
         let filter = ProductListFilter {
+            sort: q.sort.as_deref(),
             city: q.city.as_deref(),
             status: q.status.as_deref(),
             merchant_id,
@@ -272,6 +273,9 @@ impl ProductService {
     ) -> AppResult<PaginatedProducts> {
         let offset = page.max(1).saturating_sub(1).saturating_mul(per_page);
         let filter = ProductListFilter {
+            // Antrean review admin: urutan bawaan sudah tepat, tak ada pilihan
+            // urutan yang ditawarkan ke pengguna di sini.
+            sort: None,
             search,
             city: None,
             status: Some("edited"),

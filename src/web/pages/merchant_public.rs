@@ -193,6 +193,40 @@ pub fn MerchantPublicPage() -> impl IntoView {
     // ── Paginasi EVENTS (append "Muat lebih banyak") ────────────────────────────
     // `products` resource = halaman 1 (juga sumber hero/kota); halaman berikutnya
     // diambil terpisah & di-append ke `ev_extra`. Grid render = data page1 + extra.
+    // ── Pencarian & urutan katalog toko ─────────────────────────────────────
+    // `hasil_saring = None` berarti "tak ada saringan aktif" — grid memakai
+    // jalur biasa (halaman-1 dari `page_data` + akumulasi `ev_extra`). Ini
+    // disengaja: selama pengunjung tak mencari apa pun, halaman tetap secepat
+    // sebelumnya dan tak ada satu permintaan tambahan pun.
+    let cari = RwSignal::new(String::new());
+    let urut = RwSignal::new(String::new());
+    let hasil_saring: RwSignal<Option<Vec<crate::web::models::Product>>> = RwSignal::new(None);
+    let saring_loading = RwSignal::new(false);
+
+    let jalankan_saring = move || {
+        let q = cari.get_untracked().trim().to_string();
+        let u = urut.get_untracked();
+        // Kembali ke jalur biasa saat kedua saringan kosong — bukan memanggil
+        // server untuk meminta "semuanya", yang datanya sudah ada di tangan.
+        if q.is_empty() && u.is_empty() {
+            hasil_saring.set(None);
+            return;
+        }
+        let id = mid();
+        if id.is_empty() {
+            return;
+        }
+        saring_loading.set(true);
+        leptos::task::spawn_local(async move {
+            let q_opt = (!q.is_empty()).then_some(q);
+            let u_opt = (!u.is_empty()).then_some(u);
+            if let Ok(pe) = get_merchant_public_products(id, Some(1), q_opt, u_opt).await {
+                hasil_saring.set(Some(pe.data));
+            }
+            saring_loading.set(false);
+        });
+    };
+
     let ev_extra = RwSignal::new(Vec::<crate::web::models::Product>::new());
     let ev_page = RwSignal::new(1i64);
     let ev_total_pages = RwSignal::new(1i64);
@@ -220,7 +254,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
         let id = mid();
         ev_loading.set(true);
         leptos::task::spawn_local(async move {
-            if let Ok(pe) = get_merchant_public_products(id, Some(next)).await {
+            if let Ok(pe) = get_merchant_public_products(id, Some(next), None, None).await {
                 ev_extra.update(|v| v.extend(pe.data));
                 ev_page.set(next);
             }
@@ -886,10 +920,66 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                             class:mp-panel--drag=move || dragging.get()
                                             style=move || panel_tf(0)
                                         >
+                                            // ── Pencarian & urutan ──────────────────
+                                            // Dicari saat ENTER atau saat urutan
+                                            // diganti, BUKAN pada tiap ketukan
+                                            // tombol: mencari per huruf berarti
+                                            // satu permintaan per karakter, dan
+                                            // jawaban yang datang tak berurutan
+                                            // membuat hasil berkedip-kedip.
+                                            <div class="flex items-center gap-2 px-4 pb-3">
+                                                <input
+                                                    class="flex-1 min-w-0 h-10 px-3.5 rounded-full bg-card \
+                                                           border border-solid border-line text-content \
+                                                           text-sm placeholder:text-content-muted"
+                                                    r#type="search"
+                                                    placeholder="Cari produk di toko ini…"
+                                                    prop:value=move || cari.get()
+                                                    on:input=move |e| cari.set(event_target_value(&e))
+                                                    on:change=move |_| jalankan_saring()
+                                                />
+                                                <select
+                                                    class="h-10 px-2.5 rounded-full bg-card border border-solid \
+                                                           border-line text-content text-[12px] shrink-0"
+                                                    aria-label="Urutkan produk"
+                                                    prop:value=move || urut.get()
+                                                    on:change=move |e| {
+                                                        urut.set(event_target_value(&e));
+                                                        jalankan_saring();
+                                                    }
+                                                >
+                                                    <option value="">"Paling sesuai"</option>
+                                                    <option value="harga_asc">"Harga termurah"</option>
+                                                    <option value="harga_desc">"Harga tertinggi"</option>
+                                                    <option value="terlaris">"Terlaris"</option>
+                                                    <option value="terbaru">"Terbaru"</option>
+                                                </select>
+                                            </div>
+
                                             <Suspense fallback=|| {
                                                 view! { <ProductGridShimmer count=4 /> }
                                             }>
                                                 {move || {
+                                                    // Saringan aktif menggantikan daftar biasa
+                                                    // sepenuhnya — termasuk tombol "muat lebih
+                                                    // banyak", yang paginasinya milik daftar
+                                                    // biasa dan tak berlaku bagi hasil pencarian.
+                                                    if saring_loading.get() {
+                                                        return Some(
+                                                            view! { <ProductGridShimmer count=4 /> }.into_any(),
+                                                        );
+                                                    }
+                                                    if let Some(hasil) = hasil_saring.get() {
+                                                        return Some(
+                                                            view! {
+                                                                <ProductGrid
+                                                                    products=hasil
+                                                                    empty="Tak ada produk yang cocok."
+                                                                />
+                                                            }
+                                                                .into_any(),
+                                                        );
+                                                    }
                                                     products
                                                         .get()
                                                         .map(|r| match r {

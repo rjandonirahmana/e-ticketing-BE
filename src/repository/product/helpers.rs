@@ -78,7 +78,7 @@ pub(super) static VARIANT_STATS_LATERAL: &str = r#"
                 COALESCE(SUM(sold)::INT,  0) AS total_sold,
                 COALESCE(SUM(quota)::INT, 0) AS total_quota
             FROM product_variants
-            WHERE event_id = e.id AND is_active = true
+            WHERE event_id = e.id AND is_active = true AND deleted_at IS NULL
         ) agg
         LEFT JOIN LATERAL (
             SELECT
@@ -87,7 +87,7 @@ pub(super) static VARIANT_STATS_LATERAL: &str = r#"
                 sale_price_start_date     AS sale_start,
                 sale_price_end_date       AS sale_end
             FROM product_variants
-            WHERE event_id = e.id AND is_active = true
+            WHERE event_id = e.id AND is_active = true AND deleted_at IS NULL
             ORDER BY (
                 CASE
                     WHEN sale_price IS NOT NULL
@@ -156,7 +156,7 @@ pub(super) static MERCHANT_INFO_COLS: &str = r#"
     (SELECT COUNT(*)::BIGINT FROM merchant_follows f
       WHERE f.merchant_id = e.merchant_id)                            AS merchant_followers,
     (SELECT COUNT(*)::BIGINT FROM products e2
-      WHERE e2.merchant_id = e.merchant_id AND e2.status = 'active')  AS merchant_products_count
+      WHERE e2.merchant_id = e.merchant_id AND e2.status = 'active' AND e2.deleted_at IS NULL)  AS merchant_products_count
 "#;
 
 pub(super) static EVENT_COLS_NO_AGG: &str = r#"
@@ -205,7 +205,7 @@ pub(super) static VARIANTS_JSONB_AGG: &str = r#"
             ORDER BY v.sort_order ASC, v.created_at ASC
         )
         FROM product_variants v
-        WHERE v.event_id = e.id AND v.is_active = true),
+        WHERE v.event_id = e.id AND v.is_active = true AND v.deleted_at IS NULL),
         '[]'::jsonb
     ) AS variants_json
 "#;
@@ -220,7 +220,7 @@ pub(super) static ADMIN_UPDATE_EVENT_STATUS: &str = r#"
 
 pub(super) static FIND_EVENT_BY_ID: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {cols} FROM products e {lateral} {mjoin} WHERE e.id = $1",
+        "SELECT {cols} FROM products e {lateral} {mjoin} WHERE e.id = $1 AND e.deleted_at IS NULL",
         cols = EVENT_COLS,
         lateral = VARIANT_STATS_LATERAL,
         mjoin = MERCHANT_JOIN,
@@ -229,7 +229,7 @@ pub(super) static FIND_EVENT_BY_ID: LazyLock<String> = LazyLock::new(|| {
 
 pub(super) static FIND_EVENT_WITH_VARIANTS_BY_SLUG: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {cols}, {minfo}, {agg} FROM products e {mjoin} WHERE e.slug = $1",
+        "SELECT {cols}, {minfo}, {agg} FROM products e {mjoin} WHERE e.slug = $1 AND e.deleted_at IS NULL",
         cols = EVENT_COLS_NO_AGG,
         minfo = MERCHANT_INFO_COLS,
         agg = VARIANTS_JSONB_AGG,
@@ -239,7 +239,7 @@ pub(super) static FIND_EVENT_WITH_VARIANTS_BY_SLUG: LazyLock<String> = LazyLock:
 
 pub(super) static FIND_EVENT_WITH_VARIANTS_BY_ID: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {cols}, {minfo}, {agg} FROM products e {mjoin} WHERE e.id = $1",
+        "SELECT {cols}, {minfo}, {agg} FROM products e {mjoin} WHERE e.id = $1 AND e.deleted_at IS NULL",
         cols = EVENT_COLS_NO_AGG,
         minfo = MERCHANT_INFO_COLS,
         agg = VARIANTS_JSONB_AGG,
@@ -281,7 +281,28 @@ pub(super) static UPDATE_EVENT: &str = r#"
      WHERE id = $1 AND merchant_id = $2
 "#;
 
-pub(super) static DELETE_EVENT: &str = "DELETE FROM products WHERE id = $1 AND merchant_id = $2";
+/// Menghapus produk = MENANDAINYA, bukan membuang barisnya.
+///
+/// Produk adalah pusat jaring relasi: varian, isi keranjang, pesanan, tiket,
+/// spanduk, dan ulasan semuanya menunjuk ke sini. `DELETE` sungguhan hanya
+/// punya dua akhir, dan keduanya buruk — CASCADE ikut membawa pesanan yang
+/// SUDAH DIBAYAR orang, atau RESTRICT membuat produk yang pernah laku tak bisa
+/// dihapus selamanya.
+///
+/// `status = 'cancelled'` ikut disetel supaya kode lama yang belum menyaring
+/// `deleted_at` tetap memperlakukannya sebagai tak terjual — satu lapis
+/// pengaman untuk pembacaan yang mungkin terlewat.
+///
+/// `AND deleted_at IS NULL` di akhir bukan hiasan: tanpanya, menekan hapus dua
+/// kali menimpa stempel waktu yang pertama, dan jejak KAPAN produk itu dibuang
+/// — satu-satunya alasan memakai timestamp alih-alih boolean — ikut hilang.
+pub(super) static DELETE_EVENT: &str = r#"
+    UPDATE products
+       SET deleted_at = NOW(),
+           status     = 'cancelled',
+           updated_at = NOW()
+     WHERE id = $1 AND merchant_id = $2 AND deleted_at IS NULL
+"#;
 
 // ── Variant queries ───────────────────────────────────────────────────────────
 
@@ -345,10 +366,24 @@ pub(super) static DETACH_VARIANT_FROM_OPEN_CARTS: &str = r#"
       AND c.deleted_at IS NULL
 "#;
 
+/// Sama seperti produk: varian DITANDAI, tidak dibuang.
+///
+/// `cart_items.ticket_variant_id` memakai `ON DELETE RESTRICT` sejak migrasi
+/// 023 justru karena tabel itu kini memuat pesanan berbayar. Menghapus varian
+/// yang pernah terjual mustahil, dan memaksanya berarti membuang bukti apa yang
+/// dibeli orang.
+///
+/// `is_active = FALSE` ikut disetel: itulah medan yang sudah dipakai seluruh
+/// jalur pembelian untuk menolak varian, jadi penandaan ini langsung berlaku
+/// tanpa menunggu setiap query ikut menyaring `deleted_at`.
 pub(super) static DELETE_VARIANT: &str = r#"
-    DELETE FROM product_variants v
-    USING products e
-    WHERE v.id = $1
-      AND v.event_id = e.id
-      AND e.merchant_id = $2
+    UPDATE product_variants v
+       SET deleted_at = NOW(),
+           is_active  = FALSE,
+           updated_at = NOW()
+      FROM products e
+     WHERE v.id = $1
+       AND v.event_id = e.id
+       AND e.merchant_id = $2
+       AND v.deleted_at IS NULL
 "#;

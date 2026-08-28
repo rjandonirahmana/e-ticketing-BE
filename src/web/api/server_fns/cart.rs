@@ -84,21 +84,6 @@ pub async fn get_cart() -> Result<CartView, ServerFnError> {
     return Ok(srv_cart_to_web(cart));
 }
 
-/// Jumlah tiket di keranjang — untuk lencana navigasi. Tidak memanggil
-/// `view()` supaya lencana tak menyeret pembersihan + validasi promo ke setiap
-/// halaman yang dibuka.
-#[server(GetCartCount, "/api-fn")]
-pub async fn get_cart_count() -> Result<i64, ServerFnError> {
-    let claims = auth_claims().await?;
-    let state = app_state().await?;
-    let total = state
-        .cart_svc
-        .count(&claims.user_id)
-        .await
-        .map_err(map_app_error)?;
-    return Ok(total);
-}
-
 // ── Tulis ────────────────────────────────────────────────────────────────────
 
 #[server(AddToCart, "/api-fn")]
@@ -135,19 +120,6 @@ pub async fn update_cart_quantity(
             },
             premium,
         )
-        .await
-        .map_err(map_app_error)?;
-    return Ok(srv_cart_to_web(cart));
-}
-
-#[server(RemoveCartItem, "/api-fn")]
-pub async fn remove_cart_item(tier_id: String) -> Result<CartView, ServerFnError> {
-    let claims = auth_claims().await?;
-    let state = app_state().await?;
-    let premium = premium_of(&state, &claims.user_id).await;
-    let cart = state
-        .cart_svc
-        .remove(&claims.user_id, &tier_id, premium)
         .await
         .map_err(map_app_error)?;
     return Ok(srv_cart_to_web(cart));

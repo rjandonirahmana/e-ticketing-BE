@@ -4,7 +4,7 @@
 //!                        SSR-safe: kode web_sys hanya dikompilasi di target wasm32.
 //! - `ThemeToggle`      : tombol toggle dark/light.
 //! - `use_auth()`       : turunan dari `AuthResource` (lihat web::app) sebagai
-//!                        profil ringkas dengan `role` dan `membership_tier`.
+//!                        profil ringkas dengan `role`.
 
 use leptos::prelude::*;
 
@@ -141,16 +141,17 @@ pub fn ThemeToggle() -> impl IntoView {
 
 /// Profil ringkas untuk pengecekan peran di UI.
 ///
-/// CATATAN: backend `UserResponse` tidak mengirim `membership_tier`. Di sini
-/// nilainya diturunkan dari `role` (role "merchant" → tier "MERCHANT").
-/// Jika backend Anda punya tier asli, tambahkan field-nya di `UserResponse`
-/// (web::models) lalu sesuaikan pemetaan di `to_profile()`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// `membership_tier` DIBUANG. Medan itu tak pernah dikirim server — ia dikarang
+/// di sini dari `role` yang sama, lalu dibaca kembali di `components/nav.rs`
+/// seolah data tersendiri. Satu peran dengan dua nama hanya menggandakan tempat
+/// untuk salah, dan itu sudah terjadi sekali: navbar memakai `membership_tier`
+/// sementara halaman profil memakai `role`.
+#[derive(Clone, Debug, PartialEq)]
 pub struct AuthProfile {
     pub id: String,
     pub name: String,
+    /// Nilai apa adanya dari `users.role`: "customer" | "merchant" | "admin".
     pub role: String,
-    pub membership_tier: String,
 }
 
 #[derive(Clone, Copy)]
@@ -160,16 +161,10 @@ pub struct AuthCtx {
 }
 
 fn to_profile(u: &crate::web::models::UserResponse) -> AuthProfile {
-    let membership_tier = if u.role.eq_ignore_ascii_case("merchant") {
-        "MERCHANT".to_string()
-    } else {
-        "FREE".to_string()
-    };
     AuthProfile {
         id: u.id.clone(),
         name: u.name.clone(),
         role: u.role.clone(),
-        membership_tier,
     }
 }
 
@@ -181,19 +176,37 @@ pub fn use_auth() -> AuthCtx {
     let auth = use_context::<crate::web::app::AuthResource>()
         .expect("AuthResource not provided — pastikan dipakai di dalam App");
 
-    // Inisialisasi dengan None; Effect akan mengisi nilainya setelah hydration selesai.
-    // Tidak ada get_untracked() di sini — menghindari "reading resource in hydrate mode" warning.
-    let user: RwSignal<Option<AuthProfile>> = RwSignal::new(None);
-
-    Effect::new(move |_| {
-        user.set(
-            auth.get()
-                .and_then(|res| res.ok())
-                .flatten()
-                .as_ref()
-                .map(to_profile),
-        );
+    // ── DITURUNKAN, BUKAN DIISI LEWAT EFFECT ────────────────────────────────
+    //
+    // Versi sebelumnya membuat `RwSignal::new(None)` baru pada SETIAP pemanggilan
+    // lalu mengisinya dari sebuah `Effect`. Dua akibatnya, dan keduanya nyata:
+    //
+    //   1. `Effect` TIDAK PERNAH BERJALAN DI SERVER. Jadi nilainya selalu `None`
+    //      saat SSR, dan HTML yang dikirim server tak pernah memuat tab MERCHANT
+    //      di bilah navigasi — di halaman mana pun. Tab itu baru muncul setelah
+    //      WASM diunduh, dikompilasi, dan dihidrasi. Di ponsel atau jaringan
+    //      biasa itu beberapa detik, dan selama itu merchant tak melihat pintu
+    //      masuk ke tokonya sendiri.
+    //
+    //      Halaman `/profile` tak terkena karena ia membaca `role` LANGSUNG dari
+    //      resource-nya (`pages/profile.rs`), bukan lewat hook ini — itulah
+    //      sebabnya pengecekan terasa "hanya bekerja di /profile".
+    //
+    //   2. Satu signal + satu Effect per pemanggilan. Tak ada yang dibagi;
+    //      setiap komponen yang memakainya menambah satu langganan lagi ke
+    //      resource yang sama untuk menghitung nilai yang identik.
+    //
+    // `Signal::derive` menghitungnya saat dibaca, dari resource yang memang
+    // sudah `new_blocking` — artinya sudah teresolusi sebelum HTML dirender di
+    // server, dan sudah ter-deserialisasi saat hidrasi. Server dan klien karena
+    // itu menghasilkan bilah navigasi yang SAMA.
+    let user = Signal::derive(move || {
+        auth.get()
+            .and_then(|res| res.ok())
+            .flatten()
+            .as_ref()
+            .map(to_profile)
     });
 
-    AuthCtx { user: user.into() }
+    AuthCtx { user }
 }

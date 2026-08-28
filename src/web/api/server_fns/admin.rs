@@ -108,22 +108,6 @@ pub async fn delete_banner(id: i64) -> Result<(), ServerFnError> {
     Ok(())
 }
 
-#[server(GetAdminUsers, "/api-fn")]
-pub async fn get_admin_users(page: Option<i64>) -> Result<serde_json::Value, ServerFnError> {
-    let _claims = require_role("admin").await?;
-    let _p = page.unwrap_or(1);
-    // TODO: add admin user list service method
-    return Ok(serde_json::json!({ "data": [], "total": 0 }));
-}
-
-#[server(GetAdminOrders, "/api-fn")]
-pub async fn get_admin_orders(page: Option<i64>) -> Result<serde_json::Value, ServerFnError> {
-    let _claims = require_role("admin").await?;
-    let _p = page.unwrap_or(1);
-    // TODO: add admin order list service method
-    return Ok(serde_json::json!({ "data": [], "total": 0 }));
-}
-
 #[server(GetAdminProducts, "/api-fn")]
 pub async fn get_admin_products(
     page: Option<i64>,
@@ -133,6 +117,7 @@ pub async fn get_admin_products(
     let _claims = require_role("admin").await?;
     let state = app_state().await?;
     let q = ProductListQuery {
+        sort: None,
         page,
         per_page: Some(50),
         city: None,

@@ -74,6 +74,7 @@ pub async fn get_merchant_public_page(
     let viewer = auth_claims().await.ok().map(|c| c.user_id);
 
     let q = ProductListQuery {
+        sort: None,
         page: Some(1),
         per_page: Some(12),
         city: None,
@@ -186,18 +187,27 @@ pub async fn get_merchant_public_page(
 }
 
 #[server(GetMerchantPublicProducts, "/api-fn")]
+/// Katalog satu toko, dengan pencarian dan urutan.
+///
+/// `cari` dan `urut` sengaja `Option<String>` yang boleh kosong: halaman
+/// memanggilnya juga saat kotak pencarian belum diisi, dan string kosong harus
+/// berarti "tanpa saringan" — bukan "cari yang namanya kosong".
 pub async fn get_merchant_public_products(
     merchant_id: String,
     page: Option<i64>,
+    cari: Option<String>,
+    urut: Option<String>,
 ) -> Result<PaginatedProducts, ServerFnError> {
     use crate::models::products::ProductListQuery;
     let state = app_state().await?;
+    let bersih = |v: Option<String>| v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     let q = ProductListQuery {
+        sort: bersih(urut),
         page,
         per_page: Some(12),
         city: None,
         category: None,
-        search: None,
+        search: bersih(cari),
         // Publik: hanya product aktif — jangan bocorkan draft/cancelled merchant.
         status: Some("active".into()),
     };

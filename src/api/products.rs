@@ -74,6 +74,7 @@ async fn list_products(
     }
 
     let query = ProductListQuery {
+        sort: None,
         page: q.page,
         per_page: q.page_size,
         city: q.city,

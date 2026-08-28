@@ -80,30 +80,38 @@ pub fn App() -> impl IntoView {
             // sudah memusatkan diri dengan lebar maksimum yang sama.
             <main class="relative z-10 w-full max-w-[480px] mx-auto min-h-screen bg-page \
                          shadow-[0_0_60px_rgba(0,0,0,0.35)]">
-                <ErrorBoundary fallback=|_| {
-                    view! {
-                        <div
-                            class="page"
-                            style="display:flex;flex-direction:column;align-items:center;
-                            justify-content:center;gap:16px;min-height:60vh;
-                            padding:40px 20px;text-align:center"
-                        >
-                            <p style="color:var(--text-primary);font-size:18px;font-weight:700">
-                                "Terjadi kesalahan"
-                            </p>
-                            <p style="color:var(--text-muted);font-size:13px">
-                                "Coba muat ulang halaman."
-                            </p>
-                            <button
-                                onclick="window.location.reload()"
-                                style="padding:12px 24px;background:var(--accent-lime);border:none;
-                                 border-radius:12px;color:#0a0a14;font-weight:700;cursor:pointer"
-                            >
-                                "Muat Ulang"
-                            </button>
-                        </div>
-                    }
-                }>
+                // ── ERRORBOUNDARY DICABUT DARI SEKELILING <FlatRoutes> ──────
+                //
+                // Dulu seluruh tabel rute dibungkus `<ErrorBoundary>`. Itu
+                // tampak seperti jaring pengaman, padahal justru satu-satunya
+                // cara membuat navigasi rusak PERMANEN sampai halaman dimuat
+                // ulang — dan bentuk kerusakannya persis yang dilaporkan:
+                // "diklik tak pindah halaman, di-refresh baru bisa".
+                //
+                // Mekanismenya: begitu ada SATU galat terdaftar di dalamnya,
+                // ErrorBoundary menukar anak-anaknya dengan fallback. Penukaran
+                // itu MEMBUANG subtree `FlatRoutes` beserta owner reaktifnya.
+                // Sesudah itu:
+                //
+                //   * pendengar klik router masih terpasang di window, jadi
+                //     tautan tetap disadap dan `current_url` tetap berubah —
+                //     alamat di bilah URL ikut berganti;
+                //   * tetapi efek yang memanggil `rebuild()` sudah ikut dibuang,
+                //     jadi DOM tak pernah menyusul.
+                //
+                // URL berpindah, layar tidak, dan tak ada satu pun pesan galat.
+                // Hanya muat ulang yang memulihkan, karena itu membangun
+                // seluruh pohon dari nol.
+                //
+                // Yang hilang dengan mencabutnya kecil: setiap halaman sudah
+                // menangani galatnya sendiri lewat `match` atas `Result`
+                // resource-nya, jadi boundary ini nyaris tak pernah menampilkan
+                // apa pun — ia hanya menunggu untuk merusak router.
+                //
+                // Bila kelak ingin jaring pengaman lagi, tempatnya DI DALAM
+                // view tiap rute, bukan di sekelilingnya: galat satu halaman
+                // tak boleh sanggup mematikan router seluruh aplikasi.
+
                     <FlatRoutes fallback=|| view! { <NotFoundPage /> }>
 
                         // ── PUBLIC — SSR full content (SEO) ──────────────────────
@@ -403,7 +411,6 @@ pub fn App() -> impl IntoView {
                         />
 
                     </FlatRoutes>
-                </ErrorBoundary>
             </main>
         </Router>
     }

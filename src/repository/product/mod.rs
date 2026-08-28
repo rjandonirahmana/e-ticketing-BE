@@ -23,8 +23,41 @@ pub struct ProductListFilter<'a> {
     pub category: Option<&'a str>,
     pub search: Option<&'a str>,
     pub merchant_id: Option<&'a str>,
+    /// Urutan hasil. Nilai yang dikenali ada di [`urutan_sql`]; apa pun selain
+    /// itu jatuh ke urutan bawaan.
+    pub sort: Option<&'a str>,
     pub limit: i64,
     pub offset: i64,
+}
+
+/// Terjemahkan nama urutan dari klien menjadi klausa `ORDER BY`.
+///
+/// ── KENAPA WHITELIST, BUKAN MENYUSUN DARI MASUKAN ───────────────────────────
+/// Kolom `ORDER BY` tak bisa dijadikan parameter terikat — ia harus masuk ke
+/// dalam teks SQL. Artinya menyambung nilai dari klien apa adanya adalah
+/// injeksi SQL yang terbuka lebar. Pemetaan tetap seperti ini menutupnya: yang
+/// tak dikenali tidak ditolak, melainkan jatuh ke urutan bawaan.
+///
+/// ── KENAPA TAK ADA URUTAN BERDASARKAN RATING ────────────────────────────────
+/// Tabel `reviews` ber-primary key `(merchant_id, user_id)` — rating melekat
+/// pada TOKO, bukan produk. Di halaman satu toko, setiap produknya berbagi
+/// rating yang sama persis, sehingga mengurutkannya tak menghasilkan urutan apa
+/// pun. "Terlaris" dipakai sebagai gantinya: ia satu-satunya ukuran penerimaan
+/// pembeli yang memang berbeda antar-produk.
+///
+/// `NULLS LAST` pada harga: produk tanpa varian aktif tak punya harga tampil,
+/// dan di PostgreSQL NULL diurutkan paling akhir saat DESC tetapi paling AWAL
+/// saat ASC — tanpa ini, "termurah" diawali deretan produk tanpa harga.
+pub(super) fn urutan_sql(sort: Option<&str>) -> &'static str {
+    match sort.unwrap_or("") {
+        "harga_asc" => " ORDER BY display_price ASC NULLS LAST, e.created_at DESC",
+        "harga_desc" => " ORDER BY display_price DESC NULLS LAST, e.created_at DESC",
+        "terlaris" => " ORDER BY total_sold DESC NULLS LAST, e.created_at DESC",
+        "terbaru" => " ORDER BY e.created_at DESC",
+        // Bawaan dipertahankan supaya halaman yang belum mengirim `sort` tak
+        // berubah urutannya diam-diam.
+        _ => " ORDER BY e.event_date ASC",
+    }
 }
 
 /// Owned copies of filter values, needed to keep borrows alive while building

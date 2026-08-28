@@ -979,7 +979,7 @@ fn MerchantProfileCard() -> impl IntoView {
         if id.is_empty() {
             return Err(ServerFnError::ServerError("not_ready".into()));
         }
-        get_merchant_public_products(id, Some(1)).await
+        get_merchant_public_products(id, Some(1), None, None).await
     });
 
     // Editor state (di-seed sekali dari profile).

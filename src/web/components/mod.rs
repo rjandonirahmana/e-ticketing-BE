@@ -3,6 +3,7 @@ pub mod cards;
 pub mod common;
 pub mod detail_image_section;
 pub mod draggable_overlay;
+pub mod icons;
 pub mod product_story_preview;
 pub mod live_stream;
 pub mod merchant_live_pip;
@@ -19,6 +20,10 @@ pub use cards::{
     TicketCardShimmer,
 };
 pub use common::{EmptyState, ErrorBanner, GridBackground, KineticInput};
+pub use icons::{
+    IconBack, IconBell, IconCart, IconChat, IconChevron, IconEye, IconShield, IconSpinner,
+    IconStore,
+};
 pub use live_stream::LiveStreamViewer;
 pub use merchant_live_pip::MerchantLivePip;
 pub use nav::{BottomNav, CartButton, ThemeToggle, TopNav};
