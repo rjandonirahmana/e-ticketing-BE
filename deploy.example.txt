@@ -14,6 +14,9 @@
 # Uji manual tanpa menunggu CI:
 #   sudo bash /opt/ticketing/deploy.txt <user-dockerhub>/ticketing:latest
 #
+# Sesudahnya, pastikan portnya benar-benar terbuka di host:
+#   curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3100/healthz   # harus 200
+#
 # ── SATU ATURAN YANG TAK BOLEH DILANGGAR ─────────────────────────────────────
 # `docker run` di bawah HARUS diakhiri dengan "$IMAGE". Jangan pernah menulis
 # nama image secara langsung di sana, sekalipun kelihatannya lebih jelas.
@@ -59,7 +62,22 @@ echo "→ Menjalankan $NAMA"
 docker run -d \
   --name "$NAMA" \
   --restart unless-stopped \
-  -p 3000:3000 \
+  `# HOST 3100 - CONTAINER 3000. Angka kiri BUKAN pilihan bebas.` \
+  `#` \
+  `# Pingora menyambung ke 127.0.0.1:3100 -- lihat frontend_addr dan` \
+  `# backend_addr di config.yaml milik pingora-kinetic, yang komentarnya` \
+  `# sendiri menyebut docker -p 3100:3000. Menerbitkan di 3000 membuat` \
+  `# Pingora menembak port yang tak ada dan SETIAP permintaan berakhir 502` \
+  `# Connection refused, sampai circuit breaker-nya membuka dan seluruh` \
+  `# domain mati.` \
+  `#` \
+  `# Host 3000 juga SUDAH DIPAKAI panel admin WhatsApp (wa_admin_addr` \
+  `# 127.0.0.1:3000 di config yang sama), jadi memakainya di sini bukan` \
+  `# cuma salah alamat -- docker run bisa gagal mengikat portnya.` \
+  `#` \
+  `# Angka KANAN tetap 3000: aplikasi mendengar di 0.0.0.0:3000 di dalam` \
+  `# container, dan itu ditulis mati di config/config.rs.` \
+  -p 3100:3000 \
   `# SFU WebRTC. UDP, TERPISAH dari port HTTP. Tanpa baris ini penonton di luar` \
   `# LAN tak pernah tersambung — ICE gagal diam-diam, tanpa pesan galat.` \
   -p 4000:4000/udp \

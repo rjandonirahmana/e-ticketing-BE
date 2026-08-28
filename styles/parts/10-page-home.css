@@ -1217,7 +1217,7 @@
 }
 .exp-hero-sub {
     font-size: 13px;
-    color: var(--text-tertiary);
+    color: var(--text-muted);
     letter-spacing: 0.04em;
     margin: 0;
 }

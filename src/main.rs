@@ -233,6 +233,42 @@ async fn run() -> Result<()> {
             let opts = leptos_options.clone();
             move || shell(opts.clone())
         })
+        // ── /pkg/* disajikan ServeDir yang MEMAKAI berkas pra-kompresi ────────
+        //
+        // `cargo leptos build --release --precompress` menulis `.br` dan `.gz`
+        // di samping tiap aset. Sampai sekarang tak ada yang pernah membacanya:
+        // seluruh `/pkg/*` jatuh ke `file_and_error_handler` di bawah, yang
+        // menyajikan berkas mentah, lalu `CompressionLayer` di ujung router
+        // memampatkannya ULANG — setiap permintaan, dari nol.
+        //
+        // Untuk aset kecil itu tak terasa. Untuk bundle WASM yang berukuran
+        // megabyte, brotli adalah operasi CPU yang berat, dan ia dijalankan
+        // per-permintaan di kotak 2 vCPU sambil menahan permintaan lain di
+        // antrean yang sama. Kunjungan pertama seorang pengunjung karena itu
+        // membayar kompresi penuh sebuah bundle multi-megabyte — dan itulah
+        // yang terasa sebagai "buka pertama sangat lambat".
+        //
+        // `ServeDir` mengirim berkas `.br` yang sudah jadi, apa adanya, dengan
+        // header `content-encoding: br`. `CompressionLayer` melihat header itu
+        // dan melewatkannya, jadi tak ada kompresi kedua. Peramban lama yang
+        // tak mengirim `Accept-Encoding: br` tetap dilayani berkas aslinya.
+        //
+        // Pakai `route_service` ber-wildcard, BUKAN `nest_service`:
+        // `nest_service("/pkg", …)` memasang penangkap-semua di bawah `/pkg`
+        // dan bertabrakan dengan rute alias `_bg.wasm` di bawah — axum menolak
+        // keduanya saat start. Dengan wildcard, segmen statis alias tetap menang
+        // atas wildcard di router matchit.
+        //
+        // Direktorinya `site_root` (bukan `site_root/pkg`) karena
+        // `route_service` TIDAK memotong awalan path seperti `nest_service`:
+        // permintaan `/pkg/x.wasm` sampai apa adanya, dan ServeDir menyusunnya
+        // menjadi `site_root/pkg/x.wasm`.
+        .route_service(
+            "/pkg/{*path}",
+            tower_http::services::ServeDir::new(&site_root)
+                .precompressed_br()
+                .precompressed_gzip(),
+        )
         .fallback(leptos_axum::file_and_error_handler(shell));
 
     // Nama bundle WASM yang ditulis build vs yang dimuat glue JS bisa berbeda —
@@ -495,5 +531,32 @@ async fn shutdown_signal() {
     tokio::select! {
         _ = ctrl_c    => tracing::info!("Ctrl+C received"),
         _ = terminate => tracing::info!("SIGTERM received"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Rute `/pkg/{*path}` (ServeDir pra-kompresi) dan rute STATIS
+    /// `/pkg/<nama>_bg.wasm` (alias hydration) harus bisa hidup berdampingan.
+    ///
+    /// Ini diuji karena kegagalannya tidak terlihat saat kompilasi: axum
+    /// memeriksa tabrakan rute saat `Router` DIBANGUN, yaitu di dalam `run()`.
+    /// Bentuk yang salah — mis. `nest_service("/pkg", …)` alih-alih wildcard —
+    /// membuat proses PANIK saat start, sesudah build hijau dan sesudah image
+    /// ter-push. Test ini memindahkan kegagalan itu ke `cargo test`.
+    #[test]
+    fn rute_pkg_wildcard_dan_alias_tidak_bertabrakan() {
+        let dir = std::env::temp_dir();
+        let _router: axum::Router = axum::Router::new()
+            .route_service(
+                "/pkg/{*path}",
+                tower_http::services::ServeDir::new(&dir)
+                    .precompressed_br()
+                    .precompressed_gzip(),
+            )
+            .route_service(
+                "/pkg/e-ticketing_bg.wasm",
+                tower_http::services::ServeFile::new(dir.join("x.wasm")),
+            );
     }
 }

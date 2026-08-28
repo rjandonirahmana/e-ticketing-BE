@@ -89,7 +89,7 @@ pub(super) fn view_review(
                                 <div class="mhub-product-card-top-row">
                                     <p class="mhub-product-card-title">{title}</p>
                                     <span style="font-size:0.7rem;color:var(--text-muted);padding:3px 7px;\
-                                                 background:var(--surface-2);border-radius:6px;font-weight:600">
+                                                 background:var(--bg-elevated);border-radius:6px;font-weight:600">
                                         {status}
                                     </span>
                                 </div>
@@ -106,7 +106,7 @@ pub(super) fn view_review(
                                     </button>
                                     <button
                                         class="mhub-product-manage-btn"
-                                        style="flex:1;background:var(--surface-2);color:var(--text-muted)"
+                                        style="flex:1;background:var(--bg-elevated);color:var(--text-muted)"
                                         disabled=move || processing.with(|p| p.as_deref() == Some(&id_proc_b))
                                         on:click=move |_| do_update(id_reject.clone(), "cancelled")>
                                         {move || if processing.with(|p| p.as_deref() == Some(&id_lbl_b)) {

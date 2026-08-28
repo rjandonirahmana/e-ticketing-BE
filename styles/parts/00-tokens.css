@@ -146,13 +146,25 @@
     --text-primary: #0c0c1a;
     --text-secondary: #48486a;
     --text-muted: #70709a;
-    --text-soft-accent: #1a2a82;
+    --text-soft-accent: #14532d;
     --text-on-accent: #ffffff;
 
     --accent-lime: #3d6600;
-    --accent-blue: #2d4ee0;
+    /* ── Yang dulu biru, kini hijau ────────────────────────────────────────
+     * Nama tokennya SENGAJA tidak diganti. `--accent-blue` dirujuk 142 kali di
+     * 20 berkas gaya; me-rename-nya berarti menyunting semuanya sekaligus demi
+     * perubahan yang tak terlihat di layar, dan setiap berkas yang terlewat
+     * akan kehilangan warnanya dalam diam — `var()` yang tak dikenal batal
+     * tanpa galat. Yang berubah cukup NILAInya di sini, satu tempat.
+     *
+     * Nada hijaunya sengaja BERBEDA dari `--accent-lime` di atas. Keduanya
+     * kerap dipakai berdampingan dalam satu gradien (mis. cincin story:
+     * `linear-gradient(45deg, lime, blue, violet)`); kalau nilainya
+     * disamakan, gradiennya kehilangan peralihan dan tampak seperti blok
+     * warna datar. */
+    --accent-blue: #1f7a45;
     --accent-violet: #5522c8;
-    --accent-info: #3a6fd4;
+    --accent-info: #2e8b57;
     --accent-pink: #c42a6a;
     --accent-promo: #7233c0;
     --live-green: #0a7035;
@@ -168,16 +180,27 @@
     --notch-bg: #f3f3fb;
     --map-bg-1: #e0e4f8;
     --map-bg-2: #f3f3fb;
-    --map-grid: rgba(45, 78, 224, 0.12);
+    --map-grid: rgba(31, 122, 69, 0.12);
 
     --scrollbar-track: #e2e2f0;
     --scrollbar-thumb: #bebede;
 
-    --color-primary: var(--accent-blue);
+    /* ── Warna utama: hijau ───────────────────────────────────────────────
+     * `--accent-lime` di mode terang bernilai #3d6600 — hijau tua, BUKAN
+     * hijau muda. Itu disengaja dan tak boleh dicerahkan: nilai ini dipakai
+     * sebagai warna TEKS dan ikon di atas latar putih, dan hijau muda di sana
+     * tak akan lolos rasio kontras yang bisa dibaca. Kesan `hijau muda` datang
+     * dari latarnya, bukan dari tintanya.
+     *
+     * Turunan glow/soft/border mengikuti rgb 61,102,0 — sebelumnya semuanya
+     * masih memakai rgb biru 31, 122, 69. Kalau tidak ikut diganti, tombol hijau
+     * akan berpendar biru dan bingkai fokusnya biru, dan hanya terlihat pada
+     * keadaan yang jarang diuji: hover, fokus keyboard, dan latar lembut. */
+    --color-primary: var(--accent-lime);
     --color-primary-text: #ffffff;
-    --color-primary-glow: rgba(45, 78, 224, 0.3);
-    --color-primary-soft: rgba(45, 78, 224, 0.07);
-    --color-primary-border: rgba(45, 78, 224, 0.3);
+    --color-primary-glow: rgba(61, 102, 0, 0.3);
+    --color-primary-soft: rgba(61, 102, 0, 0.08);
+    --color-primary-border: rgba(61, 102, 0, 0.3);
 
     --bdot-inactive: rgba(0, 0, 30, 0.18);
     --chip-active-bg: #0c0c1a;
@@ -207,12 +230,12 @@
     color: var(--accent-blue);
 }
 [data-theme="light"] .nav-avatar {
-    border-color: rgba(45, 78, 224, 0.45);
+    border-color: rgba(31, 122, 69, 0.45);
     background: var(--bg-card);
 }
 [data-theme="light"] .bell-dot {
     background: var(--accent-blue);
-    box-shadow: 0 0 8px rgba(45, 78, 224, 0.45);
+    box-shadow: 0 0 8px rgba(31, 122, 69, 0.45);
     border-color: var(--bg-page);
 }
 [data-theme="light"] .count-dot {
@@ -223,25 +246,25 @@
 }
 [data-theme="light"] .pulse-dot--green {
     background: var(--accent-blue);
-    box-shadow: 0 0 8px rgba(45, 78, 224, 0.45);
+    box-shadow: 0 0 8px rgba(31, 122, 69, 0.45);
 }
 [data-theme="light"] .avatar-circle {
     border-color: var(--accent-blue);
     box-shadow:
-        0 0 0 4px rgba(45, 78, 224, 0.1),
-        0 0 40px rgba(45, 78, 224, 0.14);
+        0 0 0 4px rgba(31, 122, 69, 0.1),
+        0 0 40px rgba(31, 122, 69, 0.14);
 }
 [data-theme="light"] .avatar-edit {
     background: var(--accent-blue);
     color: #fff;
 }
 [data-theme="light"] .profile-glow {
-    background: radial-gradient(circle, rgba(45, 78, 224, 0.1) 0%, transparent 70%);
+    background: radial-gradient(circle, rgba(31, 122, 69, 0.1) 0%, transparent 70%);
 }
 [data-theme="light"] .header-badge {
     color: var(--accent-blue);
-    background: rgba(45, 78, 224, 0.1);
-    border-color: rgba(45, 78, 224, 0.25);
+    background: rgba(31, 122, 69, 0.1);
+    border-color: rgba(31, 122, 69, 0.25);
 }
 [data-theme="light"] .auth-prompt-link {
     color: var(--accent-blue);
@@ -256,7 +279,7 @@
     background: var(--bg-page);
 }
 [data-theme="light"] .orb-2 {
-    background: radial-gradient(circle, rgba(45, 78, 224, 0.45) 0%, transparent 70%);
+    background: radial-gradient(circle, rgba(31, 122, 69, 0.45) 0%, transparent 70%);
 }
 [data-theme="light"] .vip-icon-wrap {
     color: #fff;
@@ -267,28 +290,28 @@
 }
 [data-theme="light"] .td-qr {
     background: #fff;
-    box-shadow: 0 0 40px rgba(45, 78, 224, 0.18);
+    box-shadow: 0 0 40px rgba(31, 122, 69, 0.18);
 }
 [data-theme="light"] .vl-pin-circle {
     border-color: var(--accent-blue);
-    box-shadow: 0 0 30px rgba(45, 78, 224, 0.3);
+    box-shadow: 0 0 30px rgba(31, 122, 69, 0.3);
 }
 [data-theme="light"] .vl-pin-dot {
     background: var(--accent-blue);
 }
 [data-theme="light"] .vl-pin-pulse {
-    background: rgba(45, 78, 224, 0.18);
+    background: rgba(31, 122, 69, 0.18);
 }
 [data-theme="light"] .vl-pin-label {
     color: var(--accent-blue);
-    border-color: rgba(45, 78, 224, 0.35);
+    border-color: rgba(31, 122, 69, 0.35);
 }
 [data-theme="light"] .vl-section-line {
     background: var(--accent-blue);
 }
 [data-theme="light"] .vl-distance {
-    background: rgba(45, 78, 224, 0.08);
-    border-color: rgba(45, 78, 224, 0.22);
+    background: rgba(31, 122, 69, 0.08);
+    border-color: rgba(31, 122, 69, 0.22);
 }
 [data-theme="light"] .bottom-item--active {
     color: var(--accent-blue);
@@ -311,10 +334,10 @@
     border-color: var(--accent-blue);
 }
 [data-theme="light"] .notif-cta:hover {
-    background: rgba(45, 78, 224, 0.08);
+    background: rgba(31, 122, 69, 0.08);
 }
 [data-theme="light"] .order-cta--view {
-    border-color: rgba(45, 78, 224, 0.35);
+    border-color: rgba(31, 122, 69, 0.35);
 }
 [data-theme="light"] .hero-price,
 [data-theme="light"] .trending-price,
@@ -355,8 +378,8 @@
 [data-theme="light"] .nd-info-banner,
 [data-theme="light"] .nd-info-icon,
 [data-theme="light"] .flash-icon-wrap {
-    background: rgba(45, 78, 224, 0.1);
-    border-color: rgba(45, 78, 224, 0.2);
+    background: rgba(31, 122, 69, 0.1);
+    border-color: rgba(31, 122, 69, 0.2);
 }
 [data-theme="light"] .nd-info-banner p {
     color: var(--text-secondary);
@@ -367,18 +390,18 @@
         var(--accent-violet) 180deg,
         var(--accent-blue) 360deg
     );
-    box-shadow: 0 0 50px rgba(45, 78, 224, 0.25);
+    box-shadow: 0 0 50px rgba(31, 122, 69, 0.25);
 }
 [data-theme="light"] .nd-check-circle {
     background: var(--accent-blue);
     color: #fff;
 }
 [data-theme="light"] .success-card {
-    border-color: rgba(45, 78, 224, 0.25);
+    border-color: rgba(31, 122, 69, 0.25);
 }
 [data-theme="light"] .success-icon {
-    background: rgba(45, 78, 224, 0.08);
-    border-color: rgba(45, 78, 224, 0.2);
+    background: rgba(31, 122, 69, 0.08);
+    border-color: rgba(31, 122, 69, 0.2);
     color: var(--accent-blue);
 }
 [data-theme="light"] .pay-bar-btn,

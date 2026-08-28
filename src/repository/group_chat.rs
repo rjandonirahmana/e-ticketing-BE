@@ -336,7 +336,7 @@ impl GroupChatRepository for PgGroupChatRepository {
             exec_rows(
                 &self.pool,
                 r#"
-                SELECT id, room_id, sender_id, sender_name, msg_type,
+                SELECT id, chat_id, sender_id, sender_name, msg_type,
                        content, media_url, ticket_card, is_system, sent_at
                 FROM chat_messages
                 WHERE chat_id = $1
@@ -357,7 +357,11 @@ impl GroupChatRepository for PgGroupChatRepository {
             .iter()
             .map(|row| {
                 let id_b: Vec<u8> = row.try_get("id")?;
-                let room_b2: Vec<u8> = row.try_get("room_id")?;
+                // Kolomnya bernama `chat_id` sejak migrasi 029
+                // (`RENAME COLUMN room_id TO chat_id`). Nama Rust-nya tetap
+                // `room_id` karena `GroupMessage` dipakai lintas WebSocket dan
+                // web — hanya pembacaannya yang harus mengikuti nama kolom.
+                let room_b2: Vec<u8> = row.try_get("chat_id")?;
                 let sender_b: Vec<u8> = row.try_get("sender_id")?;
                 let type_str: String = row.try_get("msg_type")?;
                 // FIX: Parse ticket_card langsung dari JSONB via serde_json::Value.

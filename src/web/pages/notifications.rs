@@ -196,7 +196,7 @@ pub fn NotificationsPage() -> impl IntoView {
                     if !is_logged_in() && auth.get().is_some() {
                         return view! {
                             <div style="text-align:center;padding:4rem 0">
-                                <p style="color:var(--clr-muted);margin-bottom:1.5rem">
+                                <p style="color:var(--text-muted);margin-bottom:1.5rem">
                                     "Kamu harus masuk untuk melihat notifikasi."
                                 </p>
                                 <A href="/login" attr:class="btn btn--accent">"Masuk"</A>

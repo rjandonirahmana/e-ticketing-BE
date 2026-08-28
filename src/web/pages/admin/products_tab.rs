@@ -196,7 +196,7 @@ pub(super) fn view_all_products(
                     // keadaan selalu ambigu soal apa yang terjadi bila ditekan.
                     let sedang_terbit = ev.status == "active";
                     let (aksi, aksi_label, aksi_style) = if sedang_terbit {
-                        ("edited", "⏸ Tahan", "background:var(--surface-2);color:var(--text-muted)")
+                        ("edited", "⏸ Tahan", "background:var(--bg-elevated);color:var(--text-muted)")
                     } else {
                         ("active", "▶ Terbitkan", "background:var(--accent-lime);color:#000;font-weight:700")
                     };

@@ -318,8 +318,8 @@
 }
 [data-theme="light"] .pa-submit {
     color: #ffffff;
-    background: linear-gradient(100deg, #5b78ff 0%, #3a5bff 60%, #2d4ee0 100%);
-    box-shadow: 0 10px 26px rgba(45, 78, 224, 0.28);
+    background: linear-gradient(100deg, #2fa563 0%, #268a50 60%, #1f7a45 100%);
+    box-shadow: 0 10px 26px rgba(31, 122, 69, 0.28);
 }
 [data-theme="light"] .pa-check {
     border-color: var(--border-strong);

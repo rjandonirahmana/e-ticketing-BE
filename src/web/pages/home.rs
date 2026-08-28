@@ -17,7 +17,7 @@ pub fn HomePage() -> impl IntoView {
                 <p class="hero__eyebrow">"// produk platform terbaik di Indonesia"</p>
                 <h1 class="hero__heading">
                     "Temukan Product\nImpianmu, "
-                    <span style="color:var(--clr-accent)">"Sekarang."</span>
+                    <span style="color:var(--color-primary)">"Sekarang."</span>
                 </h1>
                 <p class="hero__sub">
                     "Dari konser hingga festival, ribuan product tersedia di satu tempat.\n\

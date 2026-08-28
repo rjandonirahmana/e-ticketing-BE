@@ -419,7 +419,7 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
                                                 // ── Preview detail ────────────────────────────
                                                 <div style="position:relative;
                                                 width:100%;aspect-ratio:4/3;
-                                                background:var(--bg-secondary);
+                                                background:var(--bg-surface);
                                                 border-radius:8px;overflow:hidden">
                                                     <img
                                                         src=preview
