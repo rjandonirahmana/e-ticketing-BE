@@ -24,7 +24,6 @@ jobs:
   # bisa patah tanpa menyentuh sisi server sama sekali — `docker build` akan
   # menemukannya juga, tapi setelah belasan menit, bukan setelah dua.
   build-and-push:
-    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
