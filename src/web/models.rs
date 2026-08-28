@@ -1,6 +1,44 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+// ── Kategori produk ─────────────────────────────────────────────────────────
+//
+// Satu-satunya daftar kategori di aplikasi ini.
+//
+// Sebelumnya daftarnya ditulis DUA KALI — satu di formulir buat produk, satu di
+// formulir sunting — dengan isi yang kebetulan masih sama. Dua salinan yang
+// harus dijaga tetap identik hanya punya satu masa depan: menambah kategori di
+// satu formulir dan lupa di formulir lain, lalu merchant yang menyunting
+// produknya kehilangan kategori yang tak ada di daftar sebelah.
+//
+// Isinya juga sudah tak cocok lagi. Daftar lamanya — Musik, Festival, Konser,
+// Olahraga, Seni, Hiburan — adalah kategori ACARA, sisa dari masa ketika
+// aplikasi ini menjual tiket. Untuk marketplace barang, kategori itu bukan
+// sekadar tidak relevan: ia menyesatkan merchant tentang apa yang boleh dijual
+// di sini, dan membuat pembeli menyaring dengan kata yang tak pernah cocok
+// dengan barang mana pun.
+//
+// CATATAN DATA: mengubah daftar ini hanya mengubah PILIHAN di formulir. Produk
+// yang sudah terlanjur berkategori lama tetap membawa nilai lamanya, dan filter
+// di halaman jelajah membaca kategori DISTINCT dari tabel `products` — jadi
+// kategori lama masih akan muncul di sana sampai produknya dikategorikan ulang.
+pub const PRODUCT_CATEGORIES: &[&str] = &[
+    "Fashion Pria",
+    "Fashion Wanita",
+    "Elektronik",
+    "Handphone & Tablet",
+    "Komputer & Laptop",
+    "Kesehatan & Kecantikan",
+    "Ibu & Bayi",
+    "Rumah Tangga",
+    "Makanan & Minuman",
+    "Olahraga & Outdoor",
+    "Otomotif",
+    "Hobi & Koleksi",
+    "Buku & Alat Tulis",
+    "Lainnya",
+];
+
 // ── Products ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

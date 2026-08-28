@@ -33,7 +33,6 @@ pub trait GroupChatRepository: Send + Sync {
 
     // Messages
     async fn save_message(&self, msg: &GroupMessage) -> Result<()>;
-    async fn save_message_if_under_limit(&self, msg: &GroupMessage) -> Result<bool>;
     async fn count_user_messages(&self, room_id: &str, user_id: &str) -> Result<i64>;
     async fn get_history(
         &self,
@@ -286,56 +285,6 @@ impl GroupChatRepository for PgGroupChatRepository {
     /// Atomic INSERT + limit check via CTE.
     /// Count check dan insert dalam satu query — tidak ada race condition.
     /// Return `Ok(true)` jika berhasil insert, `Ok(false)` jika limit sudah tercapai.
-    async fn save_message_if_under_limit(&self, msg: &GroupMessage) -> Result<bool> {
-        let id_arr = ulid_to_arr(&msg.id)?;
-        let room_b = id_to_vec(&msg.room_id)?;
-        let sender_b = id_to_vec(&msg.sender_id)?;
-        let ticket_json: Option<serde_json::Value> = msg
-            .ticket_card
-            .as_ref()
-            .map(|t| serde_json::to_value(t))
-            .transpose()?;
-
-        // FIX: NOT EXISTS + LIMIT 1 menggantikan COUNT(*) untuk short-circuit.
-        // COUNT harus scan semua row yang match; EXISTS berhenti di row pertama.
-        // Untuk CUSTOMER_MSG_LIMIT=1, EXISTS O(1) vs COUNT O(n messages).
-        // Jika limit dinaikkan di masa depan, pertimbangkan kembali ke COUNT.
-        let rows = exec_rows(
-            &self.pool,
-            r#"
-            WITH can_send AS (
-                SELECT NOT EXISTS (
-                    SELECT 1 FROM chat_messages
-                    WHERE chat_id = $2 AND sender_id = $3 AND is_system = FALSE
-                    LIMIT 1
-                ) AS ok
-            )
-            INSERT INTO chat_messages
-                (id, chat_id, sender_id, sender_name, msg_type,
-                 content, media_url, ticket_card, is_system, sent_at)
-            SELECT $1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10
-            FROM can_send WHERE ok = TRUE
-            ON CONFLICT (id) DO NOTHING
-            RETURNING id
-            "#,
-            &[
-                &&id_arr[..],
-                &room_b,
-                &sender_b,
-                &msg.sender_name,
-                &msg.msg_type.as_str(),
-                &msg.content,
-                &msg.media_url,
-                &ticket_json,
-                &msg.is_system,
-                &msg.sent_at,
-            ],
-        )
-        .await?;
-
-        Ok(!rows.is_empty())
-    }
-
     async fn count_user_messages(&self, room_id: &str, user_id: &str) -> Result<i64> {
         let room_b = id_to_vec(room_id)?;
         let sender_b = id_to_vec(user_id)?;

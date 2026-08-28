@@ -36,6 +36,19 @@ async fn get_order(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let order = state.order_svc.detail(&id, &claims.user_id).await.map_err(app_err)?;
+    // Sama seperti jalur web (`web/api/server_fns/order.rs`) dan jalur cart.
+    //
+    // Ini bukan sekadar melengkapi nama kanal dan instruksi pembayaran yang
+    // sebelumnya selalu null di sini. `enrich_payment` juga memuat tambalan
+    // untuk nomor VA yang hilang: nomor itu ditulis SESUDAH transaksi order
+    // commit, jadi ada jendela sempit di mana proses mati dan order lahir tanpa
+    // cara membayarnya. Tambalannya menghitung ulang nomor yang deterministik
+    // dari `order_code` lalu menyimpannya.
+    //
+    // Karena tambalan itu hanya hidup di sini, pembeli lewat web Leptos pulih
+    // sendiri begitu membuka ordernya, sedangkan pembeli lewat klien REST tidak
+    // pernah pulih — ia memegang order tanpa nomor pembayaran, selamanya.
+    let order = state.order_svc.enrich_payment(order).await;
     Ok(Json(serde_json::to_value(order).unwrap_or_default()))
 }
 

@@ -71,6 +71,25 @@ pub async fn send_first_chat_message(
         return Err(ServerFnError::ServerError("Pesan tidak boleh kosong".into()));
     }
 
+    // Pembatas laju yang SAMA dengan jalur WebSocket (30 pesan / 10 detik
+    // per user), bukan pembatas kedua yang ditulis khusus di sini.
+    //
+    // Ini penting sejak plafon "satu pesan per percakapan" dibuang dari
+    // `authorize_and_save`: plafon itu — betapapun kelirunya — adalah
+    // satu-satunya hal yang menahan jalur INI. Jalur WebSocket sudah lama
+    // dijaga `dispatch`, tetapi server function tidak melewatinya sama sekali,
+    // sehingga tanpa baris ini pengiriman pesan pertama menjadi endpoint tanpa
+    // batas: tiap panggilan membuat percakapan baru ke toko mana pun.
+    //
+    // Memakai registry yang sama berarti jatah seorang pengguna tetap satu,
+    // dari jalur mana pun ia mengirim — dua pembatas terpisah akan menjumlahkan
+    // jatahnya tanpa ada yang bermaksud begitu.
+    if !state.ws_mgr.check_rate_limit(&claims.user_id) {
+        return Err(ServerFnError::ServerError(
+            "Terlalu banyak pesan, coba lagi sebentar.".into(),
+        ));
+    }
+
     // Pastikan tokonya ada sebelum apa pun dibuat — tanpa ini, id sembarangan
     // melahirkan percakapan dengan lawan bicara yang tak pernah ada.
     let _ = state
@@ -87,7 +106,7 @@ pub async fn send_first_chat_message(
 
     state
         .group_chat_svc
-        .send_text(&room.id, &claims.user_id, &claims.name, &claims.role, &content)
+        .send_text(&room.id, &claims.user_id, &claims.name, &content)
         .await
         .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })?;
 

@@ -13,10 +13,9 @@ use crate::web::services::product::DetailImagePayload;
 use crate::web::hooks::ThemeToggle;
 use crate::web::utils::{map_picker, map_set, DEFAULT_LAT, DEFAULT_LNG};
 
-const CATEGORIES: &[&str] = &[
-    "Musik", "Festival", "Konser", "Olahraga", "Teknologi",
-    "Seni", "Kuliner", "Pendidikan", "Hiburan", "Bisnis",
-];
+// Daftar kategori tinggal di `web::models` — satu sumber untuk formulir buat
+// DAN sunting. Alias ini menjaga sisa berkas tak perlu ikut berubah.
+use crate::web::models::PRODUCT_CATEGORIES as CATEGORIES;
 
 #[component]
 pub fn MerchantCreateProductPage() -> impl IntoView {

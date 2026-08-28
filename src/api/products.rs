@@ -96,7 +96,7 @@ async fn get_product(
     if let Some(body) = state.pub_cache.rest.get(&cache_key).await {
         return Ok(cached_json(body));
     }
-    let product = state.product_svc.get(&slug).await.map_err(app_err)?;
+    let product = state.product_svc.get_public(&slug).await.map_err(app_err)?;
     let body = bytes::Bytes::from(serde_json::to_vec(&product).unwrap_or_default());
     state.pub_cache.rest.insert(cache_key, body.clone()).await;
     Ok(cached_json(body))
@@ -110,7 +110,7 @@ async fn get_product_location(
     if let Some(body) = state.pub_cache.rest.get(&cache_key).await {
         return Ok(cached_json(body));
     }
-    let product = state.product_svc.get(&slug).await.map_err(app_err)?;
+    let product = state.product_svc.get_public(&slug).await.map_err(app_err)?;
     let body = bytes::Bytes::from(
         serde_json::to_vec(&serde_json::json!({
             "slug": product.slug,

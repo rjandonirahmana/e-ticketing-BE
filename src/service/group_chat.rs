@@ -9,9 +9,6 @@ use crate::{
     ws::proto::{WsEvent, WsMessage},
 };
 
-/// Limit pesan untuk customer (non-merchant) per group room
-const CUSTOMER_MSG_LIMIT: i64 = 1;
-
 pub struct GroupChatService {
     /// FIX: Arc<dyn GroupChatRepository> — konsisten dengan OrderService, AuthService, dll.
     /// Memungkinkan mock/test tanpa database, dan swap implementasi tanpa recompile service.
@@ -26,17 +23,15 @@ impl GroupChatService {
 
     // ── Room ─────────────────────────────────────────────────────────────────
 
-    /// Buat atau dapatkan room untuk sebuah product.
-    /// Merchant yang buat product memanggil ini saat publish product.
     // `get_or_create_room` DIBUANG bersama grup produk (migrasi 029).
     // Percakapan kini lahir lewat `ensure_dm` atas kemauan pembeli, bukan
     // dibuatkan merchant per produk.
+    //
+    // Nama & logo toko juga berhenti jadi parameter: sejak 029 keduanya di-JOIN
+    // dari `merchant_details` saat dibaca. Menyalinnya ke baris chat hanya
+    // melahirkan nama basi — toko yang berganti nama akan tetap tampil dengan
+    // nama lamanya di inbox, selamanya.
 
-
-    /// Nama & logo toko TIDAK lagi jadi parameter: sejak migrasi 029 keduanya
-    /// di-JOIN dari `merchant_details` saat dibaca. Menyalinnya ke baris chat
-    /// hanya melahirkan nama basi — toko yang berganti nama akan tetap tampil
-    /// dengan nama lamanya di inbox, selamanya.
     /// Cari percakapan tanpa membuatnya. Dipakai halaman chat untuk memutuskan
     /// apakah ia memuat riwayat atau menampilkan percakapan kosong.
     pub async fn find_dm(&self, buyer_id: &str, merchant_id: &str) -> Result<Option<GroupRoom>> {
@@ -72,26 +67,16 @@ impl GroupChatService {
 
     // ── Join room ─────────────────────────────────────────────────────────────
 
-    /// Join room by room_id — dipanggil dari REST handler POST /chat/rooms/:id/join.
-    ///
-    /// FIX P2: Konsolidasi join logic + system message ke service layer.
-    /// Sebelumnya ws/routes.rs join_room handler langsung call repo.add_member()
-    /// tanpa kirim system message — inkonsisten dengan auto_join_after_payment()
-    /// yang selalu kirim system message.
-    ///
-    /// Return: room yang di-join (untuk response JSON)
     // `join_room` dan `auto_join_after_payment` DIBUANG bersama grup produk.
     // Tak ada lagi yang "bergabung": percakapan berdua sudah punya kedua
     // pesertanya sejak baris `chats` lahir, dan keanggotaan dibaca dari baris
     // itu — bukan dari tabel anggota yang sudah tak ada.
-
 
     pub async fn send_text(
         &self,
         room_id: &str,
         sender_id: &str,
         sender_name: &str,
-        role: &str,
         content: &str,
     ) -> Result<GroupMessage> {
         if content.trim().is_empty() {
@@ -111,7 +96,7 @@ impl GroupChatService {
             is_system: false,
         };
 
-        self.authorize_and_save(&msg, role).await?;
+        self.authorize_and_save(&msg).await?;
         self.fanout(room_id, &msg).await;
         Ok(msg)
     }
@@ -123,7 +108,6 @@ impl GroupChatService {
         room_id: &str,
         sender_id: &str,
         sender_name: &str,
-        role: &str,
         ticket: TicketCard,
         caption: &str,
     ) -> Result<GroupMessage> {
@@ -140,7 +124,7 @@ impl GroupChatService {
             is_system: false,
         };
 
-        self.authorize_and_save(&msg, role).await?;
+        self.authorize_and_save(&msg).await?;
         self.fanout(room_id, &msg).await;
         Ok(msg)
     }
@@ -166,34 +150,37 @@ impl GroupChatService {
 
     // ── Internal ──────────────────────────────────────────────────────────────
 
-    /// Enforce aturan:
-    /// - Customer: maks CUSTOMER_MSG_LIMIT pesan per room — dicek secara ATOMIC di DB
-    /// - Merchant/Admin: unlimited, langsung save
-    async fn authorize_and_save(&self, msg: &GroupMessage, role: &str) -> Result<()> {
+    /// Satu-satunya syarat menulis: penulisnya salah satu dari dua peserta
+    /// percakapan.
+    ///
+    /// ── KENAPA PLAFON SATU PESAN DIBUANG ─────────────────────────────────
+    /// Dulu di sini ada plafon SATU pesan seumur hidup untuk peran `customer`.
+    /// Itu masuk akal saat chat masih berupa GRUP per produk: puluhan pembeli
+    /// dalam satu ruangan, dan plafon itu menahan pertanyaan yang sama
+    /// diulang-ulang oleh banyak orang.
+    ///
+    /// Migrasi 029 mengubah chat menjadi percakapan BERDUA antara pembeli dan
+    /// toko. Plafonnya ikut terbawa, dan di bentuk yang baru ia tidak lagi
+    /// menahan spam — ia MENGHENTIKAN percakapan setelah satu kalimat:
+    ///
+    ///   * Pembeli mengirim pertanyaan pertama, lalu tak bisa menjawab
+    ///     balasan tokonya sendiri.
+    ///   * Pertanyaan KEDUA ke toko yang sama — dari halaman produk mana pun —
+    ///     gagal, karena `ensure_dm` mengembalikan percakapan yang SUDAH ada
+    ///     dan pesan keduanya menabrak plafon.
+    ///
+    /// Pesan gagalnya pun menyesatkan dua kali: ia menyebut "grup" yang sudah
+    /// tak ada lagi, dan menyarankan "upgrade ke merchant" — yang bukan
+    /// jawabannya, karena yang bersangkutan memang pembeli.
+    ///
+    /// Perlindungan dari banjir pesan tidak hilang, hanya pindah ke tempat
+    /// yang benar: `RateLimitRegistry` per-user (30 pesan / 10 detik), yang
+    /// dilewati SETIAP jalur kirim — WebSocket maupun server function.
+    async fn authorize_and_save(&self, msg: &GroupMessage) -> Result<()> {
         if !self.repo.is_member(&msg.room_id, &msg.sender_id).await? {
             bail!("Bukan member room ini");
         }
-
-        if role == "merchant" || role == "admin" {
-            // Unlimited — langsung insert tanpa limit check
-            self.repo.save_message(msg).await?;
-            return Ok(());
-        }
-
-        // FIX: Customer — gunakan atomic CTE insert yang menggabungkan
-        // count check + insert dalam satu query. Tidak ada race condition
-        // antara check dan insert seperti pola count lalu insert terpisah.
-        let inserted = self.repo.save_message_if_under_limit(msg).await?;
-
-        if !inserted {
-            bail!(
-                "Customer hanya bisa mengirim {} pesan per grup. \
-                 Upgrade ke merchant untuk koordinasi tak terbatas.",
-                CUSTOMER_MSG_LIMIT
-            );
-        }
-
-        Ok(())
+        self.repo.save_message(msg).await
     }
 
     // `build_system_msg` dibuang bersama grup produk: pesan sistem dulu hanya

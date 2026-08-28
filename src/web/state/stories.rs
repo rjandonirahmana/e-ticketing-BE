@@ -327,13 +327,41 @@ impl StoriesCtx {
             return;
         };
         let si = self.active_story_idx.get_untracked();
+
+        // Penanda LOKAL dulu, supaya cincinnya memudar seketika tanpa menunggu
+        // perjalanan ke server.
+        let mut story_id = String::new();
+        let mut sudah_ditandai = true;
         self.groups.update(|groups| {
             if let Some(group) = groups.get_mut(gi) {
                 if let Some(story) = group.stories.get_mut(si) {
+                    // Simpan apakah story ini SEBELUMNYA sudah ditandai — kalau
+                    // sudah, tak perlu memberi tahu server lagi. Tanpa
+                    // pemeriksaan ini, menahan jari di satu story atau mundur
+                    // lalu maju lagi mengirim permintaan berulang untuk fakta
+                    // yang sama.
+                    sudah_ditandai = story.viewed;
                     story.viewed = true;
+                    story_id = story.id.clone();
                 }
                 group.all_viewed = group.stories.iter().all(|s| s.viewed);
             }
+        });
+
+        if sudah_ditandai || story_id.is_empty() {
+            return;
+        }
+
+        // Lalu simpan ke server, sekali jalan tanpa ditunggu.
+        //
+        // Kegagalannya SENGAJA diabaikan, dan itu menutup dua hal sekaligus:
+        // pengunjung anonim (yang memang tak punya riwayat tontonan untuk
+        // disimpan, dan tak boleh dihalangi menonton karenanya) dan jaringan
+        // yang sedang putus. Keduanya tak layak menghentikan story yang sedang
+        // berjalan — penandanya tetap benar di layar ini, hanya tak bertahan
+        // sampai muat ulang berikutnya.
+        spawn_local(async move {
+            let _ = crate::web::api::mark_story_viewed(story_id).await;
         });
     }
 

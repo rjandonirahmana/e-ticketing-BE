@@ -20,6 +20,56 @@ use std::time::Duration;
 use tracing::info;
 use validator::Validate;
 
+/// Berapa kali kode OTP boleh salah sebelum sesi registrasinya dihanguskan.
+///
+/// OTP di sini enam digit — satu juta kemungkinan — dan berlaku sepuluh menit.
+/// Tanpa penghitung, ruang sebesar itu bukan penghalang: penyerang yang tahu
+/// nomor yang sedang mendaftar cukup mengirim tebakan secepat jaringan
+/// mengizinkan, dan sepuluh menit adalah waktu yang panjang untuk itu.
+///
+/// Perbandingan OTP-nya sudah `constant_time_eq`, tetapi itu menutup kebocoran
+/// lewat WAKTU — bukan lewat pengulangan. Keduanya masalah yang berbeda dan
+/// butuh jawaban yang berbeda.
+///
+/// Lima dipilih karena salah ketik enam digit itu wajar; lima kali berturut-turut
+/// tidak. Setelah habis, sesinya DIBUANG, bukan sekadar ditolak — menyisakannya
+/// berarti penyerang cukup menunggu penghitungnya kedaluwarsa lalu melanjutkan
+/// dari tebakan terakhir.
+const OTP_MAX_ATTEMPTS: i64 = 5;
+
+/// Percobaan login per nomor, per jendela.
+///
+/// Sepuluh dalam lima menit longgar bagi manusia yang lupa kata sandinya dan
+/// mencoba beberapa kali, tetapi menutup penebakan otomatis: kata sandi
+/// terlemah sekalipun butuh ribuan tebakan, dan pada laju ini itu berbulan-bulan.
+///
+/// Jendelanya sengaja pendek dan tidak ada penguncian akun. Mengunci akun akan
+/// mengubah pembatas ini menjadi senjata: siapa pun bisa mengunci siapa pun
+/// hanya dengan menebak salah berkali-kali atas nama korbannya. Melambatkan
+/// selama lima menit menahan penyerang tanpa memberinya kemampuan itu.
+const LOGIN_MAX_PER_WINDOW: i64 = 10;
+const LOGIN_WINDOW_SECS: i64 = 300;
+
+/// Verifikasi OTP per nomor, per jendela — lapis KEDUA di atas
+/// `OTP_MAX_ATTEMPTS`.
+///
+/// Keduanya dibutuhkan karena menjaga hal yang berbeda. `OTP_MAX_ATTEMPTS`
+/// terikat pada satu sesi registrasi dan hangus bersamanya; tanpa lapis ini,
+/// penyerang cukup meminta kode BARU setiap lima tebakan dan melanjutkan
+/// dengan penghitung yang bersih. Pembatas per-jendela ini tidak ikut
+/// direset oleh sesi baru, jadi ia membatasi laju penebakan secara keseluruhan.
+const OTP_VERIFY_MAX_PER_WINDOW: i64 = 15;
+const OTP_VERIFY_WINDOW_SECS: i64 = 600;
+
+/// Permintaan registrasi per nomor, per jam.
+///
+/// Yang dijaga di sini bukan hanya basis data. Tiap panggilan yang lolos
+/// mengirim satu pesan WhatsApp lewat WAHA — biaya nyata per permintaan, dan
+/// satu-satunya endpoint di aplikasi ini yang membelanjakan uang atas nama
+/// orang yang belum punya akun.
+const REGISTER_MAX_PER_HOUR: i64 = 5;
+const REGISTER_WINDOW_SECS: i64 = 3600;
+
 pub struct AuthService {
     repo: Arc<dyn UserRepository>,
     jwt: JwtService,
@@ -27,6 +77,21 @@ pub struct AuthService {
     waha: Arc<WahaConfig>,
     redis: ConnectionManager,
     http: HttpClient,
+    /// Hash umpan untuk login dengan nomor yang tidak terdaftar.
+    ///
+    /// Tanpa ini, kedua kemungkinan menjawab dengan kalimat yang sama tetapi
+    /// dalam waktu yang sangat berbeda: nomor tak terdaftar kembali seketika,
+    /// nomor terdaftar membayar `bcrypt::verify` lebih dulu — ratusan
+    /// milidetik, dan log servernya sendiri mencatat `verify_ms`, jadi
+    /// selisihnya memang sebesar itu dan memang terukur dari luar.
+    ///
+    /// Selisih itu menjawab pertanyaan yang justru disembunyikan oleh pesan
+    /// errornya: apakah nomor ini punya akun. Siapa pun bisa menanyakannya
+    /// untuk sebarang nomor, tanpa kredensial apa pun.
+    ///
+    /// Dihitung sekali saat start dengan `bcrypt_cost` yang sama seperti hash
+    /// asli, supaya kedua jalur membayar ongkos yang sama.
+    dummy_hash: String,
 }
 
 impl AuthService {
@@ -45,6 +110,11 @@ impl AuthService {
             .build()
             .expect("build reqwest client");
 
+        // Satu hash saat start (~100 ms pada cost 10). Nilai yang di-hash tak
+        // penting — yang dipakai hanya bentuk dan ongkos verifikasinya.
+        let dummy_hash = hash("kata-sandi-umpan-tak-terpakai", bcrypt_cost)
+            .expect("gagal membangun hash umpan bcrypt");
+
         Self {
             repo,
             jwt,
@@ -52,6 +122,7 @@ impl AuthService {
             waha,
             redis,
             http,
+            dummy_hash,
         }
     }
 
@@ -92,6 +163,20 @@ impl AuthService {
 
         let redis_key = format!("reg:kinetic:{}", req.phone);
         let mut redis = self.redis.clone();
+
+        // Penjaga di bawah ("OTP sudah dikirim, tunggu N detik") hanya menahan
+        // pengiriman ULANG selagi sesi sebelumnya masih hidup — ia berhenti
+        // menahan begitu sesinya kedaluwarsa atau terpakai. Pembatas per-jam ini
+        // yang membatasi jumlah pesan WhatsApp yang bisa dipicu satu nomor dalam
+        // sehari, dan biayanya nyata.
+        crate::utils::rate_limit::jaga(
+            &mut redis,
+            &format!("rl:register:{}", req.phone),
+            REGISTER_MAX_PER_HOUR,
+            REGISTER_WINDOW_SECS,
+            "Terlalu banyak permintaan kode. Coba lagi satu jam lagi.",
+        )
+        .await?;
 
         if let Ok(Some(_)) = redis.get::<_, Option<Vec<u8>>>(&redis_key).await {
             let ttl: i64 = redis.ttl(&redis_key).await.unwrap_or(0);
@@ -142,6 +227,18 @@ impl AuthService {
         let redis_key = format!("reg:kinetic:{}", phone);
         let mut redis = self.redis.clone();
 
+        // Lapis kedua di atas `OTP_MAX_ATTEMPTS` — lihat catatan di konstantanya.
+        // Yang ini tidak ikut hangus bersama sesi, jadi meminta kode baru tak
+        // memulihkan jatah penebakan.
+        crate::utils::rate_limit::jaga(
+            &mut redis,
+            &format!("rl:otp:{phone}"),
+            OTP_VERIFY_MAX_PER_WINDOW,
+            OTP_VERIFY_WINDOW_SECS,
+            "Terlalu banyak percobaan kode. Coba lagi beberapa menit lagi.",
+        )
+        .await?;
+
         let bytes: Option<Vec<u8>> = redis.get(&redis_key).await.map_err(|e| {
             tracing::error!("Redis GET gagal: {e}");
             AppError::Redis(e)
@@ -161,6 +258,31 @@ impl AuthService {
         tracing::debug!("PendingUser decoded: phone={}", pending.phone);
 
         if !constant_time_eq(&pending.otp, otp_input) {
+            // Penghitung hidup sependek sesi registrasinya sendiri. Ia sengaja
+            // TIDAK diberi TTL yang lebih panjang: begitu sesinya kedaluwarsa
+            // tak ada lagi yang bisa ditebak, dan penghitung yang tertinggal
+            // hanya akan menghukum orang berikutnya yang memakai nomor itu.
+            let attempt_key = format!("reg:kinetic:attempt:{phone}");
+            let attempts: i64 = redis.incr(&attempt_key, 1i64).await.unwrap_or(1);
+            if attempts == 1 {
+                // Samakan umurnya dengan sesi registrasi (600 detik).
+                let _: Result<(), _> = redis.expire(&attempt_key, 600).await;
+            }
+
+            if attempts >= OTP_MAX_ATTEMPTS {
+                // Hanguskan sesinya, bukan sekadar tolak tebakan ini.
+                let _: Result<(), _> = redis.del(&redis_key).await;
+                let _: Result<(), _> = redis.del(&attempt_key).await;
+                tracing::warn!(
+                    phone = %phone,
+                    attempts,
+                    "OTP salah berulang — sesi registrasi dihanguskan"
+                );
+                return Err(AppError::BadRequest(
+                    "Terlalu banyak percobaan. Minta kode baru.".into(),
+                ));
+            }
+
             return Err(AppError::BadRequest("Kode OTP salah".into()));
         }
 
@@ -169,9 +291,30 @@ impl AuthService {
             AppError::Redis(e)
         })?;
 
+        // Kode yang benar mengakhiri sesinya, jadi penghitungnya tak punya lagi
+        // yang perlu dijaga. Dibuang di sini supaya percobaan yang gagal
+        // sebelumnya tidak ikut terbawa ke registrasi berikutnya dari nomor
+        // yang sama.
+        let _: Result<(), _> = redis.del(format!("reg:kinetic:attempt:{phone}")).await;
+
+        // `admin` SENGAJA tidak ada di sini.
+        //
+        // `initiate_register` sudah menolaknya, jadi sesi tertunda semestinya
+        // tak pernah memuat peran itu. Tetapi yang dibaca di sini datang dari
+        // Redis, bukan dari permintaan yang barusan divalidasi — dan sesuatu
+        // yang datang dari penyimpanan luar tidak boleh dipercaya untuk
+        // menerbitkan hak akses tertinggi di sistem ini.
+        //
+        // Dulu baris `admin => UserRole::Admin` ada di sini. Ia hanya bisa
+        // tercapai bila isi Redis dikarang, tetapi bila itu terjadi, hasilnya
+        // adalah akun admin yang lahir lewat pendaftaran biasa. Sekarang
+        // apa pun yang bukan `merchant` menjadi `customer`, jadi jalur ini
+        // secara struktur tidak bisa lagi mencetak admin.
+        //
+        // Satu-satunya admin dibuat langsung di database, dan sejak migrasi
+        // 032 hanya boleh ada satu.
         let role = match pending.role.as_str() {
             "merchant" => UserRole::Merchant,
-            "admin" => UserRole::Admin,
             _ => UserRole::Customer,
         };
 
@@ -223,8 +366,34 @@ impl AuthService {
         req.validate()
             .map_err(|e| AppError::UnprocessableEntity(format!("{e}")))?;
 
+        // Dikunci pada nomor yang sedang dicoba, bukan pada alamat pemanggil.
+        // Alasannya di `utils::rate_limit`: di belakang proxy, alamat itu tak
+        // bisa dipercaya, sedangkan nomornya tak bisa dipalsukan tanpa berpindah
+        // menyerang akun lain.
+        //
+        // Diperiksa SEBELUM query pertama, jadi banjir percobaan berhenti tanpa
+        // menyentuh basis data sama sekali.
+        let mut redis = self.redis.clone();
+        crate::utils::rate_limit::jaga(
+            &mut redis,
+            &format!("rl:login:{}", req.phone),
+            LOGIN_MAX_PER_WINDOW,
+            LOGIN_WINDOW_SECS,
+            "Terlalu banyak percobaan masuk. Coba lagi beberapa menit lagi.",
+        )
+        .await?;
+
         let found = self.repo.find_by_phone_with_password(&req.phone).await?;
         let Some(record) = found else {
+            // Nomor tak terdaftar tetap membayar satu verifikasi bcrypt.
+            //
+            // Hasilnya dibuang — yang dibeli di sini bukan jawabannya melainkan
+            // WAKTUNYA, supaya kedua jalur tak lagi bisa dibedakan dari luar.
+            // Tanpa baris ini, pesan error yang sudah sengaja disamarkan
+            // dibatalkan oleh stopwatch.
+            let umpan = self.dummy_hash.clone();
+            let password = req.password.clone();
+            let _ = tokio::task::spawn_blocking(move || verify(&password, &umpan)).await;
             return Err(AppError::Unauthorized("Invalid email or password".into()));
         };
 

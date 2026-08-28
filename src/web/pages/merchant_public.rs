@@ -459,17 +459,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
     let ctx = use_stories_store();
     let navigate = use_navigate();
     let open_story = {
-        let navigate = navigate.clone();
         move |list: Vec<crate::web::state::stories::StoryGroup>, idx: usize| {
-            let logged_in = auth
-                .get_untracked()
-                .and_then(|r| r.ok())
-                .flatten()
-                .is_some();
-            if !logged_in {
-                navigate("/login", Default::default());
-                return;
-            }
             ctx.groups.set(list);
             ctx.open_at(0, idx);
         }

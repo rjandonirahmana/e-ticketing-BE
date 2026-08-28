@@ -559,24 +559,6 @@
     user-select: none;
 }
 
-.sv-pulse-badge {
-    position: absolute;
-    bottom: 90px;
-    left: 14px;
-    z-index: 10;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    background: rgba(0,0,0,0.55);
-    border-radius: 20px;
-    color: var(--accent-lime);
-    font-size: 13px;
-    font-weight: 700;
-    backdrop-filter: blur(6px);
-    pointer-events: none;
-}
-
 .sv-actions {
     position: absolute;
     bottom: 0;
@@ -592,7 +574,13 @@
 
 .sv-actions--readonly {
     padding: 10px 16px 28px;
-    justify-content: space-between;
+    /* `flex-end`, bukan `space-between`. Bar ini dulu berisi dua hal —
+     * hitungan penonton di kiri, tombol suka di kanan — dan `space-between`
+     * yang memisahkannya. Sejak hitungan penontonnya dibuang (angkanya memang
+     * dikarang), `space-between` tak lagi memisahkan apa pun: ia hanya
+     * menggeser tombol suka ke kiri, jauh dari tempat yang sudah dikenal
+     * jempol pengguna. */
+    justify-content: flex-end;
 }
 
 .sv-pulse-input {
@@ -625,30 +613,6 @@
     transition: background 0.15s;
 }
 .sv-action-btn:hover { background: rgba(255,255,255,0.25); }
-
-.sv-viewer-info {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    padding: 9px 16px;
-    background: rgba(0,0,0,0.45);
-    border-radius: 24px;
-    border: 1px solid rgba(255,255,255,0.12);
-    backdrop-filter: blur(8px);
-    color: rgba(255,255,255,0.75);
-    flex: 1;
-    min-width: 0;
-}
-
-.sv-viewer-count {
-    font-family: var(--font-body);
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
 
 .sv-like-btn {
     transition: background 0.2s cubic-bezier(0.22,1,0.36,1),

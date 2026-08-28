@@ -68,6 +68,37 @@ impl ProductService {
         Ok(self.to_with_variants(product, variants))
     }
 
+    /// Detail product untuk PENGUNJUNG.
+    ///
+    /// Sama seperti `get()`, tetapi hanya mengembalikan produk yang benar-benar
+    /// TERBIT. Apa pun selain `active` — `edited` (ditahan menunggu tinjauan
+    /// admin) atau `cancelled` — dijawab NotFound.
+    ///
+    /// ── KENAPA INI PERLU ADA TERPISAH ────────────────────────────────────
+    /// Daftar produk sudah lama menyaring `status = 'active'`: etalase, hasil
+    /// pencarian, halaman toko, dan REST `/api/products` semuanya bersih.
+    /// Yang tidak menyaring justru halaman DETAIL, dan halaman detail bisa
+    /// dibuka tanpa melewati satu pun daftar itu — cukup dengan alamatnya.
+    ///
+    /// Akibatnya lubang ini terbuka persis pada produk yang paling penting
+    /// untuk ditutup: begitu merchant menekan SIMPAN, statusnya berubah jadi
+    /// `edited` dan produknya lenyap dari semua daftar — tetapi siapa pun yang
+    /// menyimpan tautannya, menerimanya lewat chat, atau menemukannya di hasil
+    /// mesin pencari tetap melihat halaman lengkap dengan tombol beli. Produk
+    /// yang statusnya sedang ditahan tetap terlihat dan tetap bisa dibeli,
+    /// tepat selama jendela ketika isinya belum ditinjau siapa pun.
+    ///
+    /// NotFound, bukan Forbidden — konsisten dengan `get_for_merchant` di
+    /// bawah, dan karena alasan yang sama: Forbidden mengumumkan bahwa slug itu
+    /// ada.
+    pub async fn get_public(&self, slug: &str) -> AppResult<ProductWithVariants> {
+        let product = self.get(slug).await?;
+        if product.status != "active" {
+            return Err(AppError::NotFound("Product not found".into()));
+        }
+        Ok(product)
+    }
+
     /// Detail product untuk PEMILIKNYA (atau admin).
     ///
     /// Jalur merchant sebelumnya memanggil `get()` polos, yang hanya mencari
@@ -299,14 +330,67 @@ impl ProductService {
         })
     }
 
-    /// Admin-only: update status product.
-    /// Status valid: "active" | "cancelled" | "completed" | "edited"
+    /// Admin-only: hapus produk milik siapa pun.
+    ///
+    /// Penghapusannya LEMBUT — `repo.delete` menyetel `deleted_at` dan
+    /// `status = cancelled`, tidak membuang barisnya (migrasi 030). Itu bukan
+    /// setengah hati: produk adalah pusat jaring relasi — varian, keranjang,
+    /// pesanan, tiket, ulasan, dan riwayat penjualan semuanya menunjuk ke sana.
+    /// Membuangnya sungguhan berarti ikut membawa pesanan yang sudah DIBAYAR
+    /// orang, atau membuat produk yang pernah laku mustahil dihapus selamanya.
+    ///
+    /// Sesudahnya produk hilang dari etalase dan dari keranjang siapa pun yang
+    /// terlanjur memasukkannya (`status <> active` sudah dibuang
+    /// `PRUNE_DEAD_ITEMS`), sementara pembeli lama tetap bisa membuka pesanannya
+    /// dan melihat barang apa yang dulu ia beli.
+    ///
+    /// ── KENAPA BARU ADA SEKARANG ────────────────────────────────────────
+    /// `repo.delete` sudah lama ada, lengkap dengan SQL-nya, tetapi tidak satu
+    /// pun service atau endpoint yang memanggilnya. Kemampuannya tertulis tetapi
+    /// tak pernah tersambung ke mana-mana — admin hanya bisa membatalkan produk
+    /// lewat status, dan produk yang benar-benar harus lenyap dari etalase
+    /// (palsu, melanggar, salah unggah) tetap ada di sana.
+    ///
+    /// Mengembalikan produknya supaya pemanggil tahu slug dan pemiliknya —
+    /// keduanya dibutuhkan untuk membuang cache publik yang tepat.
+    pub async fn delete_for_admin(&self, slug: &str) -> AppResult<ProductWithVariants> {
+        // `get`, bukan `get_public`: yang dihapus admin justru sering yang
+        // sedang ditahan atau sudah dibatalkan.
+        let product = self.get(slug).await?;
+        self.repo.delete(&product.id, &product.merchant_id).await?;
+        Ok(product)
+    }
+
+    /// Admin-only: ubah status product.
+    ///
+    /// Tiga keadaan, dan hanya tiga:
+    ///   * `active`    — terbit, terlihat pembeli, bisa dibeli
+    ///   * `edited`    — ditahan, menunggu tinjauan admin
+    ///   * `cancelled` — tidak dijual lagi
+    ///
+    /// `completed` DIBUANG (migrasi 031). Ia sisa dari masa ketika produk di
+    /// sini masih berarti acara — sebuah konser bisa selesai, dan sesudahnya ia
+    /// bukan lagi barang dagangan. Untuk marketplace barang, keadaan itu tak
+    /// punya arti, dan memang tak pernah dipakai: tidak ada satu pun jalur tulis
+    /// yang menghasilkannya, tidak `create`, tidak `update`, tidak satu tombol
+    /// admin pun. Ia hanya ada di daftar ini — pilihan yang tak pernah bisa
+    /// dipilih, tetapi tetap memaksa setiap pembacanya menebak bedanya dengan
+    /// `cancelled`.
+    ///
+    /// Catatan supaya tak tertukar: `completed` pada ORDER adalah hal yang
+    /// berbeda dan MASIH dipakai — beberapa halaman memperlakukannya sama
+    /// dengan `paid`. Yang dibuang di sini hanya status PRODUK.
     pub async fn admin_update_status(
         &self,
         event_id: &str,
         status: &str,
     ) -> AppResult<ProductWithVariants> {
-        let allowed = ["active", "cancelled", "completed", "edited"];
+        // Sengaja dijaga sama persis dengan CHECK di `products_status_check`
+        // (migrasi 031). Kalau keduanya berselisih, yang kalah adalah database:
+        // permintaan lolos di Rust lalu ditolak PostgreSQL, dan pesan yang
+        // sampai ke admin berbicara tentang constraint, bukan tentang apa yang
+        // salah dengan pilihannya.
+        let allowed = ["active", "edited", "cancelled"];
         if !allowed.contains(&status) {
             return Err(AppError::UnprocessableEntity(format!(
                 "Status tidak valid: '{}'. Pilihan: {}",

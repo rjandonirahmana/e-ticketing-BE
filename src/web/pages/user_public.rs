@@ -7,10 +7,9 @@
 
 use leptos::html::Div;
 use leptos::prelude::*;
-use leptos_router::hooks::{use_navigate, use_params_map};
+use leptos_router::hooks::use_params_map;
 
 use crate::web::api::{get_merchant_stories, get_user_public, get_user_reviews};
-use crate::web::app::AuthResource;
 use crate::web::components::story_viewer::StoryViewer;
 use crate::web::hooks::ThemeToggle;
 use crate::web::state::stories::StoryMediaType;
@@ -43,7 +42,6 @@ fn Stars(#[prop(into)] rating: f64) -> impl IntoView {
 pub fn UserPublicPage() -> impl IntoView {
     let params = use_params_map();
     let uid = move || params.read().get("id").unwrap_or_default();
-    let auth = use_context::<AuthResource>().expect("AuthResource missing");
 
     let profile = Resource::new(uid, |id| async move {
         if id.is_empty() {
@@ -151,21 +149,10 @@ pub fn UserPublicPage() -> impl IntoView {
         format!("transform:translateX(calc({base}% + {dx}px))")
     };
 
-    // Buka viewer story user (login required — konsisten StoryBar).
+    // Buka viewer story user — terbuka untuk siapa pun, konsisten StoryBar.
     let ctx = use_stories_store();
-    let navigate = use_navigate();
     let open_story = {
-        let navigate = navigate.clone();
         move |list: Vec<crate::web::state::stories::StoryGroup>, idx: usize| {
-            let logged_in = auth
-                .get_untracked()
-                .and_then(|r| r.ok())
-                .flatten()
-                .is_some();
-            if !logged_in {
-                navigate("/login", Default::default());
-                return;
-            }
             ctx.groups.set(list);
             ctx.open_at(0, idx);
         }

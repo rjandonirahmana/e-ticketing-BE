@@ -13,6 +13,24 @@
 #
 # Uji manual tanpa menunggu CI:
 #   sudo bash /opt/ticketing/deploy.txt <user-dockerhub>/ticketing:latest
+#
+# ── SATU ATURAN YANG TAK BOLEH DILANGGAR ─────────────────────────────────────
+# `docker run` di bawah HARUS diakhiri dengan "$IMAGE". Jangan pernah menulis
+# nama image secara langsung di sana, sekalipun kelihatannya lebih jelas.
+#
+# Berkas ini menerima image yang harus dijalankan dari workflow. Begitu nama
+# image ditulis mati, argumen itu diabaikan tanpa suara: setiap deploy akan
+# menjalankan ulang image LAMA, `docker pull` di atas tetap berhasil, health
+# check tetap hijau, dan CI tetap melaporkan sukses. Tak ada satu pun gejala
+# yang muncul selain fitur baru yang tak kunjung ada di server.
+#
+# Sejak itu, workflow memeriksanya sendiri: sesudah berkas ini selesai ia
+# mencocokkan ID image setiap container yang berjalan dengan image yang barusan
+# dibangun, dan menggagalkan deploy bila tak satu pun cocok.
+#
+# CI mengirim DIGEST (`ticketing@sha256:...`), bukan tag. Digest adalah hash isi
+# image, jadi ia tak bisa ditimpa dan tak bisa menunjuk build lain — itulah yang
+# membuat "yang ditarik server" dan "yang dibangun CI" mustahil berbeda.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 set -euo pipefail
@@ -24,6 +42,12 @@ NAMA=ticketing
 
 echo "→ Menarik $IMAGE"
 docker pull "$IMAGE"
+
+# Dicetak supaya log deploy memuat bukti yang bisa dibandingkan sesudahnya:
+# ID image yang benar-benar dipakai menjalankan container, bukan sekadar nama
+# yang diminta. Saat sesuatu terasa "tidak ikut ter-deploy", baris inilah yang
+# menjawabnya dalam satu tatapan.
+echo "→ Image id: $(docker image inspect --format '{{.Id}}' "$IMAGE")"
 
 # Hentikan yang lama SESUDAH image baru berhasil ditarik, bukan sebelumnya.
 # Kalau `pull` gagal duluan (jaringan, kredensial, tag salah) dan container

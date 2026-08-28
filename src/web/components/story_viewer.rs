@@ -198,7 +198,6 @@ pub fn StoryViewer() -> impl IntoView {
     let touch_start = RwSignal::new(None::<(f64, f64, f64)>);
     let touch_last = RwSignal::new(None::<(f64, f64, f64)>);
     let is_liked = RwSignal::new(false);
-    let pulse_count = RwSignal::new(0_u32);
     let is_muted = RwSignal::new(true);
     let active_hearts = RwSignal::new(0_u32);
     // Instagram-style loading: true while image is loading, false once loaded
@@ -253,25 +252,6 @@ pub fn StoryViewer() -> impl IntoView {
     let preload_vid: StoredValue<Option<web_sys::HtmlVideoElement>> = StoredValue::new(None);
 
     // ── Memos ──────────────────────────────────────────────────────────
-    let pulse_label = Memo::new(move |_| {
-        let n = pulse_count.get();
-        if n >= 1000 {
-            format!("{:.1}k", n as f64 / 1000.0)
-        } else {
-            n.to_string()
-        }
-    });
-
-    let view_label = Memo::new(move |_| {
-        let n = pulse_count.get();
-        let v = 200 + (n % 600);
-        if v >= 1000 {
-            format!("{:.1}k views", v as f64 / 1000.0)
-        } else {
-            format!("{v} views")
-        }
-    });
-
     let now_ms = || -> f64 {
         web_sys::window()
             .and_then(|w| w.performance())
@@ -425,11 +405,6 @@ pub fn StoryViewer() -> impl IntoView {
 
         is_liked.set(false);
 
-        let ts = web_sys::window()
-            .and_then(|w| w.performance())
-            .map(|p| p.now() as u32)
-            .unwrap_or(12345);
-        pulse_count.set(800 + (ts % 1400));
         ctx.progress.set(0.0);
 
         let is_video = ctx
@@ -1538,25 +1513,8 @@ pub fn StoryViewer() -> impl IntoView {
                         }).flatten()
                     }}
 
-                    // ── Pulse badge ───────────────────────────────────
-                    <div class="sv-pulse-badge">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-                        </svg>
-                        <span>{move || pulse_label.get()}</span>
-                        <span>" pulses"</span>
-                    </div>
-
                     // ── Bottom bar ────────────────────────────────────
                     <div class="sv-actions sv-actions--readonly">
-                        <div class="sv-viewer-info">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                 stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                <circle cx="12" cy="12" r="3"/>
-                            </svg>
-                            <span class="sv-viewer-count">{move || view_label.get()}</span>
-                        </div>
                         <button class="sv-action-btn sv-like-btn"
                                 class:sv-like-btn--active=move || is_liked.get()
                                 aria-label=move || if is_liked.get() { "Batal suka" } else { "Suka" }

@@ -219,10 +219,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<WsAppState>, claims: Claims
                                     let state2 = state.clone();
                                     let uid    = user_id.clone();
                                     let uname  = user_name.clone();
-                                    let role2  = role.clone();
                                     tokio::spawn(async move {
                                         let _permit = permit;
-                                        dispatch(&state2, &uid, &uname, &role2, &text).await;
+                                        dispatch(&state2, &uid, &uname, &text).await;
                                     });
                                 }
                                 Err(_) => {
@@ -252,7 +251,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<WsAppState>, claims: Claims
 
 // ── Dispatcher ────────────────────────────────────────────────────────────────
 
-async fn dispatch(state: &WsAppState, user_id: &str, user_name: &str, role: &str, raw: &str) {
+/// Peran pengirim tak lagi ikut: sejak plafon "satu pesan per percakapan"
+/// dibuang (lihat `service::group_chat::authorize_and_save`), tak ada satu pun
+/// keputusan di jalur ini yang bergantung padanya. Ia tetap dicatat saat
+/// koneksi dibuka, di mana ia memang berguna untuk penelusuran.
+async fn dispatch(state: &WsAppState, user_id: &str, user_name: &str, raw: &str) {
     let msg: WsClientMsg = match serde_json::from_str(raw) {
         Ok(m) => m,
         Err(e) => {
@@ -291,7 +294,7 @@ async fn dispatch(state: &WsAppState, user_id: &str, user_name: &str, role: &str
         } => {
             match state
                 .group_svc
-                .send_text(&room_id, user_id, user_name, role, &content)
+                .send_text(&room_id, user_id, user_name, &content)
                 .await
             {
                 Ok(m) => {
@@ -326,7 +329,7 @@ async fn dispatch(state: &WsAppState, user_id: &str, user_name: &str, role: &str
             let cap = caption.as_deref().unwrap_or("");
             match state
                 .group_svc
-                .share_ticket(&room_id, user_id, user_name, role, ticket, cap)
+                .share_ticket(&room_id, user_id, user_name, ticket, cap)
                 .await
             {
                 Ok(m) => {

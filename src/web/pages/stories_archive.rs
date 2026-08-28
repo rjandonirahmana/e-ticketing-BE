@@ -4,14 +4,12 @@
 //! tap kanan / swipe di akhir grup otomatis lanjut ke user berikutnya.
 //!
 //! Terbuka untuk pengunjung anonim (daftar bersifat publik — konsisten dengan
-//! StoryBar). MEMBUKA story (viewer) tetap butuh login → redirect /login.
+//! StoryBar). MEMBUKA story TIDAK butuh login — siapa pun boleh menonton.
 
 use leptos::prelude::*;
 use leptos_router::components::A;
-use leptos_router::hooks::use_navigate;
 
 use crate::web::api::get_story_archive_groups;
-use crate::web::app::AuthResource;
 use crate::web::components::story_viewer::StoryViewer;
 use crate::web::hooks::ThemeToggle;
 use crate::web::state::stories::{use_stories_store, StoryGroup, StoryMediaType};
@@ -25,9 +23,6 @@ fn fmt_date(d: &chrono::DateTime<chrono::Utc>) -> String {
 
 #[component]
 pub fn StoriesArchivePage() -> impl IntoView {
-    let auth = use_context::<AuthResource>().expect("AuthResource missing");
-    let is_logged_in = move || auth.get().and_then(|r| r.ok()).flatten().is_some();
-    let navigate = use_navigate();
     let ctx = use_stories_store();
 
     // Daftar inkremental: halaman pertama via Resource (ikut SSR), halaman
@@ -124,7 +119,6 @@ pub fn StoriesArchivePage() -> impl IntoView {
                         }
                             .into_any();
                     }
-                    let nav_grid = navigate.clone();
                     view! {
                         <div class="sarc-grid">
                             {list
@@ -148,17 +142,10 @@ pub fn StoriesArchivePage() -> impl IntoView {
                                     let count = g.stories.len();
                                     let username = g.username.clone();
                                     let avatar = g.avatar_url.clone();
-                                    let nav = nav_grid.clone();
                                     view! {
                                         <button
                                             class="sarc-card"
-                                            on:click=move |_| {
-                                                if is_logged_in() {
-                                                    open_group(idx);
-                                                } else {
-                                                    nav("/login", Default::default());
-                                                }
-                                            }
+                                            on:click=move |_| { open_group(idx); }
                                         >
                                             {if is_video {
                                                 view! {
@@ -259,7 +246,7 @@ pub fn StoriesArchivePage() -> impl IntoView {
                     })
             }}
 
-            // ── Story viewer fullscreen (hanya user login) ────────────────────
+            // ── Story viewer fullscreen ───────────────────────────────────────
             // Tap kanan / swipe kiri: story berikutnya, lalu user berikutnya.
             <StoryViewer />
         </div>

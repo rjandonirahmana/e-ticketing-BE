@@ -269,7 +269,7 @@ pub fn AdminPage() -> impl IntoView {
 
                     match active_page.get() {
                         AdminTab::Review    => view_review(pending_products, all_products, toast).into_any(),
-                        AdminTab::Products    => view_all_products(evs_all).into_any(),
+                        AdminTab::Products    => view_all_products(evs_all, all_products, pending_products, toast).into_any(),
                         AdminTab::Banners   => {
                             view_banners(banners_list, move || banners_res.refetch()).into_any()
                         }

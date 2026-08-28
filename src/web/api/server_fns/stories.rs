@@ -68,3 +68,32 @@ pub async fn delete_my_story(story_id: String) -> Result<(), ServerFnError> {
         .map_err(map_app_error)?;
     Ok(())
 }
+
+/// Tandai satu story sudah ditonton oleh pengguna yang sedang masuk.
+///
+/// ── KENAPA BARU ADA SEKARANG ────────────────────────────────────────────
+/// Seluruh sisi servernya sudah lama lengkap: tabel `story_views`,
+/// `StoryService::mark_viewed`, dan REST `POST /api/stories/:id/view`. Yang
+/// tak pernah ada hanyalah jalur untuk web Leptos.
+///
+/// Akibatnya penanda `sudah ditonton` hanya hidup di memori tab yang sedang
+/// terbuka — `StoriesStore::mark_current_viewed` menulis ke sinyal lokal dan
+/// berhenti di situ. Cincin warnanya memudar seperti seharusnya, lalu muncul
+/// kembali utuh begitu halaman dimuat ulang, karena server tak pernah diberi
+/// tahu apa pun. Yang dilihat pengguna adalah story yang sudah ia tonton terus
+/// menerus menandai dirinya belum ditonton.
+///
+/// Anonim mendapat `Err` dari `auth_claims` dan pemanggilnya memang
+/// mengabaikannya — tak ada riwayat tontonan untuk disimpan bagi orang yang
+/// belum punya akun, dan itu bukan kegagalan yang perlu ditampilkan.
+#[server(MarkStoryViewed, "/api-fn")]
+pub async fn mark_story_viewed(story_id: String) -> Result<(), ServerFnError> {
+    let claims = auth_claims().await?;
+    let state = app_state().await?;
+    state
+        .story_svc
+        .mark_viewed(&story_id, &claims.user_id)
+        .await
+        .map_err(map_app_error)?;
+    Ok(())
+}

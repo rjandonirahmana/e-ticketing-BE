@@ -19,24 +19,27 @@ pub async fn get_notifications() -> Result<Vec<NotificationItem>, ServerFnError>
 pub async fn get_notification_detail(id: String) -> Result<NotificationItem, ServerFnError> {
     let claims = auth_claims().await?;
     let state = app_state().await?;
-    // Mark as read while fetching detail
+    // Ambil DULU, tandai terbaca SESUDAHNYA.
+    //
+    // Urutan lama menandai terbaca lebih dulu, lalu bisa gagal menemukan
+    // isinya — meninggalkan notifikasi yang tercatat sudah dibaca padahal tak
+    // pernah terbaca. Menandai hanya setelah isinya benar-benar di tangan
+    // membuat kedua hal itu tak bisa lagi berselisih.
+    //
+    // `find_detail` sudah men-scope barisnya ke pemiliknya (`AND user_id`),
+    // jadi id milik orang lain tetap menjawab "tidak ditemukan".
+    let notif = state
+        .notification_store_svc
+        .detail(&id, &claims.user_id)
+        .await
+        .map_err(map_app_error)?;
+
     let _ = state
         .notification_store_svc
         .mark_read(&id, &claims.user_id)
         .await;
-    // Fetch all and find the one
-    let notifs = state
-        .notification_store_svc
-        .list(&claims.user_id, 1, 1000)
-        .await
-        .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })?;
-    return notifs
-        .into_iter()
-        .find(|n| n.id == id)
-        .map(srv_notification_to_web)
-        .ok_or_else(|| -> ServerFnError {
-            ServerFnError::ServerError("Notification not found".into())
-        });
+
+    return Ok(srv_notification_to_web(notif));
 }
 
 #[server(MarkNotificationRead, "/api-fn")]

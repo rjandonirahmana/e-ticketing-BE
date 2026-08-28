@@ -10,8 +10,9 @@
 //!
 //! Catatan model: `UserResponse` (web) lebih ramping dari profil CSR — tidak ada
 //! `avatar_url`/`points`. `points` ditandai sebagai placeholder hingga backend
-//! menyediakan field-nya; `active_tickets` & "Active Experiences" diisi dari
-//! tiket nyata via `get_my_tickets`.
+//! menyediakan field-nya; `active_tickets` dihitung dari tiket nyata via
+//! `get_my_tickets`. (Bagian "Active Experiences" sudah dibuang — resource
+//! tiketnya tetap dipakai untuk angka statistik di kartu profil.)
 
 use leptos::either::Either;
 use leptos::prelude::*;
@@ -24,7 +25,6 @@ use crate::web::api::{
 use crate::web::app::AuthResource;
 use crate::web::components::story_viewer::StoryViewer;
 use crate::web::components::BottomNav;
-use crate::web::models::{format_date, format_price};
 use crate::web::state::stories::{use_stories_store, StoryMediaType};
 
 #[component]
@@ -605,123 +605,6 @@ pub fn ProfilePage() -> impl IntoView {
                                             <button class="profile-redeem-btn">
                                                 "REDEEM REWARDS"
                                             </button>
-                                        </div>
-
-                                        // ── Active experiences (tiket nyata) ───────
-                                        <div class="profile-experiences">
-                                            <div class="profile-exp-header">
-                                                <span class="profile-exp-title">
-                                                    "ACTIVE EXPERIENCES"
-                                                </span>
-                                                <A
-                                                    href="/tickets"
-                                                    attr:class="profile-exp-viewall"
-                                                >
-                                                    "VIEW ALL HISTORY"
-                                                </A>
-                                            </div>
-                                            <div class="profile-exp-list">
-                                                <Suspense fallback=|| {
-                                                    view! { <div class="profile-exp-skeleton" /> }
-                                                }>
-                                                    {move || {
-                                                        let list = tickets.get().unwrap_or_default();
-                                                        let upcoming: Vec<_> = list
-                                                            .into_iter()
-                                                            .filter(|t| t.status == "active")
-                                                            .take(2)
-                                                            .collect();
-                                                        if upcoming.is_empty() {
-                                                            view! {
-                                                                <p style="color:var(--clr-muted);font-size:.85rem;padding:.5rem 0">
-                                                                    "Belum ada barang yang siap diambil. "
-                                                                    <A
-                                                                        href="/explore"
-                                                                        attr:style="color:var(--clr-accent)"
-                                                                    >
-                                                                        "Jelajahi produk →"
-                                                                    </A>
-                                                                </p>
-                                                            }
-                                                                .into_any()
-                                                        } else {
-                                                            upcoming
-                                                                .into_iter()
-                                                                .map(|t| {
-                                                                    let id = t.id.clone();
-                                                                    let name = t.event_name.to_uppercase();
-                                                                    let venue = format!(
-                                                                        "{} • {}",
-                                                                        t.event_venue.clone().unwrap_or_default().to_uppercase(),
-                                                                        t.event_city.clone().unwrap_or_default().to_uppercase(),
-                                                                    );
-                                                                    let date = format_date(&t.event_date);
-                                                                    let price = format_price(t.unit_price);
-                                                                    let cover = t.cover_url.clone().unwrap_or_default();
-                                                                    view! {
-                                                                        <div class="profile-exp-card">
-                                                                            <div class="profile-exp-img-wrap">
-                                                                                {if cover.is_empty() {
-                                                                                    view! {
-                                                                                        <div
-                                                                                            class="profile-exp-img"
-                                                                                            style="display:flex;align-items:center;justify-content:center;font-size:1.75rem;background:var(--clr-border)"
-                                                                                        >
-                                                                                            "🎪"
-                                                                                        </div>
-                                                                                    }
-                                                                                        .into_any()
-                                                                                } else {
-                                                                                    view! {
-                                                                                        <img
-                                                                                            src=cover
-                                                                                            alt=name.clone()
-                                                                                            class="profile-exp-img"
-                                                                                            loading="lazy"
-                                                                                        />
-                                                                                    }
-                                                                                        .into_any()
-                                                                                }}
-                                                                            </div>
-                                                                            <div class="profile-exp-info">
-                                                                                <div class="profile-exp-status">
-                                                                                    <span class="profile-exp-pill profile-exp-pill--upcoming">
-                                                                                        "UPCOMING"
-                                                                                    </span>
-                                                                                    <span class="profile-exp-when">{date}</span>
-                                                                                </div>
-                                                                                <h3 class="profile-exp-name">{name}</h3>
-                                                                                <p class="profile-exp-venue">{venue}</p>
-                                                                                <div class="profile-exp-footer">
-                                                                                    <A
-                                                                                        href=format!("/tickets/{id}")
-                                                                                        attr:class="profile-exp-view-btn"
-                                                                                    >
-                                                                                        <svg
-                                                                                            width="14"
-                                                                                            height="14"
-                                                                                            viewBox="0 0 24 24"
-                                                                                            fill="none"
-                                                                                            stroke="currentColor"
-                                                                                            stroke-width="2"
-                                                                                            stroke-linecap="round"
-                                                                                        >
-                                                                                            <path d="M2 9a3 3 0 010-6h20a3 3 0 010 6H2zM2 15a3 3 0 000 6h20a3 3 0 000-6H2z" />
-                                                                                        </svg>
-                                                                                        "LIHAT KODE"
-                                                                                    </A>
-                                                                                    <span class="profile-exp-price">{price}</span>
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-                                                                    }
-                                                                })
-                                                                .collect_view()
-                                                                .into_any()
-                                                        }
-                                                    }}
-                                                </Suspense>
-                                            </div>
                                         </div>
 
                                 }

@@ -60,6 +60,13 @@ pub enum AppError {
     #[error("Unprocessable entity: {0}")]
     UnprocessableEntity(String),
 
+    /// Terlalu banyak percobaan. Sengaja punya varian sendiri, bukan menumpang
+    /// `BadRequest`: 429 adalah satu-satunya status yang bisa dikenali proxy,
+    /// klien, dan monitor sebagai "melambat, bukan salah" — dan itu yang
+    /// membedakan lonjakan serangan dari lonjakan bug di grafik.
+    #[error("Too many requests: {0}")]
+    TooManyRequests(String),
+
     #[error("Internal server error")]
     Internal(#[from] anyhow::Error),
 
@@ -86,6 +93,11 @@ impl IntoResponse for AppError {
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             AppError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
             AppError::UnprocessableEntity(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg.clone()),
+            // Tidak memicu alert Telegram: ditolaknya permintaan di sini justru
+            // tanda pembatas bekerja. Mengalertkannya berarti setiap serangan
+            // brute force ikut membanjiri saluran alert — persis saat saluran
+            // itu paling dibutuhkan untuk hal lain.
+            AppError::TooManyRequests(msg) => (StatusCode::TOO_MANY_REQUESTS, msg.clone()),
 
             // ── 5xx — log full chain + kirim Telegram ────────────────────────
             AppError::Internal(e) => {

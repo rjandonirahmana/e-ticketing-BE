@@ -22,10 +22,12 @@ use super::contexts::AuthResource;
 ///
 /// Yang terjadi berikutnya ada di `flat_router.rs:314`:
 ///
-///     if current_url.read_untracked().path() == spawned_path {
-///         rebuild();          // ← DILEWATI kalau URL sudah berubah lagi
-///     }
-///     location.ready_to_complete();   // ← TETAP dijalankan
+/// ```text
+/// if current_url.read_untracked().path() == spawned_path {
+///     rebuild();          // ← DILEWATI kalau URL sudah berubah lagi
+/// }
+/// location.ready_to_complete();   // ← TETAP dijalankan
+/// ```
 ///
 /// Router sudah lebih dulu menimpa pembukuannya sendiri (`initial_state.path`,
 /// `id`, dan `owner`) di awal `rebuild`, lalu `ready_to_complete()` menyetujui

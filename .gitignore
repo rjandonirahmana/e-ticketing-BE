@@ -1,2 +1,17 @@
 /target
 .claude/worktrees/
+
+# Rahasia. Proyek ini butuh DATABASE_URL, JWT_SECRET, RUSTFS_SECRET_KEY,
+# WAHA_API_KEY, dan TELEGRAM_BOT_TOKEN — semuanya berakhir di .env. Rahasia
+# yang masuk sejarah git tak bisa benar-benar ditarik lagi, jadi pagarnya
+# dipasang sebelum ada yang perlu dicabut.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Sampah Finder/editor. Tujuh berkas .DS_Store sempat ter-commit sebelum
+# baris ini ada — bukti bahwa lubangnya memang dilewati sesuatu.
+.DS_Store
+Thumbs.db

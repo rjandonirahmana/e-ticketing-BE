@@ -47,7 +47,11 @@ pub async fn get_product_detail(slug: String) -> Result<ProductWithVariants, Ser
     if let Some(cached) = state.pub_cache.product_detail.get(&slug).await {
         return Ok(cached);
     }
-    let result = state.product_svc.get(&slug).await.map_err(map_app_error)?;
+    // `get_public`, bukan `get`: halaman detail adalah satu-satunya jalur yang
+    // bisa dicapai tanpa melewati daftar mana pun — cukup dengan alamatnya —
+    // jadi ia harus menyaring statusnya sendiri. Lihat catatan panjang di
+    // `ProductService::get_public`.
+    let result = state.product_svc.get_public(&slug).await.map_err(map_app_error)?;
     let web = srv_product_with_variants_to_web(result);
     state.pub_cache.product_detail.insert(slug, web.clone()).await;
     Ok(web)
@@ -86,9 +90,13 @@ pub async fn get_banners() -> Result<Vec<Banner>, ServerFnError> {
 #[server(GetProductLocation, "/api-fn")]
 pub async fn get_product_location(slug: String) -> Result<serde_json::Value, ServerFnError> {
     let state = app_state().await?;
+    // Publik seperti halaman detailnya, jadi disaring sama. Kalau tidak, alamat
+    // venue sebuah produk yang sedang ditahan tetap bisa diambil siapa saja —
+    // kebocoran yang lebih kecil dari halaman penuh, tetapi lewat pintu yang
+    // sama persis.
     let product = state
         .product_svc
-        .get(&slug)
+        .get_public(&slug)
         .await
         .map_err(map_app_error)?;
     return Ok(serde_json::json!({

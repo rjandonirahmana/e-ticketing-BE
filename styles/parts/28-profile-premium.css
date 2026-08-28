@@ -1,7 +1,15 @@
 /* ==== profile_premium.css ==== */
 .profile-premium-banner {
   display: flex; align-items: center; gap: 12px;
-  margin: 0 16px 16px;
+  /* Gutter 20px, MENYAMAI tetangganya di halaman profil.
+   *
+   * Nilainya dulu 16px, sendirian: `.avatar-section` memakai 20px,
+   * `.menu-section` 20px, `.profile-points-card` 20px. Selisih 4px itu tak
+   * cukup besar untuk terbaca sebagai keputusan, tetapi cukup untuk terlihat
+   * — banner ini melebar sedikit di kedua sisi dibanding semua kartu di
+   * atas dan di bawahnya, sehingga tepi kiri halaman tampak bergerigi saat
+   * digulir. */
+  margin: 0 20px 20px;
   padding: 14px 16px;
   border-radius: 18px;
   background: linear-gradient(135deg, #1a2a10, #0d1c08);

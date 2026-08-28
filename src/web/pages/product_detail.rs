@@ -207,17 +207,6 @@ pub fn ProductDetailPage() -> impl IntoView {
         });
     });
     let open_merchant_stories = move |_| {
-        let logged_in = auth
-            .get_untracked()
-            .and_then(|r| r.ok())
-            .flatten()
-            .is_some();
-        if !logged_in {
-            if let Some(win) = web_sys::window() {
-                let _ = win.location().assign("/login");
-            }
-            return;
-        }
         let list = mch_stories.get_untracked();
         if !list.is_empty() {
             stories_ctx.groups.set(list);

@@ -253,8 +253,26 @@ button.ed-organizer {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin: 14px 0 0;
-    padding: 0;
+    /* Sejajar dengan tetangganya, bukan menempel ke tepi kolom.
+     *
+     * Induknya (`.ed-main`) tidak punya padding sama sekali — setiap anaknya
+     * memasang gutter-nya sendiri. `.section` memakai 20px, dan baris kartu
+     * toko + ikon chat di bawah lingkaran ini memakai `px-5` yang juga 20px,
+     * persis supaya keduanya berbaris.
+     *
+     * Lingkaran story ini satu-satunya yang terlewat: dengan `padding: 0` ia
+     * mulai dari tepi kolom sementara SEMUA tetangganya menjorok, sehingga
+     * saat merchant kebetulan punya story, satu baris tampak melompat keluar
+     * dari kelurusan halaman.
+     *
+     * Angkanya harus tetap sama dengan `.section` di
+     * `08-page-event-detail.css` dan `px-5` di `product_detail.rs` — tidak ada
+     * yang memaksanya, jadi kalau salah satu diubah, ubah ketiganya.
+     *
+     * `margin-bottom` 4px menyamai `mb-1` pada baris di bawahnya, supaya jarak
+     * vertikal antar-elemen di kolom ini tetap satu irama. */
+    margin: 14px 0 4px;
+    padding: 0 20px;
     background: none;
     border: none;
     cursor: pointer;

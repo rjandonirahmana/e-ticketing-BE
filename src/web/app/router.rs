@@ -409,6 +409,33 @@ pub fn App() -> impl IntoView {
                                 }
                             }
                         />
+                        // Sunting produk milik SIAPA PUN, dari panel admin.
+                        //
+                        // Rutenya sempat tidak ada. Daftar produk di panel admin
+                        // sudah lama menautkan ke `/admin/products/{slug}/edit`,
+                        // tetapi tak ada `<Route>` yang cocok — jadi setiap klik
+                        // `Sunting Produk` di sana mendarat di halaman tidak
+                        // ditemukan. Kemampuannya sendiri sudah lengkap sejak
+                        // dulu: `get_merchant_product_detail` menerima admin
+                        // lewat `get_for_merchant(.., is_admin)`, dan
+                        // `update_merchant_product` memakai `require_roles`
+                        // (merchant + admin) lalu menyimpan atas nama pemilik
+                        // aslinya. Yang hilang hanya pintunya.
+                        //
+                        // Halaman yang dipakai sengaja SAMA dengan jalur
+                        // merchant, bukan salinan khusus admin: satu formulir
+                        // berarti satu perilaku simpan, satu validasi, dan satu
+                        // tempat yang perlu diperbaiki bila ada yang salah.
+                        <Route
+                            path=path!("/admin/products/:slug/edit")
+                            view=|| {
+                                view! {
+                                    <AdminGuard>
+                                        <MerchantEditProductPage />
+                                    </AdminGuard>
+                                }
+                            }
+                        />
 
                     </FlatRoutes>
             </main>

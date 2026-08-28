@@ -154,3 +154,27 @@ pub async fn update_product_status_admin(
         .await;
     return Ok(serde_json::json!({ "id": result.id, "status": result.status }));
 }
+
+/// Hapus produk milik merchant mana pun (admin).
+///
+/// Lembut — lihat `ProductService::delete_for_admin`. Yang dikembalikan cuma
+/// `()`: halaman pemanggil sudah tahu slug apa yang dihapusnya.
+#[server(DeleteProductAdmin, "/api-fn")]
+pub async fn delete_product_admin(slug: String) -> Result<(), ServerFnError> {
+    let _claims = require_role("admin").await?;
+    let state = app_state().await?;
+    let product = state
+        .product_svc
+        .delete_for_admin(&slug)
+        .await
+        .map_err(map_app_error)?;
+    // Sama seperti perubahan status: produk yang baru saja dihapus harus
+    // berhenti tampil SEKARANG, bukan setelah TTL 30-60 detik lewat. Untuk
+    // penghapusan jedanya lebih buruk lagi daripada untuk suntingan — yang
+    // masih tersaji selama jeda itu justru barang yang dinilai tak layak ada.
+    state
+        .pub_cache
+        .invalidate_product(&product.slug, &product.merchant_id)
+        .await;
+    Ok(())
+}
