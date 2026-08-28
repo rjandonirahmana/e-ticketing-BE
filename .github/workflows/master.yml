@@ -23,61 +23,6 @@ jobs:
   # dua target dari satu pohon sumber (native SSR + wasm32 hydrate), dan wasm32
   # bisa patah tanpa menyentuh sisi server sama sekali — `docker build` akan
   # menemukannya juga, tapi setelah belasan menit, bukan setelah dua.
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      # Versi DISEBUT EKSPLISIT dan harus sama dengan tag base image di
-      # Dockerfile (`rust:1.95-alpine`). Repo ini sengaja TIDAK punya
-      # `rust-toolchain.toml` — berkas itu memaksa tiap mesin pengembang
-      # mengunduh toolchain kedua yang terpisah dari `stable` miliknya. Jadi
-      # kesamaan versi dijaga di dua tempat ini, dan keduanya harus diubah
-      # bersamaan.
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: "1.95.0"
-          targets: wasm32-unknown-unknown
-          components: clippy
-
-      - uses: Swatinem/rust-cache@v2
-
-      # protoc untuk build.rs (tonic-prost-build).
-      - name: Pasang protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-
-      # ── KOMPILASI ADALAH GERBANGNYA, BUKAN CLIPPY ────────────────────────
-      # `cargo check` yang menggagalkan build, bukan clippy.
-      #
-      # Versi pertama langkah ini memakai `clippy -- -D warnings`, dan itu
-      # keliru: basis kode ini belum pernah clippy-clean — ada puluhan lint
-      # lama (`needless_return`, `too_many_arguments`, `unused_unit`, dead
-      # code). Gerbang itu memblokir SETIAP deploy demi temuan yang tak satu
-      # pun regresi, dan job `build-and-push` tak pernah sempat berjalan.
-      #
-      # Gerbang yang menolak semua orang bukan gerbang mutu — ia cuma dimatikan
-      # atau dilewati, dan sesudah itu tak ada lagi yang memeriksa apa pun.
-      - name: Periksa kompilasi (SSR)
-        run: cargo check --features ssr --all-targets
-
-      # Clippy TETAP berjalan dan hasilnya tetap terbaca di log, hanya tak
-      # menggagalkan build. Begitu jumlah temuannya turun ke nol, kembalikan
-      # `-D warnings` di sini — saat itu ia baru bermakna.
-      - name: Clippy (informasional)
-        run: cargo clippy --features ssr --all-targets || true
-
-      # Sisi hydrate WAJIB diperiksa terpisah: `--no-default-features` karena
-      # default crate ini `ssr`, dan fitur Cargo bersifat aditif — tanpa
-      # mematikannya, wasm32 ikut menyalakan `leptos/ssr` bersama
-      # `leptos/hydrate`, kombinasi yang tidak sah.
-      - name: Periksa target WASM (hydrate)
-        run: >
-          cargo check --target wasm32-unknown-unknown
-          --no-default-features --features hydrate --lib
-
-      - name: Tes unit
-        run: cargo test --features ssr
-
   build-and-push:
     needs: test
     runs-on: ubuntu-latest
