@@ -55,7 +55,6 @@ ssr = [
     "leptos_meta/ssr",
     "leptos_router/ssr",
     "dep:leptos_axum",
-    "dep:urlencoding",
 ]
 hydrate = ["leptos/hydrate", "leptos/nonce"]
 
@@ -83,7 +82,11 @@ leptos = { version = "0.8", default-features = false }
 leptos_meta = { version = "0.8", default-features = false }
 leptos_router = { version = "0.8", default-features = false }
 leptos_axum = { version = "0.8", optional = true }
-urlencoding = { version = "2", optional = true }
+# Penyandian query URL. TIDAK optional dan TIDAK di balik fitur `ssr`: sisi
+# klien memakainya juga saat menyusun tautan chat yang membawa judul produk
+# (lihat `pages/product_detail.rs`). Nama produk kerap memuat spasi, `&`, dan
+# `#` — tanpa penyandian, judul seperti "Kaos A & B" memotong query di `&`.
+urlencoding = "2"
 
 # WASM bridge (diperlukan juga saat SSR rlib untuk type compatibility)
 send_wrapper = "0.6"

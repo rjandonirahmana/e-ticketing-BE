@@ -8,7 +8,7 @@ use leptos::prelude::*;
 use leptos_router::components::A;
 
 use crate::web::api::get_my_following;
-use crate::web::components::{BottomNav, ThemeToggle};
+use crate::web::components::{BottomNav, IconBack, IconChevron, IconStore, ThemeToggle};
 
 /// Kartu satu toko. Dipakai berulang, jadi rangkaian kelasnya disatukan supaya
 /// tak pernah bergeser antar-baris.
@@ -33,10 +33,7 @@ pub fn FollowingPage() -> impl IntoView {
                                 transition-colors hover:bg-card-hover active:scale-95"
                     attr:aria-label="Kembali ke profil"
                 >
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-                         stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                        <polyline points="15 18 9 12 15 6"/>
-                    </svg>
+                    <IconBack />
                 </A>
                 <span class="font-title text-lg tracking-[0.12em] text-content">"TOKO DIIKUTI"</span>
                 <ThemeToggle />
@@ -73,12 +70,7 @@ pub fn FollowingPage() -> impl IntoView {
                                 <div class="flex flex-col items-center justify-center gap-4 px-5 py-16 text-center">
                                     <div class="flex items-center justify-center w-16 h-16 rounded-full \
                                                 bg-card border border-solid border-line text-content-muted">
-                                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none"
-                                             stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-                                            <path d="M3 7l1.5-3h15L21 7"/>
-                                            <path d="M3 7v13a1 1 0 001 1h16a1 1 0 001-1V7"/>
-                                            <path d="M9 11h6"/>
-                                        </svg>
+                                        <IconStore ukuran=28 tebal=1.5 />
                                     </div>
                                     <p class="text-sm text-content-muted">
                                         "Kamu belum mengikuti toko mana pun."
@@ -140,11 +132,9 @@ pub fn FollowingPage() -> impl IntoView {
                                                                 "Lihat toko"
                                                             </span>
                                                         </div>
-                                                        <svg class="shrink-0 text-content-muted" width="16" height="16"
-                                                             viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                             stroke-width="2" stroke-linecap="round">
-                                                            <polyline points="9 18 15 12 9 6"/>
-                                                        </svg>
+                                                        <span class="shrink-0 text-content-muted">
+                                                            <IconChevron />
+                                                        </span>
                                                     </A>
                                                 }
                                             }).collect_view()}

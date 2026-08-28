@@ -4,17 +4,34 @@ use leptos_router::components::A;
 use crate::web::hooks::{use_auth, AuthCtx};
 pub use crate::web::hooks::ThemeToggle;
 
-fn is_merchant(auth: AuthCtx) -> bool {
+/// Tab tambahan di bilah navigasi ditentukan LANGSUNG oleh `users.role`.
+///
+/// Sebelumnya tab merchant diputuskan oleh `membership_tier == "MERCHANT"` — dan
+/// medan itu tidak datang dari server sama sekali. Ia dikarang di klien
+/// (`hooks::to_profile`) dari `role` yang sama, lalu dibaca kembali seolah data
+/// tersendiri. Satu peran, dua nama, dua tempat untuk salah.
+///
+/// Yang tersisa: satu peran, satu pembacaan.
+///   * `merchant` → tab MERCHANT
+///   * `admin`    → tab ADMIN
+///   * selain itu → tak ada tab tambahan
+///
+/// Admin sengaja TIDAK mendapat tab merchant: ia tak punya toko, dan tautan ke
+/// dasbor toko yang bukan miliknya hanya berakhir sebagai halaman kosong.
+fn punya_peran(auth: AuthCtx, peran: &'static str) -> bool {
     auth.user.with(|u| {
         u.as_ref()
-            .map(|p| p.membership_tier == "MERCHANT")
+            .map(|p| p.role.eq_ignore_ascii_case(peran))
             .unwrap_or(false)
     })
 }
 
+fn is_merchant(auth: AuthCtx) -> bool {
+    punya_peran(auth, "merchant")
+}
+
 fn is_admin(auth: AuthCtx) -> bool {
-    auth.user
-        .with(|u| u.as_ref().map(|p| p.role == "admin").unwrap_or(false))
+    punya_peran(auth, "admin")
 }
 
 #[allow(dead_code)]
@@ -208,6 +225,21 @@ pub fn BottomNav(#[prop(default = "")] active: &'static str) -> impl IntoView {
                 <span class="bottom-label">"PROFILE"</span>
             </A>
 
+            // ── TAB BERSYARAT DI DALAM <Transition> ─────────────────────────
+            // Membaca Resource sesi HARUS terjadi di dalam batas Suspense atau
+            // Transition; di luar itu Leptos memperingatkan "reading resource in
+            // hydrate mode" dan hasilnya bisa berbeda antara server dan klien.
+            //
+            // `Transition`, bukan `Suspense`: saat sesi dimuat ulang, Suspense
+            // mengosongkan isinya lebih dulu — dan di sini itu berarti dua tab
+            // LENYAP lalu muncul lagi, membuat seluruh bilah navigasi bergeser
+            // di bawah jari orang yang sedang mengarah ke salah satunya.
+            // Transition mempertahankan yang lama sampai yang baru siap.
+            //
+            // `fallback=|| ()`: sebelum sesi terbaca, tak ada tab tambahan —
+            // bukan kerangka. Kerangka di bilah navigasi hanya akan menggeser
+            // tab yang sudah benar posisinya.
+            <Transition fallback=|| ()>
             // 5. MERCHANT — only if user role is merchant
             {move || {
                 is_merchant(auth_ctx)
@@ -257,6 +289,7 @@ pub fn BottomNav(#[prop(default = "")] active: &'static str) -> impl IntoView {
                         }
                     })
             }}
+            </Transition>
         </nav>
     }
 }

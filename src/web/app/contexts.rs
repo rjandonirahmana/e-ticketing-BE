@@ -425,6 +425,13 @@ fn clean_error(raw: &str) -> String {
     }
 }
 
+/// Kunci localStorage keranjang TAMU.
+///
+/// `cfg(wasm32)`: seluruh pemakainya ada di blok yang sama-sama ter-gate
+/// (`persist_local`, `load_local`, dan pendengar `storage` di `providers.rs`).
+/// Tanpa gate ini, build SSR memperingatkan konstanta ini tak terpakai — dan
+/// peringatan yang selalu muncul justru melatih orang mengabaikan peringatan.
+#[cfg(target_arch = "wasm32")]
 pub const CART_KEY: &str = "pulse_cart";
 
 /// Jalankan tugas async di klien. Di server `spawn_local` tidak tersedia (dan

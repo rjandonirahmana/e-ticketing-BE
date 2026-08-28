@@ -337,6 +337,10 @@ pub struct UpdateProductRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct ProductListQuery {
+    /// Urutan hasil: `harga_asc` | `harga_desc` | `terlaris` | `terbaru`.
+    /// Kosong / tak dikenali → urutan bawaan (lihat `repository::product::urutan_sql`).
+    #[serde(default)]
+    pub sort: Option<String>,
     pub city: Option<String>,
     pub status: Option<String>,
     pub category: Option<String>,

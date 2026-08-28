@@ -27,6 +27,7 @@ async fn list_merchant_products(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     use crate::models::products::ProductListQuery;
     let query = ProductListQuery {
+        sort: None,
         page: q.page,
         per_page: Some(20),
         city: None,

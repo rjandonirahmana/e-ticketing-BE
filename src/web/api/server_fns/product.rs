@@ -27,6 +27,7 @@ pub async fn get_products(
     }
 
     let q = ProductListQuery {
+        sort: None,
         page,
         per_page,
         city,

@@ -420,9 +420,33 @@ pub fn ProductDetailPage() -> impl IntoView {
                                 let live_room_id = format!("live_{}", ev.merchant_id);
                                 let organizer_href = format!("/m/{}", ev.merchant_id);
 
-                                // Tautan chat: alamatnya cukup dari `merchant_id`,
-                                // jadi tak ada panggilan server sama sekali di sini.
-                                let chat_href = format!("/pulse/toko/{}", ev.merchant_id);
+                                // Tautan chat: seluruh konteksnya dibawa di URL, jadi
+                                // halaman tujuan tak perlu meminta apa pun untuk tahu
+                                // produk mana yang sedang ditanyakan. Judul dan slug
+                                // sudah ada di layar ini — meneruskannya berbiaya nol,
+                                // sedangkan mengambilnya ulang di sana berarti satu
+                                // perjalanan bolak-balik lagi.
+                                //
+                                // `urlencoding::encode` WAJIB: nama produk kerap memuat
+                                // spasi, `&`, dan `#`. Tanpa penyandian, judul seperti
+                                // "Kaos A & B" memotong query di `&` dan halaman chat
+                                // menerima judul yang terpenggal.
+                                let chat_href = {
+                                    let judul = urlencoding::encode(&ev.name).into_owned();
+                                    let slug = urlencoding::encode(&ev.slug).into_owned();
+                                    // Cover ikut dibawa supaya halaman tanya bisa
+                                    // menampilkan foto produknya tanpa satu pun
+                                    // permintaan tambahan — halaman ini sudah
+                                    // memegangnya.
+                                    let sampul = urlencoding::encode(
+                                        ev.cover_url.as_deref().unwrap_or(""),
+                                    )
+                                    .into_owned();
+                                    format!(
+                                        "/pulse/toko/{}?produk={}&judul={}&sampul={}",
+                                        ev.merchant_id, slug, judul, sampul
+                                    )
+                                };
 
                                 // ── PRODUK MILIK SENDIRI ────────────────────────
                                 // Merchant yang membuka produknya sendiri tak punya

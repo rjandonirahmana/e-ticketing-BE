@@ -12,7 +12,7 @@ impl PgProductRepository {
     pub(super) async fn exec_list(&self, f: &ProductListFilter<'_>) -> Result<Vec<Product>> {
         let owned = ProductFilterOwned::from_filter(f)?;
         let mut sql = format!(
-            "SELECT {cols} FROM products e {lateral} {mjoin} WHERE 1 = 1",
+            "SELECT {cols} FROM products e {lateral} {mjoin} WHERE e.deleted_at IS NULL",
             cols = EVENT_COLS,
             lateral = VARIANT_STATS_LATERAL,
             mjoin = super::helpers::MERCHANT_JOIN,
@@ -20,11 +20,8 @@ impl PgProductRepository {
         let mut refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = Vec::with_capacity(7);
         let mut idx = 1usize;
         owned.push_where(&mut sql, &mut refs, &mut idx, "e.", true);
-        sql.push_str(&format!(
-            " ORDER BY e.event_date ASC LIMIT ${} OFFSET ${}",
-            idx,
-            idx + 1
-        ));
+        sql.push_str(super::urutan_sql(f.sort));
+        sql.push_str(&format!(" LIMIT ${} OFFSET ${}", idx, idx + 1));
         refs.push(&f.limit);
         refs.push(&f.offset);
 
@@ -34,7 +31,7 @@ impl PgProductRepository {
 
     pub(super) async fn exec_count(&self, f: &ProductListFilter<'_>) -> Result<i64> {
         let owned = ProductFilterOwned::from_filter(f)?;
-        let mut sql = String::from("SELECT COUNT(*)::BIGINT AS c FROM products WHERE 1 = 1");
+        let mut sql = String::from("SELECT COUNT(*)::BIGINT AS c FROM products WHERE deleted_at IS NULL");
         let mut refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = Vec::with_capacity(5);
         let mut idx = 1usize;
         owned.push_where(&mut sql, &mut refs, &mut idx, "", true);
@@ -49,7 +46,7 @@ impl PgProductRepository {
             r#"
             SELECT DISTINCT jsonb_array_elements_text(category) AS cat
             FROM products
-            WHERE status = 'active'
+            WHERE status = 'active' AND deleted_at IS NULL
               AND category IS NOT NULL
               AND jsonb_array_length(category) > 0
             ORDER BY cat ASC
