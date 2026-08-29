@@ -89,9 +89,25 @@ pub struct AuthService {
     /// errornya: apakah nomor ini punya akun. Siapa pun bisa menanyakannya
     /// untuk sebarang nomor, tanpa kredensial apa pun.
     ///
-    /// Dihitung sekali saat start dengan `bcrypt_cost` yang sama seperti hash
-    /// asli, supaya kedua jalur membayar ongkos yang sama.
-    dummy_hash: String,
+    /// Dihitung SEKALI saat pertama dibutuhkan, bukan saat start.
+    ///
+    /// Versi pertama menghitungnya di `AuthService::new()`, dan itu menahan
+    /// seluruh proses selama hash itu dibuat. Pada `BCRYPT_COST` yang wajar
+    /// (10-12) jedanya ratusan milidetik dan tak terasa. Tetapi biaya bcrypt
+    /// BERLIPAT DUA tiap kenaikan satu cost: pada 17 ia menjadi 2^7 = 128 kali
+    /// lebih lambat, yakni belasan detik — dijalankan sinkron, di dalam
+    /// konstruktor, sebelum server sempat mengikat port.
+    ///
+    /// Dari luar itu tidak terlihat seperti `boot lambat`. Docker sudah membuka
+    /// port host, jadi proxy berhasil menyambung lalu menunggu header yang tak
+    /// kunjung datang — `ReadTimedout while reading response headers`, circuit
+    /// breaker terbuka, dan halaman putih. Persis seperti aplikasi yang hang.
+    ///
+    /// `OnceLock` memindahkan ongkos itu ke percobaan login pertama dengan
+    /// nomor tak terdaftar, di dalam `spawn_blocking`, dan hanya sekali seumur
+    /// proses. Sifat yang dibutuhkan tetap utuh: jalur `nomor tak ada` dan
+    /// jalur `nomor ada` sama-sama membayar satu verifikasi bcrypt.
+    dummy_hash: std::sync::OnceLock<String>,
 }
 
 impl AuthService {
@@ -110,11 +126,6 @@ impl AuthService {
             .build()
             .expect("build reqwest client");
 
-        // Satu hash saat start (~100 ms pada cost 10). Nilai yang di-hash tak
-        // penting — yang dipakai hanya bentuk dan ongkos verifikasinya.
-        let dummy_hash = hash("kata-sandi-umpan-tak-terpakai", bcrypt_cost)
-            .expect("gagal membangun hash umpan bcrypt");
-
         Self {
             repo,
             jwt,
@@ -122,7 +133,7 @@ impl AuthService {
             waha,
             redis,
             http,
-            dummy_hash,
+            dummy_hash: std::sync::OnceLock::new(),
         }
     }
 
@@ -391,7 +402,40 @@ impl AuthService {
             // WAKTUNYA, supaya kedua jalur tak lagi bisa dibedakan dari luar.
             // Tanpa baris ini, pesan error yang sudah sengaja disamarkan
             // dibatalkan oleh stopwatch.
-            let umpan = self.dummy_hash.clone();
+            let umpan = match self.dummy_hash.get() {
+                Some(h) => h.clone(),
+                None => {
+                    // Pembuatan pertama ikut di blocking pool — bcrypt itu
+                    // CPU-bound, dan pada cost tinggi ia bisa memakan belasan
+                    // detik. Menjalankannya di thread async akan membekukan
+                    // seluruh runtime, bukan cuma permintaan ini.
+                    // Biayanya DIBATASI, dan itu justru membuat penyamaran
+                    // waktunya lebih benar — bukan sebaliknya.
+                    //
+                    // Yang harus ditiru adalah ongkos jalur `nomor ADA`, dan
+                    // jalur itu memverifikasi hash yang SUDAH TERSIMPAN, dengan
+                    // cost yang tertanam di dalam hash itu sendiri — bukan
+                    // `BCRYPT_COST` yang sedang dikonfigurasi. Keduanya kerap
+                    // berbeda: log produksi memperlihatkan `stored_cost=10`
+                    // sementara `target_cost=17`.
+                    //
+                    // Memakai cost konfigurasi mentah-mentah karena itu bisa
+                    // membuat jalur umpan JAUH lebih lambat daripada jalur
+                    // asli — kebocoran waktu yang sama, hanya terbalik arahnya,
+                    // ditambah satu permintaan yang menggantung belasan detik.
+                    // Batas atas 12 menjaganya tetap sekelas verifikasi nyata.
+                    let cost = self.bcrypt_cost.clamp(4, 12);
+                    let dibuat = tokio::task::spawn_blocking(move || {
+                        hash("kata-sandi-umpan-tak-terpakai", cost)
+                    })
+                    .await
+                    .map_err(|e| AppError::Internal(anyhow!(e)))?
+                    .map_err(|e| AppError::Internal(anyhow!(e)))?;
+                    // Balapan antar-permintaan pertama tak masalah: yang kalah
+                    // memakai nilai pemenang, dan keduanya sama sahnya.
+                    self.dummy_hash.get_or_init(|| dibuat).clone()
+                }
+            };
             let password = req.password.clone();
             let _ = tokio::task::spawn_blocking(move || verify(&password, &umpan)).await;
             return Err(AppError::Unauthorized("Invalid email or password".into()));

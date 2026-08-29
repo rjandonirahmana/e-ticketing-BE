@@ -92,8 +92,32 @@ impl PublicCache {
                 .max_capacity(512)
                 .time_to_live(Duration::from_secs(30))
                 .build(),
+            // ── DIBATASI BYTE, BUKAN JUMLAH ENTRI ────────────────────────
+            //
+            // `max_capacity` di moka menghitung ENTRI, kecuali diberi
+            // `weigher`. Untuk cache yang isinya seragam kecil itu tak masalah;
+            // di sini isinya respons JSON yang sudah terserialisasi, dan
+            // ukurannya sangat timpang — `/api/banners` beberapa ratus byte,
+            // satu halaman `/api/products` berisi 20 produk lengkap dengan
+            // deskripsi bisa ratusan kilobyte.
+            //
+            // Dengan plafon 1024 ENTRI, batas atas memakan tempat yang
+            // sebenarnya tak pernah dinyatakan siapa pun: seribu entri gemuk
+            // adalah ratusan megabyte, di kotak yang totalnya 4 GB dan juga
+            // harus memuat pool Postgres, WebSocket, dan SFU.
+            //
+            // Yang membuatnya sulit terlihat: cache ini bekerja persis seperti
+            // seharusnya sampai pola query cukup beragam untuk mengisi seribu
+            // slot — jadi ia tak pernah bermasalah saat diuji, hanya saat
+            // ramai.
+            //
+            // `weigher` mengubah satuannya menjadi byte nyata, dan 32 MB adalah
+            // anggaran yang bisa dinalar: cukup menampung puluhan kombinasi
+            // query terpanas, dan tak bisa membesar melewatinya apa pun yang
+            // terjadi.
             rest: Cache::builder()
-                .max_capacity(1024)
+                .max_capacity(32 * 1024 * 1024)
+                .weigher(|_k: &String, v: &bytes::Bytes| v.len().min(u32::MAX as usize) as u32)
                 .time_to_live(Duration::from_secs(30))
                 .build(),
         }

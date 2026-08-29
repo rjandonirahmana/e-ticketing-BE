@@ -197,7 +197,23 @@ async fn run() -> Result<()> {
                         tracing::info!(dihapus = n, "refresh token kedaluwarsa dibersihkan")
                     }
                     Ok(_) => {}
-                    Err(e) => tracing::warn!(error = %e, "pembersihan refresh token gagal"),
+                    // `%e` MENELAN penyebabnya: `Display` untuk
+                    // `AppError::Internal` berbunyi tetap "Internal server
+                    // error", apa pun galat aslinya. Yang tercatat di produksi
+                    // karena itu adalah peringatan yang tak memberi tahu satu
+                    // hal pun — tabel tak ada? izin kurang? pool habis? Semua
+                    // terbaca sama.
+                    //
+                    // `{:#}` pada rantai anyhow di dalamnya mengeluarkan sebab
+                    // sebenarnya, lengkap dengan query yang gagal (lihat
+                    // `repository::db::format_pg_error`).
+                    Err(e) => {
+                        let sebab = match &e {
+                            e_ticketing::utils::error::AppError::Internal(inner) => format!("{inner:#}"),
+                            lain => lain.to_string(),
+                        };
+                        tracing::warn!(error = %sebab, "pembersihan refresh token gagal");
+                    }
                 }
                 tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
             }
