@@ -96,7 +96,16 @@ js-sys = "0.3"
 
 # Browser APIs — fitur minimal untuk SSR rlib compilation CSR module
 # (SSR tidak PAKAI ini, tapi CSR code butuh type defs saat dikompilasi sebagai rlib)
-gloo-net = "0.7"
+# 0.6, BUKAN 0.7 — sengaja mengikuti versi yang sudah ditarik `leptos_router`
+# dan `server_fn`. Cargo tak bisa menyatukan dua versi mayor-berbeda, jadi
+# meminta 0.7 berarti DUA salinan penuh klien HTTP ikut masuk ke bundle WASM:
+# satu milik kita, satu milik leptos. API yang dipakai di repo ini
+# (`Request::get/post`, `.send()`, `.json()`) sama persis di keduanya.
+#
+# `default-features = false`: bawaannya menyalakan `websocket` dan
+# `eventsource` juga, dan repo ini tak memakai keduanya — soket web-nya
+# memanggil `web_sys::WebSocket` langsung.
+gloo-net = { version = "0.6", default-features = false, features = ["http"] }
 gloo-timers = { version = "0.4", features = ["futures"] }
 getrandom = "0.4.3"
 qrcodegen = "1.8"
@@ -140,6 +149,15 @@ web-sys = { version = "0.3", features = [
     "DomRect",
     "FontFaceSet",
     "AddEventListenerOptions",
+    # Pratinjau live di kartu `/lives`: hanya kartu yang BENAR-BENAR terlihat
+    # yang membuka koneksi WebRTC. Tanpa ini, membuka `/lives` akan menyambung
+    # ke setiap siaran dalam daftar sekaligus.
+    "IntersectionObserver",
+    "IntersectionObserverEntry",
+    "IntersectionObserverInit",
+    # `query_selector_all` mengembalikan NodeList — tanpa fiturnya, metodenya
+    # sendiri tidak ada.
+    "NodeList",
     "Request",
     "RequestInit",
     "Response",
@@ -267,7 +285,9 @@ rust_decimal_macros = "1"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1"
 lol_alloc = "0.4"
-gloo-net = { version = "0.7.0", features = ["http"] }
+# Versi & fitur WAJIB sama persis dengan deklarasi di [dependencies] di atas.
+# Selisih apa pun di sini menghidupkan kembali salinan gandanya.
+gloo-net = { version = "0.6", default-features = false, features = ["http"] }
 getrandom = { version = "0.4.3", features = ["wasm_js"] }
 # leptos 0.8 → rand 0.9 masih menarik getrandom 0.3 (versi LAMA, terpisah dari
 # 0.4 di atas). Tanpa fitur wasm_js pada versi 0.3 ini, build wasm32 gagal:
@@ -313,6 +333,16 @@ strip = "symbols"
 [profile.wasm-release]
 inherits = "release"
 opt-level = "z"
+# LTO PENUH, menimpa `lto = "thin"` yang diwarisi dari [profile.release].
+#
+# Thin-LTO mengoptimalkan tiap unit secara paralel lalu menggabungkannya; fat-LTO
+# melebur SELURUH crate jadi satu unit sebelum mengoptimalkan. Untuk bundle WASM
+# bedanya besar justru karena pohon dependensinya didominasi kode yang TIDAK
+# dipakai (leptos_config menyeret `regex` lengkap dengan tabel Unicode-nya, dan
+# itu tak bisa dibuang dari sini — ia dependensi `leptos` sendiri). Hanya dengan
+# pandangan menyeluruh, penghapusan kode mati bisa membuktikan kode itu memang
+# tak terjangkau. Ongkosnya waktu kompilasi, dan itu hanya dibayar CI.
+lto = "fat"
 # panic=abort HANYA di sini (bundle WASM): buang kode unwinding/landing-pads →
 # .wasm lebih kecil & download lebih cepat. Di WASM panic memang selalu abort,
 # jadi nol perubahan perilaku. SENGAJA TIDAK di [profile.release] server: di

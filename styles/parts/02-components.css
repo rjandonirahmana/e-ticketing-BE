@@ -140,11 +140,26 @@
 }
 
 /* ── PAGE HEADER (canonical — semua halaman gunakan ini) ──────────────────── */
+/* Selokan 20px, sama dengan SELURUH isi halaman di bawahnya (`.avatar-section`,
+ * `.stats-row`, `.menu-section`, `.profile-points-card`, dan padanannya di
+ * explore/home/orders/tickets — semuanya 20px). Dulu 16px, dan selisih 4px itu
+ * membuat header tampak sedikit melenceng ke luar dibanding segala sesuatu di
+ * bawahnya di 16 halaman yang memakainya.
+ *
+ * Yang disejajarkan adalah apa yang TERLIHAT, bukan kotaknya:
+ *   * Tombol BERISI (`.back-btn`, `.bell-btn` — lingkaran 40px berlatar dan
+ *     bergaris) punya tepi yang kelihatan, jadi tepi itulah yang berdiri di
+ *     garis 20px. Tak perlu penyesuaian.
+ *   * Tombol POLOS (`.icon-btn` — tanpa latar, cuma glif + padding 4px) tak
+ *     punya tepi yang kelihatan. Yang dilihat mata adalah glifnya, jadi
+ *     kotaknya ditarik keluar 4px supaya GLIF-nya yang mendarat di 20px.
+ *     Tanpa penarikan ini glif polos berhenti di 24px dan justru terbaca lebih
+ *     masuk daripada teks di bawahnya — persis kesalahan yang sedang dibetulkan. */
 .page-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 14px 16px;
+    padding: 14px 20px;
     position: sticky;
     top: 0;
     z-index: var(--z-header);
@@ -152,6 +167,20 @@
     border-bottom: 1px solid var(--border-soft);
     width: 100%;
     min-width: 0;
+}
+/* Hanya anak PERTAMA/TERAKHIR: `.icon-btn` di tengah deretan tak menyentuh tepi
+ * halaman, jadi menariknya justru merusak jarak antar-tombol. */
+.page-header > .icon-btn:first-child {
+    margin-left: -4px;
+}
+.page-header > .icon-btn:last-child {
+    margin-right: -4px;
+}
+/* `.header-actions` adalah pembungkus; yang perlu ditarik adalah tombol polos
+ * di ujungnya, bukan pembungkusnya — kalau pembungkusnya yang ditarik, tombol
+ * BERISI di dalamnya ikut terseret keluar garis. */
+.page-header > .header-actions:last-child > .icon-btn:last-child {
+    margin-right: -4px;
 }
 
 /* ── BACK BUTTON (canonical — semua halaman gunakan ini) ──────────────────── */

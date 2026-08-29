@@ -40,6 +40,15 @@ fn initial_of(name: &str) -> String {
         .unwrap_or_else(|| "?".to_string())
 }
 
+/// Berapa kartu yang boleh memutar video SERENTAK di daftar `/lives`.
+///
+/// Tiap kartu yang memutar = SATU peer subscriber di SFU, dan SFU ini satu
+/// utas (`live/sfu.rs`). Jadi angka ini bukan preferensi tampilan, melainkan
+/// plafon beban: satu penonton yang membuka `/lives` menimbulkan sebanyak ini
+/// koneksi, bukan satu. Empat menutupi dua baris pertama grid dua-kolom —
+/// yang muat di layar ponsel sebelum digulir — dan berhenti di situ.
+const MAX_PRATINJAU: usize = 4;
+
 #[component]
 pub fn LivesPage() -> impl IntoView {
     let rooms = RwSignal::new(Vec::<RoomInfo>::new());
@@ -49,6 +58,15 @@ pub fn LivesPage() -> impl IntoView {
     let active = RwSignal::new(None::<usize>);
     let feed_idx = RwSignal::new(0usize);
     let feed_ref: NodeRef<leptos::html::Div> = NodeRef::new();
+    // Indeks kartu yang sedang berada di layar. `BTreeSet` (bukan `HashSet`)
+    // karena urutannya dipakai: saat lebih dari `MAX_PRATINJAU` kartu terlihat
+    // sekaligus, yang menang adalah yang paling ATAS — bukan yang kebetulan
+    // lebih dulu dilaporkan pengamat, yang urutannya tak dijamin.
+    let terlihat: RwSignal<std::collections::BTreeSet<usize>> =
+        RwSignal::new(std::collections::BTreeSet::new());
+    let boleh_pratinjau = move |i: usize| {
+        terlihat.with(|v| v.iter().take(MAX_PRATINJAU).any(|&x| x == i))
+    };
 
     let load = move || {
         loading.set(true);
@@ -156,6 +174,94 @@ pub fn LivesPage() -> impl IntoView {
             load();
         }
     });
+
+    // ── Pengamat visibilitas kartu (WASM only) ────────────────────────────────
+    // Hanya kartu yang benar-benar ada di layar yang boleh membuka WebRTC.
+    // Tanpa ini, membuka `/lives` saat ada 20 siaran akan menyambung ke kedua
+    // puluhnya sekaligus — dua puluh peer di SFU satu-utas, untuk satu orang.
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::prelude::*;
+        use wasm_bindgen::JsCast;
+
+        // Pengamat + closure-nya dipegang sepanjang hidup halaman. Kalau
+        // di-`forget()`, keduanya bocor tiap kali daftar berubah; kalau
+        // di-drop begitu efeknya selesai, callback-nya mati dan tak ada kartu
+        // yang pernah dilaporkan terlihat.
+        let simpan: StoredValue<Option<send_wrapper::SendWrapper<(
+            web_sys::IntersectionObserver,
+            Closure<dyn FnMut(js_sys::Array)>,
+        )>>> = StoredValue::new(None);
+
+        Effect::new(move |_| {
+            // Bergantung pada `rooms` supaya pengamat dipasang ulang saat
+            // daftar kartu berubah, dan pada `active` supaya tak menyala saat
+            // feed fullscreen sedang menutupi daftar.
+            let n = rooms.with(|r| r.len());
+            if n == 0 || active.get().is_some() {
+                simpan.set_value(None);
+                terlihat.set(std::collections::BTreeSet::new());
+                return;
+            }
+
+            let cb = Closure::<dyn FnMut(js_sys::Array)>::new(
+                move |entries: js_sys::Array| {
+                    let mut set = terlihat.get_untracked();
+                    let mut berubah = false;
+                    for e in entries.iter() {
+                        let Ok(entry) = e.dyn_into::<web_sys::IntersectionObserverEntry>() else {
+                            continue;
+                        };
+                        let Ok(el) = entry.target().dyn_into::<web_sys::HtmlElement>() else {
+                            continue;
+                        };
+                        // Indeks dibaca dari atribut, bukan ditangkap closure:
+                        // satu callback melayani SEMUA kartu, jadi ia tak bisa
+                        // memiliki satu indeks tetap.
+                        let Some(idx) = el
+                            .get_attribute("data-idx")
+                            .and_then(|v| v.parse::<usize>().ok())
+                        else {
+                            continue;
+                        };
+                        if entry.is_intersecting() {
+                            berubah |= set.insert(idx);
+                        } else {
+                            berubah |= set.remove(&idx);
+                        }
+                    }
+                    if berubah {
+                        terlihat.set(set);
+                    }
+                },
+            );
+
+            let Ok(observer) =
+                web_sys::IntersectionObserver::new(cb.as_ref().unchecked_ref())
+            else {
+                return;
+            };
+
+            let Some(doc) = web_sys::window().and_then(|w| w.document()) else {
+                return;
+            };
+            let Ok(nodes) = doc.query_selector_all(".lives-card") else {
+                return;
+            };
+            for i in 0..nodes.length() {
+                if let Some(el) = nodes.item(i).and_then(|n| n.dyn_into::<web_sys::Element>().ok()) {
+                    observer.observe(&el);
+                }
+            }
+
+            // Mengganti isi `simpan` men-DROP pengamat sebelumnya — itulah yang
+            // melepas pengamatan kartu-kartu lama, tanpa perlu `disconnect()`
+            // manual yang gampang terlewat di satu cabang keluar.
+            simpan.set_value(Some(send_wrapper::SendWrapper::new((observer, cb))));
+        });
+
+        on_cleanup(move || simpan.set_value(None));
+    }
 
     // Saat user men-scroll feed, hitung slide aktif dari posisi scroll.
     let on_feed_scroll = move |_| {
@@ -273,10 +379,36 @@ pub fn LivesPage() -> impl IntoView {
                                                 let name = room.merchant_name.clone();
                                                 let initial = initial_of(&name);
                                                 let vc = room.viewer_count;
+                                                let rid = room.room_id.clone();
                                                 view! {
-                                                    <button class="lives-card" on:click=move |_| active.set(Some(i))>
+                                                    // `data-idx` dibaca pengamat visibilitas di atas.
+                                                    <button
+                                                        class="lives-card"
+                                                        attr:data-idx=i
+                                                        on:click=move |_| active.set(Some(i))
+                                                    >
                                                         <div class="lives-card-thumb">
+                                                            // Inisial tetap dirender DI BAWAH video, bukan
+                                                            // sebagai gantinya: ia jadi latar saat pratinjau
+                                                            // belum tersambung, saat kartunya di luar plafon
+                                                            // `MAX_PRATINJAU`, dan saat siarannya gagal dimuat.
+                                                            // Kartu karena itu tak pernah jadi kotak kosong.
                                                             <span class="lives-card-avatar">{initial}</span>
+                                                            {
+                                                                let rid = rid.clone();
+                                                                move || {
+                                                                    boleh_pratinjau(i)
+                                                                        .then(|| {
+                                                                            view! {
+                                                                                <LiveStreamViewer
+                                                                                    room_id=rid.clone()
+                                                                                    autoplay=true
+                                                                                    preview=true
+                                                                                />
+                                                                            }
+                                                                        })
+                                                                }
+                                                            }
                                                             <span class="lives-card-badge">
                                                                 <span class="lives-card-dot"></span>
                                                                 "LIVE"

@@ -81,7 +81,19 @@ pub fn LiveStreamViewer(
     /// Bila true, langsung menyambung tanpa menunggu klik (dipakai di feed lives).
     #[prop(optional)]
     autoplay: bool,
-) -> impl IntoView {
+    /// Mode pratinjau untuk kartu di daftar `/lives`: hanya videonya, tanpa
+    /// perabot apa pun (header, tombol, hitungan penonton, overlay unmute).
+    ///
+    /// Bukan cuma soal tampilan — mode ini memangkas dua biaya yang jadi serius
+    /// begitu beberapa kartu tayang serentak:
+    ///   * TAK ada polling hitungan penonton (biasanya satu permintaan HTTP tiap
+    ///     5 dtk PER kartu — dengan 4 kartu itu 48 permintaan semenit hanya
+    ///     untuk angka yang sudah dikirim WS `/ws/lives` secara cuma-cuma).
+    ///   * TAK meminta track audio. Pratinjau selalu bisu, jadi menegosiasi
+    ///     audio berarti menyuruh SFU meneruskan aliran yang dijamin dibuang.
+    #[prop(optional)]
+    preview: bool,
+) -> AnyView {
     // StoredValue (Copy) supaya bisa dipakai di beberapa closure `move`
     // (polling effect, connect, disconnect, on_cleanup) tanpa konflik move.
     let room_id = StoredValue::new(room_id);
@@ -109,7 +121,8 @@ pub fn LiveStreamViewer(
 
     // ── Polling viewer count ──────────────────────────────────────────────
     Effect::new(move |_| {
-        if !is_playing.get() {
+        // Pratinjau tak menampilkan angkanya, jadi tak perlu memintanya.
+        if preview || !is_playing.get() {
             return;
         }
         let rid = room_id.get_value();
@@ -178,9 +191,15 @@ pub fn LiveStreamViewer(
                 error_msg.set(Some(format!("addTransceiver(video) failed: {:?}", e)));
                 return;
             }
-            if let Err(e) = add_recvonly_transceiver(&peer_connection, "audio") {
-                error_msg.set(Some(format!("addTransceiver(audio) failed: {:?}", e)));
-                return;
+            // Pratinjau bisu permanen → jangan negosiasi audio sama sekali.
+            // `forward_to_subscribers` di SFU menulis per-kind ke tiap
+            // subscriber; tanpa mid audio, kartu pratinjau berhenti menjadi
+            // tujuan penerusan audio dan beban SFU per kartu turun separuh.
+            if !preview {
+                if let Err(e) = add_recvonly_transceiver(&peer_connection, "audio") {
+                    error_msg.set(Some(format!("addTransceiver(audio) failed: {:?}", e)));
+                    return;
+                }
             }
 
             // ── ontrack: rakit track masuk → update signal saja ─────────────
@@ -577,6 +596,44 @@ pub fn LiveStreamViewer(
         }
     });
 
+    // ── Pratinjau: hanya video ───────────────────────────────────────────────
+    // Dikembalikan LEBIH AWAL, sebagai pohon yang benar-benar terpisah — bukan
+    // markup penuh yang bagiannya disembunyikan CSS. Kartu di `/lives` adalah
+    // sebuah `<button>`, dan menyisipkan tombol (unmute, keluar, tonton) ke
+    // dalam tombol lain adalah HTML tak sah yang membuat ketukan kartu berhenti
+    // bekerja di sebagian peramban. Yang tak dirender tak bisa melakukan itu.
+    if preview {
+        return view! {
+            <div class="live-preview">
+                <video
+                    node_ref=video_ref
+                    class=move || {
+                        if is_playing.get() {
+                            "live-preview-video live-preview-video--on"
+                        } else {
+                            "live-preview-video"
+                        }
+                    }
+                    autoplay=true
+                    muted=true
+                    playsinline=true
+                />
+                // Sampai frame pertama tiba, kartunya tetap butuh sesuatu untuk
+                // ditampilkan — kalau tidak, yang terlihat adalah kotak hitam
+                // yang tak bisa dibedakan dari siaran yang gagal dimuat.
+                {move || {
+                    (!is_playing.get())
+                        .then(|| {
+                            view! {
+                                <span class="live-preview-spinner" aria-hidden="true"></span>
+                            }
+                        })
+                }}
+            </div>
+        }
+        .into_any();
+    }
+
     view! {
         <div class="live-viewer">
             <div class="live-viewer-header">
@@ -749,4 +806,5 @@ pub fn LiveStreamViewer(
             {move || error_msg.get().map(|e| view! { <div class="live-viewer-error">{e}</div> })}
         </div>
     }
+    .into_any()
 }

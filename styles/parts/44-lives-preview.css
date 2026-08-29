@@ -1,0 +1,116 @@
+/* ===== /lives — pratinjau video di kartu + feed dalam kolom ponsel ==========
+   Bernomor lebih tinggi dari `11-page-lives.css` supaya penyempitan di bawah
+   menang atas aturan lebar-penuh di sana. */
+
+/* ── Feed: kolom ponsel, bukan selebar layar desktop ───────────────────────
+   `.lives-feed` sendiri TETAP menutupi seluruh viewport dan tetap hitam — ia
+   yang menjadi latar gelap di kiri-kanan. Yang disempitkan adalah SLIDE-nya.
+   Menyempitkan pembungkusnya justru salah: ia kontainer gulir dan pemilik
+   scroll-snap, dan menguncinya ke 480px membuat area gulir berhenti di tengah
+   layar — roda mouse di sisi kiri/kanan tak lagi menggerakkan feed. */
+.lives-slide {
+    width: 100%;
+    max-width: 480px;
+    margin-inline: auto;
+}
+
+/* Tombol tutup melayang (`position: fixed`) jadi ia tak tahu apa-apa soal
+   kolom 480px di tengah. Tanpa perhitungan ini, di desktop ia mendarat di
+   pojok kiri layar — jauh terpisah dari video yang ditutupinya.
+   `min(240px, 50vw)`: di layar sempit hasilnya kembali ke 14px apa adanya. */
+.lives-feed-close {
+    left: calc(50% - min(240px, 50vw) + 14px);
+}
+
+/* Kelas ini dirender `pages/lives.rs` tetapi tak pernah punya gaya sama
+   sekali — jadi petunjuk gesernya selama ini tampil sebagai teks telanjang
+   di atas video. */
+.lives-swipe-hint {
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 210;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 100px;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.92);
+    font-family: var(--font-body);
+    font-size: 11px;
+    pointer-events: none;
+    animation: lives-hint-bob 1.8s ease-in-out infinite;
+}
+@keyframes lives-hint-bob {
+    0%,
+    100% {
+        transform: translateX(-50%) translateY(0);
+    }
+    50% {
+        transform: translateX(-50%) translateY(-5px);
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .lives-swipe-hint {
+        animation: none;
+    }
+}
+
+/* ── Pratinjau video di dalam kartu daftar ─────────────────────────────────
+   Video DITUMPUK di atas inisial, tidak menggantikannya. Inisial tetap
+   dirender di bawah sebagai latar, jadi kartu punya isi selama pratinjau
+   belum tersambung, saat kartunya di luar plafon `MAX_PRATINJAU`, dan saat
+   siarannya gagal — tak pernah ada kotak hitam kosong. */
+.live-preview {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: #000;
+    /* Kartunya sebuah `<button>`; pratinjau tak boleh mencuri ketukannya. */
+    pointer-events: none;
+}
+.live-preview-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    /* Sampai frame pertama ter-render, elemen video menggambar hitam solid dan
+       akan menutupi inisial di baliknya. Dimunculkan hanya setelah ada gambar. */
+    opacity: 0;
+    transition: opacity 0.35s ease;
+}
+/* Kelas ini dipasang dari Rust saat koneksi benar-benar terjalin
+   (`is_playing`). SENGAJA tidak memakai selektor CSS atas keadaan video:
+   `paused`, `readyState`, dan kawan-kawannya adalah PROPERTI DOM, bukan
+   atribut, sehingga `[paused]` tak akan pernah cocok — aturan yang terlihat
+   masuk akal tetapi diam-diam tak pernah menyala. */
+.live-preview-video--on {
+    opacity: 1;
+}
+.live-preview-spinner {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    border-top-color: #fff;
+    animation: lives-spin 0.8s linear infinite;
+}
+@keyframes lives-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Inisial tetap mengalir normal (dipusatkan flex oleh `.lives-card-thumb`);
+   yang ditumpuk di atasnya adalah `.live-preview` yang absolut. Lencana LIVE
+   harus berada di atas keduanya. */
+.lives-card-badge {
+    z-index: 2;
+}
