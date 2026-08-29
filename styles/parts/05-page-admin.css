@@ -63,113 +63,18 @@
 .admin-toast-x:hover {
     opacity: 1;
 }
-
-/* Banner list rows */
-.admin-banner-row {
-    display: flex;
-    gap: 0.75rem;
-    align-items: flex-start;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 0.8rem;
-    margin-bottom: 0.65rem;
-    transition:
-        border-color 0.2s,
-        box-shadow 0.2s;
-}
-.admin-banner-row:hover {
-    border-color: rgba(166, 217, 106, 0.18);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
-}
-.admin-banner-thumb {
-    position: relative;
-    width: 90px;
-    height: 58px;
-    flex-shrink: 0;
-    border-radius: 10px;
-    overflow: hidden;
-    background: var(--bg-elevated);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid var(--border-soft);
-}
-.admin-banner-img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-.admin-banner-no-img {
-    font-size: 1.6rem;
-    opacity: 0.5;
-}
-.admin-banner-badge {
-    position: absolute;
-    top: 3px;
-    left: 3px;
-    font-size: 0.5rem;
-    font-weight: 700;
-    padding: 2px 5px;
-    border-radius: 4px;
-    font-family: var(--font-body);
-    letter-spacing: 0.05em;
-}
-.admin-banner-badge--on {
-    background: rgba(75, 216, 143, 0.25);
-    color: var(--live-green);
-}
-.admin-banner-badge--off {
-    background: rgba(255, 255, 255, 0.1);
-    color: var(--text-muted);
-}
-.admin-banner-info {
-    flex: 1;
-    min-width: 0;
-}
-.admin-banner-title {
-    font-family: var(--font-body);
-    font-size: 0.85rem;
-    font-weight: 700;
-    color: var(--text-primary);
-    margin: 0 0 0.2rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.admin-banner-sub {
-    font-size: 0.72rem;
-    color: var(--text-secondary);
-    margin: 0.1rem 0;
-}
-.admin-banner-link {
-    font-size: 0.68rem;
-    color: var(--accent-lime);
-    display: flex;
-    align-items: center;
-    gap: 3px;
-    margin: 0.15rem 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    opacity: 0.8;
-}
-.admin-banner-order {
-    font-size: 0.68rem;
-    color: var(--text-muted);
-    margin: 0.1rem 0;
-}
-/* `.admin-banner-actions` DIDEFINISIKAN DI `40-banner-slider.css`, bukan di sini.
+/* Seluruh tab "Spanduk" hidup di `43-admin-banners.css` (kelas `.abn-*`).
  *
- * Dulu keduanya mendefinisikannya, dan itu tidak menghasilkan `yang belakangan
- * menang` seperti yang biasa diharapkan — melainkan GABUNGAN. Berkas 40 hanya
- * menyebut `display`, `gap`, `align-items`, dan `flex-wrap`; ia tak pernah
- * menyebut `flex-direction`. Jadi `column` dari sini tetap berlaku, bertemu
+ * Dulu ia tersebar sebagai `.admin-banner-*` di berkas ini DAN di
+ * `40-banner-slider.css`, dan `.admin-banner-actions` didefinisikan di
+ * keduanya. Itu tidak menghasilkan "yang belakangan menang" seperti yang biasa
+ * diharapkan — melainkan GABUNGAN: berkas 40 tak pernah menyebut
+ * `flex-direction`, jadi `column` dari sini tetap berlaku, bertemu
  * `flex-wrap: wrap` dari sana, dan tombolnya menumpuk ke bawah lalu melar
  * selebar kartunya karena `align-items` bawaan flex adalah `stretch`.
  *
- * Aturan duplikat lintas-berkas seperti ini sulit dilihat justru karena
- * keduanya `benar` saat dibaca sendiri-sendiri. Satu kelas, satu tempat. */
+ * Aturan duplikat lintas-berkas seperti itu sulit dilihat justru karena
+ * keduanya "benar" saat dibaca sendiri-sendiri. Satu komponen, satu berkas. */
 .admin-del-btn {
     padding: 0.35rem 0.65rem;
     border-radius: 9px;

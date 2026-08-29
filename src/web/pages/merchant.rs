@@ -8,7 +8,9 @@ use crate::web::api::{
     update_merchant_profile,
 };
 use crate::web::app::AuthResource;
-use crate::web::components::{BottomNav, MerchantProductCardShimmer, ThemeToggle};
+use crate::web::components::{
+    BottomNav, MerchantProductCardShimmer, SwipeTabBar, TabItem, TabSwipe, ThemeToggle,
+};
 use crate::web::models::{format_date, format_price, Product, PaginatedProducts};
 
 use super::merchant_public::fmt_count;
@@ -63,16 +65,7 @@ const MHUB_ICON_BTN: &str = "relative inline-flex items-center justify-center w-
 /// Geser kiri/kanan berpindah ke tetangga di larik ini, jadi urutan di bilah tab
 /// dan urutan saat digeser mustahil berselisih — kalau keduanya ditulis terpisah,
 /// menambah satu tab di kemudian hari akan membuat gesernya melompati tab.
-const TABS: [(&str, &str); 4] = [
-    ("produk", "Produk"),
-    ("analytics", "Analitik"),
-    ("finance", "Keuangan"),
-    ("settings", "Pengaturan"),
-];
-const TAB_PRODUK: &str = TABS[0].0;
-
-/// Jarak minimum satu gesekan dianggap perpindahan tab (piksel CSS).
-const GESER_MIN: f64 = 56.0;
+const TABS: [&str; 4] = ["Produk", "Analitik", "Keuangan", "Pengaturan"];
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -99,57 +92,16 @@ pub fn MerchantPage() -> impl IntoView {
         },
     );
 
-    // Kunci tab ikut diganti, bukan cuma labelnya. `"tickets"` adalah sisa masa
-    // aplikasi ini menjual tiket, dan penyapuan istilah kemarin hanya menyentuh
-    // teks yang tampil — sehingga tab yang isinya DAFTAR PRODUK sempat berlabel
-    // "Pengambilan". Nama internal yang berbohong seperti itu justru yang
-    // menuntun ke salah ganti berikutnya.
-    let active_page = RwSignal::new(TAB_PRODUK);
-
-    // ── Geser antar-tab ─────────────────────────────────────────────────────
-    // Titik awal sentuhan disimpan di `StoredValue`, bukan `RwSignal`: nilainya
-    // dibaca sekali saat jari diangkat dan tak ada satu pun bagian tampilan yang
-    // perlu ikut berubah saat ia bergeser. `RwSignal` di sini akan memicu
-    // pembaruan reaktif puluhan kali per gesekan tanpa ada yang menontonnya.
-    let awal_x = StoredValue::new(0.0f64);
-    let awal_y = StoredValue::new(0.0f64);
-
-    let on_geser_mulai = move |e: web_sys::TouchEvent| {
-        if let Some(t) = e.touches().get(0) {
-            awal_x.set_value(t.client_x() as f64);
-            awal_y.set_value(t.client_y() as f64);
-        }
-    };
-
-    let on_geser_selesai = move |e: web_sys::TouchEvent| {
-        let Some(t) = e.changed_touches().get(0) else { return };
-        let dx = t.client_x() as f64 - awal_x.get_value();
-        let dy = t.client_y() as f64 - awal_y.get_value();
-
-        // Dua penjagaan, dan keduanya perlu:
-        //   * `GESER_MIN` — sentuhan pendek adalah KETUKAN. Tanpa ambang ini,
-        //     menekan tombol di dalam daftar ikut berpindah tab.
-        //   * `dx > dy * 1.4` — isinya daftar yang digulir vertikal. Gerakan
-        //     jari yang sedikit miring saat menggulir tak boleh dibaca sebagai
-        //     perpindahan tab, jadi horizontalnya harus jelas mendominasi.
-        if dx.abs() < GESER_MIN || dx.abs() < dy.abs() * 1.4 {
-            return;
-        }
-
-        let kini = active_page.get_untracked();
-        let i = TABS.iter().position(|(id, _)| *id == kini).unwrap_or(0);
-        // Geser ke KIRI (dx negatif) = maju ke tab berikutnya, mengikuti arah
-        // kertas yang ditarik. Di ujung, diam — bukan melingkar: melompat dari
-        // Pengaturan ke Produk terasa seperti tergelincir, bukan berpindah.
-        let tujuan = if dx < 0.0 {
-            (i + 1).min(TABS.len() - 1)
-        } else {
-            i.saturating_sub(1)
-        };
-        if tujuan != i {
-            active_page.set(TABS[tujuan].0);
-        }
-    };
+    // Tab disimpan sebagai INDEKS, bukan kunci string.
+    //
+    // Versi sebelumnya menyimpan `"tickets"` — sisa masa aplikasi ini menjual
+    // tiket — untuk tab yang isinya DAFTAR PRODUK, karena penyapuan istilah
+    // waktu itu hanya menyentuh teks yang tampil. Nama internal yang berbohong
+    // seperti itu justru yang menuntun ke salah ganti berikutnya. Dengan
+    // indeks, urutan bilah tab dan urutan geseran mustahil berselisih: `TABS`
+    // adalah satu-satunya sumber keduanya.
+    let swipe = TabSwipe::new(TABS.len());
+    let tab_items: Vec<TabItem> = TABS.iter().map(|l| TabItem::new(l)).collect();
 
     let evs_list = move || {
         products
@@ -285,53 +237,39 @@ pub fn MerchantPage() -> impl IntoView {
             </div>
 
             // ── Tab bar ───────────────────────────────────────────────────────
-            <div class="mhub-mobile-tabs">
-                {TABS
-                .iter()
-                .map(|(id, label)| {
-                    let id = *id;
-                    view! {
-                        <button
-                            class=move || if active_page.get() == id {
-                                "mhub-mtab mhub-mtab--active"
-                            } else {
-                                "mhub-mtab"
-                            }
-                            on:click=move |_| active_page.set(id)>
-                            {*label}
-                        </button>
-                    }
-                })
-                .collect_view()}
-            </div>
+            <SwipeTabBar swipe=swipe tabs=tab_items />
 
             // ── Content ───────────────────────────────────────────────────────
             // Pendengar sentuhan dipasang di PEMBUNGKUS KONTEN, bukan di bilah
             // tab: yang digeser orang adalah isinya, dan bilah tab sendiri
             // terlalu tipis untuk digesek dengan nyaman.
-            //
-            // `touch-pan-y`: memberi tahu peramban bahwa gulir vertikal tetap
-            // miliknya, sementara gerakan horizontal boleh ditangani JS. Tanpa
-            // ini sebagian peramban menunda event sentuhnya untuk menunggu
-            // apakah halaman akan digulir, dan gesekan terasa tersendat.
             <div
-                class="touch-pan-y"
-                on:touchstart=on_geser_mulai
-                on:touchend=on_geser_selesai
+                class="tabdeck"
+                on:touchstart=swipe.on_start()
+                on:touchmove=swipe.on_move()
+                on:touchend=swipe.on_end()
+                on:touchcancel=swipe.on_end()
             >
-            <Suspense fallback=move || {
-                (0..3).map(|_| view! { <MerchantProductCardShimmer /> }).collect_view()
-            }>
-                {move || {
-                    let evs = evs_list();
-                    match active_page.get() {
-                        "analytics" => view_analytics(evs).into_any(),
-                        "finance"   => view_finance().into_any(),
-                        "settings"  => view_settings().into_any(),
-                        _           => view_products(evs).into_any(),
-                    }
-                }}
-            </Suspense>
+                <div class="tabdeck-inner" style=move || swipe.gaya_dek()>
+                    <Suspense fallback=move || {
+                        (0..3).map(|_| view! { <MerchantProductCardShimmer /> }).collect_view()
+                    }>
+                        {move || {
+                            // Kelas panel dibaca DI DALAM penutup ini supaya
+                            // pembungkusnya ikut dibangun ulang tiap pindah tab —
+                            // itu yang membuat animasi luncurnya diputar lagi.
+                            let i = swipe.index();
+                            let evs = evs_list();
+                            let isi = match i {
+                                1 => view_analytics(evs).into_any(),
+                                2 => view_finance().into_any(),
+                                3 => view_settings().into_any(),
+                                _ => view_products(evs).into_any(),
+                            };
+                            view! { <div class=swipe.kelas_panel()>{isi}</div> }
+                        }}
+                    </Suspense>
+                </div>
             </div>
 
         </div>

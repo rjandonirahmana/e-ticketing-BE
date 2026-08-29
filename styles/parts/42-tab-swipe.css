@@ -1,0 +1,142 @@
+/* ===== Bilah tab + dek konten yang bisa digeser =============================
+   Dipakai Merchant Hub dan Pusat Admin lewat `components/swipe_tabs.rs`.
+   Berkas ini SENGAJA bernomor lebih tinggi dari `15-page-merchant.css`: bilah
+   tab lama didefinisikan di sana (dua kali, malah), dan yang di bawah ini
+   menggantikan penanda garis-bawah per-tombolnya dengan satu garis yang
+   BERGERAK. Selektor sama, spesifisitas sama → yang belakangan menang. */
+
+.mhub-mobile-tabs {
+    position: relative;
+    display: block; /* pembungkus penggulir; deretannya ada di .mhub-mtab-track */
+    padding: 0;
+    margin-top: 14px;
+    border-bottom: 1px solid var(--border-soft);
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+}
+.mhub-mobile-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.mhub-mtab-track {
+    position: relative;
+    display: flex;
+    min-width: 100%;
+}
+
+/* `flex: 1 0 0` + `min-width` = SEMUA tab selebar sama, entah deretannya muat
+   atau meluber. Itu prasyarat garis penanda di bawah, yang lebarnya dihitung
+   sebagai `100% / jumlah tab`. Dengan `flex-basis: auto`, lebar tiap tab ikut
+   panjang labelnya dan garisnya tak akan pernah sejajar. */
+.mhub-mtab {
+    position: relative;
+    flex: 1 0 0;
+    min-width: 88px;
+    padding: 12px 8px 13px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: var(--font-body);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    text-align: center;
+    transition: color 0.2s;
+    -webkit-tap-highlight-color: transparent;
+}
+.mhub-mtab:hover {
+    color: var(--text-primary);
+}
+.mhub-mtab--active {
+    color: var(--accent-lime);
+    /* Garis-bawah per-tombol dimatikan: penandanya sekarang satu elemen yang
+       meluncur, dan dua penanda sekaligus akan tampak berkedip saat berpindah. */
+    border-bottom: none;
+}
+
+.mhub-mtab-badge {
+    display: inline-block;
+    margin-left: 5px;
+    padding: 1px 5px;
+    border-radius: 99px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0;
+    vertical-align: middle;
+}
+
+.mhub-mtab-ink {
+    position: absolute;
+    bottom: -1px; /* menimpa border-bottom pembungkus, bukan menumpuk di atasnya */
+    height: 2px;
+    border-radius: 2px;
+    background: var(--accent-lime);
+    /* Hanya `left` yang beranimasi. `width` tak pernah berubah (semua tab sama
+       lebar), jadi memasukkannya ke transisi cuma menambah kerja tata letak. */
+    transition: left 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+    pointer-events: none;
+}
+
+/* ── Dek konten ───────────────────────────────────────────────────────────── */
+
+.tabdeck {
+    position: relative;
+    /* `clip`, BUKAN `hidden`. Keduanya memotong panel yang meluncur keluar,
+       tapi `hidden` menjadikan elemen ini kontainer gulir — dan itu mematikan
+       setiap `position: sticky` di dalam tab (header form, bilah aksi). */
+    overflow-x: clip;
+    /* Gulir vertikal tetap milik peramban; horizontalnya boleh ditangani JS.
+       Tanpa ini sebagian peramban menahan event sentuhnya dulu untuk menunggu
+       apakah halaman akan digulir, dan gesekan terasa tersendat. */
+    touch-action: pan-y;
+}
+.tabdeck-inner {
+    will-change: transform;
+}
+
+.tabdeck-panel--dari-kanan {
+    animation: tabdeck-masuk-kanan 0.3s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.tabdeck-panel--dari-kiri {
+    animation: tabdeck-masuk-kiri 0.3s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+@keyframes tabdeck-masuk-kanan {
+    from {
+        transform: translate3d(38%, 0, 0);
+        opacity: 0;
+    }
+    to {
+        transform: none;
+        opacity: 1;
+    }
+}
+@keyframes tabdeck-masuk-kiri {
+    from {
+        transform: translate3d(-38%, 0, 0);
+        opacity: 0;
+    }
+    to {
+        transform: none;
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tabdeck-panel--dari-kanan,
+    .tabdeck-panel--dari-kiri {
+        animation: none;
+    }
+    .mhub-mtab-ink {
+        transition: none;
+    }
+    .mhub-mobile-tabs {
+        scroll-behavior: auto;
+    }
+}

@@ -1,6 +1,10 @@
 /* ===== Banner slider explore (tabel `banners`, admin-managed) ==============
    Track digeser via translateX dari signal (auto-advance 5 dtk + dots).
-   Rasio dikunci agar tinggi stabil (tanpa CLS) apa pun ukuran gambar. */
+   Rasio dikunci agar tinggi stabil (tanpa CLS) apa pun ukuran gambar.
+
+   HANYA slider PUBLIKNYA. Halaman pengelolanya (tab "Spanduk" di /admin) ada
+   di `43-admin-banners.css`, dan memakai rasio 21:9 yang sama seperti
+   `.exp-bnr-slide` di bawah supaya pratinjau admin tak pernah berbohong. */
 
 .exp-bnr {
     position: relative;
@@ -46,51 +50,3 @@
     background: #fff;
     transform: scale(1.25);
 }
-
-/* ── Form banner di admin (tab Spanduk) ─────────────────────────────────── */
-.admin-banner-form {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 14px;
-    border: 1px dashed var(--border);
-    border-radius: 14px;
-    margin-bottom: 14px;
-}
-.admin-banner-form input[type="text"] {
-    width: 100%;
-    padding: 10px 12px;
-    border-radius: 10px;
-    border: 1px solid var(--border);
-    background: var(--bg-card);
-    color: var(--text-primary);
-    font: inherit;
-}
-.admin-banner-actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    flex-wrap: wrap;
-}
-.admin-banner-btn {
-    padding: 9px 16px;
-    border-radius: 100px;
-    border: none;
-    background: var(--accent-lime);
-    color: var(--text-on-accent);
-    font-weight: 700;
-    font-size: 12px;
-    cursor: pointer;
-}
-.admin-banner-btn--ghost {
-    background: var(--bg-card);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-}
-.admin-banner-btn--danger {
-    background: transparent;
-    color: #e5484d;
-    border: 1px solid #e5484d55;
-}
-.admin-banner-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.admin-banner-msg { font-size: 12px; color: var(--text-secondary); }

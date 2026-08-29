@@ -10,6 +10,7 @@ pub mod merchant_live_pip;
 pub mod merchant_dashboard_product;
 pub mod nav;
 pub mod story_bars;
+pub mod swipe_tabs;
 pub mod toast;
 pub mod variant_editor;
 pub mod story_viewer;
@@ -27,4 +28,5 @@ pub use icons::{
 pub use live_stream::LiveStreamViewer;
 pub use merchant_live_pip::MerchantLivePip;
 pub use nav::{BottomNav, CartButton, ThemeToggle, TopNav};
+pub use swipe_tabs::{SwipeTabBar, TabItem, TabSwipe};
 pub use toast::{use_toast, ToastHost, ToastKind};

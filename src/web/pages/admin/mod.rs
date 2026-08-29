@@ -13,31 +13,25 @@ use leptos_router::components::A;
 
 use crate::web::api::{get_admin_products, get_admin_stats, get_banners};
 use crate::web::app::AuthResource;
-use crate::web::components::{BottomNav, MerchantProductCardShimmer, ThemeToggle};
+use crate::web::components::{
+    BottomNav, MerchantProductCardShimmer, SwipeTabBar, TabItem, TabSwipe, ThemeToggle,
+};
 use crate::web::models::{Product, PaginatedProducts};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum AdminTab {
-    Review,
-    Products,
-    Banners,
-    Analytics,
-    Finance,
-    Settings,
-}
-
-impl AdminTab {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Review    => "Review",
-            Self::Products    => "Produk",
-            Self::Banners   => "Spanduk",
-            Self::Analytics => "Analitik",
-            Self::Finance   => "Keuangan",
-            Self::Settings  => "Pengaturan",
-        }
-    }
-}
+/// Urutan tab, dan SATU-SATUNYA sumber urutannya.
+///
+/// Bilah tab, geseran, dan `match` konten semuanya membaca larik ini lewat
+/// indeks yang sama, jadi menambah tab di kemudian hari mustahil membuat
+/// geseran melompati satu tab — kesalahan yang selalu muncul ketika urutan
+/// bilah dan urutan perpindahan ditulis di dua tempat terpisah.
+const TABS: [&str; 6] = [
+    "Review",
+    "Produk",
+    "Spanduk",
+    "Analitik",
+    "Keuangan",
+    "Pengaturan",
+];
 
 #[component]
 pub fn AdminPage() -> impl IntoView {
@@ -122,17 +116,20 @@ pub fn AdminPage() -> impl IntoView {
         if q == 0 { 0u32 } else { ((total_sold() as f64 / q as f64) * 100.0).round() as u32 }
     };
 
-    let active_page = RwSignal::new(AdminTab::Review);
+    let swipe = TabSwipe::new(TABS.len());
     let toast: RwSignal<Option<(String, bool)>> = RwSignal::new(None);
 
-    let tabs = [
-        AdminTab::Review,
-        AdminTab::Products,
-        AdminTab::Banners,
-        AdminTab::Analytics,
-        AdminTab::Finance,
-        AdminTab::Settings,
-    ];
+    // Lencana "menunggu review" harus ikut turun ke bilah tab bersama tabnya,
+    // jadi ia dibungkus sebagai sinyal turunan alih-alih ditempel sebagai
+    // gaya inline di dalam tombol seperti sebelumnya.
+    let jml_review: Signal<usize> =
+        Signal::derive(move || pending_products.with(|v| v.len()));
+
+    let tab_items: Vec<TabItem> = TABS
+        .iter()
+        .enumerate()
+        .map(|(i, l)| if i == 0 { TabItem::with_badge(l, jml_review) } else { TabItem::new(l) })
+        .collect();
 
     view! {
         <div class="page merchant-page mhub-mobile">
@@ -208,37 +205,7 @@ pub fn AdminPage() -> impl IntoView {
                 </div>
             </div>
 
-            <div class="mhub-mobile-tabs">
-                {tabs.iter().map(|tab| {
-                    let t = *tab;
-                    view! {
-                        <button
-                            class=move || if active_page.get() == t {
-                                "mhub-mtab mhub-mtab--active"
-                            } else {
-                                "mhub-mtab"
-                            }
-                            on:click=move |_| active_page.set(t)>
-                            {t.label()}
-                            {move || {
-                                if t == AdminTab::Review {
-                                    let cnt = pending_products.with(|v| v.len());
-                                    if cnt > 0 {
-                                        return view! {
-                                            <span style="background:#ef4444;color:#fff;border-radius:99px;\
-                                                         font-size:0.65rem;font-weight:700;padding:1px 5px;\
-                                                         margin-left:4px;vertical-align:middle">
-                                                {cnt}
-                                            </span>
-                                        }.into_any();
-                                    }
-                                }
-                                view! { <span/> }.into_any()
-                            }}
-                        </button>
-                    }
-                }).collect_view()}
-            </div>
+            <SwipeTabBar swipe=swipe tabs=tab_items />
 
             {move || toast.get().map(|(msg, is_err)| {
                 let cls = if is_err { "admin-toast admin-toast--err" } else { "admin-toast admin-toast--ok" };
@@ -250,35 +217,49 @@ pub fn AdminPage() -> impl IntoView {
                 }
             })}
 
-            <Suspense fallback=move || {
-                (0..3).map(|_| view! { <MerchantProductCardShimmer /> }).collect_view()
-            }>
-                {move || {
-                    let evs_all = if all_loaded.get() {
-                        all_products.get()
-                    } else {
-                        all_products_res.get()
-                            .and_then(|r| r.ok())
-                            .map(|pg| pg.data)
-                            .unwrap_or_default()
-                    };
-                    let stats_opt = stats_res.get().and_then(|r| r.ok());
-                    let banners_list = banners_res.get()
-                        .and_then(|r| r.ok())
-                        .unwrap_or_default();
+            // Isinya digeser, bukan cuma diketuk. Pendengar sentuhan ada di
+            // pembungkus konten — bilah tab sendiri terlalu tipis untuk digesek.
+            <div
+                class="tabdeck"
+                on:touchstart=swipe.on_start()
+                on:touchmove=swipe.on_move()
+                on:touchend=swipe.on_end()
+                on:touchcancel=swipe.on_end()
+            >
+                <div class="tabdeck-inner" style=move || swipe.gaya_dek()>
+                    <Suspense fallback=move || {
+                        (0..3).map(|_| view! { <MerchantProductCardShimmer /> }).collect_view()
+                    }>
+                        {move || {
+                            let evs_all = if all_loaded.get() {
+                                all_products.get()
+                            } else {
+                                all_products_res.get()
+                                    .and_then(|r| r.ok())
+                                    .map(|pg| pg.data)
+                                    .unwrap_or_default()
+                            };
+                            let stats_opt = stats_res.get().and_then(|r| r.ok());
+                            let banners_list = banners_res.get()
+                                .and_then(|r| r.ok())
+                                .unwrap_or_default();
 
-                    match active_page.get() {
-                        AdminTab::Review    => view_review(pending_products, all_products, toast).into_any(),
-                        AdminTab::Products    => view_all_products(evs_all, all_products, pending_products, toast).into_any(),
-                        AdminTab::Banners   => {
-                            view_banners(banners_list, move || banners_res.refetch()).into_any()
-                        }
-                        AdminTab::Analytics => view_analytics_admin(evs_all, stats_opt).into_any(),
-                        AdminTab::Finance   => view_finance_admin(evs_all).into_any(),
-                        AdminTab::Settings  => view_settings_admin().into_any(),
-                    }
-                }}
-            </Suspense>
+                            // Kelas panel dibaca DI DALAM penutup ini supaya
+                            // pembungkusnya ikut dibangun ulang tiap pindah tab —
+                            // itu yang membuat animasi luncurnya diputar lagi.
+                            let isi = match swipe.index() {
+                                1 => view_all_products(evs_all, all_products, pending_products, toast).into_any(),
+                                2 => view_banners(banners_list, move || banners_res.refetch()).into_any(),
+                                3 => view_analytics_admin(evs_all, stats_opt).into_any(),
+                                4 => view_finance_admin(evs_all).into_any(),
+                                5 => view_settings_admin().into_any(),
+                                _ => view_review(pending_products, all_products, toast).into_any(),
+                            };
+                            view! { <div class=swipe.kelas_panel()>{isi}</div> }
+                        }}
+                    </Suspense>
+                </div>
+            </div>
 
         </div>
         <BottomNav active="admin" />

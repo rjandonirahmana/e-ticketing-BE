@@ -174,6 +174,31 @@ async fn ice_servers() -> Response {
     ok(servers)
 }
 
+/// Selang ping untuk seluruh WS siaran langsung.
+///
+/// Tiga loop WS di berkas ini — `/ws/lives`, publisher, dan subscriber — bisa
+/// DIAM berjam-jam: `/ws/lives` hanya bicara saat daftar room berubah, dan dua
+/// lainnya hanya saat ICE bernegosiasi. Koneksi yang diam adalah koneksi yang
+/// dibunuh perantara: Pingora di depan, lalu NAT operator seluler, memutus TCP
+/// yang tak berlalu-lintas — dan putusnya muncul di log proxy sebagai
+/// `Downstream ReadError ... Connection reset by peer` pada `/ws/lives`, bukan
+/// sebagai galat apa pun di sisi aplikasi.
+///
+/// 25 detik dipilih agar lebih pendek dari idle-timeout perantara yang lazim
+/// (30-60 dtk). `meet/api.rs` sudah melakukan ini sejak awal dan tidak
+/// mengalami masalah yang sama; ketiga loop di bawah tertinggal.
+const WS_PING_INTERVAL: std::time::Duration = std::time::Duration::from_secs(25);
+
+/// Pencacah ping yang tick pertamanya (yang instan) sudah dibuang.
+fn ping_interval() -> tokio::time::Interval {
+    let mut it = tokio::time::interval(WS_PING_INTERVAL);
+    // `Skip`: kalau loop sempat sibuk melewati beberapa tick, jangan lalu
+    // menembakkan ping bertubi-tubi untuk "mengejar" — yang dibutuhkan cuma
+    // satu paket sesekali agar jalur tetap dianggap hidup.
+    it.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    it
+}
+
 /// WS /ws/lives — push daftar room live realtime (pengganti polling).
 /// Kirim snapshot saat connect, lalu tiap ada perubahan.
 async fn lives_ws(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> Response {
@@ -188,8 +213,16 @@ async fn lives_ws_loop(mut socket: WebSocket, state: Arc<AppState>) {
         return;
     }
 
+    let mut ping = ping_interval();
+    ping.tick().await; // tick pertama instan — buang
+
     loop {
         tokio::select! {
+            _ = ping.tick() => {
+                if socket.send(Message::Ping(bytes::Bytes::new())).await.is_err() {
+                    break;
+                }
+            }
             update = rx.recv() => match update {
                 Ok(list) => {
                     let txt = serde_json::to_string(&list).unwrap_or_default();
@@ -368,12 +401,23 @@ async fn live_publish_ws_loop(mut socket: WebSocket, room_id: String, state: Arc
     // room yatim miliknya (perilaku yang memang diinginkan, lihat komentar bawah).
     let offer_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
 
+    let mut ping = ping_interval();
+    ping.tick().await; // tick pertama instan — buang
+
     loop {
         let frame = tokio::select! {
             f = socket.recv() => f,
             _ = tokio::time::sleep_until(offer_deadline), if !negotiated => {
                 tracing::debug!(room_id, "live publish: offer timeout — koneksi ditutup");
                 break;
+            }
+            // Ping tak menghasilkan frame untuk diproses di bawah; `continue`
+            // supaya `match frame` tak perlu mengenal kasus "tak ada apa-apa".
+            _ = ping.tick() => {
+                if socket.send(Message::Ping(bytes::Bytes::new())).await.is_err() {
+                    break;
+                }
+                continue;
             }
         };
         match frame {
@@ -466,8 +510,16 @@ async fn live_subscribe_ws_loop(mut socket: WebSocket, room_id: String, state: A
     // koneksi, sehingga seluruh penonton otomatis keluar dari live.
     let mut changes = state.live_svc.subscribe_changes();
 
+    let mut ping = ping_interval();
+    ping.tick().await; // tick pertama instan — buang
+
     loop {
         tokio::select! {
+            _ = ping.tick() => {
+                if socket.send(Message::Ping(bytes::Bytes::new())).await.is_err() {
+                    break;
+                }
+            }
             // ── Belum subscribe melewati deadline → tutup (hemat resource) ────
             _ = tokio::time::sleep_until(join_deadline), if !subscribed => {
                 tracing::debug!(room_id, "live subscribe: offer timeout — koneksi ditutup");
