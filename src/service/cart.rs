@@ -140,6 +140,21 @@ impl CartService {
 
     /// Tandai satu baris (atau seluruh isi keranjang bila `variant_id` kosong)
     /// ikut atau tidak ikut dibayar.
+    /// Centang/lepas seluruh barang milik SATU toko (atau kelompok mana pun).
+    pub async fn set_selected_many(
+        &self,
+        user_id: &str,
+        variant_ids: &[String],
+        selected: bool,
+        is_premium: bool,
+    ) -> AppResult<CartView> {
+        let cart = self.repo.get_or_create(user_id).await?;
+        self.repo
+            .set_selected_many(&cart.id, variant_ids, selected)
+            .await?;
+        self.view(user_id, is_premium).await
+    }
+
     pub async fn set_selected(
         &self,
         user_id: &str,
@@ -342,6 +357,8 @@ impl CartService {
                 venue: r.venue,
                 cover_url: r.cover_url,
                 event_date: r.event_date,
+                merchant_id: r.merchant_id,
+                merchant_name: r.merchant_name,
                 available: r.available,
                 max_per_order: r.max_per_order,
                 exceeds_stock: r.quantity > r.available,

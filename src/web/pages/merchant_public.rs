@@ -230,16 +230,32 @@ pub fn MerchantPublicPage() -> impl IntoView {
     let ev_extra = RwSignal::new(Vec::<crate::web::models::Product>::new());
     let ev_page = RwSignal::new(1i64);
     let ev_total_pages = RwSignal::new(1i64);
+    // Jumlah SELURUH product toko ini. Dipakai penanda kemajuan di bawah daftar
+    // ("Menampilkan 12 dari 47"). Tanpa angka ini, "MUAT LEBIH BANYAK" tak
+    // memberi tahu apa pun soal seberapa jauh lagi daftarnya — orang menekan
+    // berulang kali tanpa tahu apakah tinggal satu product atau seratus.
+    let ev_total = RwSignal::new(0i64);
     let ev_loading = RwSignal::new(false);
     // Saat merchant (mid) berganti → resource refetch page 1 → reset akumulasi.
     Effect::new(move |_| {
         if let Some(Ok(pe)) = products.get() {
             ev_total_pages.set(pe.total_pages);
+            ev_total.set(pe.total);
             ev_extra.set(Vec::new());
             ev_page.set(1);
         }
     });
     let ev_has_more = move || ev_page.get() < ev_total_pages.get();
+    // Berapa product yang SEDANG tampil: halaman pertama (dari resource) plus
+    // yang sudah ditambahkan lewat "muat lebih banyak".
+    let jml_tampil = move || {
+        let hal1 = products
+            .get()
+            .and_then(|r| r.ok())
+            .map(|pe| pe.data.len())
+            .unwrap_or(0);
+        (hal1 + ev_extra.with(|v| v.len())) as i64
+    };
     // Tanpa argumen agar bisa dipanggil dari tombol DAN listener scroll (infinite
     // scroll ala /explore). Guard loading/total_pages → aman dipanggil berkali-
     // kali per product scroll tanpa fetch ganda.
@@ -918,32 +934,65 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                             // jawaban yang datang tak berurutan
                                             // membuat hasil berkedip-kedip.
                                             <div class="flex items-center gap-2 px-4 pb-3">
-                                                <input
-                                                    class="flex-1 min-w-0 h-10 px-3.5 rounded-full bg-card \
-                                                           border border-solid border-line text-content \
-                                                           text-sm placeholder:text-content-muted"
-                                                    r#type="search"
-                                                    placeholder="Cari product di toko ini…"
-                                                    prop:value=move || cari.get()
-                                                    on:input=move |e| cari.set(event_target_value(&e))
-                                                    on:change=move |_| jalankan_saring()
-                                                />
-                                                <select
-                                                    class="h-10 px-2.5 rounded-full bg-card border border-solid \
-                                                           border-line text-content text-[12px] shrink-0"
-                                                    aria-label="Urutkan product"
-                                                    prop:value=move || urut.get()
-                                                    on:change=move |e| {
-                                                        urut.set(event_target_value(&e));
-                                                        jalankan_saring();
-                                                    }
-                                                >
+                                                // Ikon di DALAM kolom: tanpa itu kolom
+                                                // cari dan kolom urut tampak sebagai dua
+                                                // pil kosong yang setara, dan mana yang
+                                                // bisa diketik tak terbaca sampai dicoba.
+                                                <div class="relative flex-1 min-w-0">
+                                                    <svg
+                                                        width="15" height="15" viewBox="0 0 24 24" fill="none"
+                                                        stroke="currentColor" stroke-width="2"
+                                                        stroke-linecap="round"
+                                                        class="absolute left-3.5 top-1/2 -translate-y-1/2 \
+                                                               text-content-muted pointer-events-none"
+                                                    >
+                                                        <circle cx="11" cy="11" r="7" />
+                                                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                                                    </svg>
+                                                    <input
+                                                        class="w-full h-10 pl-10 pr-3.5 rounded-full bg-card \
+                                                               border border-solid border-line text-content \
+                                                               text-sm placeholder:text-content-muted"
+                                                        r#type="search"
+                                                        placeholder="Cari di toko ini…"
+                                                        prop:value=move || cari.get()
+                                                        on:input=move |e| cari.set(event_target_value(&e))
+                                                        on:change=move |_| jalankan_saring()
+                                                    />
+                                                </div>
+                                                // `appearance-none` + chevron sendiri:
+                                                // panah bawaan sistem muncul sebagai dua
+                                                // segitiga bertumpuk yang tak mengikuti
+                                                // tema mana pun dan terlihat asing di
+                                                // antara komponen lain.
+                                                <div class="relative shrink-0">
+                                                    <select
+                                                        class="appearance-none h-10 pl-3.5 pr-8 rounded-full \
+                                                               bg-card border border-solid border-line \
+                                                               text-content text-[12px] cursor-pointer"
+                                                        aria-label="Urutkan product"
+                                                        prop:value=move || urut.get()
+                                                        on:change=move |e| {
+                                                            urut.set(event_target_value(&e));
+                                                            jalankan_saring();
+                                                        }
+                                                    >
                                                     <option value="">"Paling sesuai"</option>
                                                     <option value="harga_asc">"Harga termurah"</option>
                                                     <option value="harga_desc">"Harga tertinggi"</option>
                                                     <option value="terlaris">"Terlaris"</option>
-                                                    <option value="terbaru">"Terbaru"</option>
-                                                </select>
+                                                        <option value="terbaru">"Terbaru"</option>
+                                                    </select>
+                                                    <svg
+                                                        width="12" height="12" viewBox="0 0 24 24" fill="none"
+                                                        stroke="currentColor" stroke-width="2.5"
+                                                        stroke-linecap="round"
+                                                        class="absolute right-3 top-1/2 -translate-y-1/2 \
+                                                               text-content-muted pointer-events-none"
+                                                    >
+                                                        <polyline points="6 9 12 15 18 9" />
+                                                    </svg>
+                                                </div>
                                             </div>
 
                                             <Suspense fallback=|| {
@@ -983,26 +1032,63 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                                         empty="Belum ada product aktif."
                                                                     />
                                                                     {move || {
-                                                                        ev_has_more()
-                                                                            .then(|| {
-                                                                                view! {
-                                                                                    <div class="mp-more-wrap">
-                                                                                        <button
-                                                                                            class="mp-more-btn"
-                                                                                            disabled=move || ev_loading.get()
-                                                                                            on:click=load_more_products
-                                                                                        >
-                                                                                            {move || {
-                                                                                                if ev_loading.get() {
-                                                                                                    "MEMUAT…"
-                                                                                                } else {
-                                                                                                    "MUAT LEBIH BANYAK"
-                                                                                                }
-                                                                                            }}
-                                                                                        </button>
-                                                                                    </div>
-                                                                                }
-                                                                            })
+                                                                        Some(
+                                                                            view! {
+                                                                                <div class="mp-more-wrap">
+                                                                                    // Penanda kemajuan. Tanpa ini
+                                                                                    // "MUAT LEBIH BANYAK" tak memberi
+                                                                                    // tahu seberapa jauh lagi daftarnya
+                                                                                    // — orang menekan berulang tanpa
+                                                                                    // tahu tinggal satu product atau
+                                                                                    // seratus.
+                                                                                    <span class="mp-more-count">
+                                                                                        {move || {
+                                                                                            let tampil = jml_tampil();
+                                                                                            let total = ev_total.get();
+                                                                                            if total <= 0 {
+                                                                                                String::new()
+                                                                                            } else {
+                                                                                                format!(
+                                                                                                    "Menampilkan {tampil} dari {total} product",
+                                                                                                )
+                                                                                            }
+                                                                                        }}
+                                                                                    </span>
+                                                                                    {move || {
+                                                                                        if ev_has_more() {
+                                                                                            view! {
+                                                                                                <button
+                                                                                                    class="mp-more-btn"
+                                                                                                    disabled=move || ev_loading.get()
+                                                                                                    on:click=load_more_products
+                                                                                                >
+                                                                                                    {move || {
+                                                                                                        if ev_loading.get() {
+                                                                                                            "MEMUAT…"
+                                                                                                        } else {
+                                                                                                            "MUAT LEBIH BANYAK"
+                                                                                                        }
+                                                                                                    }}
+                                                                                                </button>
+                                                                                            }
+                                                                                                .into_any()
+                                                                                        } else {
+                                                                                            // Akhir daftar dinyatakan,
+                                                                                            // bukan dibiarkan senyap:
+                                                                                            // tombol yang hilang begitu
+                                                                                            // saja tak bisa dibedakan
+                                                                                            // dari gagal memuat.
+                                                                                            view! {
+                                                                                                <span class="mp-more-end">
+                                                                                                    "— semua product sudah tampil —"
+                                                                                                </span>
+                                                                                            }
+                                                                                                .into_any()
+                                                                                        }
+                                                                                    }}
+                                                                                </div>
+                                                                            },
+                                                                        )
                                                                     }}
                                                                 }
                                                                     .into_any()

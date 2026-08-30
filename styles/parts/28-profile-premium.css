@@ -9,7 +9,10 @@
    * — banner ini melebar sedikit di kedua sisi dibanding semua kartu di
    * atas dan di bawahnya, sehingga tepi kiri halaman tampak bergerigi saat
    * digulir. */
-  margin: 0 20px 20px;
+  /* 28px di bawah, menyamai ritme `.menu-section` — banner ini berdiri di
+   * aliran vertikal yang sama, dan 20px membuatnya sedikit lebih rapat ke
+   * bagian di bawahnya tanpa alasan. */
+  margin: 0 20px 28px;
   padding: 14px 16px;
   border-radius: 18px;
   background: linear-gradient(135deg, #1a2a10, #0d1c08);

@@ -49,6 +49,23 @@ fn initial_of(name: &str) -> String {
 /// yang muat di layar ponsel sebelum digulir — dan berhenti di situ.
 const MAX_PRATINJAU: usize = 4;
 
+/// Boleh atau tidak kartu ke-`i` memutar video, mengingat kartu mana saja yang
+/// sedang terlihat.
+///
+/// Fungsi murni, dan sengaja: inilah satu-satunya rem antara "daftar siaran"
+/// dan "membuka koneksi WebRTC ke setiap siaran di daftar itu". Kalau ia
+/// longgar, satu orang membuka `/lives` bisa menimbulkan dua puluh peer di SFU
+/// yang berjalan satu utas — dan kegagalannya tidak muncul sebagai galat,
+/// melainkan sebagai siaran semua orang yang tersendat.
+///
+/// `terlihat` adalah `BTreeSet` supaya urutannya bermakna: saat kartu yang
+/// terlihat lebih banyak dari plafon, yang menang adalah yang paling ATAS —
+/// bukan yang kebetulan lebih dulu dilaporkan pengamat, yang urutannya tak
+/// dijamin oleh IntersectionObserver.
+fn boleh_pratinjau(terlihat: &std::collections::BTreeSet<usize>, i: usize) -> bool {
+    terlihat.iter().take(MAX_PRATINJAU).any(|&x| x == i)
+}
+
 #[component]
 pub fn LivesPage() -> impl IntoView {
     let rooms = RwSignal::new(Vec::<RoomInfo>::new());
@@ -64,9 +81,7 @@ pub fn LivesPage() -> impl IntoView {
     // lebih dulu dilaporkan pengamat, yang urutannya tak dijamin.
     let terlihat: RwSignal<std::collections::BTreeSet<usize>> =
         RwSignal::new(std::collections::BTreeSet::new());
-    let boleh_pratinjau = move |i: usize| {
-        terlihat.with(|v| v.iter().take(MAX_PRATINJAU).any(|&x| x == i))
-    };
+    let boleh_pratinjau = move |i: usize| terlihat.with(|v| boleh_pratinjau(v, i));
 
     let load = move || {
         loading.set(true);
@@ -434,5 +449,86 @@ pub fn LivesPage() -> impl IntoView {
                 }.into_any()
             }
         }}
+    }
+}
+
+// ─── Uji plafon pratinjau ─────────────────────────────────────────────────────
+//
+// Tiap kartu yang memutar video = SATU peer subscriber di SFU, dan SFU-nya satu
+// utas. Jadi aturan di bawah bukan preferensi tampilan melainkan plafon beban:
+// ia yang memutuskan berapa koneksi WebRTC yang ditimbulkan SATU orang saat
+// membuka halaman ini. Longgar sedikit, dan yang rusak bukan halaman ini —
+// melainkan siaran semua orang.
+#[cfg(test)]
+mod tests_pratinjau {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    fn terlihat(indeks: &[usize]) -> BTreeSet<usize> {
+        indeks.iter().copied().collect()
+    }
+
+    /// Tak ada yang terlihat → tak ada koneksi sama sekali. Ini keadaan saat
+    /// halaman baru dibuka sebelum pengamat melapor, dan saat feed fullscreen
+    /// menutupi daftar.
+    #[test]
+    fn tak_terlihat_tak_memutar() {
+        let t = terlihat(&[]);
+        for i in 0..10 {
+            assert!(!boleh_pratinjau(&t, i));
+        }
+    }
+
+    /// Di bawah plafon, semua yang terlihat boleh memutar.
+    #[test]
+    fn di_bawah_plafon_semua_boleh() {
+        let t = terlihat(&[0, 1, 2]);
+        for i in [0, 1, 2] {
+            assert!(boleh_pratinjau(&t, i), "kartu {i} terlihat dan masih di bawah plafon");
+        }
+        assert!(!boleh_pratinjau(&t, 3), "kartu 3 tidak terlihat");
+    }
+
+    /// Tepat di plafon: keempatnya boleh.
+    #[test]
+    fn tepat_di_plafon() {
+        let t = terlihat(&[0, 1, 2, 3]);
+        assert_eq!((0..4).filter(|&i| boleh_pratinjau(&t, i)).count(), MAX_PRATINJAU);
+    }
+
+    /// MELEBIHI plafon — inilah kasus yang menjaga server. Sepuluh kartu
+    /// terlihat sekaligus (layar lebar), hanya empat yang boleh memutar.
+    #[test]
+    fn di_atas_plafon_dibatasi() {
+        let t = terlihat(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        let boleh: Vec<usize> = (0..10).filter(|&i| boleh_pratinjau(&t, i)).collect();
+        assert_eq!(boleh.len(), MAX_PRATINJAU, "tak boleh lebih dari plafon");
+        assert_eq!(boleh, vec![0, 1, 2, 3], "yang menang adalah yang paling ATAS");
+    }
+
+    /// Setelah digulir ke bawah, yang menang adalah empat teratas dari yang
+    /// SEDANG terlihat — bukan empat pertama dari seluruh daftar.
+    #[test]
+    fn setelah_digulir_mengikuti_yang_terlihat() {
+        let t = terlihat(&[6, 7, 8, 9, 10, 11]);
+        let boleh: Vec<usize> = (0..12).filter(|&i| boleh_pratinjau(&t, i)).collect();
+        assert_eq!(boleh, vec![6, 7, 8, 9]);
+        assert!(!boleh_pratinjau(&t, 0), "kartu yang sudah tergulir keluar berhenti memutar");
+    }
+
+    /// Urutan pelaporan pengamat tak boleh mengubah hasil — IntersectionObserver
+    /// tidak menjamin urutan entri, dan hasil yang bergantung padanya akan
+    /// membuat kartu berkedip nyala-mati saat digulir.
+    #[test]
+    fn urutan_laporan_tak_mempengaruhi() {
+        let a = terlihat(&[9, 3, 7, 1, 5]);
+        let b = terlihat(&[1, 3, 5, 7, 9]);
+        for i in 0..12 {
+            assert_eq!(
+                boleh_pratinjau(&a, i),
+                boleh_pratinjau(&b, i),
+                "kartu {i} harus sama apa pun urutan laporannya"
+            );
+        }
     }
 }

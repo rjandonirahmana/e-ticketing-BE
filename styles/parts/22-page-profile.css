@@ -107,8 +107,24 @@
 .stat-value--accent {
     color: var(--accent-lime);
 }
+/* Jarak BAWAH 28px, dan di situlah letak perbaikannya.
+ *
+ * Nilainya dulu `0 20px` — nol di bawah. Satu-satunya jarak vertikal di
+ * halaman ini datang dari `margin-bottom` label, yang memisahkan label dari
+ * daftarnya, BUKAN satu bagian dari apa pun yang menyusul. Akibatnya berbeda-
+ * beda tergantung apa yang kebetulan ada di bawahnya:
+ *
+ *   • bagian berikutnya  → labelnya menempel ke kalimat penutup bagian
+ *                          sebelumnya ("Belum ada story…" bertumpuk "BELANJA");
+ *   • kartu poin ungu    → menempel RAPAT ke kartu "Sign Out" di atasnya,
+ *                          karena `.profile-points-card` juga bermargin-atas 0.
+ *
+ * Diselesaikan di SATU tempat: bagian menu membawa jarak bawahnya sendiri,
+ * jadi apa pun yang menyusul otomatis dapat ruang yang sama. Versi sebelumnya
+ * memakai selektor tetangga `.menu-section + .menu-section`, dan itu hanya
+ * menutup kasus bagian-ke-bagian — kartu poin di ujung daftar tetap menempel. */
 .menu-section {
-    padding: 0 20px;
+    padding: 0 20px 28px;
 }
 .menu-section-label {
     display: block;
@@ -297,6 +313,8 @@
     background: rgba(255, 255, 255, 0.25);
 }
 
+/* Kalimat "belum ada story" adalah penutup bagian, bukan baris di tengah
+ * daftar — beri ruang di bawahnya supaya tak menempel ke apa pun. */
 .my-stories-hint {
     font-size: 13px;
     color: var(--text-muted, rgba(255,255,255,0.6));

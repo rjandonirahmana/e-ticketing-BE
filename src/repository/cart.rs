@@ -153,6 +153,17 @@ static SET_ALL_SELECTED: &str = r#"
      WHERE cart_id = $1 AND selected <> $2
 "#;
 
+/// Centang/lepas SEKELOMPOK varian sekaligus.
+///
+/// `= ANY($2)` dan bukan satu UPDATE per varian: mencentang satu toko berisi
+/// sepuluh barang kalau tidak menjadi sepuluh perjalanan bolak-balik ke
+/// database — dan, lebih buruk, sepuluh permintaan HTTP dari peramban yang
+/// masing-masing menghitung ulang seluruh tampilan keranjang.
+static SET_SELECTED_MANY: &str = r#"
+    UPDATE cart_items SET selected = $3, updated_at = NOW()
+     WHERE cart_id = $1 AND ticket_variant_id = ANY($2)
+"#;
+
 static REMOVE_ITEM: &str =
     "DELETE FROM cart_items WHERE cart_id = $1 AND ticket_variant_id = $2";
 
@@ -176,12 +187,20 @@ static LIST_ITEMS: LazyLock<String> = LazyLock::new(|| {
                e.slug                  AS event_slug,
                COALESCE(e.venue, '')   AS venue,
                COALESCE(e.cover_url,'') AS cover_url,
-               e.event_date
+               e.event_date,
+               e.merchant_id,
+               COALESCE(md.store_name, '') AS merchant_name
            FROM cart_items ci
            JOIN product_variants ev ON ci.ticket_variant_id = ev.id
            JOIN products e          ON ev.event_id = e.id
+           -- LEFT, bukan INNER: merchant yang belum melengkapi profil tokonya
+           -- tak punya baris `merchant_details`, dan INNER JOIN akan membuat
+           -- SELURUH barangnya lenyap dari keranjang pembeli tanpa jejak.
+           LEFT JOIN merchant_details md ON md.user_id = e.merchant_id
            WHERE ci.cart_id = $1
-           ORDER BY ci.created_at"#,
+           -- Diurutkan per merchant lebih dulu supaya pengelompokan di UI
+           -- stabil; `created_at` tetap menentukan urutan DI DALAM satu toko.
+           ORDER BY e.merchant_id, ci.created_at"#,
         price = EFFECTIVE_PRICE
     )
 });
@@ -239,6 +258,12 @@ pub struct CartItemRow {
     pub venue: String,
     pub cover_url: String,
     pub event_date: Option<chrono::DateTime<chrono::Utc>>,
+    /// Pemilik product — dipakai keranjang untuk mengelompokkan per toko dan
+    /// menautkan ke halaman merchant.
+    pub merchant_id: String,
+    /// Nama toko (`merchant_details.store_name`). Kosong bila merchant belum
+    /// melengkapi profilnya; UI menampilkan label cadangan, bukan tautan mati.
+    pub merchant_name: String,
 }
 
 // ── Trait ────────────────────────────────────────────────────────────────────
@@ -267,6 +292,14 @@ pub trait CartRepository: Send + Sync {
 
     /// Tandai seluruh isi keranjang sekaligus.
     async fn set_all_selected(&self, cart_id: &str, selected: bool) -> Result<u64>;
+
+    /// Centang/lepas sekelompok varian dalam SATU pernyataan.
+    async fn set_selected_many(
+        &self,
+        cart_id: &str,
+        variant_ids: &[String],
+        selected: bool,
+    ) -> Result<u64>;
     async fn clear_items(&self, cart_id: &str) -> Result<u64>;
 
     /// Buang barang yang tak bisa dibeli lagi; kembalikan "Nama Product — Varian".
@@ -339,6 +372,12 @@ fn row_to_item(row: &Row) -> Result<CartItemRow> {
         venue: row.try_get("venue").unwrap_or_default(),
         cover_url: row.try_get("cover_url").unwrap_or_default(),
         event_date: row.try_get("event_date").ok().flatten(),
+        merchant_id: row
+            .try_get::<_, Vec<u8>>("merchant_id")
+            .ok()
+            .and_then(|v| bin_to_ulid(v).ok())
+            .unwrap_or_default(),
+        merchant_name: row.try_get("merchant_name").unwrap_or_default(),
     })
 }
 
@@ -414,6 +453,26 @@ impl CartRepository for PgCartRepository {
     async fn set_all_selected(&self, cart_id: &str, selected: bool) -> Result<u64> {
         let cid = id_to_vec(cart_id)?;
         super::db::exec_drop(&self.pool, SET_ALL_SELECTED, &[&cid, &selected]).await
+    }
+
+    async fn set_selected_many(
+        &self,
+        cart_id: &str,
+        variant_ids: &[String],
+        selected: bool,
+    ) -> Result<u64> {
+        if variant_ids.is_empty() {
+            return Ok(0);
+        }
+        let cid = id_to_vec(cart_id)?;
+        // Id yang tak bisa diurai DILEWATI, bukan menggagalkan seluruh operasi:
+        // satu id rusak dari klien tak boleh membuat sembilan barang lain gagal
+        // dicentang.
+        let vids: Vec<Vec<u8>> = variant_ids.iter().filter_map(|v| id_to_vec(v).ok()).collect();
+        if vids.is_empty() {
+            return Ok(0);
+        }
+        super::db::exec_drop(&self.pool, SET_SELECTED_MANY, &[&cid, &vids, &selected]).await
     }
 
     async fn clear_items(&self, cart_id: &str) -> Result<u64> {

@@ -1042,13 +1042,36 @@
     animation: page-enter 0.18s ease-out both;
 }
 
-/* Focus rings */
-input:focus,
-select:focus,
-textarea:focus,
+/* ── Cincin fokus ─────────────────────────────────────────────────────────
+   Tombol tetap memakai garis tegas: ia hanya muncul lewat `:focus-visible`,
+   yaitu saat orang bernavigasi dengan papan ketik, dan di situ penanda yang
+   tegas memang yang dibutuhkan.
+
+   Field teks DIPISAH karena perilakunya berbeda: `:focus` menyala pada SETIAP
+   klik tetikus, bukan hanya navigasi papan ketik. Garis 2px yang MENGAMBANG
+   2px di luar bentuknya karena itu tampil pada tiap orang yang sekadar
+   mengetuk kolom cari — dan pada kolom `rounded-full`, garis terpisah yang
+   mengikuti lengkungan penuh itu terbaca seperti galat, bukan seperti fokus.
+
+   Gantinya: garis rambut yang MEMELUK bentuknya (offset 0) plus halo lembut.
+   Tetap jelas terlihat — syarat fokus yang bisa dilihat tak dilanggar — tapi
+   tak lagi berteriak. Ini juga menyamakan seluruh aplikasi dengan gaya yang
+   sudah dipakai `.abn-field` di tab Spanduk. */
 button:focus-visible {
     outline: 2px solid var(--accent-lime);
     outline-offset: 2px;
+}
+input:focus,
+select:focus,
+textarea:focus {
+    /* `outline`, BUKAN `border-color`: kolom-kolom ini memakai utility Tailwind
+       (`border-line`) untuk tepinya, dan utility hidup di layer yang MENANG
+       atas CSS lama ini — berapa pun spesifisitasnya. Mengubah `border-color`
+       dari sini tak akan berpengaruh apa pun. `outline` dan `box-shadow` tak
+       disentuh utility itu, jadi keduanya berlaku. */
+    outline: 1px solid var(--accent-lime);
+    outline-offset: 0;
+    box-shadow: 0 0 0 3px var(--color-primary-glow);
 }
 
 /* Bottom nav micro-interaction */

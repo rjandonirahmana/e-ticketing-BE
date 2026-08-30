@@ -17,7 +17,7 @@ const BUF_SIZE: usize = 65535;
 /// Saat idle thread benar-benar tidur di syscall ini (bukan spin yang membakar
 /// satu core CPU), tapi tetap bangun cukup sering untuk memproses command,
 /// menjalankan timer str0m, dan burst keyframe untuk penonton baru.
-const MAX_POLL_WAIT: Duration = Duration::from_millis(10);
+pub(super) const MAX_POLL_WAIT: Duration = Duration::from_millis(10);
 /// Timeout `recv_from` saat SFU benar-benar idle (tak ada room & peer): thread
 /// cukup bangun 4×/dtk untuk mengecek command, bukan 100×/dtk. Menghemat CPU
 /// 24/7 karena mayoritas waktu server TIDAK sedang ada siaran. Trade-off:
@@ -194,20 +194,32 @@ pub struct SfuEngine {
 }
 
 impl SfuEngine {
+    /// Jalankan engine di atas socket yang SUDAH terikat.
+    ///
+    /// Socket-nya sengaja diikat oleh pemanggil (`LiveStreamService::new`), di
+    /// utas utama, BUKAN di sini. Dulu `bind` dilakukan di dalam fungsi ini,
+    /// yang berjalan di OS thread tersendiri — dan `.expect()` yang gagal di
+    /// sana hanya membunuh UTAS ITU. Prosesnya sendiri jalan terus: Axum tetap
+    /// mengikat portnya, log tetap menulis "listening", healthcheck tetap
+    /// hijau, dan deploy tetap dinyatakan sukses.
+    ///
+    /// Yang mati diam-diam cuma siaran langsung. Penerima perintah SFU ikut
+    /// terbuang bersama utasnya, jadi setiap "GO LIVE" berikutnya gagal dengan
+    /// galat channel tertutup yang tak menyebut-nyebut port sama sekali. Satu
+    /// port UDP yang terpakai proses lain sudah cukup untuk menghasilkan itu —
+    /// persis yang terjadi saat satu instance lama masih hidup.
+    ///
+    /// Dengan bind di utas utama, kegagalannya menghentikan startup, dan
+    /// pesannya menyebut portnya.
     pub fn run(
-        bind_addr: SocketAddr,
+        socket: UdpSocket,
         candidate_addr: SocketAddr,
         cmd_rx: mpsc::Receiver<SfuCommand>,
         product_tx: mpsc::Sender<SfuEvent>,
     ) {
-        let socket = UdpSocket::bind(bind_addr).expect("Failed to bind SFU UDP socket");
-        // Socket BLOCKING dengan read-timeout: `recv_from` tidur hingga ada paket
-        // atau `MAX_POLL_WAIT` lewat, alih-alih spin non-blocking yang membakar
-        // satu core CPU terus-menerus walau tak ada siaran.
-        socket
-            .set_read_timeout(Some(MAX_POLL_WAIT))
-            .expect("Failed to set SFU socket read timeout");
-        let bound = socket.local_addr().expect("Failed to get local addr");
+        let bound = socket
+            .local_addr()
+            .expect("socket SFU sudah terikat, local_addr mustahil gagal");
         tracing::info!(bind = %bound, candidate = %candidate_addr, "SFU UDP socket bound");
 
         let mut engine = Self {

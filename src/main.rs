@@ -386,7 +386,25 @@ async fn run() -> Result<()> {
         ))
         .layer(tower_http::compression::CompressionLayer::new());
 
-    let listener = TcpListener::bind(socket_addr).await?;
+    // Galat `bind` DIBERI KONTEKS alamatnya.
+    //
+    // `TcpListener::bind(..).await?` apa adanya menghasilkan "Address already in
+    // use (os error 48)" — tanpa menyebut alamat, port, maupun bahwa yang gagal
+    // adalah listener HTTP. Proses ini mengikat DUA port (HTTP di sini, UDP SFU
+    // di `LiveStreamService::new`), jadi pesan tanpa alamat itu tak bisa
+    // dibedakan antara keduanya: satu-satunya cara mengetahuinya adalah membaca
+    // backtrace dan mengenali frame mana yang muncul. Menaikkan port yang salah
+    // lalu mendapati galat yang sama persis adalah akibat langsungnya.
+    let listener = TcpListener::bind(socket_addr).await.map_err(|e| {
+        anyhow::anyhow!(
+            "gagal mengikat HTTP {socket_addr}: {e}. \
+             Penyebab tersering: satu instance aplikasi ini MASIH BERJALAN dan \
+             memegang portnya (periksa `lsof -nP -iTCP:{port} -sTCP:LISTEN`). \
+             Perhatikan ini port HTTP, BUKAN port UDP SFU — keduanya diikat \
+             terpisah dan galatnya terlihat sama.",
+            port = socket_addr.port()
+        )
+    })?;
     tracing::info!("Pulse (SSR + WebSocket) listening on http://{}", bind_addr);
     tracing::info!("   Server fns   : http://{}/api-fn/*", bind_addr);
     tracing::info!("   SSR pages    : http://{}/*", bind_addr);

@@ -577,6 +577,17 @@ pub struct CartItemView {
     #[serde(default)]
     pub event_date: Option<DateTime<Utc>>,
 
+    /// Pemilik product — keranjang mengelompokkan baris per toko.
+    ///
+    /// `serde(default)`: keranjang TAMU tersimpan di localStorage peramban, dan
+    /// salinan yang ditulis versi lama aplikasi tak memuat field ini. Tanpa
+    /// bawaan, keranjang lama gagal dibaca dan isinya lenyap saat orang membuka
+    /// halaman setelah pembaruan.
+    #[serde(default)]
+    pub merchant_id: String,
+    #[serde(default)]
+    pub merchant_name: String,
+
     pub quantity: i32,
     /// Harga berlaku sekarang.
     pub unit_price: i64,

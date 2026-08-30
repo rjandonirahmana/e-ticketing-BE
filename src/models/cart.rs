@@ -48,6 +48,11 @@ pub struct CartItemView {
     pub cover_url: String,
     pub event_date: Option<DateTime<Utc>>,
 
+    /// Pemilik product. Keranjang mengelompokkan baris per toko dan menautkan
+    /// judulnya ke `/m/{merchant_id}`.
+    pub merchant_id: String,
+    pub merchant_name: String,
+
     /// Sisa stok varian (quota − sold) saat keranjang dibaca.
     pub available: i32,
     pub max_per_order: Option<i32>,

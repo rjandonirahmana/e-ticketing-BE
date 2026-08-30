@@ -252,6 +252,36 @@ impl CartContext {
         }
     }
 
+    /// Centang / lepas centang seluruh barang milik SATU toko.
+    ///
+    /// Satu permintaan untuk seluruh kelompok, bukan satu per barang: toko
+    /// berisi sepuluh barang kalau tidak menimbulkan sepuluh perjalanan bolak-
+    /// balik yang masing-masing menghitung ulang seluruh tampilan keranjang,
+    /// dan jawabannya yang datang tak berurutan membuat centangnya berkedip.
+    pub fn select_group(&self, tier_ids: Vec<String>, selected: bool) {
+        if tier_ids.is_empty() {
+            return;
+        }
+        self.items.update(|v| {
+            for it in v.iter_mut() {
+                if tier_ids.iter().any(|t| *t == it.tier_id) {
+                    it.selected = selected;
+                }
+            }
+        });
+        self.after_local_change();
+
+        if self.authed.get_untracked() {
+            let this = *self;
+            spawn(async move {
+                match crate::web::api::select_cart_items(tier_ids, selected).await {
+                    Ok(view) => this.apply(view),
+                    Err(e) => this.fail_and_resync(e),
+                }
+            });
+        }
+    }
+
     /// Pasang / lepas kode promo (hanya untuk pengguna yang sudah masuk —
     /// promo divalidasi server, tak ada versi tamunya).
     pub fn set_promo(&self, code: Option<String>) {
@@ -587,6 +617,12 @@ fn line_from(item: &CartItem, quantity: i32) -> CartItemView {
         tier_name: item.tier_name.clone(),
         venue_name: item.venue_name.clone(),
         event_cover: item.event_cover.clone(),
+        // Keranjang TAMU tak tahu pemilik product-nya: yang disimpan di
+        // localStorage hanya secukupnya untuk menampilkan baris. Dibiarkan
+        // kosong, dan UI menanganinya sebagai "tanpa toko" — bukan tautan mati.
+        // Nilai sebenarnya datang begitu server menjawab (setelah masuk).
+        merchant_id: String::new(),
+        merchant_name: String::new(),
         event_date: None,
         quantity,
         unit_price: item.unit_price,

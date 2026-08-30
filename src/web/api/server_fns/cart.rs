@@ -36,6 +36,8 @@ pub(super) fn srv_cart_to_web(c: crate::models::cart::CartView) -> CartView {
                 venue_name: i.venue,
                 event_cover: i.cover_url,
                 event_date: i.event_date,
+                merchant_id: i.merchant_id,
+                merchant_name: i.merchant_name,
                 quantity: i.quantity,
                 unit_price: i.unit_price.to_i64().unwrap_or(0),
                 unit_price_snapshot: i.unit_price_snapshot.to_i64().unwrap_or(0),
@@ -143,6 +145,23 @@ pub async fn select_cart_item(
             selected,
             premium,
         )
+        .await
+        .map_err(map_app_error)?;
+    return Ok(srv_cart_to_web(cart));
+}
+
+/// Centang/lepas seluruh barang milik satu toko dalam SATU permintaan.
+#[server(SelectCartItems, "/api-fn")]
+pub async fn select_cart_items(
+    tier_ids: Vec<String>,
+    selected: bool,
+) -> Result<CartView, ServerFnError> {
+    let claims = auth_claims().await?;
+    let state = app_state().await?;
+    let premium = premium_of(&state, &claims.user_id).await;
+    let cart = state
+        .cart_svc
+        .set_selected_many(&claims.user_id, &tier_ids, selected, premium)
         .await
         .map_err(map_app_error)?;
     return Ok(srv_cart_to_web(cart));

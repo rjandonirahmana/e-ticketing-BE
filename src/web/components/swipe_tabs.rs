@@ -37,7 +37,49 @@ const INTIP: f64 = 0.16;
 
 /// Gerakan minimum sebelum sumbu diputuskan (piksel). Di bawah ini arah jari
 /// masih derau.
-const AMBANG_SUMBU: f64 = 10.0;
+pub(crate) const AMBANG_SUMBU: f64 = 10.0;
+
+// ─── Keputusan gerakan (murni) ────────────────────────────────────────────────
+//
+// Dipisahkan dari sinyal supaya bisa diuji tanpa DOM maupun runtime reaktif.
+// Dua keputusan di bawah inilah yang menentukan apakah geseran terasa benar
+// atau justru mencuri gulir orang, dan keduanya mudah rusak diam-diam saat
+// ambangnya disetel ulang.
+
+/// Sumbu gerakan, bila sudah cukup jauh untuk diputuskan.
+///
+/// `None` = jarinya belum bergerak cukup jauh; arahnya masih derau dan
+/// menguncinya sekarang akan salah separuh waktu.
+/// `Some(true)` = horizontal (milik kita), `Some(false)` = vertikal (gulir).
+pub(crate) fn sumbu_horizontal(dx: f64, dy: f64) -> Option<bool> {
+    if dx.abs().max(dy.abs()) < AMBANG_SUMBU {
+        return None;
+    }
+    Some(dx.abs() > dy.abs() * DOMINASI_H)
+}
+
+/// Tab tujuan setelah jari diangkat, atau `None` bila tak ada perpindahan.
+///
+/// `dx` negatif = geser ke KIRI = maju ke tab berikutnya, mengikuti arah kertas
+/// yang ditarik.
+fn tujuan_geser(kini: usize, len: usize, dx: f64) -> Option<usize> {
+    if len == 0 {
+        return None;
+    }
+    // Sentuhan pendek adalah KETUKAN, bukan geseran. Tanpa ambang ini, menekan
+    // tombol di dalam daftar ikut memindahkan tab.
+    if dx.abs() < GESER_MIN {
+        return None;
+    }
+    let tujuan = if dx < 0.0 {
+        (kini + 1).min(len - 1)
+    } else {
+        kini.saturating_sub(1)
+    };
+    // Di ujung, diam — bukan melingkar. Melompat dari tab terakhir ke tab
+    // pertama terasa seperti tergelincir, bukan berpindah.
+    (tujuan != kini).then_some(tujuan)
+}
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -156,10 +198,10 @@ impl TabSwipe {
             // sedikit melenceng ke samping di tengah jalan akan mendadak
             // menggeser panel.
             if self.sumbu.get_value().is_none() {
-                if dx.abs().max(dy.abs()) < AMBANG_SUMBU {
-                    return;
+                match sumbu_horizontal(dx, dy) {
+                    None => return,
+                    putusan => self.sumbu.set_value(putusan),
                 }
-                self.sumbu.set_value(Some(dx.abs() > dy.abs() * DOMINASI_H));
             }
             if self.sumbu.get_value() != Some(true) {
                 return;
@@ -192,21 +234,10 @@ impl TabSwipe {
             }
             let Some(t) = e.changed_touches().get(0) else { return };
             let dx = t.client_x() as f64 - self.awal.get_value().0;
-            // Sentuhan pendek adalah KETUKAN. Tanpa ambang ini, menekan tombol
-            // di dalam daftar ikut berpindah tab.
-            if dx.abs() < GESER_MIN {
-                return;
-            }
             let i = self.idx.get_untracked();
-            // Geser ke KIRI (dx negatif) = maju ke tab berikutnya, mengikuti
-            // arah kertas yang ditarik. Di ujung, diam — bukan melingkar:
-            // melompat dari tab terakhir ke tab pertama terasa tergelincir.
-            let tujuan = if dx < 0.0 {
-                (i + 1).min(self.len - 1)
-            } else {
-                i.saturating_sub(1)
-            };
-            self.go(tujuan);
+            if let Some(tujuan) = tujuan_geser(i, self.len, dx) {
+                self.go(tujuan);
+            }
         }
     }
 
@@ -315,5 +346,101 @@ pub fn SwipeTabBar(swipe: TabSwipe, tabs: Vec<TabItem>) -> impl IntoView {
                 <span class="mhub-mtab-ink" style=move || swipe.gaya_ink()></span>
             </div>
         </div>
+    }
+}
+
+// ─── Uji keputusan gerakan ────────────────────────────────────────────────────
+//
+// Bilah tab ini dipakai Merchant Hub dan Pusat Admin, dan isinya daftar panjang
+// yang digulir ke bawah. Dua kegagalan yang paling mudah terjadi dan paling
+// menjengkelkan justru tak menghasilkan galat apa pun:
+//
+//   * ambang terlalu longgar → KETUKAN pada tombol di dalam daftar terbaca
+//     sebagai geseran, dan tab berpindah saat orang menekan sesuatu;
+//   * dominasi horizontal terlalu longgar → GULIR VERTIKAL yang sedikit miring
+//     (yang normal; jari manusia tak pernah lurus) tercuri jadi pindah tab.
+//
+// Keduanya cuma soal angka, dan angka mudah disetel ulang tanpa sadar. Uji ini
+// mengunci perilakunya, bukan angkanya.
+#[cfg(test)]
+mod tests_gerakan {
+    use super::*;
+
+    // ── Penguncian sumbu ────────────────────────────────────────────────────
+
+    /// Gerakan sangat kecil belum boleh memutuskan apa pun: arahnya masih derau.
+    #[test]
+    fn gerakan_kecil_belum_memutuskan_sumbu() {
+        assert_eq!(sumbu_horizontal(3.0, 2.0), None);
+        assert_eq!(sumbu_horizontal(-4.0, 1.0), None);
+    }
+
+    /// Gulir vertikal yang MIRING tetap gulir — ini kasus yang paling sering
+    /// terjadi di dunia nyata dan paling merusak bila salah dibaca.
+    #[test]
+    fn gulir_miring_tetap_vertikal() {
+        // Turun 60px sambil melenceng 30px ke samping: jelas menggulir.
+        assert_eq!(sumbu_horizontal(30.0, 60.0), Some(false));
+        // Bahkan saat lencengnya cukup besar, selama vertikalnya masih dominan.
+        assert_eq!(sumbu_horizontal(40.0, 50.0), Some(false));
+    }
+
+    /// Geseran mendatar yang jelas dikenali sebagai horizontal.
+    #[test]
+    fn geseran_mendatar_dikenali() {
+        assert_eq!(sumbu_horizontal(80.0, 10.0), Some(true));
+        assert_eq!(sumbu_horizontal(-80.0, 10.0), Some(true));
+    }
+
+    /// Horizontal harus DOMINAN, bukan sekadar lebih besar. Selisih tipis
+    /// diserahkan ke gulir — salah menebak ke arah gulir hanya berarti "tak
+    /// terjadi apa-apa", sedangkan salah ke arah tab memindahkan halaman orang.
+    #[test]
+    fn mendatar_tipis_diserahkan_ke_gulir() {
+        assert_eq!(sumbu_horizontal(52.0, 50.0), Some(false));
+    }
+
+    // ── Tujuan geseran ──────────────────────────────────────────────────────
+
+    /// Ketukan (jarak sangat pendek) tak boleh memindahkan tab.
+    #[test]
+    fn ketukan_bukan_geseran() {
+        assert_eq!(tujuan_geser(1, 4, 5.0), None);
+        assert_eq!(tujuan_geser(1, 4, -5.0), None);
+        // Tepat di bawah ambang.
+        assert_eq!(tujuan_geser(1, 4, -(GESER_MIN - 1.0)), None);
+    }
+
+    /// Geser ke kiri = maju; ke kanan = mundur.
+    #[test]
+    fn arah_geser_mengikuti_arah_kertas() {
+        assert_eq!(tujuan_geser(1, 4, -100.0), Some(2), "geser kiri → tab berikutnya");
+        assert_eq!(tujuan_geser(1, 4, 100.0), Some(0), "geser kanan → tab sebelumnya");
+    }
+
+    /// Di ujung, DIAM — tidak melingkar. Melompat dari tab terakhir ke tab
+    /// pertama terasa seperti tergelincir, bukan berpindah.
+    #[test]
+    fn ujung_tak_melingkar() {
+        assert_eq!(tujuan_geser(0, 4, 100.0), None, "sudah di tab pertama");
+        assert_eq!(tujuan_geser(3, 4, -100.0), None, "sudah di tab terakhir");
+    }
+
+    /// Enam tab Pusat Admin: geseran menyusuri seluruhnya lalu berhenti.
+    #[test]
+    fn menyusuri_enam_tab_admin() {
+        let len = 6;
+        let mut i = 0;
+        for harap in 1..=5 {
+            i = tujuan_geser(i, len, -100.0).expect("harus maju");
+            assert_eq!(i, harap);
+        }
+        assert_eq!(tujuan_geser(i, len, -100.0), None, "berhenti di tab terakhir");
+    }
+
+    /// Larik kosong tak boleh membuat indeks meluap.
+    #[test]
+    fn tanpa_tab_tak_meluap() {
+        assert_eq!(tujuan_geser(0, 0, -100.0), None);
     }
 }

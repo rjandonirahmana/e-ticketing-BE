@@ -154,8 +154,30 @@ impl LiveStreamService {
         let candidate_addr = SocketAddr::new(candidate_ip, sfu_bind_addr.port());
         tracing::info!(%candidate_addr, "SFU advertising ICE host candidate");
 
+        // ── Socket diikat DI SINI, di utas pemanggil ────────────────────────
+        // Bukan di dalam utas SFU. Kegagalan `bind` di utas terpisah hanya
+        // membunuh utas itu; aplikasinya jalan terus dengan siaran langsung
+        // yang mati diam-diam — healthcheck hijau, deploy sukses, dan "GO LIVE"
+        // gagal dengan galat channel tertutup yang tak menyebut port sama
+        // sekali. Lihat catatan panjang di `SfuEngine::run`.
+        let socket = UdpSocket::bind(sfu_bind_addr).unwrap_or_else(|e| {
+            panic!(
+                "SFU gagal mengikat UDP {sfu_bind_addr}: {e}. \
+                 Penyebab tersering: satu instance aplikasi ini MASIH BERJALAN \
+                 dan memegang portnya (periksa `lsof -nP -iUDP:{port}`), atau \
+                 SFU_BIND_ADDR menunjuk port yang dipakai proses lain.",
+                port = sfu_bind_addr.port()
+            )
+        });
+        // Socket BLOCKING dengan read-timeout: `recv_from` tidur hingga ada
+        // paket atau `MAX_POLL_WAIT` lewat, alih-alih spin non-blocking yang
+        // membakar satu core CPU terus-menerus walau tak ada siaran.
+        socket
+            .set_read_timeout(Some(super::sfu::MAX_POLL_WAIT))
+            .expect("gagal menyetel read timeout socket SFU");
+
         let sfu_handle = std::thread::spawn(move || {
-            SfuEngine::run(sfu_bind_addr, candidate_addr, cmd_rx, product_tx);
+            SfuEngine::run(socket, candidate_addr, cmd_rx, product_tx);
         });
 
         let (changes_tx, _) = broadcast::channel::<Vec<RoomInfo>>(16);
@@ -507,6 +529,23 @@ mod tests_siklus_siaran {
         assert_eq!(a.room_id, b.room_id, "room id deterministik per merchant");
         assert_eq!(svc.list_rooms().len(), 1, "tak boleh jadi dua room");
         assert_eq!(b.viewer_count, 0, "room baru mulai dari nol penonton");
+    }
+
+    /// Port UDP yang sudah terpakai harus MENGHENTIKAN startup, bukan
+    /// menghasilkan aplikasi yang hidup dengan siaran langsung yang mati.
+    ///
+    /// Regresi dari insiden nyata: `bind` dulu dilakukan di dalam utas SFU, dan
+    /// `.expect()` yang gagal di sana hanya membunuh utas itu. Prosesnya jalan
+    /// terus — Axum mengikat portnya, healthcheck hijau, deploy sukses — sambil
+    /// setiap "GO LIVE" gagal dengan galat channel tertutup yang tak menyebut
+    /// port sama sekali. Satu instance lama yang masih hidup sudah cukup.
+    #[tokio::test]
+    #[should_panic(expected = "gagal mengikat UDP")]
+    async fn port_terpakai_menghentikan_startup() {
+        // Rebut satu port ephemeral, lalu minta SFU mengikat port yang sama.
+        let penghalang = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let terpakai = penghalang.local_addr().unwrap();
+        let _ = LiveStreamService::new(terpakai);
     }
 
     /// Menghentikan room yang tak ada tidak boleh panik atau menyiarkan room

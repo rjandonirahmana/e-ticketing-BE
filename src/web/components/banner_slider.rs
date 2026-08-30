@@ -16,6 +16,27 @@ use leptos::prelude::*;
 #[cfg(feature = "hydrate")]
 const AUTO_MS: u32 = 5_000;
 
+/// Jarak minimum satu gesekan dianggap perpindahan banner (piksel CSS).
+///
+/// Lebih pendek dari ambang geser tab (48px): banner selebar layar, dan yang
+/// digeser adalah satu gambar besar — bukan panel berisi daftar yang juga
+/// digulir vertikal. Terlalu panjang di sini membuat geseran wajar terasa
+/// tak direspons.
+const GESER_MIN: f64 = 40.0;
+
+/// Banner tujuan, MELINGKAR.
+///
+/// Berbeda dari geser tab (`swipe_tabs::tujuan_geser`) yang sengaja mentok di
+/// ujung: di sana ujung menandakan batas daftar yang bermakna. Banner memang
+/// berputar — putar-otomatisnya sudah melingkar — jadi geseran yang mentok
+/// justru bertentangan dengan yang sudah dilihat orang.
+fn tujuan_banner(kini: usize, n: usize, maju: bool) -> Option<usize> {
+    if n <= 1 {
+        return None;
+    }
+    Some(if maju { (kini + 1) % n } else { (kini + n - 1) % n })
+}
+
 #[component]
 pub fn BannerSlider(
     /// Dirender saat belum ada banner aktif. `/explore` memakai kartu
@@ -76,13 +97,69 @@ pub fn BannerSlider(
     // bertentangan dengan yang sudah dilihat orang.
     let geser = move |maju: bool| {
         let n = banners.with_untracked(|b| b.len());
-        if n == 0 {
+        let kini = idx.get_untracked();
+        let Some(tujuan) = tujuan_banner(kini, n, maju) else {
+            return;
+        };
+        manual.set(true);
+        idx.set(tujuan);
+    };
+
+    // ── Geser dengan jari ────────────────────────────────────────────────────
+    // Trek ini digerakkan `translateX` dari sinyal, BUKAN gulir — jadi tak ada
+    // satu pun perilaku bawaan peramban yang bisa menggesernya. Tanpa penangan
+    // di bawah, banner di ponsel hanya bisa dipindah lewat titik indikator
+    // sebesar 7px atau dengan menunggu putar-otomatis; panahnya sendiri sengaja
+    // disembunyikan di layar sentuh (lihat `45-carousel-nav.css`).
+    let awal = StoredValue::new((0.0f64, 0.0f64));
+    let sumbu: StoredValue<Option<bool>> = StoredValue::new(None);
+    // Menandai bahwa gesekan BARU SAJA terjadi, supaya ketukan palsu yang
+    // menyusulnya tak ikut membuka tautan slide. Sebagian peramban tetap
+    // menembakkan `click` sesudah seret mendatar di atas `<a>`.
+    let baru_geser = StoredValue::new(false);
+
+    let on_mulai = move |e: web_sys::TouchEvent| {
+        let Some(t) = e.touches().get(0) else { return };
+        awal.set_value((t.client_x() as f64, t.client_y() as f64));
+        sumbu.set_value(None);
+        baru_geser.set_value(false);
+    };
+
+    let on_gerak = move |e: web_sys::TouchEvent| {
+        if sumbu.get_value().is_some() {
             return;
         }
-        manual.set(true);
-        idx.update(|i| {
-            *i = if maju { (*i + 1) % n } else { (*i + n - 1) % n };
-        });
+        let Some(t) = e.touches().get(0) else { return };
+        let (ax, ay) = awal.get_value();
+        // Sumbu diputuskan SEKALI. Fungsinya dipakai bersama bilah tab
+        // (`swipe_tabs::sumbu_horizontal`) supaya ambang "kapan gulir vertikal
+        // tak boleh tercuri" hanya hidup di satu tempat — dan sudah teruji.
+        sumbu.set_value(crate::web::components::swipe_tabs::sumbu_horizontal(
+            t.client_x() as f64 - ax,
+            t.client_y() as f64 - ay,
+        ));
+    };
+
+    let on_selesai = move |e: web_sys::TouchEvent| {
+        if sumbu.get_value() != Some(true) {
+            return;
+        }
+        let Some(t) = e.changed_touches().get(0) else { return };
+        let dx = t.client_x() as f64 - awal.get_value().0;
+        if dx.abs() < GESER_MIN {
+            return;
+        }
+        baru_geser.set_value(true);
+        // Geser ke KIRI (dx negatif) = banner berikutnya, mengikuti arah
+        // kertas yang ditarik.
+        geser(dx < 0.0);
+    };
+
+    let on_klik_slide = move |e: web_sys::MouseEvent| {
+        if baru_geser.get_value() {
+            e.prevent_default();
+            baru_geser.set_value(false);
+        }
     };
 
     view! {
@@ -93,7 +170,13 @@ pub fn BannerSlider(
             }
             let n = list.len();
             view! {
-                <div class="exp-bnr">
+                <div
+                    class="exp-bnr"
+                    on:touchstart=on_mulai
+                    on:touchmove=on_gerak
+                    on:touchend=on_selesai
+                    on:touchcancel=on_selesai
+                >
                     <div
                         class="exp-bnr-track"
                         style=move || {
@@ -110,6 +193,7 @@ pub fn BannerSlider(
                                     <a
                                         class="exp-bnr-slide"
                                         href=if link.is_empty() { "#".into() } else { link }
+                                        on:click=on_klik_slide
                                     >
                                         <img src=img alt=title loading="lazy" class="exp-bnr-img" />
                                     </a>
@@ -192,5 +276,44 @@ pub fn BannerSlider(
             }
                 .into_any()
         }}
+    }
+}
+
+// ─── Uji perpindahan banner ───────────────────────────────────────────────────
+#[cfg(test)]
+mod tests_banner {
+    use super::*;
+
+    /// Melingkar ke depan, termasuk dari slide terakhir kembali ke awal —
+    /// menyamai putar-otomatis, yang memang sudah melingkar. Kalau geseran
+    /// mentok di ujung sementara timer terus berputar, keduanya bertentangan.
+    #[test]
+    fn maju_melingkar() {
+        assert_eq!(tujuan_banner(0, 3, true), Some(1));
+        assert_eq!(tujuan_banner(1, 3, true), Some(2));
+        assert_eq!(tujuan_banner(2, 3, true), Some(0), "dari terakhir kembali ke awal");
+    }
+
+    /// Melingkar ke belakang juga, termasuk dari slide pertama ke terakhir.
+    #[test]
+    fn mundur_melingkar() {
+        assert_eq!(tujuan_banner(2, 3, false), Some(1));
+        assert_eq!(tujuan_banner(0, 3, false), Some(2), "dari awal ke terakhir");
+    }
+
+    /// Satu banner saja: tak ada tujuan. Tanpa penjagaan ini, geseran akan
+    /// "berpindah" ke slide yang sama dan mematikan putar-otomatis
+    /// (`manual = true`) tanpa satu pun perubahan yang terlihat.
+    #[test]
+    fn satu_banner_tak_berpindah() {
+        assert_eq!(tujuan_banner(0, 1, true), None);
+        assert_eq!(tujuan_banner(0, 1, false), None);
+    }
+
+    /// Tanpa banner sama sekali tak boleh meluap saat menghitung `n - 1`.
+    #[test]
+    fn tanpa_banner_tak_meluap() {
+        assert_eq!(tujuan_banner(0, 0, true), None);
+        assert_eq!(tujuan_banner(0, 0, false), None);
     }
 }

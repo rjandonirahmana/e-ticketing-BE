@@ -30,6 +30,143 @@ use crate::web::components::{CartButton, ThemeToggle};
 use crate::web::models::CartItemView;
 use crate::web::utils::format_idr;
 
+/// Satu toko beserta barangnya di keranjang.
+struct KelompokToko {
+    merchant_id: String,
+    merchant_name: String,
+    items: Vec<CartItemView>,
+}
+
+/// Kelompokkan isi keranjang per toko, mempertahankan urutan KEMUNCULAN
+/// PERTAMA tiap toko.
+///
+/// Urutan itu disengaja dan bukan sekadar kebetulan implementasi: server sudah
+/// mengurutkan barang per merchant lalu per waktu ditambahkan, dan
+/// mempertahankan urutan kemunculan membuat susunan di layar sama persis dengan
+/// urutan itu. Mengurutkan ulang berdasarkan nama toko akan membuat keranjang
+/// tampak "melompat" setiap kali satu barang ditambah atau dihapus, karena toko
+/// bisa berpindah posisi tanpa ada yang menyentuhnya.
+///
+/// Barang tanpa `merchant_id` — isi keranjang TAMU, yang di localStorage tak
+/// menyimpan pemilik product — dikumpulkan jadi satu kelompok tanpa nama, bukan
+/// dibuang. Kalau dibuang, pembeli yang belum masuk akan melihat keranjangnya
+/// kosong padahal barangnya ada.
+/// Baris judul satu kelompok toko.
+///
+/// Ditautkan ke `/m/{merchant_id}` HANYA bila id-nya ada. Barang keranjang tamu
+/// tak membawa id, dan menautkannya tetap akan menghasilkan `/m/` — tautan yang
+/// terlihat sah, bisa diklik, dan mendarat di halaman kosong. Lebih baik teks
+/// biasa daripada tautan yang berbohong.
+fn kepala_toko(
+    cart: CartContext,
+    merchant_id: &str,
+    merchant_name: &str,
+    items: &[CartItemView],
+) -> impl IntoView {
+    let jumlah = items.len();
+    // Tier id seluruh barang toko ini — dikirim sekali sebagai satu kelompok.
+    let tier_ids: Vec<String> = items.iter().map(|i| i.tier_id.clone()).collect();
+    // Tercentang HANYA bila SEMUA barang toko ini tercentang. Sebagian
+    // tercentang sengaja tampil sebagai TIDAK tercentang, supaya ketukan
+    // berikutnya mencentang sisanya — bukan melepas yang sudah dipilih.
+    let semua_tercentang = !items.is_empty() && items.iter().all(|i| i.selected);
+    // Nama toko kosong = merchant belum melengkapi profilnya (kolom
+    // `merchant_details.store_name` boleh kosong), bukan galat.
+    let nama = if merchant_name.trim().is_empty() {
+        "Toko".to_string()
+    } else {
+        merchant_name.to_string()
+    };
+    let hitungan = format!("{jumlah} barang");
+
+    let ikon = || {
+        view! {
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                 stroke-linejoin="round" class="shrink-0">
+                <path d="M3 9l1-5h16l1 5" />
+                <path d="M4 9v11h16V9" />
+                <path d="M9 20v-6h6v6" />
+            </svg>
+        }
+    };
+
+    if merchant_id.is_empty() {
+        return view! {
+            <div class="flex items-center gap-2.5 px-4 py-3 border-b border-solid \
+                        border-line-soft text-content-soft">
+                {centang_toko(cart, tier_ids.clone(), semua_tercentang)}
+                {ikon()}
+                <span class="font-sans text-[12px] font-bold truncate">{nama}</span>
+                <span class="ml-auto text-[10px] text-content-muted whitespace-nowrap">
+                    {hitungan}
+                </span>
+            </div>
+        }
+        .into_any();
+    }
+
+    // Kotak centang berada DI LUAR `<A>`, bukan di dalamnya: elemen interaktif
+    // bersarang di dalam tautan adalah HTML tak sah, dan akibat nyatanya
+    // mengetuk centang akan ikut menavigasi ke halaman toko.
+    view! {
+        <div class="flex items-center gap-2.5 px-4 py-3 border-b border-solid \
+                    border-line-soft">
+            {centang_toko(cart, tier_ids.clone(), semua_tercentang)}
+            <A
+                href=format!("/m/{merchant_id}")
+                attr:class="flex items-center gap-2 min-w-0 flex-1 text-content \
+                            no-underline transition-colors hover:text-brand"
+            >
+                {ikon()}
+                <span class="font-sans text-[12px] font-bold truncate">{nama}</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                     class="shrink-0 opacity-60">
+                    <polyline points="9 18 15 12 9 6" />
+                </svg>
+            </A>
+            <span class="text-[10px] text-content-muted whitespace-nowrap">
+                {hitungan}
+            </span>
+        </div>
+    }
+    .into_any()
+}
+
+/// Kotak centang "pilih seluruh barang toko ini".
+fn centang_toko(cart: CartContext, tier_ids: Vec<String>, tercentang: bool) -> impl IntoView {
+    view! {
+        <label
+            class="inline-flex items-center cursor-pointer select-none shrink-0"
+            attr:aria-label="Pilih semua barang toko ini"
+        >
+            <input
+                type="checkbox"
+                class="sr-only"
+                prop:checked=tercentang
+                on:change=move |_| cart.select_group(tier_ids.clone(), !tercentang)
+            />
+            {check_box(tercentang)}
+        </label>
+    }
+}
+
+fn kelompokkan_per_toko(items: &[CartItemView]) -> Vec<KelompokToko> {
+    let mut out: Vec<KelompokToko> = Vec::new();
+    for it in items {
+        match out.iter_mut().find(|g| g.merchant_id == it.merchant_id) {
+            Some(g) => g.items.push(it.clone()),
+            None => out.push(KelompokToko {
+                merchant_id: it.merchant_id.clone(),
+                merchant_name: it.merchant_name.clone(),
+                items: vec![it.clone()],
+            }),
+        }
+    }
+    out
+}
+
 fn price_label(amount: i64) -> String {
     if amount == 0 {
         "Gratis".to_string()
@@ -189,7 +326,11 @@ pub fn CartPage() -> impl IntoView {
                 view! {
                     <div>
                         // ── Pilih semua ─────────────────────────────────────
-                        <div class=format!("{CARD} mx-5 mt-6 mb-3 flex items-center justify-between gap-3 px-4 py-3")>
+                        // `mb-4` menyamai `gap-4` antar-kartu toko di bawahnya: bilah ini
+                        // adalah kartu setara, jadi jaraknya ke kartu pertama harus
+                        // sama dengan jarak antar-kartu — kalau tidak, kartu pertama
+                        // terlihat menempel lebih rapat tanpa alasan.
+                        <div class=format!("{CARD} mx-5 mt-6 mb-4 flex items-center justify-between gap-3 px-4 py-3")>
                             <label class="inline-flex items-center gap-2.5 cursor-pointer select-none">
                                 <input type="checkbox"
                                     class="sr-only"
@@ -205,9 +346,42 @@ pub fn CartPage() -> impl IntoView {
                             </span>
                         </div>
 
-                        // ── Daftar barang ───────────────────────────────────
-                        <div class="flex flex-col gap-3 px-5">
-                            {items.iter().map(|item| cart_row(cart, item.clone())).collect_view()}
+                        // ── Daftar barang, dikelompokkan per toko ───────────
+                        //
+                        // Jarak HANYA di antara toko yang berbeda. Barang dari
+                        // toko yang sama menyatu dalam satu kartu, dipisah garis
+                        // rambut — itulah yang membuat "berapa toko yang saya
+                        // belanjai" terbaca dalam satu tatapan. Versi sebelumnya
+                        // memberi jarak yang sama di antara SEMUA baris, jadi
+                        // pengelompokan per toko yang sudah dihitung dengan benar
+                        // tak terlihat sama sekali di layar.
+                        //
+                        // `overflow-hidden` pada kartunya: baris paling atas dan
+                        // paling bawah tak punya sudut membulat sendiri, jadi
+                        // tanpa ini latar mereka menonjol keluar dari lengkungan
+                        // kartu di keempat sudutnya.
+                        <div class="flex flex-col gap-4 px-5">
+                            {kelompokkan_per_toko(&items)
+                                .into_iter()
+                                .map(|g| {
+                                    view! {
+                                        <section class=format!("{CARD} overflow-hidden")>
+                                            {kepala_toko(
+                                                cart,
+                                                &g.merchant_id,
+                                                &g.merchant_name,
+                                                &g.items,
+                                            )}
+                                            {g
+                                                .items
+                                                .into_iter()
+                                                .enumerate()
+                                                .map(|(i, item)| cart_row(cart, item, i == 0))
+                                                .collect_view()}
+                                        </section>
+                                    }
+                                })
+                                .collect_view()}
                         </div>
 
                         // ── Ringkasan ───────────────────────────────────────
@@ -326,7 +500,7 @@ fn check_box(checked: bool) -> impl IntoView {
 }
 
 /// Satu baris keranjang.
-fn cart_row(cart: CartContext, item: CartItemView) -> impl IntoView {
+fn cart_row(cart: CartContext, item: CartItemView, pertama: bool) -> impl IntoView {
     let tier_remove = item.tier_id.clone();
     let tier_minus = item.tier_id.clone();
     let tier_plus = item.tier_id.clone();
@@ -360,15 +534,29 @@ fn cart_row(cart: CartContext, item: CartItemView) -> impl IntoView {
     // Rangkaian kelas ditulis LENGKAP dan literal, lalu dipilih salah satu —
     // bukan dirakit potong-potong. Pemindai Tailwind hanya melihat teks apa
     // adanya di berkas ini.
+    // Latar hanya diberi warna saat MEMPERINGATKAN; selain itu baris mewarisi
+    // latar kartu kelompoknya. Garis tepi kuning yang dulu ada ikut dibuang:
+    // baris kini menyatu di dalam satu kartu per toko, dan kotak bergaris di
+    // tengah tumpukan justru memecah tumpukan itu. Peringatannya tetap terbaca
+    // dari rona latar plus teks "Sisa N stok — kurangi jumlahnya" di bawah.
     let tone = if warn {
-        "bg-[color-mix(in_srgb,var(--warning-amber)_7%,var(--bg-card))] border-warning"
+        "bg-[color-mix(in_srgb,var(--warning-amber)_7%,var(--bg-card))]"
     } else {
-        "bg-card border-line-soft"
+        ""
     };
     let dim = if selected { "" } else { "opacity-60" };
-    let row_class = format!(
-        "flex items-start gap-3 p-4 rounded-2xl border border-solid transition-colors {tone} {dim}"
-    );
+    // Pemisah antar-barang SATU TOKO: garis rambut, bukan jarak kosong. Barang
+    // dari toko yang sama adalah satu blok belanja; jarak di antaranya membuat
+    // masing-masing tampak berdiri sendiri dan justru mengaburkan
+    // pengelompokannya. Yang pertama tak diberi garis supaya tak menggandakan
+    // garis bawah kepala toko tepat di atasnya.
+    let pemisah = if pertama {
+        ""
+    } else {
+        "border-t border-solid border-line-soft"
+    };
+    let row_class =
+        format!("flex items-start gap-3 p-4 transition-colors {tone} {dim} {pemisah}");
 
     let qty_btn = "flex items-center justify-center w-8 h-8 shrink-0 rounded-lg border-0 \
                    cursor-pointer text-base leading-none transition-colors";
@@ -388,9 +576,35 @@ fn cart_row(cart: CartContext, item: CartItemView) -> impl IntoView {
                  class="w-[72px] h-[72px] shrink-0 rounded-xl object-cover"/>
 
             <div class="flex-1 min-w-0">
-                <div class="font-title text-[15px] leading-snug text-content tracking-[0.02em] truncate">
-                    {item.event_title.clone()}
-                </div>
+                // Judul menuju halaman product-nya — tetapi hanya bila slug-nya
+                // ada. Baris keranjang TAMU tak membawa slug (localStorage cuma
+                // menyimpan secukupnya untuk menggambar baris), dan menautkannya
+                // akan menghasilkan `/products/` yang mendarat di halaman kosong.
+                {
+                    let judul = item.event_title.clone();
+                    let slug = item.event_slug.clone();
+                    if slug.is_empty() {
+                        view! {
+                            <div class="font-title text-[15px] leading-snug text-content \
+                                        tracking-[0.02em] truncate">
+                                {judul}
+                            </div>
+                        }
+                            .into_any()
+                    } else {
+                        view! {
+                            <A
+                                href=format!("/products/{slug}")
+                                attr:class="block font-title text-[15px] leading-snug text-content \
+                                            tracking-[0.02em] truncate no-underline \
+                                            transition-colors hover:text-brand"
+                            >
+                                {judul}
+                            </A>
+                        }
+                            .into_any()
+                    }
+                }
                 <div class="mt-0.5 text-[11px] text-content-soft truncate">
                     {item.tier_name.clone()}
                 </div>
@@ -457,5 +671,116 @@ fn cart_row(cart: CartContext, item: CartItemView) -> impl IntoView {
                 </div>
             </div>
         </div>
+    }
+}
+
+// ─── Uji pengelompokan per toko ───────────────────────────────────────────────
+#[cfg(test)]
+mod tests_kelompok {
+    use super::*;
+
+    fn barang(merchant_id: &str, merchant_name: &str, judul: &str) -> CartItemView {
+        CartItemView {
+            id: judul.into(),
+            tier_id: judul.into(),
+            event_id: judul.into(),
+            event_slug: judul.into(),
+            event_title: judul.into(),
+            tier_name: "Reguler".into(),
+            venue_name: String::new(),
+            event_cover: String::new(),
+            event_date: None,
+            merchant_id: merchant_id.into(),
+            merchant_name: merchant_name.into(),
+            quantity: 1,
+            unit_price: 1000,
+            unit_price_snapshot: 1000,
+            subtotal: 1000,
+            available: 10,
+            max_per_order: None,
+            exceeds_stock: false,
+            price_changed: false,
+            selected: true,
+        }
+    }
+
+    /// Sepuluh barang dari tiga toko → tiga kelompok, tak ada yang hilang.
+    #[test]
+    fn sepuluh_barang_tiga_toko() {
+        let items: Vec<CartItemView> = (0..10)
+            .map(|i| {
+                let m = i % 3;
+                barang(&format!("m{m}"), &format!("Toko {m}"), &format!("p{i}"))
+            })
+            .collect();
+
+        let g = kelompokkan_per_toko(&items);
+        assert_eq!(g.len(), 3, "tiga toko berbeda");
+        assert_eq!(
+            g.iter().map(|x| x.items.len()).sum::<usize>(),
+            10,
+            "tak boleh ada barang yang hilang saat dikelompokkan"
+        );
+    }
+
+    /// Urutan kelompok mengikuti KEMUNCULAN PERTAMA, bukan abjad. Mengurutkan
+    /// ulang membuat keranjang melompat tiap kali satu barang ditambah/dihapus.
+    #[test]
+    fn urutan_mengikuti_kemunculan_pertama() {
+        let items = vec![
+            barang("m-z", "Zebra", "a"),
+            barang("m-a", "Apel", "b"),
+            barang("m-z", "Zebra", "c"),
+        ];
+        let g = kelompokkan_per_toko(&items);
+        assert_eq!(g[0].merchant_id, "m-z", "Zebra muncul lebih dulu");
+        assert_eq!(g[1].merchant_id, "m-a");
+        assert_eq!(g[0].items.len(), 2, "barang toko yang sama menyatu");
+    }
+
+    /// Urutan barang DI DALAM satu toko dipertahankan apa adanya.
+    #[test]
+    fn urutan_di_dalam_toko_dipertahankan() {
+        let items = vec![
+            barang("m1", "Satu", "pertama"),
+            barang("m2", "Dua", "lain"),
+            barang("m1", "Satu", "kedua"),
+        ];
+        let g = kelompokkan_per_toko(&items);
+        let judul: Vec<&str> = g[0].items.iter().map(|i| i.event_title.as_str()).collect();
+        assert_eq!(judul, vec!["pertama", "kedua"]);
+    }
+
+    /// Keranjang TAMU (tanpa merchant_id) tetap tampil — dikumpulkan jadi satu
+    /// kelompok, bukan dibuang. Kalau dibuang, pembeli yang belum masuk melihat
+    /// keranjangnya kosong padahal barangnya ada.
+    #[test]
+    fn barang_tanpa_toko_tetap_tampil() {
+        let items = vec![barang("", "", "a"), barang("", "", "b")];
+        let g = kelompokkan_per_toko(&items);
+        assert_eq!(g.len(), 1);
+        assert_eq!(g[0].items.len(), 2);
+        assert!(g[0].merchant_id.is_empty());
+    }
+
+    /// Campuran: sebagian bertoko, sebagian tidak (keranjang tamu yang baru
+    /// sebagian tersinkron ke server).
+    #[test]
+    fn campuran_bertoko_dan_tidak() {
+        let items = vec![
+            barang("m1", "Satu", "a"),
+            barang("", "", "b"),
+            barang("m1", "Satu", "c"),
+        ];
+        let g = kelompokkan_per_toko(&items);
+        assert_eq!(g.len(), 2);
+        assert_eq!(g[0].items.len(), 2);
+        assert_eq!(g[1].items.len(), 1);
+    }
+
+    /// Keranjang kosong tak menghasilkan kelompok hantu.
+    #[test]
+    fn keranjang_kosong() {
+        assert!(kelompokkan_per_toko(&[]).is_empty());
     }
 }

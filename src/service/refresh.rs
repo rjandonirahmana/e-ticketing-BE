@@ -369,3 +369,287 @@ mod tests {
         assert!(mati.is_expired());
     }
 }
+
+// ─── Uji rotasi refresh token ─────────────────────────────────────────────────
+//
+// Insiden yang melahirkan uji ini: log produksi memuat LIMA baris "refresh
+// token DIPAKAI ULANG — seluruh keluarga dicabut" dalam rentang 30 milidetik,
+// untuk satu pengguna yang baru saja masuk dengan wajar. Tak ada penyerang.
+//
+// Satu muat halaman menembakkan banyak permintaan sekaligus. Bila access token
+// kebetulan mati saat itu, SEMUANYA membawa refresh token yang sama dan
+// semuanya memicu rotasi: satu menang, sisanya tiba beberapa milidetik kemudian
+// dan menemukan baris yang baru saja dicabut. Penanganan lama tak bisa
+// membedakan itu dari token curian, dan tindakannya — mencabut seluruh keluarga
+// — MEMBUANG sesi pengguna yang sah. Gejalanya di layar: "Tidak terautentikasi"
+// di halaman yang jelas-jelas menampilkan nama pengguna, dan "GO LIVE" gagal.
+//
+// Yang dijaga uji-uji di bawah adalah GARIS PEMISAHNYA: bersamaan dilayani,
+// pencurian sungguhan tetap dihukum.
+#[cfg(test)]
+mod tests_rotasi {
+    use super::*;
+    use crate::models::users::{RegisterRequest, UserRole};
+    use crate::repository::refresh_token::RefreshTokenRow;
+    use crate::repository::user::UserWithPassword;
+    use async_trait::async_trait;
+    use chrono::DateTime;
+    use std::sync::Mutex;
+
+    // ── Repo palsu: hanya secukupnya untuk menempuh jalur `rotate` ───────────
+
+    #[derive(Default)]
+    struct RepoRefreshPalsu {
+        /// token_hash → baris.
+        baris: Mutex<Vec<(String, RefreshTokenRow)>>,
+    }
+
+    impl RepoRefreshPalsu {
+        fn seed(&self, hash: &str, id: &str, family: &str, revoked_at: Option<DateTime<Utc>>) {
+            self.baris.lock().unwrap().push((
+                hash.to_string(),
+                RefreshTokenRow {
+                    id: id.into(),
+                    user_id: "user-1".into(),
+                    family_id: family.into(),
+                    expires_at: Utc::now() + Duration::days(30),
+                    revoked_at,
+                },
+            ));
+        }
+        fn jumlah_dicabut(&self) -> usize {
+            self.baris.lock().unwrap().iter().filter(|(_, r)| r.is_revoked()).count()
+        }
+    }
+
+    #[async_trait]
+    impl RefreshTokenRepository for RepoRefreshPalsu {
+        async fn insert(
+            &self,
+            id: &str,
+            _user_id: &str,
+            token_hash: &str,
+            family_id: &str,
+            expires_at: DateTime<Utc>,
+            _user_agent: &str,
+        ) -> anyhow::Result<()> {
+            self.baris.lock().unwrap().push((
+                token_hash.to_string(),
+                RefreshTokenRow {
+                    id: id.into(),
+                    user_id: "user-1".into(),
+                    family_id: family_id.into(),
+                    expires_at,
+                    revoked_at: None,
+                },
+            ));
+            Ok(())
+        }
+
+        async fn find_by_hash(&self, token_hash: &str) -> anyhow::Result<Option<RefreshTokenRow>> {
+            Ok(self
+                .baris
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|(h, _)| h == token_hash)
+                .map(|(_, r)| r.clone()))
+        }
+
+        /// Meniru `UPDATE ... WHERE id = $1 AND revoked_at IS NULL`: hanya satu
+        /// pemanggil yang bisa menang. Semantik itulah yang membuat balapan
+        /// rotasi punya pemenang tunggal, jadi tiruannya harus setia.
+        async fn revoke(&self, id: &str, _replaced_by: Option<&str>) -> anyhow::Result<bool> {
+            let mut b = self.baris.lock().unwrap();
+            for (_, r) in b.iter_mut() {
+                if r.id == id && r.revoked_at.is_none() {
+                    r.revoked_at = Some(Utc::now());
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+
+        async fn revoke_family(&self, family_id: &str) -> anyhow::Result<u64> {
+            let mut b = self.baris.lock().unwrap();
+            let mut n = 0;
+            for (_, r) in b.iter_mut() {
+                if r.family_id == family_id && r.revoked_at.is_none() {
+                    r.revoked_at = Some(Utc::now());
+                    n += 1;
+                }
+            }
+            Ok(n)
+        }
+
+        async fn revoke_all_for_user(&self, _user_id: &str) -> anyhow::Result<u64> {
+            Ok(0)
+        }
+        async fn delete_expired(&self) -> anyhow::Result<u64> {
+            Ok(0)
+        }
+    }
+
+    struct RepoUserPalsu;
+
+    #[async_trait]
+    impl UserRepository for RepoUserPalsu {
+        async fn create(
+            &self,
+            _req: &RegisterRequest,
+            _password_hash: Option<&str>,
+            _role: UserRole,
+        ) -> anyhow::Result<User> {
+            unimplemented!("tak dipakai jalur rotate")
+        }
+        async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<User>> {
+            Ok(Some(User {
+                id: id.into(),
+                email: None,
+                name: "Penjual".into(),
+                phone: "0800".into(),
+                role: UserRole::Merchant,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            }))
+        }
+        async fn find_by_email_with_password(
+            &self,
+            _email: &str,
+        ) -> anyhow::Result<Option<UserWithPassword>> {
+            Ok(None)
+        }
+        async fn update_profile(
+            &self,
+            _id: &str,
+            _name: Option<&str>,
+            _phone: Option<&str>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn update_password_hash(&self, _id: &str, _new_hash: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn find_by_phone(&self, _phone: &str) -> anyhow::Result<Option<User>> {
+            Ok(None)
+        }
+        async fn find_by_phone_with_password(
+            &self,
+            _email: &str,
+        ) -> anyhow::Result<Option<UserWithPassword>> {
+            Ok(None)
+        }
+    }
+
+    fn layanan(repo: Arc<RepoRefreshPalsu>) -> RefreshService {
+        RefreshService::new(
+            repo,
+            Arc::new(RepoUserPalsu),
+            JwtService::new("rahasia-uji-yang-cukup-panjang", 1),
+        )
+    }
+
+    /// Rotasi biasa: token sah ditukar sepasang token baru, yang lama dicabut.
+    #[tokio::test]
+    async fn rotasi_normal_menerbitkan_refresh_baru() {
+        let repo = Arc::new(RepoRefreshPalsu::default());
+        repo.seed(&RefreshService::hash("token-a"), "id-a", "fam-1", None);
+        let svc = layanan(repo.clone());
+
+        let hasil = svc.rotate("token-a", "uji").await.expect("rotasi harus berhasil");
+        assert!(!hasil.access_token.is_empty());
+        assert!(
+            !hasil.refresh_token.is_empty(),
+            "rotasi normal WAJIB menerbitkan refresh token baru"
+        );
+        assert_eq!(repo.jumlah_dicabut(), 1, "hanya baris lama yang dicabut");
+    }
+
+    /// INTI PERBAIKAN: token yang baru saja dirotasi dipakai lagi oleh
+    /// permintaan saudara. Harus dilayani, dan keluarganya harus UTUH.
+    #[tokio::test]
+    async fn rotasi_bersamaan_dilayani_tanpa_mencabut_keluarga() {
+        let repo = Arc::new(RepoRefreshPalsu::default());
+        repo.seed(&RefreshService::hash("token-a"), "id-a", "fam-1", None);
+        let svc = layanan(repo.clone());
+
+        // Permintaan pertama menang.
+        let pertama = svc.rotate("token-a", "uji").await.unwrap();
+        assert!(!pertama.refresh_token.is_empty());
+
+        // Permintaan saudara tiba beberapa milidetik kemudian dengan token yang
+        // SAMA — persis lima baris yang terlihat di log produksi.
+        let kedua = svc
+            .rotate("token-a", "uji")
+            .await
+            .expect("permintaan bersamaan TIDAK boleh gagal");
+
+        assert!(
+            !kedua.access_token.is_empty(),
+            "harus tetap dapat access token supaya permintaannya tak jadi 401"
+        );
+        assert!(
+            kedua.refresh_token.is_empty(),
+            "TIDAK boleh menerbitkan refresh token kedua — penandanya string kosong"
+        );
+
+        // Yang paling penting: sesi pengguna masih hidup.
+        let dicabut = repo.jumlah_dicabut();
+        assert_eq!(
+            dicabut, 1,
+            "hanya baris lama yang boleh dicabut; keluarga TIDAK boleh ikut dicabut"
+        );
+    }
+
+    /// Banyak permintaan saudara sekaligus — tak satu pun boleh mencabut sesi.
+    #[tokio::test]
+    async fn lima_permintaan_saudara_tak_membunuh_sesi() {
+        let repo = Arc::new(RepoRefreshPalsu::default());
+        repo.seed(&RefreshService::hash("token-a"), "id-a", "fam-1", None);
+        let svc = layanan(repo.clone());
+
+        let mut berhasil = 0;
+        let mut refresh_baru = 0;
+        for _ in 0..5 {
+            let h = svc.rotate("token-a", "uji").await.expect("tak boleh gagal");
+            berhasil += 1;
+            if !h.refresh_token.is_empty() {
+                refresh_baru += 1;
+            }
+        }
+        assert_eq!(berhasil, 5, "kelimanya dilayani");
+        assert_eq!(refresh_baru, 1, "hanya SATU yang boleh merotasi");
+        assert_eq!(repo.jumlah_dicabut(), 1, "sesi tetap hidup");
+    }
+
+    /// Pencurian sungguhan tetap dihukum: token yang dicabut LAMA muncul lagi
+    /// setelah jendela toleransi lewat → seluruh keluarga dicabut.
+    #[tokio::test]
+    async fn token_dicabut_lama_tetap_mencabut_keluarga() {
+        let repo = Arc::new(RepoRefreshPalsu::default());
+        let lama = Utc::now() - Duration::seconds(GRACE_ROTASI + 5);
+        repo.seed(&RefreshService::hash("token-curian"), "id-a", "fam-1", Some(lama));
+        // Token hidup lain di keluarga yang sama — inilah yang harus ikut mati.
+        repo.seed(&RefreshService::hash("token-b"), "id-b", "fam-1", None);
+        let svc = layanan(repo.clone());
+
+        let hasil = svc.rotate("token-curian", "penyerang").await;
+        assert!(hasil.is_err(), "token curian harus ditolak");
+        assert_eq!(
+            repo.jumlah_dicabut(),
+            2,
+            "seluruh keluarga dicabut, termasuk token yang masih hidup"
+        );
+    }
+
+    /// Token yang tak dikenal ditolak tanpa menyentuh keluarga mana pun.
+    #[tokio::test]
+    async fn token_asing_ditolak() {
+        let repo = Arc::new(RepoRefreshPalsu::default());
+        repo.seed(&RefreshService::hash("token-a"), "id-a", "fam-1", None);
+        let svc = layanan(repo.clone());
+
+        assert!(svc.rotate("token-entah", "uji").await.is_err());
+        assert_eq!(repo.jumlah_dicabut(), 0, "tak ada yang boleh dicabut");
+    }
+}

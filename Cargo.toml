@@ -46,6 +46,18 @@ lib-features = ["hydrate"]
 # full-speed lewat [profile.release] biasa.
 lib-profile-release = "wasm-release"
 
+# ── Pemantau berkas cargo-leptos TIDAK tahu `styles/parts/` ada ───────────────
+# CSS aplikasi ini disusun `build.rs` dari `styles/parts/*.css`, dan `build.rs`
+# sudah menyatakan `cargo:rerun-if-changed=styles/parts` — jadi `cargo build`
+# selalu benar. Tetapi `cargo leptos watch` memutuskan KAPAN membangun lewat
+# pemantaunya sendiri, yang hanya melihat sumber Rust, `style-file`, dan
+# `assets-dir`. Direktori itu tak satu pun memuat `styles/parts/`.
+#
+# Akibatnya: mengubah CSS tak menghasilkan apa-apa. Halaman tak berubah, tak ada
+# galat, tak ada baris log — dan satu-satunya cara mengetahuinya adalah
+# membandingkan mtime berkas CSS dengan mtime binari yang sedang berjalan.
+watch-additional-files = ["styles/parts"]
+
 # ── Features ───────────────────────────────────────────────────────────────────
 [features]
 default = ["ssr"]
