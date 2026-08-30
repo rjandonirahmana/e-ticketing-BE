@@ -259,7 +259,7 @@ pub fn ProductGrid(
     #[prop(optional, into)] empty: Option<String>,
 ) -> impl IntoView {
     if products.is_empty() {
-        let msg = empty.unwrap_or_else(|| "Belum ada produk.".into());
+        let msg = empty.unwrap_or_else(|| "Belum ada product.".into());
         return view! { <p class="product-grid-empty">{msg}</p> }.into_any();
     }
     view! {

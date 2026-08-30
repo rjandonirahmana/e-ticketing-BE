@@ -37,7 +37,7 @@ pub fn ChatNewPage() -> impl IntoView {
     // Halaman produk sudah memegang judul dan slug-nya, jadi meneruskannya di
     // URL berbiaya nol — sedangkan mengambilnya ulang di sini berarti satu
     // perjalanan bolak-balik lagi untuk data yang baru saja ada di layar.
-    let produk_slug = move || query.read().get("produk").unwrap_or_default();
+    let produk_slug = move || query.read().get("product").unwrap_or_default();
     let produk_judul = move || query.read().get("judul").unwrap_or_default();
     let produk_sampul = move || query.read().get("sampul").unwrap_or_default();
 

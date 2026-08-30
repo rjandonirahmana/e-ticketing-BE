@@ -230,7 +230,7 @@ pub fn RegisterPage() -> impl IntoView {
 
     view! {
         <Title text="Daftar — PULSE" />
-        <Meta name="description" content="Buat akun PULSE gratis dan mulai belanja produk favoritmu." />
+        <Meta name="description" content="Buat akun PULSE gratis dan mulai belanja product favoritmu." />
         <main class="auth-page">
             <header class="auth-header">
                 <A href="/login" attr:class="back-btn">
@@ -244,7 +244,7 @@ pub fn RegisterPage() -> impl IntoView {
 
             <section>
                 <h1 class="hero-title">"BUAT AKUN"<br/>"GRATIS"</h1>
-                <p class="hero-sub">"Daftar dan temukan ribuan produk pilihan di seluruh Indonesia."</p>
+                <p class="hero-sub">"Daftar dan temukan ribuan product pilihan di seluruh Indonesia."</p>
             </section>
 
             <div class="auth-card">

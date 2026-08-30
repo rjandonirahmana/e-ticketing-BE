@@ -26,7 +26,7 @@ use crate::web::models::{Product, PaginatedProducts};
 /// bilah dan urutan perpindahan ditulis di dua tempat terpisah.
 const TABS: [&str; 6] = [
     "Review",
-    "Produk",
+    "Product",
     "Spanduk",
     "Analitik",
     "Keuangan",

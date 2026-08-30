@@ -186,7 +186,7 @@ pub fn TicketsPage() -> impl IntoView {
                                                 icon=icon
                                                 title=title
                                                 body=body
-                                                cta_label="JELAJAHI PRODUK"
+                                                cta_label="JELAJAHI PRODUCT"
                                                 cta_href="/explore"
                                             />
                                         }

@@ -196,6 +196,22 @@ async fn refresh(
         .await
         .map_err(app_err)?;
 
+    // Refresh token kosong = `rotate` menempuh jalur rotasi-bersamaan: peminta
+    // lain sudah merotasi lebih dulu, dan token barunya hanya ada di tangan
+    // peminta itu (yang tersimpan di sini cuma hash-nya, jadi tak mungkin
+    // dikembalikan dari sini).
+    //
+    // Jalur itu memang untuk MIDDLEWARE, yang cukup butuh access token karena
+    // cookie refresh-nya diurus permintaan saudara di halaman yang sama. Klien
+    // native yang memanggil endpoint ini menyimpan refresh token sendiri, dan
+    // memberinya string kosong akan menghapus sesinya. Jadi di sini: minta ia
+    // mencoba lagi — TANPA mencabut keluarga, karena tak ada yang salah.
+    if hasil.refresh_token.is_empty() {
+        return Err(app_err(crate::utils::error::AppError::Unauthorized(
+            "Refresh sedang berjalan di permintaan lain, coba lagi".into(),
+        )));
+    }
+
     Ok(Json(serde_json::json!({
         "accessToken": hasil.access_token,
         "refreshToken": hasil.refresh_token,

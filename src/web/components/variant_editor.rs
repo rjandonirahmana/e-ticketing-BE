@@ -61,7 +61,7 @@ pub fn rows_from_product(variants: &[ProductVariant]) -> Vec<VariantRow> {
 /// `Err(pesan)` bila ada input tak valid — tampilkan di banner error form.
 pub fn rows_to_json(rows: &[VariantRow], removed_ids: &[String]) -> Result<String, String> {
     if rows.is_empty() {
-        return Err("Minimal satu varian produk wajib diisi.".into());
+        return Err("Minimal satu varian product wajib diisi.".into());
     }
     let mut out: Vec<VariantForm> = Vec::with_capacity(rows.len() + removed_ids.len());
     for (i, r) in rows.iter().enumerate() {
@@ -121,10 +121,10 @@ pub fn VariantEditor(
 
     view! {
         <div class="medit-section-header">
-            <span class="medit-section-label">"VARIAN PRODUK"</span>
+            <span class="medit-section-label">"VARIAN PRODUCT"</span>
         </div>
         <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">
-            "Tentukan varian produk beserta harga & stoknya (cth. Merah, Biru, Ukuran XL)."
+            "Tentukan varian product beserta harga & stoknya (cth. Merah, Biru, Ukuran XL)."
         </p>
         <For each=move || rows.get() key=|r| r.key let:row>
             {

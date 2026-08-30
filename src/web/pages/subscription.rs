@@ -26,7 +26,7 @@ const BENEFITS: &[Benefit] = &[
     Benefit {
         emoji: "⚡",
         title: "Prioritas Antrian",
-        desc: "Saat produk sold-out, kamu masuk antrian prioritas sehingga peluang mendapatkannya jauh lebih besar.",
+        desc: "Saat product sold-out, kamu masuk antrian prioritas sehingga peluang mendapatkannya jauh lebih besar.",
     },
     Benefit {
         emoji: "🎯",
@@ -36,7 +36,7 @@ const BENEFITS: &[Benefit] = &[
     Benefit {
         emoji: "🏷️",
         title: "Diskon Eksklusif",
-        desc: "Nikmati potongan harga khusus subscriber di produk-produk pilihan partner PULSE.",
+        desc: "Nikmati potongan harga khusus subscriber di product-product pilihan partner PULSE.",
     },
     Benefit {
         emoji: "📍",
@@ -51,7 +51,7 @@ const BENEFITS: &[Benefit] = &[
     Benefit {
         emoji: "🔔",
         title: "Notifikasi Real-Time",
-        desc: "Push notification instan saat produk favoritmu mulai dijual.",
+        desc: "Push notification instan saat product favoritmu mulai dijual.",
     },
     Benefit {
         emoji: "💬",
@@ -295,7 +295,7 @@ pub fn SubscriptionPage() -> impl IntoView {
                     {[
                         (
                             "@rioazzam",
-                            "Udah 3x dapet produk sold-out karena antrian prioritas. Worth it banget!",
+                            "Udah 3x dapet product sold-out karena antrian prioritas. Worth it banget!",
                         ),
                         (
                             "@ndavidina",
@@ -328,7 +328,7 @@ pub fn SubscriptionPage() -> impl IntoView {
                     <div class="sub-cta-already">
                         <span>"Kamu sudah Premium"</span>
                         <A href="/explore" attr:class="sub-cta-explore-link">
-                            "Explore Produk →"
+                            "Explore Product →"
                         </A>
                     </div>
                 </Show>

@@ -27,24 +27,41 @@
     min-width: 100%;
 }
 
-/* `flex: 1 0 0` + `min-width` = SEMUA tab selebar sama, entah deretannya muat
-   atau meluber. Itu prasyarat garis penanda di bawah, yang lebarnya dihitung
-   sebagai `100% / jumlah tab`. Dengan `flex-basis: auto`, lebar tiap tab ikut
-   panjang labelnya dan garisnya tak akan pernah sejajar. */
+/* `flex: 1 1 0` = SEMUA tab selebar sama persis, apa pun panjang labelnya.
+   Itu prasyarat garis penanda di bawah, yang lebarnya dihitung sebagai
+   `100% / jumlah tab`; dengan `flex-basis: auto` lebar tiap tab mengikuti
+   labelnya dan garisnya tak akan pernah sejajar.
+   
+   ── KENAPA TIDAK ADA `min-width` ─────────────────────────────────────────
+   Versi pertama memakai `min-width: 88px`. Untuk empat tab Merchant Hub itu
+   tak pernah terlihat, tapi Pusat Admin punya ENAM: 6 x 88px = 528px di dalam
+   kolom yang lebarnya dikunci 480px. Bilahnya jadi menggulir mendatar, dan
+   "Pengaturan" terpotong di tepi — bilah tab yang harus digeser dulu untuk
+   melihat tab yang ada, padahal seluruh gunanya adalah menampilkan pilihan
+   sekaligus.
+   
+   Tanpa `min-width`, keenamnya berbagi rata lebar yang tersedia (~74px pada
+   kolom 480px) dan muat tanpa menggulir. Ukuran huruf & jarak antarhuruf
+   diturunkan seperlunya agar label terpanjang ("Pengaturan", 10 huruf) tetap
+   utuh di lebar itu. `text-overflow: ellipsis` dipasang sebagai jaring
+   pengaman untuk layar yang lebih sempit lagi — memotong dengan elipsis masih
+   terbaca, sedangkan teks yang meluber merusak tata letak seluruh baris. */
 .mhub-mtab {
     position: relative;
-    flex: 1 0 0;
-    min-width: 88px;
-    padding: 12px 8px 13px;
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 12px 3px 13px;
     background: none;
     border: none;
     cursor: pointer;
     font-family: var(--font-body);
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 700;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.04em;
     color: var(--text-secondary);
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     text-align: center;
     transition: color 0.2s;
     -webkit-tap-highlight-color: transparent;
@@ -59,14 +76,17 @@
     border-bottom: none;
 }
 
+/* Lencana ikut ramping: ia berbagi ruang dengan label di dalam tab yang
+   lebarnya sudah pas-pasan, dan lencana lebar akan mendorong labelnya ke
+   elipsis justru pada tab yang paling perlu dibaca. */
 .mhub-mtab-badge {
     display: inline-block;
-    margin-left: 5px;
-    padding: 1px 5px;
+    margin-left: 3px;
+    padding: 1px 4px;
     border-radius: 99px;
     background: var(--danger);
     color: #fff;
-    font-size: 0.62rem;
+    font-size: 0.58rem;
     font-weight: 700;
     letter-spacing: 0;
     vertical-align: middle;

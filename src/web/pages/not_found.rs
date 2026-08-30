@@ -50,7 +50,7 @@ pub fn NotFoundPage() -> impl IntoView {
                         </svg>
                         "BACK TO STAGE"
                     </A>
-                    <A href="/explore" attr:class="nf-btn-secondary">"JELAJAHI PRODUK"</A>
+                    <A href="/explore" attr:class="nf-btn-secondary">"JELAJAHI PRODUCT"</A>
                 </div>
                 <div class="nf-suggestions">
                     <span class="nf-suggestions-label">"QUICK LINKS"</span>

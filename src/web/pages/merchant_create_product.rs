@@ -144,13 +144,13 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
         success_msg.set(String::new());
 
         let name = f_name.get_untracked();
-        if name.trim().is_empty() { error_msg.set("Nama produk wajib diisi.".into()); return; }
+        if name.trim().is_empty() { error_msg.set("Nama product wajib diisi.".into()); return; }
         let desc = f_desc.get_untracked();
-        if desc.trim().is_empty() { error_msg.set("Deskripsi produk wajib diisi.".into()); return; }
+        if desc.trim().is_empty() { error_msg.set("Deskripsi product wajib diisi.".into()); return; }
         let cats = f_cat.get_untracked();
         if cats.is_empty() { error_msg.set("Pilih minimal satu kategori.".into()); return; }
         let date = f_date.get_untracked();
-        if date.trim().is_empty() { error_msg.set("Tanggal produk wajib diisi.".into()); return; }
+        if date.trim().is_empty() { error_msg.set("Tanggal product wajib diisi.".into()); return; }
         let time = f_time.get_untracked();
         if time.trim().is_empty() {
             error_msg.set("Waktu mulai wajib diisi.".into()); return;
@@ -232,7 +232,7 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
         leptos::task::spawn_local(async move {
             match create_merchant_product(name, desc, venue, city, start_iso.clone(), start_iso, cats_str, lat, lng, variants_json, cover, detail_json).await {
                 Ok(_slug) => {
-                    success_msg.set("Produk berhasil dibuat!".into());
+                    success_msg.set("Product berhasil dibuat!".into());
                     submitting.set(false);
                     #[cfg(target_arch = "wasm32")]
                     if let Some(win) = web_sys::window() {
@@ -242,7 +242,7 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
                     }
                 }
                 Err(e) => {
-                    error_msg.set(format!("Gagal membuat produk: {}", e));
+                    error_msg.set(format!("Gagal membuat product: {}", e));
                     submitting.set(false);
                 }
             }
@@ -265,7 +265,7 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
                         <polyline points="15 18 9 12 15 6" />
                     </svg>
                 </A>
-                <span class="page-logo">"BUAT PRODUK"</span>
+                <span class="page-logo">"BUAT PRODUCT"</span>
                 <div class="header-actions">
                     <ThemeToggle />
                     <A href="/notifications" attr:class="bell-btn" attr:aria-label="Notifikasi">
@@ -337,7 +337,7 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
                     <span class="medit-section-label">"INFO DASAR"</span>
                 </div>
                 <div class="medit-field-group">
-                    <label class="medit-field-label">"NAMA PRODUK"</label>
+                    <label class="medit-field-label">"NAMA PRODUCT"</label>
                     <input
                         type="text"
                         class="medit-input"
@@ -350,7 +350,7 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
                     <label class="medit-field-label">"DESKRIPSI"</label>
                     <textarea
                         class="medit-input medit-textarea"
-                        placeholder="Ceritakan tentang produk Anda..."
+                        placeholder="Ceritakan tentang product Anda..."
                         prop:value=move || f_desc.get()
                         on:input=move |e| f_desc.set(event_target_value(&e))
                     ></textarea>
@@ -584,7 +584,7 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
                         disabled=move || submitting.get()
                         on:click=do_submit
                     >
-                        {move || if submitting.get() { "Membuat Produk..." } else { "BUAT PRODUK" }}
+                        {move || if submitting.get() { "Membuat Product..." } else { "BUAT PRODUCT" }}
                     </button>
                     <A href="/merchant" attr:class="medit-cancel-btn">
                         "BATAL"

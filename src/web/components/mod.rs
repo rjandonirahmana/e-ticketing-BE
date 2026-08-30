@@ -1,4 +1,5 @@
 pub mod audio_pill;
+pub mod banner_slider;
 pub mod cards;
 pub mod common;
 pub mod detail_image_section;
@@ -15,6 +16,7 @@ pub mod toast;
 pub mod variant_editor;
 pub mod story_viewer;
 
+pub use banner_slider::BannerSlider;
 pub use cards::{
     ProductCard, ProductCardPub, ProductCardShimmer, ProductGrid, ProductGridShimmer,
     MerchantProductCardShimmer, MerchantRowShimmer, MessageRowShimmer, OrderCardShimmer,

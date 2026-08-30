@@ -244,7 +244,7 @@ pub fn StoryPage() -> impl IntoView {
         {
             let has_hero = web_sys::window().and_then(|w| w.session_storage().ok()).flatten()
                 .and_then(|s| s.get_item("story_hero_transition").ok()).flatten()
-                .map(|v| v == "produk").unwrap_or(false);
+                .map(|v| v == "product").unwrap_or(false);
             if has_hero {
                 hero_transition.set(true);
                 if let Some(storage) = web_sys::window().and_then(|w| w.session_storage().ok()).flatten() {
@@ -644,7 +644,7 @@ pub fn StoryPage() -> impl IntoView {
             let products_count_u = prefill_products_count();
             let rating_u = prefill_rating();
             if cover.is_empty() && !is_merchant_u {
-                error_unggah.set(Some("Cover produk tidak tersedia di URL.".into()));
+                error_unggah.set(Some("Cover product tidak tersedia di URL.".into()));
                 return;
             }
             sedang_mengunggah.set(true);
@@ -691,7 +691,7 @@ pub fn StoryPage() -> impl IntoView {
                 #[cfg(target_arch = "wasm32")]
                 match upload_story_file(&file, slug, title_opt).await {
                     Ok(_)  => { ctx.uploading.set(false); ctx.load(); }
-                    Err(e) => { ctx.uploading.set(false); web_sys::console::error_1(&format!("produk story upload: {}", e).into()); }
+                    Err(e) => { ctx.uploading.set(false); web_sys::console::error_1(&format!("product story upload: {}", e).into()); }
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 { let _ = (file, slug, title_opt); ctx.uploading.set(false); }
@@ -965,7 +965,7 @@ pub fn StoryPage() -> impl IntoView {
                                                         </div>
                                                         <div class="sc-mch-stat">
                                                             <span class="sc-mch-stat-num">{move || crate::web::pages::merchant_public::fmt_count(prefill_products_count())}</span>
-                                                            <span class="sc-mch-stat-label">"PRODUK"</span>
+                                                            <span class="sc-mch-stat-label">"PRODUCT"</span>
                                                         </div>
                                                         <div class="sc-mch-stat">
                                                             <span class="sc-mch-stat-num">
@@ -1064,7 +1064,7 @@ pub fn StoryPage() -> impl IntoView {
                                     </svg>
                                 </div>
                                 <div class="sc-product-prefill-text">
-                                    <span class="sc-product-prefill-label">"Berbagi produk"</span>
+                                    <span class="sc-product-prefill-label">"Berbagi product"</span>
                                     <span class="sc-product-prefill-title">{move || prefill_title()}</span>
                                 </div>
                                 <div class="sc-product-prefill-badge">"LIVE PULSE"</div>

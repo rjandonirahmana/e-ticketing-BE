@@ -65,7 +65,7 @@ const MHUB_ICON_BTN: &str = "relative inline-flex items-center justify-center w-
 /// Geser kiri/kanan berpindah ke tetangga di larik ini, jadi urutan di bilah tab
 /// dan urutan saat digeser mustahil berselisih — kalau keduanya ditulis terpisah,
 /// menambah satu tab di kemudian hari akan membuat gesernya melompati tab.
-const TABS: [&str; 4] = ["Produk", "Analitik", "Keuangan", "Pengaturan"];
+const TABS: [&str; 4] = ["Product", "Analitik", "Keuangan", "Pengaturan"];
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -276,7 +276,7 @@ pub fn MerchantPage() -> impl IntoView {
         <BottomNav active="merchant" />
 
         // ── FAB ───────────────────────────────────────────────────────────────
-        <A href="/merchant/products/create" attr:class="mhub-fab" attr:aria-label="Produk baru">
+        <A href="/merchant/products/create" attr:class="mhub-fab" attr:aria-label="Product baru">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
                 <line x1="12" y1="5" x2="12" y2="19"/>
@@ -292,7 +292,7 @@ fn view_products(evs: Vec<Product>) -> impl IntoView {
     view! {
         <section class="mhub-products-section">
             <div class="mhub-products-header">
-                <h3 class="mhub-products-title">"Produk Saya"</h3>
+                <h3 class="mhub-products-title">"Product Saya"</h3>
                 <span class="mhub-live-badge">
                     <span class="mhub-live-dot"></span>
                     "Live"
@@ -308,9 +308,9 @@ fn view_products(evs: Vec<Product>) -> impl IntoView {
                                 <line x1="1" y1="10" x2="23" y2="10"/>
                             </svg>
                         </div>
-                        <p class="mhub-empty-title">"Belum Ada Produk"</p>
+                        <p class="mhub-empty-title">"Belum Ada Product"</p>
                         <p class="mhub-empty-body">
-                            "Buat produk pertamamu dan mulai berjualan."
+                            "Buat product pertamamu dan mulai berjualan."
                         </p>
                         <A href="/merchant/products/create" attr:class="mhub-empty-cta">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
@@ -318,7 +318,7 @@ fn view_products(evs: Vec<Product>) -> impl IntoView {
                                 <line x1="12" y1="5" x2="12" y2="19"/>
                                 <line x1="5" y1="12" x2="19" y2="12"/>
                             </svg>
-                            "BUAT PRODUK PERTAMA"
+                            "BUAT PRODUCT PERTAMA"
                         </A>
                     </div>
                 }
@@ -474,7 +474,7 @@ fn view_analytics(evs: Vec<Product>) -> impl IntoView {
     view! {
         <section class="merchant-stats">
             <div class="merchant-card merchant-velocity" style="margin-bottom:12px">
-                <h3 class="merchant-section-title">"Produk Terlaris"</h3>
+                <h3 class="merchant-section-title">"Product Terlaris"</h3>
                 {if let Some(t) = top {
                     let pct = if t.total_quota > 0 {
                         ((t.total_sold as f64 / t.total_quota as f64) * 100.0).round() as u32
@@ -509,11 +509,11 @@ fn view_analytics(evs: Vec<Product>) -> impl IntoView {
             </div>
             <div class="merchant-tile-row">
                 <div class="merchant-tile">
-                    <span class="merchant-label">"TOTAL PRODUK"</span>
+                    <span class="merchant-label">"TOTAL PRODUCT"</span>
                     <span class="merchant-tile-value">{total}</span>
                 </div>
                 <div class="merchant-tile merchant-tile--accent">
-                    <span class="merchant-label">"PRODUK AKTIF"</span>
+                    <span class="merchant-label">"PRODUCT AKTIF"</span>
                     <span class="merchant-tile-value">{active_count}</span>
                 </div>
             </div>
@@ -564,7 +564,7 @@ fn view_settings() -> impl IntoView {
             <h3 class="merchant-section-title">"Profil Bisnis"</h3>
             <div class="mhub-form-row" style="margin-top:12px">
                 <label class="mhub-form-label">"NAMA BISNIS"</label>
-                <input type="text" class="mhub-form-input" value="Stellar Produk Indonesia"/>
+                <input type="text" class="mhub-form-input" value="Stellar Product Indonesia"/>
             </div>
             <div class="mhub-form-row" style="margin-top:10px">
                 <label class="mhub-form-label">"EMAIL KONTAK"</label>
@@ -1125,7 +1125,7 @@ fn MerchantProfileCard() -> impl IntoView {
                             </a>
                             <div class="mp-stat">
                                 <span class="mp-stat-num">{fmt_count(e)}</span>
-                                <span class="mp-stat-label">"PRODUK"</span>
+                                <span class="mp-stat-label">"PRODUCT"</span>
                             </div>
                             <div class="mp-stat">
                                 <span class="mp-stat-num">

@@ -11,7 +11,9 @@ use leptos_router::hooks::use_query_map;
 
 use crate::web::components::story_bars::StoryBar;
 use crate::web::components::story_viewer::StoryViewer;
-use crate::web::components::{BottomNav, EmptyState, ProductCardPub, ProductCardShimmer};
+use crate::web::components::{
+    BannerSlider, BottomNav, EmptyState, ProductCardPub, ProductCardShimmer,
+};
 use crate::web::components::{CartButton, ThemeToggle};
 use crate::web::state::use_products_store;
 
@@ -97,42 +99,6 @@ pub fn ExplorePage() -> impl IntoView {
         cat
     });
 
-    // ── Banner slider (tabel `banners`, dikelola admin) ───────────────────────
-    // Fetch sekali di client (get_banners ber-cache moka di server). Kartu
-    // SPONSORED statis lama menjadi fallback bila belum ada banner aktif.
-    let banners = RwSignal::new(Vec::<crate::web::models::Banner>::new());
-    let banner_idx = RwSignal::new(0usize);
-    #[cfg(feature = "hydrate")]
-    {
-        Effect::new(move |prev: Option<()>| {
-            if prev.is_some() {
-                return;
-            }
-            spawn_local(async move {
-                if let Ok(list) = crate::web::api::get_banners().await {
-                    banners.set(list);
-                }
-            });
-        });
-        // Auto-advance tiap 5 detik bila banner > 1. Interval DIPEGANG dan
-        // di-drop saat unmount (on_cleanup) — tidak bocor.
-        let auto = send_wrapper::SendWrapper::new(gloo_timers::callback::Interval::new(
-            5_000,
-            move || {
-                let n = banners.with_untracked(|b| b.len());
-                if n > 1 {
-                    banner_idx.update(|i| *i = (*i + 1) % n);
-                }
-            },
-        ));
-        let auto_cell: StoredValue<Option<send_wrapper::SendWrapper<gloo_timers::callback::Interval>>> =
-            StoredValue::new(Some(auto));
-        on_cleanup(move || {
-            if let Some(Some(int)) = auto_cell.try_update_value(|o| o.take()) {
-                drop(int);
-            }
-        });
-    }
 
     // Rekomendasi "Untuk Kamu" (tanpa perlu "like"):
     //   1) Coba rekomendasi SERVER (user login) dari DB perilaku (user_affinity).
@@ -307,7 +273,7 @@ pub fn ExplorePage() -> impl IntoView {
 
     let close_c = StoredValue::new(close_overlay);
 
-    let placeholders = vec!["search produk, artists...", "cari sepatu lari", "kaos polos"];
+    let placeholders = vec!["search product, artists...", "cari sepatu lari", "kaos polos"];
     let _ph_idx = RwSignal::new(0usize);
     let ph_text = RwSignal::new(placeholders[0].to_string());
     let ph_show = RwSignal::new(true);
@@ -403,10 +369,10 @@ pub fn ExplorePage() -> impl IntoView {
     }
 
     view! {
-        <Title text="Jelajahi Produk — PULSE" />
+        <Title text="Jelajahi Product — PULSE" />
         <Meta
             name="description"
-            content="Temukan produk pilihan dari toko-toko di kotamu. Belanja sekarang di PULSE."
+            content="Temukan product pilihan dari toko-toko di kotamu. Belanja sekarang di PULSE."
         />
         <div class="page explore-page exp-page">
             <header class="page-header exp-header">
@@ -459,7 +425,7 @@ pub fn ExplorePage() -> impl IntoView {
                 <button
                     class="exp-searchbar"
                     on:click=move |_| open_overlay()
-                    aria-label="Cari produk"
+                    aria-label="Cari product"
                 >
                     <svg
                         width="15"
@@ -497,89 +463,23 @@ pub fn ExplorePage() -> impl IntoView {
                 </button>
             </div>
 
-            // Banner slider (dari tabel `banners`); fallback kartu statis bila
-            // belum ada banner aktif yang di-upload admin.
+            // Banner slider (dari tabel `banners`); fallback kartu statis
+            // "SPONSORED" bila belum ada banner aktif yang diunggah admin.
+            // Markup + putar-otomatis + panah ada di `components/banner_slider.rs`,
+            // dipakai bersama halaman /pulse.
             <div class="exp-promo-wrap">
-                {move || {
-                    let list = banners.get();
-                    if list.is_empty() {
-                        view! {
-                            <div class="exp-promo">
-                                <span class="exp-promo-tag">"SPONSORED"</span>
-                                <h2 class="exp-promo-heading">
-                                    "UPGRADE TO VIP" <br /> "PULSE PASS"
-                                </h2>
-                                <p class="exp-promo-desc">
-                                    "Akses lebih awal, diskon khusus, dan prioritas antrian untuk produk pilihan."
-                                </p>
-                                <button class="exp-promo-cta">"Claim Offer"</button>
-                            </div>
-                        }
-                            .into_any()
-                    } else {
-                        let n = list.len();
-                        view! {
-                            <div class="exp-bnr">
-                                <div
-                                    class="exp-bnr-track"
-                                    style=move || {
-                                        format!(
-                                            "transform:translateX(-{}%)",
-                                            banner_idx.get().min(n - 1) * 100,
-                                        )
-                                    }
-                                >
-                                    {list
-                                        .iter()
-                                        .map(|b| {
-                                            let img = b.image_url.clone();
-                                            let link = b.link_url.clone().unwrap_or_default();
-                                            let title = b.title.clone().unwrap_or_default();
-                                            view! {
-                                                <a
-                                                    class="exp-bnr-slide"
-                                                    href=if link.is_empty() { "#".into() } else { link }
-                                                >
-                                                    <img
-                                                        src=img
-                                                        alt=title
-                                                        loading="lazy"
-                                                        class="exp-bnr-img"
-                                                    />
-                                                </a>
-                                            }
-                                        })
-                                        .collect_view()}
-                                </div>
-                                {(n > 1)
-                                    .then(|| {
-                                        view! {
-                                            <div class="exp-bnr-dots">
-                                                {(0..n)
-                                                    .map(|i| {
-                                                        view! {
-                                                            <button
-                                                                class=move || {
-                                                                    if banner_idx.get() == i {
-                                                                        "exp-bnr-dot exp-bnr-dot--on"
-                                                                    } else {
-                                                                        "exp-bnr-dot"
-                                                                    }
-                                                                }
-                                                                aria-label=format!("Banner {}", i + 1)
-                                                                on:click=move |_| banner_idx.set(i)
-                                                            ></button>
-                                                        }
-                                                    })
-                                                    .collect_view()}
-                                            </div>
-                                        }
-                                    })}
-                            </div>
-                        }
-                            .into_any()
+                <BannerSlider fallback=|| {
+                    view! {
+                        <div class="exp-promo">
+                            <span class="exp-promo-tag">"SPONSORED"</span>
+                            <h2 class="exp-promo-heading">"UPGRADE TO VIP" <br /> "PULSE PASS"</h2>
+                            <p class="exp-promo-desc">
+                                "Akses lebih awal, diskon khusus, dan prioritas antrian untuk product pilihan."
+                            </p>
+                            <button class="exp-promo-cta">"Claim Offer"</button>
+                        </div>
                     }
-                }}
+                } />
             </div>
 
             // ── Untuk Kamu (rekomendasi implisit dari perilaku) ──────────────
@@ -628,7 +528,7 @@ pub fn ExplorePage() -> impl IntoView {
             <div class="exp-section-hdr-row">
                 <div class="exp-section-hdr-left">
                     <span class="exp-section-eyebrow">"TRENDING NOW"</span>
-                    <h2 class="exp-section-title">"Story Produk"</h2>
+                    <h2 class="exp-section-title">"Story Product"</h2>
                 </div>
                 // Arsip publik semua story yang pernah ada (bukan list product).
                 <A href="/stories" attr:class="exp-view-all">
@@ -669,7 +569,7 @@ pub fn ExplorePage() -> impl IntoView {
 
             <div class="exp-results-bar">
                 <div class="exp-results-left">
-                    <span class="exp-results-eyebrow">"Produk Tersedia"</span>
+                    <span class="exp-results-eyebrow">"Product Tersedia"</span>
                     <span class="exp-results-count">
                         // TOTAL dari COUNT server (semua halaman), bukan jumlah
                         // item yang baru termuat. Saat user mengetik pencarian
@@ -686,7 +586,7 @@ pub fn ExplorePage() -> impl IntoView {
                                 }
                             }}
                         </Suspense>
-                        " produk tersedia"
+                        " product tersedia"
                     </span>
                 </div>
                 <div class="exp-results-right">
@@ -783,7 +683,7 @@ pub fn ExplorePage() -> impl IntoView {
                                 <div class="exp-empty">
                                     <EmptyState
                                         icon="🔍"
-                                        title="Belum Ada Produk"
+                                        title="Belum Ada Product"
                                         body="Coba pilih kategori lain atau ubah filter."
                                     />
                                     <button

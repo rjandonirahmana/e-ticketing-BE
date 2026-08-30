@@ -35,11 +35,26 @@ use axum::{
 use crate::state::AppState;
 use crate::web::api::server_fns::session::{cookie_from_header, ACCESS_COOKIE, REFRESH_COOKIE};
 
+/// Awalan path yang TAK PERNAH memerlukan identitas.
+///
+/// Lapisan ini kini membungkus seluruh aplikasi (lihat catatan di `main.rs`),
+/// jadi ia juga dilewati permintaan aset. Itu penting saat access token
+/// kebetulan mati: satu muat halaman menembakkan puluhan permintaan aset, dan
+/// tanpa penyaringan ini SETIAP satunya ikut mengantre rotasi refresh — kerja
+/// database yang tak menghasilkan apa pun, karena tak satu pun dari mereka
+/// membaca identitas penggunanya.
+const TANPA_AUTH: [&str; 5] = ["/pkg/", "/styles/", "/assets/", "/favicon", "/healthz"];
+
 pub async fn silent_refresh(
     State(state): State<Arc<AppState>>,
     mut req: Request,
     next: Next,
 ) -> Response {
+    let path = req.uri().path();
+    if TANPA_AUTH.iter().any(|p| path.starts_with(p)) {
+        return next.run(req).await;
+    }
+
     let cookie_hdr = req
         .headers()
         .get(COOKIE)
@@ -85,9 +100,19 @@ pub async fn silent_refresh(
         }
     };
 
+    // `refresh_token` KOSONG = rotasi bersamaan; pemenanglah yang menerbitkan
+    // token refresh baru, dan permintaan ini hanya menumpang access token-nya.
+    // Menulis string kosong ke cookie refresh akan MENGHAPUS sesi refresh
+    // pengguna — persis kebalikan dari yang dimaksudkan.
+    let rotasi_penuh = !hasil.refresh_token.is_empty();
+
     // 1) Permintaan INI ikut melihat token barunya.
     let cookie_baru = ganti_cookie(&cookie_hdr, ACCESS_COOKIE, &hasil.access_token);
-    let cookie_baru = ganti_cookie(&cookie_baru, REFRESH_COOKIE, &hasil.refresh_token);
+    let cookie_baru = if rotasi_penuh {
+        ganti_cookie(&cookie_baru, REFRESH_COOKIE, &hasil.refresh_token)
+    } else {
+        cookie_baru
+    };
     if let Ok(hv) = HeaderValue::from_str(&cookie_baru) {
         req.headers_mut().insert(COOKIE, hv);
     }
@@ -102,17 +127,17 @@ pub async fn silent_refresh(
     // pemakaian ulang, yang mencabut seluruh sesi. Pengguna akan terlempar
     // keluar justru oleh mekanisme yang seharusnya menjaganya tetap masuk.
     let max_age_access = crate::utils::jwt::access_cookie_max_age();
-    let pasang = [
-        format!(
-            "{ACCESS_COOKIE}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age_access}",
-            hasil.access_token
-        ),
-        format!(
+    let mut pasang = vec![format!(
+        "{ACCESS_COOKIE}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age_access}",
+        hasil.access_token
+    )];
+    if rotasi_penuh {
+        pasang.push(format!(
             "{REFRESH_COOKIE}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}",
             hasil.refresh_token,
             30 * 24 * 3600
-        ),
-    ];
+        ));
+    }
     for v in pasang {
         if let Ok(hv) = HeaderValue::from_str(&v) {
             resp.headers_mut().append(SET_COOKIE, hv);

@@ -130,7 +130,7 @@ pub fn ProductStoryPreviewInline(
                                     {move || {
                                         let t = title.get();
                                         if t.is_empty() {
-                                            "Judul produk kamu…".to_string()
+                                            "Judul product kamu…".to_string()
                                         } else {
                                             t
                                         }
@@ -210,7 +210,7 @@ pub fn ProductStoryPreviewInline(
                                             } else if !has_cover() {
                                                 "Upload cover untuk bisa berbagi ke cerita"
                                             } else {
-                                                "Isi judul produk untuk bisa berbagi ke cerita"
+                                                "Isi judul product untuk bisa berbagi ke cerita"
                                             }
                                         }}
                                     </p>

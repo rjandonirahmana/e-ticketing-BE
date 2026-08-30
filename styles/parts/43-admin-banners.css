@@ -221,8 +221,12 @@
     border-color: var(--color-primary-border);
     box-shadow: var(--shadow-card);
 }
+/* Tanpa inset mendatar: `.abn-card` sudah memberi 10px, dan menambah 4px lagi
+   di sini membuat kolom teks berdiri 14px dari tepi kartu sementara bingkai
+   fotonya berdiri di 10px — dua garis vertikal yang meleset 4px di kartu yang
+   sama. */
 .abn-body {
-    padding: 12px 4px 4px;
+    padding: 12px 0 2px;
 }
 .abn-meta {
     display: flex;

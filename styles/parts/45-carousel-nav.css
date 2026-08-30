@@ -1,0 +1,102 @@
+/* ===== Panah geser untuk penunjuk presisi (laptop/desktop) ==================
+   Berlaku untuk DUA carousel: galeri foto di detail product (`.ed-hero`) dan
+   slider banner admin (`.exp-bnr`, dipakai /explore dan /pulse).
+
+   ── KENAPA HANYA DI DESKTOP ──────────────────────────────────────────────
+   Di ponsel keduanya sudah bisa digeser dengan jari, dan panah cuma menutupi
+   gambar yang justru ingin dilihat. Di laptop tak ada gerakan setara:
+     * `.ed-hero` digulir mendatar — dan roda mouse menggulir HALAMAN, bukan
+       galeri, jadi foto kedua dan seterusnya tak pernah terjangkau.
+     * `.exp-bnr` bahkan tidak digulir sama sekali; posisinya ditentukan
+       `translateX` dari sinyal, sehingga tak ada apa pun yang bisa disentuh
+       kursor selain titik indikator yang kecil.
+
+   `hover: hover` DAN `pointer: fine` dua-duanya diperlukan: sebagian tablet
+   melaporkan `hover` karena ada pena/stylus, tetapi penunjuk utamanya tetap
+   jari. Menguji keduanya menyaring tablet sentuh, bukan cuma "bukan ponsel". */
+
+.ed-hero-nav,
+.exp-bnr-nav {
+    display: none;
+}
+
+/* Meluncur, bukan melompat. Animasinya milik peramban — tak perlu JS, dan
+   otomatis dihormati oleh `prefers-reduced-motion` di bagian bawah berkas. */
+.ed-hero-scroller {
+    scroll-behavior: smooth;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .ed-hero-nav,
+    .exp-bnr-nav {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        padding: 0;
+        border-radius: 50%;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        /* Warna tidak diambil dari token tema: panah ini berdiri DI ATAS foto
+           sembarang, jadi kontrasnya harus datang dari pelatnya sendiri, bukan
+           dari latar halaman yang tak pernah terlihat di belakangnya. */
+        background: rgba(16, 15, 22, 0.55);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        color: #fff;
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity 0.2s, background 0.2s;
+    }
+    .ed-hero-nav--prev,
+    .exp-bnr-nav--prev {
+        left: 10px;
+    }
+    .ed-hero-nav--next,
+    .exp-bnr-nav--next {
+        right: 10px;
+    }
+
+    /* Muncul saat kursor masuk ke carousel-nya, bukan permanen: gambarnya yang
+       jadi pokok, panah hanya perkakas. Tetap tampil saat difokuskan papan
+       ketik — kalau tidak, pengguna Tab akan memindahkan fokus ke tombol yang
+       tak kelihatan sama sekali. */
+    .ed-hero:hover .ed-hero-nav,
+    .exp-bnr:hover .exp-bnr-nav,
+    .ed-hero-nav:focus-visible,
+    .exp-bnr-nav:focus-visible {
+        opacity: 1;
+    }
+    .ed-hero-nav:hover,
+    .exp-bnr-nav:hover {
+        background: rgba(16, 15, 22, 0.78);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ed-hero-scroller {
+        scroll-behavior: auto;
+    }
+    .exp-bnr-track {
+        transition: none;
+    }
+}
+
+/* ── Banner di /pulse ─────────────────────────────────────────────────────
+   Selokan 16px — MENYAMAI halaman ini, bukan selokan 20px yang dipakai
+   /explore dan sisa aplikasi. `.msg-search-wrap` (margin 12px 16px) dan
+   `.msg-convos-section` (padding 0 16px) keduanya 16px di sini, dan banner
+   yang dipasang di 20px akan terlihat menjorok masuk dibanding kotak cari
+   tepat di atasnya. */
+.msg-banner-wrap {
+    padding: 4px 16px 12px;
+}
+.msg-banner-wrap:empty {
+    /* Tanpa banner aktif komponennya tak merender apa pun; tanpa aturan ini
+       padding di atas tetap menyisakan celah kosong yang tak dijelaskan apa pun. */
+    display: none;
+}

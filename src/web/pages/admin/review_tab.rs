@@ -23,8 +23,8 @@ pub(super) fn view_review(
                         }
                     });
                     let msg = match status {
-                        "active"    => "✅ Produk diaktifkan.",
-                        "cancelled" => "❌ Produk dibatalkan.",
+                        "active"    => "✅ Product diaktifkan.",
+                        "cancelled" => "❌ Product dibatalkan.",
                         _           => "Status diperbarui.",
                     };
                     toast.set(Some((msg.to_string(), false)));
@@ -38,7 +38,7 @@ pub(super) fn view_review(
     view! {
         <section class="mhub-products-section">
             <div class="mhub-products-header">
-                <h3 class="mhub-products-title">"Review Produk"</h3>
+                <h3 class="mhub-products-title">"Review Product"</h3>
                 <span class="mhub-live-badge">
                     <span class="mhub-live-dot"></span>
                     "Menunggu"
@@ -56,7 +56,7 @@ pub(super) fn view_review(
                                 </svg>
                             </div>
                             <p class="mhub-empty-title">"Semua Bersih ✅"</p>
-                            <p class="mhub-empty-body">"Tidak ada produk yang menunggu review."</p>
+                            <p class="mhub-empty-body">"Tidak ada product yang menunggu review."</p>
                         </div>
                     }.into_any();
                 }

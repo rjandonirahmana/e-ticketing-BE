@@ -1464,7 +1464,7 @@ pub fn StoryViewer() -> impl IntoView {
                             let (eyebrow, cta_label) = if is_merchant {
                                 ("TOKO", "Kunjungi Profil")
                             } else {
-                                ("EVENT", "Lihat Produk")
+                                ("EVENT", "Lihat Product")
                             };
                             let title = s.event_title.clone()
                                 .unwrap_or_else(|| cta_label.to_string());

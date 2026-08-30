@@ -350,6 +350,20 @@ impl CartContext {
             };
             match result {
                 Ok(view) => this.apply(view),
+                // Sesi ditolak server padahal klien mengira sudah masuk.
+                // JANGAN tampilkan sebagai galat keranjang: pesannya
+                // ("Tidak terautentikasi") tak ada hubungannya dengan
+                // keranjang, muncul sebagai toast merah DI SETIAP halaman
+                // lewat efek di `providers.rs`, dan tak menyisakan satu pun
+                // tindakan yang bisa diambil pengguna. Yang benar adalah
+                // kembali ke mode tamu diam-diam — persis keadaan sesungguhnya.
+                Err(e) if galat_auth(&e) => {
+                    leptos::logging::warn!(
+                        "keranjang: sesi ditolak server, kembali ke mode tamu"
+                    );
+                    this.authed.set(false);
+                    this.load_local();
+                }
                 Err(e) => this.fail(e),
             }
             this.loading.set(false);
@@ -468,6 +482,19 @@ impl Default for CartContext {
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 /// Buang bungkus teknis dari pesan server fn supaya yang sampai ke pembeli
 /// adalah kalimat yang ditulis service, bukan jejak internal Leptos.
+/// Apakah galat ini soal SESI, bukan soal keranjang?
+///
+/// Dicocokkan pada teks karena `ServerFnError` meratakan galat server menjadi
+/// string sebelum sampai ke klien — tak ada kode status yang tersisa untuk
+/// diperiksa. Daftarnya sengaja pendek dan harfiah: yang dicocokkan adalah
+/// pesan yang benar-benar diterbitkan `server_fns/helpers.rs`.
+fn galat_auth(e: &ServerFnError) -> bool {
+    let s = e.to_string();
+    s.contains("Tidak terautentikasi")
+        || s.contains("Sesi tidak lagi valid")
+        || s.contains("Sesi sudah kedaluwarsa")
+}
+
 fn clean_error(raw: &str) -> String {
     let s = raw
         .trim_start_matches("error running server function: ")

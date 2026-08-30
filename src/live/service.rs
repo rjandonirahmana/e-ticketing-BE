@@ -372,3 +372,150 @@ impl LiveStreamService {
         self.rooms.contains_key(room_id)
     }
 }
+// ─── Uji siklus hidup siaran ──────────────────────────────────────────────────
+//
+// Yang diuji di sini BUKAN WebRTC-nya. Media, ICE, dan DTLS butuh peramban
+// sungguhan; yang bisa — dan justru paling perlu — diuji adalah RANTAI SINYAL
+// yang membuat UI penonton terasa benar tanpa satu pun polling ke server:
+//
+//     stop_room()  →  room hilang dari `rooms`
+//                  →  `changes_tx` menyiarkan snapshot TANPA room itu
+//                  →  `live_subscribe_ws_loop` melihat room-nya lenyap
+//                  →  kirim "stream_ended" ke penonton, lalu tutup koneksi
+//
+// Langkah terakhir ada di `live/api.rs` dan memerlukan WebSocket sungguhan,
+// tetapi SYARAT yang dipakainya — "room_id saya tidak ada lagi di snapshot" —
+// sepenuhnya ditentukan di berkas ini. Kalau `stop_room` lupa menyiarkan, atau
+// menyiarkan snapshot yang masih memuat room-nya, penonton akan menatap video
+// beku selamanya dan tak ada satu pun galat yang muncul. Uji ini menjaga
+// justru bagian yang gagalnya paling sunyi itu.
+#[cfg(test)]
+mod tests_siklus_siaran {
+    use super::*;
+    use std::time::Duration;
+
+    /// SFU dijalankan sungguhan, tetapi diikat ke port ephemeral loopback.
+    /// `CreateRoom`/`StopRoom` tak menyentuh jaringan sama sekali — keduanya
+    /// hanya mengubah peta di dalam engine lalu membalas lewat oneshot — jadi
+    /// jalur yang diuji di sini adalah jalur produksi yang sebenarnya, bukan
+    /// tiruan.
+    fn layanan() -> Arc<LiveStreamService> {
+        LiveStreamService::new("127.0.0.1:0".parse().unwrap())
+    }
+
+    fn penonton(id: &str) -> ViewerInfo {
+        ViewerInfo { id: id.into(), name: format!("Penonton {id}"), photo_url: None }
+    }
+
+    /// Menunggu satu siaran perubahan, dengan batas waktu supaya kegagalan
+    /// muncul sebagai assert yang jelas alih-alih uji yang menggantung.
+    async fn tunggu_snapshot(
+        rx: &mut broadcast::Receiver<Vec<RoomInfo>>,
+    ) -> Vec<RoomInfo> {
+        tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .expect("tak ada siaran perubahan dalam 2 detik")
+            .expect("channel broadcast tertutup")
+    }
+
+    /// SKENARIO UTAMA: merchant siaran, tiga orang menonton, siaran berakhir.
+    ///
+    /// Setelah berakhir, snapshot yang disiarkan TIDAK BOLEH lagi memuat room
+    /// itu — itulah satu-satunya hal yang membuat ketiga penonton dikeluarkan
+    /// dari halaman siaran secara otomatis.
+    #[tokio::test]
+    async fn siaran_berakhir_mengeluarkan_semua_penonton() {
+        let svc = layanan();
+        let mut rx = svc.subscribe_changes();
+
+        let info = svc
+            .create_room("merchant-1", "Toko Satu", None)
+            .await
+            .expect("room gagal dibuat");
+        let room_id = info.room_id.clone();
+
+        // Siaran perubahan saat room dibuat.
+        let snap = tunggu_snapshot(&mut rx).await;
+        assert!(snap.iter().any(|r| r.room_id == room_id), "room baru harus muncul di snapshot");
+
+        // Tiga penonton bergabung. `subscribe_sdp` butuh SDP sungguhan dari
+        // peramban, jadi penonton didaftarkan langsung ke room — lapisan yang
+        // sama persis yang dipanggil `subscribe_sdp` setelah SFU membalas.
+        {
+            let room = svc.rooms.get(&room_id).expect("room harus ada");
+            for i in 1..=3 {
+                room.add_subscriber(&format!("conn-{i}"), penonton(&format!("u{i}")));
+            }
+        }
+        assert_eq!(
+            svc.get_room(&room_id).map(|r| r.viewer_count),
+            Some(3),
+            "ketiga penonton harus terhitung"
+        );
+
+        // Siaran berakhir.
+        svc.stop_room(&room_id).await.expect("stop_room gagal");
+
+        let snap = tunggu_snapshot(&mut rx).await;
+        assert!(
+            !snap.iter().any(|r| r.room_id == room_id),
+            "room yang sudah berhenti TIDAK boleh ada di snapshot — inilah sinyal \
+             yang dipakai live_subscribe_ws_loop untuk mengirim stream_ended"
+        );
+        assert!(svc.get_room(&room_id).is_none(), "room harus lenyap dari daftar");
+        assert!(!svc.is_live(&room_id), "is_live harus false setelah berhenti");
+    }
+
+    /// Penonton yang keluar sendiri (tutup tab) memicu siaran perubahan juga —
+    /// itu yang membuat angka penonton di layar merchant turun tanpa polling.
+    #[tokio::test]
+    async fn penonton_keluar_menyiarkan_hitungan_baru() {
+        let svc = layanan();
+        let info = svc.create_room("merchant-2", "Toko Dua", None).await.unwrap();
+        let room_id = info.room_id.clone();
+
+        {
+            let room = svc.rooms.get(&room_id).unwrap();
+            room.add_subscriber("conn-1", penonton("u1"));
+            room.add_subscriber("conn-2", penonton("u2"));
+        }
+
+        // Berlangganan SESUDAH join supaya siaran yang tertangkap benar-benar
+        // milik aksi keluar, bukan sisa siaran sebelumnya.
+        let mut rx = svc.subscribe_changes();
+        svc.remove_subscriber(&room_id, "conn-1").await.unwrap();
+
+        let snap = tunggu_snapshot(&mut rx).await;
+        let room = snap.iter().find(|r| r.room_id == room_id).expect("room masih siaran");
+        assert_eq!(room.viewer_count, 1, "tinggal satu penonton");
+    }
+
+    /// "GO LIVE" dua kali berturut-turut tidak boleh gagal.
+    ///
+    /// Room id bersifat deterministik per merchant (`live_{id}`), jadi merchant
+    /// yang menutup tab tanpa menekan STOP akan meninggalkan room yatim. Kalau
+    /// pembuatan ulang menolak karena "sudah ada", merchant itu terkunci dari
+    /// siarannya sendiri sampai proses server dimulai ulang.
+    #[tokio::test]
+    async fn go_live_ulang_menggantikan_room_yatim() {
+        let svc = layanan();
+        let a = svc.create_room("merchant-3", "Toko Tiga", None).await.unwrap();
+        let b = svc
+            .create_room("merchant-3", "Toko Tiga", None)
+            .await
+            .expect("GO LIVE kedua harus berhasil, bukan ditolak");
+        assert_eq!(a.room_id, b.room_id, "room id deterministik per merchant");
+        assert_eq!(svc.list_rooms().len(), 1, "tak boleh jadi dua room");
+        assert_eq!(b.viewer_count, 0, "room baru mulai dari nol penonton");
+    }
+
+    /// Menghentikan room yang tak ada tidak boleh panik atau menyiarkan room
+    /// hantu — dipanggil dari `live_publish_ws_loop` pada SETIAP penutupan WS
+    /// publisher, termasuk yang belum sempat bernegosiasi.
+    #[tokio::test]
+    async fn stop_room_tak_dikenal_aman() {
+        let svc = layanan();
+        let _ = svc.stop_room("live_entah").await;
+        assert!(svc.list_rooms().is_empty());
+    }
+}

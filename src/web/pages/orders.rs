@@ -102,7 +102,7 @@ pub fn OrdersPage() -> impl IntoView {
                 <input
                     type="search"
                     class="search-input"
-                    placeholder="Cari produk atau toko..."
+                    placeholder="Cari product atau toko..."
                     prop:value=move || query.get()
                     on:input=move |ev| query.set(event_target_value(&ev))
                 />
@@ -176,7 +176,7 @@ pub fn OrdersPage() -> impl IntoView {
                                                     icon=icon
                                                     title=title
                                                     body=body
-                                                    cta_label="JELAJAHI PRODUK"
+                                                    cta_label="JELAJAHI PRODUCT"
                                                     cta_href="/explore"
                                                 />
                                             }.into_any()
@@ -223,7 +223,7 @@ fn order_card(o: OrderListItem) -> impl IntoView {
         String::new()
     };
 
-    let title = o.event_name.clone().unwrap_or_else(|| "Produk".into());
+    let title = o.event_name.clone().unwrap_or_else(|| "Product".into());
     let venue = o.venue.clone().unwrap_or_default();
     let date = o
         .event_date
@@ -246,7 +246,7 @@ fn order_card(o: OrderListItem) -> impl IntoView {
                 <div class="order-thumb">
                     {match cover {
                         Some(url) => {
-                            view! { <img src=url alt="produk" class="order-thumb-img" /> }
+                            view! { <img src=url alt="product" class="order-thumb-img" /> }
                                 .into_any()
                         }
                         None => {

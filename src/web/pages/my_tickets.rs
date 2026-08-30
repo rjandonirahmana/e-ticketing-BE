@@ -68,7 +68,7 @@ pub fn MyTicketsPage() -> impl IntoView {
                                 icon="🎟"
                                 title="BELUM ADA PENGAMBILAN"
                                 body="Belanja dulu, kode pengambilannya muncul di sini."
-                                cta_label="JELAJAHI PRODUK"
+                                cta_label="JELAJAHI PRODUCT"
                                 cta_href="/explore"
                             />
                         }.into_any(),

@@ -296,7 +296,7 @@ pub fn CheckoutPage() -> impl IntoView {
                                 <p class="empty-msg">
                                     "Keranjang kosong. "
                                     <A href="/explore" attr:class="auth-prompt-link">
-                                        "Jelajahi produk"
+                                        "Jelajahi product"
                                     </A>
                                 </p>
                             }.into_any();

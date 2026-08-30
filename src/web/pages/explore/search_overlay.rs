@@ -287,7 +287,7 @@ pub fn SearchOverlay(
             <div class="exp-sovl-count-bar">
                 <span class="exp-results-eyebrow">"Hasil Pencarian"</span>
                 <span class="exp-sovl-count">
-                    {move || filtered.with(|f| f.len())} " produk ditemukan"
+                    {move || filtered.with(|f| f.len())} " product ditemukan"
                 </span>
                 {move || {
                     (!query.get().is_empty() || active_cat.get() != "All")
@@ -346,7 +346,7 @@ pub fn SearchOverlay(
                             <div class="exp-empty">
                                 <EmptyState
                                     icon="🔍"
-                                    title="Belum Ada Produk"
+                                    title="Belum Ada Product"
                                     body="Coba kata kunci lain atau ubah filter."
                                 />
                             </div>

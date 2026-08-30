@@ -308,17 +308,17 @@ pub fn MerchantEditProductPage() -> impl IntoView {
         // berisi; ditahan di sini dengan alasan yang menyebut penyebabnya,
         // bukan ditolak oleh "Nama produk minimal 3 karakter" yang menyesatkan.
         if !initialized.get_untracked() {
-            tolak("Data produk belum selesai dimuat. Tunggu sebentar lalu coba lagi.");
+            tolak("Data product belum selesai dimuat. Tunggu sebentar lalu coba lagi.");
             return;
         }
 
         let name = f_name.get_untracked();
-        if name.trim().len() < 3 { tolak("Nama produk minimal 3 karakter."); return; }
+        if name.trim().len() < 3 { tolak("Nama product minimal 3 karakter."); return; }
         let desc  = f_desc.get_untracked();
         let venue = f_venue.get_untracked();
         let city  = f_city.get_untracked();
         let date  = f_date.get_untracked();
-        if date.is_empty() { tolak("Tanggal produk wajib diisi."); return; }
+        if date.is_empty() { tolak("Tanggal product wajib diisi."); return; }
         let time  = f_time.get_untracked();
         let cats  = f_cat.get_untracked().join(",");
         let current_slug = slug();
@@ -512,7 +512,7 @@ pub fn MerchantEditProductPage() -> impl IntoView {
                         <polyline points="15 18 9 12 15 6"/>
                     </svg>
                 </A>
-                <span class="page-logo">"EDIT PRODUK"</span>
+                <span class="page-logo">"EDIT PRODUCT"</span>
                 <div class="header-actions">
                     <ThemeToggle/>
                     <A href="/notifications" attr:class="bell-btn" attr:aria-label="Notifikasi">
@@ -550,7 +550,7 @@ pub fn MerchantEditProductPage() -> impl IntoView {
                     match product_data.get() {
                         None => view! {
                             <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">
-                                "Memuat data produk…"
+                                "Memuat data product…"
                             </p>
                         }.into_any(),
                         Some(Ok(_)) => ().into_any(),
@@ -562,7 +562,7 @@ pub fn MerchantEditProductPage() -> impl IntoView {
                                 view! {
                                     <div>
                                         <div class="medit-error-banner">
-                                            "Data produk tak kunjung termuat. Sesi mungkin "
+                                            "Data product tak kunjung termuat. Sesi mungkin "
                                             "belum terbaca di halaman ini."
                                         </div>
                                         <button
@@ -581,7 +581,7 @@ pub fn MerchantEditProductPage() -> impl IntoView {
                             } else {
                                 view! {
                                     <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">
-                                        "Memuat data produk…"
+                                        "Memuat data product…"
                                     </p>
                                 }.into_any()
                             }
@@ -589,7 +589,7 @@ pub fn MerchantEditProductPage() -> impl IntoView {
                         Some(Err(_)) => view! {
                             <div>
                                 <div class="medit-error-banner">
-                                    "Produk tidak ditemukan atau akses ditolak."
+                                    "Product tidak ditemukan atau akses ditolak."
                                 </div>
                                 <A href="/merchant" attr:class="medit-cancel-btn">"← Kembali"</A>
                             </div>
@@ -620,9 +620,9 @@ pub fn MerchantEditProductPage() -> impl IntoView {
                 </div>
 
                 <div class="medit-field-group">
-                    <label class="medit-field-label">"NAMA PRODUK"</label>
+                    <label class="medit-field-label">"NAMA PRODUCT"</label>
                     <input type="text" class="medit-input"
-                           placeholder="Nama produk"
+                           placeholder="Nama product"
                            prop:value=move || f_name.get()
                            on:input=move |e| f_name.set(event_target_value(&e))/>
                 </div>
@@ -630,7 +630,7 @@ pub fn MerchantEditProductPage() -> impl IntoView {
                 <div class="medit-field-group">
                     <label class="medit-field-label">"DESKRIPSI"</label>
                     <textarea class="medit-input medit-textarea"
-                              placeholder="Deskripsi produk..."
+                              placeholder="Deskripsi product..."
                               prop:value=move || f_desc.get()
                               on:input=move |e| f_desc.set(event_target_value(&e))>
                     </textarea>
@@ -906,7 +906,7 @@ pub fn MerchantEditProductPage() -> impl IntoView {
                         } else if saved.get() && !initialized.get() {
                             "TERSIMPAN — MENYEGARKAN…"
                         } else if !initialized.get() {
-                            "MEMUAT DATA PRODUK…"
+                            "MEMUAT DATA PRODUCT…"
                         } else {
                             "SIMPAN PERUBAHAN"
                         }}

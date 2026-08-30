@@ -181,7 +181,7 @@ pub fn CartPage() -> impl IntoView {
                                 </svg>
                             </div>
                             <p class="text-sm text-content-muted">"Belum ada barang yang dipilih."</p>
-                            <A href="/explore" attr:class=BTN_PRIMARY>"JELAJAHI PRODUK"</A>
+                            <A href="/explore" attr:class=BTN_PRIMARY>"JELAJAHI PRODUCT"</A>
                         </div>
                     }.into_any();
                 }

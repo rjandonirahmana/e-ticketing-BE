@@ -34,7 +34,7 @@ fn SavingsCalculator() -> impl IntoView {
 
                 <div class="pl-slider-row">
                     <div class="pl-slider-label-row">
-                        <span>"Harga Produk"</span>
+                        <span>"Harga Product"</span>
                         <div class="pl-num-input-wrap">
                             <span class="pl-num-prefix">"Rp"</span>
                             <input type="number" class="pl-num-input"
@@ -63,7 +63,7 @@ fn SavingsCalculator() -> impl IntoView {
 
                 <div class="pl-slider-row">
                     <div class="pl-slider-label-row">
-                        <span>"Total Produk Terjual"</span>
+                        <span>"Total Product Terjual"</span>
                         <div class="pl-num-input-wrap">
                             <input type="number" class="pl-num-input"
                                    min="10" max="10000" step="10"
@@ -115,8 +115,8 @@ fn SavingsCalculator() -> impl IntoView {
 #[component]
 pub fn PulseLandingPage() -> impl IntoView {
     view! {
-        <Title text="Jadi Partner PULSE — Jual Produkmu" />
-        <Meta name="description" content="Bergabung sebagai merchant PULSE. Jual produk dengan mudah, cepat, dan terpercaya." />
+        <Title text="Jadi Partner PULSE — Jual Productmu" />
+        <Meta name="description" content="Bergabung sebagai merchant PULSE. Jual product dengan mudah, cepat, dan terpercaya." />
         <div class="pl-page">
 
             <nav class="pl-nav">
@@ -265,7 +265,7 @@ pub fn PulseLandingPage() -> impl IntoView {
                     </blockquote>
                     <div class="pl-testi-author">
                         <span class="pl-testi-name">"Andre Pratama"</span>
-                        <span class="pl-testi-role">"CEO of Jakarta Groove Produk"</span>
+                        <span class="pl-testi-role">"CEO of Jakarta Groove Product"</span>
                     </div>
                 </div>
             </section>

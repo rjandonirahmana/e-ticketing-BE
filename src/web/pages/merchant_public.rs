@@ -862,7 +862,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                         </a>
                                         <div class="mp-stat">
                                             <span class="mp-stat-num">{fmt_count(p.products_count)}</span>
-                                            <span class="mp-stat-label">"PRODUK"</span>
+                                            <span class="mp-stat-label">"PRODUCT"</span>
                                         </div>
                                         <a class="mp-stat mp-stat-link" href=reviews_href.clone()>
                                             <span class="mp-stat-num">
@@ -877,7 +877,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                     // Klik ATAU geser (swipe) panel di bawah untuk
                                     // berpindah antar: EVENTS · TENTANG · ULASAN · STORY.
                                     <div class="mp-tabs">
-                                        {["PRODUK", "TENTANG", "ULASAN", "STORY"]
+                                        {["PRODUCT", "TENTANG", "ULASAN", "STORY"]
                                             .into_iter()
                                             .enumerate()
                                             .map(|(i, label)| {
@@ -923,7 +923,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                            border border-solid border-line text-content \
                                                            text-sm placeholder:text-content-muted"
                                                     r#type="search"
-                                                    placeholder="Cari produk di toko ini…"
+                                                    placeholder="Cari product di toko ini…"
                                                     prop:value=move || cari.get()
                                                     on:input=move |e| cari.set(event_target_value(&e))
                                                     on:change=move |_| jalankan_saring()
@@ -931,7 +931,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                 <select
                                                     class="h-10 px-2.5 rounded-full bg-card border border-solid \
                                                            border-line text-content text-[12px] shrink-0"
-                                                    aria-label="Urutkan produk"
+                                                    aria-label="Urutkan product"
                                                     prop:value=move || urut.get()
                                                     on:change=move |e| {
                                                         urut.set(event_target_value(&e));
@@ -964,7 +964,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                             view! {
                                                                 <ProductGrid
                                                                     products=hasil
-                                                                    empty="Tak ada produk yang cocok."
+                                                                    empty="Tak ada product yang cocok."
                                                                 />
                                                             }
                                                                 .into_any(),
@@ -980,7 +980,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                                 view! {
                                                                     <ProductGrid
                                                                         products=all
-                                                                        empty="Belum ada produk aktif."
+                                                                        empty="Belum ada product aktif."
                                                                     />
                                                                     {move || {
                                                                         ev_has_more()
@@ -1008,7 +1008,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                                     .into_any()
                                                             }
                                                             Err(_) => {
-                                                                view! { <p class="mp-empty">"Gagal memuat produk."</p> }
+                                                                view! { <p class="mp-empty">"Gagal memuat product."</p> }
                                                                     .into_any()
                                                             }
                                                         })

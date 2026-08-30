@@ -39,8 +39,29 @@ use crate::utils::ulid::new_ulid;
 /// panjang berkeliaran.
 const REFRESH_TTL_DAYS: i64 = 30;
 
+/// Jendela toleransi ROTASI BERSAMAAN.
+///
+/// Satu halaman menembakkan banyak permintaan sekaligus (server function
+/// `/api-fn`, `/api/*`, aset). Bila access token kebetulan mati saat itu,
+/// SEMUANYA membawa refresh token yang sama dan semuanya memicu rotasi. Satu
+/// menang; sisanya tiba beberapa milidetik kemudian dan menemukan baris yang
+/// baru saja dicabut.
+///
+/// Tanpa jendela ini, keadaan yang sepenuhnya normal itu tak bisa dibedakan
+/// dari token curian, dan penanganannya — mencabut seluruh keluarga — MEMBUANG
+/// sesi pengguna yang sah. Itulah yang terlihat di log produksi sebagai lima
+/// baris "DIPAKAI ULANG" dalam rentang 30 milidetik, diikuti pengguna yang
+/// tiba-tiba "Tidak terautentikasi" padahal baru saja masuk.
+///
+/// Pencurian sungguhan tetap tertangkap: token yang dicabut dan muncul lagi
+/// SESUDAH jendela ini lewat tetap mencabut seluruh keluarga.
+const GRACE_ROTASI: i64 = 30;
+
 pub struct RefreshResult {
     pub access_token: String,
+    /// KOSONG artinya "jangan pasang cookie refresh baru" — dipakai pada jalur
+    /// rotasi-bersamaan, di mana pemenanglah yang sudah menerbitkan token baru
+    /// dan yang kalah tak boleh menerbitkan token kedua.
     pub refresh_token: String,
     pub expires_in: i64,
     pub user: UserResponse,
@@ -105,6 +126,42 @@ impl RefreshService {
         Ok(token)
     }
 
+    /// Terbitkan HANYA access token untuk `user_id`, tanpa merotasi refresh.
+    ///
+    /// Dipakai pada dua jalur rotasi-bersamaan. Aman secara keamanan: refresh
+    /// token yang dibawa peminta memang sah beberapa milidetik lalu, keluarganya
+    /// utuh, dan tak ada token refresh kedua yang diterbitkan — hanya access
+    /// token berumur pendek, dengan peran yang dibaca ULANG dari database
+    /// seperti pada rotasi biasa.
+    async fn hanya_access(&self, user_id: &str) -> AppResult<RefreshResult> {
+        let user: User = self
+            .users
+            .find_by_id(user_id)
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| AppError::Unauthorized("Akun tidak ditemukan".into()))?;
+
+        let access_token = self
+            .jwt
+            .sign(&user.id, &user.name, &user.phone, &user.role.to_string())
+            .map_err(AppError::Internal)?;
+
+        Ok(RefreshResult {
+            access_token,
+            // Kosong = penanda "jangan sentuh cookie refresh".
+            refresh_token: String::new(),
+            expires_in: self.jwt.expires_in_secs(),
+            user: UserResponse {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                phone: user.phone,
+                role: user.role.to_string(),
+                created_at: user.created_at,
+            },
+        })
+    }
+
     /// Tukar refresh token dengan sepasang token baru.
     pub async fn rotate(&self, presented: &str, user_agent: &str) -> AppResult<RefreshResult> {
         let hash = Self::hash(presented);
@@ -120,6 +177,22 @@ impl RefreshService {
         // Token yang sudah dicabut muncul lagi. Rantai ini tak bisa dipercaya
         // lagi seluruhnya, jadi seluruh keluarganya dicabut.
         if row.is_revoked() {
+            // Dicabut BARU SAJA = hampir pasti permintaan saudara dari halaman
+            // yang sama, bukan penyerang. Layani ia dengan access token baru,
+            // tanpa merotasi ulang dan tanpa menyentuh keluarganya.
+            let baru_saja = row
+                .revoked_at
+                .map(|t| Utc::now().signed_duration_since(t) < Duration::seconds(GRACE_ROTASI))
+                .unwrap_or(false);
+            if baru_saja {
+                tracing::debug!(
+                    user_id = %row.user_id,
+                    family_id = %row.family_id,
+                    "rotasi bersamaan — access token diterbitkan tanpa rotasi ulang"
+                );
+                return self.hanya_access(&row.user_id).await;
+            }
+
             let n = self
                 .repo
                 .revoke_family(&row.family_id)
@@ -168,10 +241,15 @@ impl RefreshService {
             .await
             .map_err(AppError::Internal)?;
 
+        // Kalah balapan: peminta lain mencabut baris ini lebih dulu, di antara
+        // `find_by_hash` dan `revoke` di atas. Sama persis dengan kasus di atas
+        // — permintaan saudara, bukan penyerang.
         if !menang {
-            return Err(AppError::Unauthorized(
-                "Sesi tidak lagi valid, silakan masuk kembali".into(),
-            ));
+            tracing::debug!(
+                user_id = %row.user_id,
+                "kalah balapan rotasi — access token diterbitkan tanpa rotasi ulang"
+            );
+            return self.hanya_access(&row.user_id).await;
         }
 
         self.repo

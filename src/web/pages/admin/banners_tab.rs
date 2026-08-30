@@ -219,7 +219,7 @@ pub(super) fn view_banners(
                 <input
                     class="abn-field"
                     type="text"
-                    placeholder="Link tujuan klik (opsional, mis. /produk/slug)"
+                    placeholder="Link tujuan klik (opsional, mis. /products/slug)"
                     prop:value=move || new_link.get()
                     on:input=move |ev| new_link.set(event_target_value(&ev))
                 />

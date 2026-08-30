@@ -266,7 +266,7 @@ pub async fn update_merchant_product(
     let name = name.trim().to_string();
     if name.chars().count() < 3 {
         return Err(ServerFnError::ServerError(
-            "Nama produk minimal 3 karakter.".into(),
+            "Nama product minimal 3 karakter.".into(),
         ));
     }
 
@@ -368,7 +368,7 @@ pub async fn update_merchant_product(
         peran = %claims.role,
         merchant_id_dipakai = %effective_merchant_id,
         cocok = product.merchant_id == effective_merchant_id,
-        "edit produk: mulai menyimpan"
+        "edit product: mulai menyimpan"
     );
 
     // ── Dikosongkan ≠ tidak dikirim ──────────────────────────────────────────
@@ -424,11 +424,11 @@ pub async fn update_merchant_product(
             event_id = %product.id,
             merchant_id_dipakai = %effective_merchant_id,
             error = %e,
-            "edit produk: GAGAL menyimpan"
+            "edit product: GAGAL menyimpan"
         );
         return Err(map_app_error(e));
     }
-    tracing::info!(slug = %slug, "edit produk: tersimpan");
+    tracing::info!(slug = %slug, "edit product: tersimpan");
 
     // Cache dibuang SEGERA sesudah DB menerima perubahannya.
     //

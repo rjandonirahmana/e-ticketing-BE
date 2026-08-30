@@ -300,13 +300,13 @@ pub fn ProductDetailPage() -> impl IntoView {
                                         <div style="font-size:3rem;margin-bottom:12px">"🔍"</div>
                                         <h2 style="font-size:1.1rem;font-weight:700;text-transform:uppercase;
                                         letter-spacing:.06em;margin-bottom:8px">
-                                            "PRODUK TIDAK DITEMUKAN"
+                                            "PRODUCT TIDAK DITEMUKAN"
                                         </h2>
                                         <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:20px">
-                                            "Produk ini mungkin sudah tidak dijual atau telah dihapus."
+                                            "Product ini mungkin sudah tidak dijual atau telah dihapus."
                                         </p>
                                         <A href="/explore" attr:class="tier-add-btn">
-                                            "JELAJAHI PRODUK"
+                                            "JELAJAHI PRODUCT"
                                         </A>
                                     </div>
                                 }
@@ -389,6 +389,34 @@ pub fn ProductDetailPage() -> impl IntoView {
                                         }
                                     }
                                 };
+
+                                // ── Panah geser untuk penunjuk presisi ───────
+                                // Di ponsel galeri ini digeser dengan jari dan
+                                // itu sudah cukup. Di laptop tidak ada yang
+                                // setara: track-nya digulir mendatar, dan roda
+                                // mouse menggulir HALAMAN, bukan galeri — jadi
+                                // tanpa panah, foto kedua dan seterusnya tak
+                                // pernah bisa dilihat sama sekali dari desktop.
+                                // Tombolnya disembunyikan CSS di perangkat
+                                // sentuh (`@media (hover:hover) and
+                                // (pointer:fine)`).
+                                let galeri_ref: NodeRef<leptos::html::Div> = NodeRef::new();
+                                let geser_galeri = move |maju: bool| {
+                                    let Some(el) = galeri_ref.get_untracked() else { return };
+                                    let lebar = el.client_width();
+                                    if lebar == 0 {
+                                        return;
+                                    }
+                                    let kini = el.scroll_left();
+                                    // Melingkar di kedua ujung, menyamai titik
+                                    // indikator yang memang menampilkan seluruh
+                                    // foto sebagai satu lingkaran tertutup.
+                                    let idx = (kini as f64 / lebar as f64).round() as i32;
+                                    let n = slide_count as i32;
+                                    let tujuan = if maju { (idx + 1) % n } else { (idx - 1 + n) % n };
+                                    el.set_scroll_left(tujuan * lebar);
+                                };
+
                                 let date_str = format_date(&ev.event_date);
                                 let venue_str = match (&ev.venue, &ev.city) {
                                     (Some(v), Some(c)) => format!("{}, {}", v, c),
@@ -432,7 +460,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                     )
                                     .into_owned();
                                     format!(
-                                        "/pulse/toko/{}?produk={}&judul={}&sampul={}",
+                                        "/pulse/toko/{}?product={}&judul={}&sampul={}",
                                         ev.merchant_id, slug, judul, sampul
                                     )
                                 };
@@ -493,7 +521,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                         params.append("product_price", &_share_price_str);
                                         if let Some(win) = web_sys::window() {
                                             if let Ok(Some(storage)) = win.session_storage() {
-                                                let _ = storage.set_item("story_hero_transition", "produk");
+                                                let _ = storage.set_item("story_hero_transition", "product");
                                                 let _ = storage.set_item("story_hero_cover", &_share_cover);
                                             }
                                         }
@@ -646,7 +674,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                 let meta_title = format!("{} — PULSE", title);
                                 let meta_desc = format!(
                                     "{} | {} | {}",
-                                    if desc.is_empty() { "Produk pilihan di Indonesia" } else { &desc },
+                                    if desc.is_empty() { "Product pilihan di Indonesia" } else { &desc },
                                     venue_str,
                                     date_str,
                                 );
@@ -656,7 +684,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                     &serde_json::json!(
                                         {
                                         "@context": "https://schema.org",
-                                        "@type": "Produk",
+                                        "@type": "Product",
                                         "name": ev.name.clone(),
                                         "description": (!desc.is_empty()).then(|| desc.clone()),
                                         "startDate": ev.event_date.to_rfc3339(),
@@ -793,8 +821,14 @@ pub fn ProductDetailPage() -> impl IntoView {
                                         } else {
                                             view! {
                                                 <div
-                                                    class="absolute inset-0 flex overflow-x-auto \
-                                                           snap-x snap-mandatory no-scrollbar"
+                                                    node_ref=galeri_ref
+                                                    // `ed-hero-scroller` hanya membawa
+                                                    // `scroll-behavior: smooth` supaya panah
+                                                    // meluncur, bukan melompat — animasinya
+                                                    // diserahkan ke peramban, tanpa JS.
+                                                    class="ed-hero-scroller absolute inset-0 flex \
+                                                           overflow-x-auto snap-x snap-mandatory \
+                                                           no-scrollbar"
                                                     on:scroll=on_slide_scroll
                                                 >
                                                     {slides
@@ -827,6 +861,46 @@ pub fn ProductDetailPage() -> impl IntoView {
                                             }
                                                 .into_any()
                                         }}
+                                        {banyak_slide
+                                            .then(|| {
+                                                view! {
+                                                    <button
+                                                        class="ed-hero-nav ed-hero-nav--prev"
+                                                        aria-label="Foto sebelumnya"
+                                                        on:click=move |_| geser_galeri(false)
+                                                    >
+                                                        <svg
+                                                            width="18"
+                                                            height="18"
+                                                            viewBox="0 0 24 24"
+                                                            fill="none"
+                                                            stroke="currentColor"
+                                                            stroke-width="2.5"
+                                                            stroke-linecap="round"
+                                                        >
+                                                            <polyline points="15 18 9 12 15 6" />
+                                                        </svg>
+                                                    </button>
+                                                    <button
+                                                        class="ed-hero-nav ed-hero-nav--next"
+                                                        aria-label="Foto berikutnya"
+                                                        on:click=move |_| geser_galeri(true)
+                                                    >
+                                                        <svg
+                                                            width="18"
+                                                            height="18"
+                                                            viewBox="0 0 24 24"
+                                                            fill="none"
+                                                            stroke="currentColor"
+                                                            stroke-width="2.5"
+                                                            stroke-linecap="round"
+                                                        >
+                                                            <polyline points="9 18 15 12 9 6" />
+                                                        </svg>
+                                                    </button>
+                                                }
+                                            })}
+
                                         // Titik indikator — hanya bila memang ada
                                         // lebih dari satu foto.
                                         {banyak_slide
@@ -1202,7 +1276,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                                                  border-line text-[10px] font-bold \
                                                                  tracking-[0.08em] text-content-muted \
                                                                  whitespace-nowrap">
-                                                        "PRODUKMU"
+                                                        "PRODUCTMU"
                                                     </span>
                                                 }.into_any()
                                             } else {
@@ -1266,7 +1340,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                                     move || {
                                                         view! {
                                                             <section class="section">
-                                                                <p class="ed-section-eyebrow">"TENTANG PRODUK"</p>
+                                                                <p class="ed-section-eyebrow">"TENTANG PRODUCT"</p>
                                                                 <p class="about-text">{d.clone()}</p>
                                                             </section>
                                                         }
@@ -1395,7 +1469,7 @@ pub fn ProductDetailPage() -> impl IntoView {
 
                                             // ── Product lain (arah marketplace) ─────────
                                             <section class="section ed-more">
-                                                <h2 class="section-title">"Produk Berkaitan"</h2>
+                                                <h2 class="section-title">"Product Berkaitan"</h2>
                                                 {move || {
                                                     let cur = slug.get();
                                                     let items = rel_items.get();
@@ -1674,7 +1748,7 @@ pub fn ProductDetailPage() -> impl IntoView {
                                                                 </span>
                                                                 <span>
                                                                     <b>{products_count}</b>
-                                                                    " Produk"
+                                                                    " Product"
                                                                 </span>
                                                                 <span>
                                                                     <b>{format!("{rating_avg:.1}")}</b>

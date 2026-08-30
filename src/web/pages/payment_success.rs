@@ -46,7 +46,7 @@ pub fn PaymentSuccessPage() -> impl IntoView {
                 return ord.event_name;
             }
         }
-        query.read().get("produk").unwrap_or_else(|| "Toko".to_string())
+        query.read().get("product").unwrap_or_else(|| "Toko".to_string())
     };
 
     let total_amount = move || {

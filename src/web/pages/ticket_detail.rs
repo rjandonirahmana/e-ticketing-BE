@@ -278,7 +278,7 @@ pub fn TicketDetailPage() -> impl IntoView {
                                             params.append("ticket_ref",  &_masked_code);
                                             if let Some(win) = web_sys::window() {
                                                 if let Ok(Some(storage)) = win.session_storage() {
-                                                    let _ = storage.set_item("story_hero_transition", "produk");
+                                                    let _ = storage.set_item("story_hero_transition", "product");
                                                     let _ = storage.set_item("story_hero_cover", &_share_cover);
                                                 }
                                             }

@@ -7,7 +7,7 @@ use crate::web::api::get_chat_rooms;
 use crate::web::app::AuthResource;
 use crate::web::components::story_bars::StoryBar;
 use crate::web::components::story_viewer::StoryViewer;
-use crate::web::components::{BottomNav, EmptyState, MessageRowShimmer};
+use crate::web::components::{BannerSlider, BottomNav, EmptyState, MessageRowShimmer};
 
 #[component]
 pub fn MessagesPage() -> impl IntoView {
@@ -71,6 +71,16 @@ pub fn MessagesPage() -> impl IntoView {
                     on:input=move |e| search.set(event_target_value(&e))
                 />
             </div>
+            // Banner admin, sama persis dengan yang di /explore (komponen yang
+            // sama, `components/banner_slider.rs`). TANPA fallback: di Jelajah
+            // kartu "SPONSORED" statis mengisi ruang kosong karena ia memang
+            // bagian dari tata letak halaman itu, sedangkan di sini daftar
+            // percakapan yang harus terlihat lebih dulu — kalau belum ada
+            // banner aktif, yang benar adalah tidak menampilkan apa pun.
+            <div class="msg-banner-wrap">
+                <BannerSlider />
+            </div>
+
             <Suspense fallback=|| view! {
                 <div style="padding: 8px 0">
                     <MessageRowShimmer />
@@ -97,8 +107,8 @@ pub fn MessagesPage() -> impl IntoView {
                                                         <EmptyState
                                                             icon="💬"
                                                             title="BELUM ADA PERCAKAPAN"
-                                                            body="Buka halaman produk, lalu tekan Chat Penjual untuk bertanya soal stok, ukuran, atau pengambilan."
-                                                            cta_label="JELAJAHI PRODUK"
+                                                            body="Buka halaman product, lalu tekan Chat Penjual untuk bertanya soal stok, ukuran, atau pengambilan."
+                                                            cta_label="JELAJAHI PRODUCT"
                                                             cta_href="/explore"
                                                         />
                                                     }.into_any()

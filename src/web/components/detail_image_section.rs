@@ -511,7 +511,7 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
                                                         on:input=move |e| caption.set(event_target_value(&e))
                                                     />
                                                     <p style="font-size:10px;color:var(--text-muted);line-height:1.5">
-                                                        "Keterangan singkat ditampilkan di bawah foto pada halaman detail produk."
+                                                        "Keterangan singkat ditampilkan di bawah foto pada halaman detail product."
                                                     </p>
                                                 </div>
 
@@ -566,7 +566,7 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
                                 </svg>
                                 <p style="font-size:12px;color:var(--text-muted);margin:0;line-height:1.6">
                                     "Tambahkan foto denah, peta kursi, atau info harga"<br />
-                                    "agar pembeli tahu detail produknya."
+                                    "agar pembeli tahu detail productnya."
                                 </p>
                             </div>
                         }

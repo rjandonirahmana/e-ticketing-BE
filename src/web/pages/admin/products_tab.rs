@@ -85,8 +85,8 @@ pub(super) fn view_all_products(
                     });
                     toast.set(Some((
                         match status {
-                            "active" => "✅ Produk diterbitkan.".to_string(),
-                            "edited" => "⏸ Produk ditahan — tidak lagi tampil ke pembeli.".to_string(),
+                            "active" => "✅ Product diterbitkan.".to_string(),
+                            "edited" => "⏸ Product ditahan — tidak lagi tampil ke pembeli.".to_string(),
                             _ => "Status diperbarui.".to_string(),
                         },
                         false,
@@ -108,7 +108,7 @@ pub(super) fn view_all_products(
     let do_delete = move |slug: String, nama: String| {
         if let Some(win) = web_sys::window() {
             let pesan = format!(
-                "Hapus \"{nama}\" dari etalase?\n\nProduk hilang dari pencarian dan \
+                "Hapus \"{nama}\" dari etalase?\n\nProduct hilang dari pencarian dan \
                  dikeluarkan dari keranjang siapa pun yang sudah memasukkannya. \
                  Pesanan dan tiket yang sudah dibayar TIDAK terpengaruh."
             );
@@ -133,7 +133,7 @@ pub(super) fn view_all_products(
     view! {
         <section class="mhub-products-section">
             <div class="mhub-products-header">
-                <h3 class="mhub-products-title">"Semua Produk Platform"</h3>
+                <h3 class="mhub-products-title">"Semua Product Platform"</h3>
                 <span class="mhub-live-badge">
                     <span class="mhub-live-dot"></span>
                     "Langsung"
@@ -149,8 +149,8 @@ pub(super) fn view_all_products(
                                 <line x1="1" y1="10" x2="23" y2="10"/>
                             </svg>
                         </div>
-                        <p class="mhub-empty-title">"Belum Ada Produk"</p>
-                        <p class="mhub-empty-body">"Belum ada produk yang terdaftar di platform."</p>
+                        <p class="mhub-empty-title">"Belum Ada Product"</p>
+                        <p class="mhub-empty-body">"Belum ada product yang terdaftar di platform."</p>
                     </div>
                 }.into_any()
             } else {
@@ -254,7 +254,7 @@ pub(super) fn view_all_products(
                                             <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
                                             <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
                                         </svg>
-                                        "Sunting Produk"
+                                        "Sunting Product"
                                     </A>
                                     <button
                                         class="mhub-product-manage-btn"
@@ -268,8 +268,8 @@ pub(super) fn view_all_products(
                                     <button
                                         class="mhub-product-manage-btn"
                                         style="flex:0 0 auto;padding-inline:12px;color:var(--danger)"
-                                        title="Hapus produk"
-                                        aria-label="Hapus produk"
+                                        title="Hapus product"
+                                        aria-label="Hapus product"
                                         disabled=move || processing.with(|p| p.as_deref() == Some(&del_proc))
                                         on:click=move |_| do_delete(del_slug.clone(), del_nama.clone())>
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none"

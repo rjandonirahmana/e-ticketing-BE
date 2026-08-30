@@ -1091,7 +1091,7 @@ pub(super) async fn render_merchant_card_to_canvas(
         let lbl_y = num_y + 10.0 + stat_lbl_fs;
         let vals = [
             (crate::web::pages::merchant_public::fmt_count(followers), "FOLLOWERS", false),
-            (crate::web::pages::merchant_public::fmt_count(products_count), "PRODUK", false),
+            (crate::web::pages::merchant_public::fmt_count(products_count), "PRODUCT", false),
             (format!("{rating:.1}"), "RATING", true),
         ];
         ctx.set_text_align("center");

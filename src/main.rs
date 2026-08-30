@@ -302,13 +302,6 @@ async fn run() -> Result<()> {
     }
 
     let leptos_router: axum::Router = leptos_router
-        // Silent refresh HARUS di atas jalur Leptos: ia menyuntikkan token baru
-        // ke header Cookie permintaan ini, sehingga SSR dan server function di
-        // belakangnya langsung melihat pengguna yang sudah masuk.
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            e_ticketing::middleware::silent_refresh::silent_refresh,
-        ))
         .layer(axum::middleware::from_fn(pkg_no_cache))
         // Provide AppState as Axum Extension so server functions can extract it
         .layer(axum::Extension(state.clone()))
@@ -366,6 +359,31 @@ async fn run() -> Result<()> {
         .merge(live_api)
         .merge(meet_api)
         .merge(leptos_router)
+        // ── Silent refresh: DI SELURUH APLIKASI, bukan hanya jalur Leptos ────
+        //
+        // Ia menyuntikkan access token baru ke header `Cookie` permintaan ini
+        // saat token lama mati tapi cookie refresh masih sah, sehingga handler
+        // di belakangnya langsung melihat pengguna yang sudah masuk.
+        //
+        // Dulu lapisan ini hanya menempel pada `leptos_router`. Akibatnya sesi
+        // BERPISAH DUA begitu access token kedaluwarsa: halaman dan server
+        // function (`/api-fn`) terus bekerja karena tokennya diperbarui diam-
+        // diam, sedangkan `/api/*`, `/ws/live/*`, `/ws/meet/*`, dan `/upload/*`
+        // — yang digabung di luar lapisan itu — tetap melihat token mati dan
+        // membalas 401.
+        //
+        // Gejalanya menyesatkan justru karena setengahnya jalan: UI tetap
+        // menampilkan pengguna sebagai sudah masuk (itu datang dari
+        // `get_session` yang lolos), tapi "GO LIVE" gagal, unggahan gagal, dan
+        // yang terlihat cuma "Tidak terautentikasi" di halaman yang jelas-jelas
+        // menampilkan nama pengguna. Satu lapisan, satu sesi, semua rute.
+        //
+        // Ditempatkan SESUDAH semua merge supaya ia membungkus semuanya, dan
+        // sebelum CompressionLayer karena ia hanya menyentuh header.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            e_ticketing::middleware::silent_refresh::silent_refresh,
+        ))
         .layer(tower_http::compression::CompressionLayer::new());
 
     let listener = TcpListener::bind(socket_addr).await?;
