@@ -72,6 +72,26 @@ pub struct CartContext {
     /// sebelum menembak server. Hanya klik TERAKHIR dalam satu rentetan yang
     /// benar-benar dikirim.
     qty_gen: RwSignal<u64>,
+    /// Revisi keadaan LOKAL — dinaikkan oleh SETIAP perubahan lokal, apa pun
+    /// jenisnya (tambah, ubah jumlah, centang, hapus, promo).
+    ///
+    /// ── MASALAH YANG DISELESAIKAN ────────────────────────────────────────
+    /// Tiap jawaban server memanggil `apply()`, yang MENGGANTI seluruh daftar
+    /// dengan keadaan server. Itu benar bila jawabannya yang terbaru, dan
+    /// merusak bila tidak.
+    ///
+    /// `qty_gen` sudah menjaga jawaban ubah-jumlah dari sesamanya. Yang tak
+    /// terjaga adalah jawaban dari jenis LAIN: menekan `−` lima kali (10 → 5)
+    /// menyimpan angka barunya di layar sambil menunggu peredam 350 ms, dan
+    /// bila di tengah jeda itu satu jawaban `toggle_selected`, `add_item`,
+    /// atau `load` yang sudah lebih dulu di jalan tiba, ia menimpa daftar
+    /// dengan keadaan server — yang MASIH 8, karena permintaan jumlahnya
+    /// belum sempat terkirim. Hitungannya melompat mundur sendiri.
+    ///
+    /// Dengan revisi: tiap tugas mencatat angka ini SAAT MENGIRIM, dan hanya
+    /// menerapkan jawabannya bila angkanya belum berubah. Keadaan server tak
+    /// pernah lagi menimpa keadaan lokal yang lebih baru.
+    rev: RwSignal<u64>,
 }
 
 impl CartContext {
@@ -84,6 +104,7 @@ impl CartContext {
             ready: RwSignal::new(false),
             error: RwSignal::new(String::new()),
             qty_gen: RwSignal::new(0),
+            rev: RwSignal::new(0),
         }
     }
 
@@ -129,9 +150,14 @@ impl CartContext {
         if self.authed.get_untracked() {
             let this = *self;
             let tier = item.tier_id.clone();
+            // Revisi dibaca DI SINI, sinkron, bukan di dalam tugas: antara
+            // `spawn` dan baris pertama tugasnya, ketukan lain bisa menyelip
+            // dan menaikkan revisi — dan tugas ini akan mencatat angka yang
+            // sudah bukan miliknya.
+            let rev = self.rev.get_untracked();
             spawn(async move {
                 match crate::web::api::add_to_cart(tier, qty).await {
-                    Ok(view) => this.apply(view),
+                    Ok(view) => this.apply_if_fresh(view, rev),
                     Err(e) => this.fail_and_resync(e),
                 }
             });
@@ -196,14 +222,13 @@ impl CartContext {
                     .with_untracked(|v| v.iter().find(|i| i.tier_id == tier).map(|i| i.quantity))
                     .unwrap_or(0);
 
+                // Revisi dicatat DI SINI — sesudah peredam, tepat saat
+                // permintaan dikirim — bukan saat tombol diklik. Yang dikirim
+                // adalah keadaan layar SEKARANG, jadi itu pula revisi yang
+                // jawabannya berhak menimpa.
+                let rev = this.rev.get_untracked();
                 match crate::web::api::update_cart_quantity(tier, terkini.max(0)).await {
-                    Ok(view) => {
-                        // Jawaban hanya diterapkan bila belum ada klik baru
-                        // selagi permintaan ini di jalan.
-                        if this.qty_gen.get_untracked() == gen {
-                            this.apply(view);
-                        }
-                    }
+                    Ok(view) => this.apply_if_fresh(view, rev),
                     Err(e) => this.fail_and_resync(e),
                 }
             });
@@ -223,9 +248,14 @@ impl CartContext {
         if self.authed.get_untracked() {
             let this = *self;
             let tier = tier_id.to_string();
+            // Sinkron, sebelum `spawn`: permintaan ini membawa keadaan SAAT
+            // diklik, jadi itu pula revisi yang jawabannya berhak menimpa.
+            // Dibaca di dalam tugas, ia justru akan mencatat revisi milik
+            // perubahan lain yang menyelip lebih dulu.
+            let rev = self.rev.get_untracked();
             spawn(async move {
                 match crate::web::api::select_cart_item(Some(tier), selected).await {
-                    Ok(view) => this.apply(view),
+                    Ok(view) => this.apply_if_fresh(view, rev),
                     Err(e) => this.fail_and_resync(e),
                 }
             });
@@ -243,9 +273,14 @@ impl CartContext {
 
         if self.authed.get_untracked() {
             let this = *self;
+            // Sinkron, sebelum `spawn`: permintaan ini membawa keadaan SAAT
+            // diklik, jadi itu pula revisi yang jawabannya berhak menimpa.
+            // Dibaca di dalam tugas, ia justru akan mencatat revisi milik
+            // perubahan lain yang menyelip lebih dulu.
+            let rev = self.rev.get_untracked();
             spawn(async move {
                 match crate::web::api::select_cart_item(None, selected).await {
-                    Ok(view) => this.apply(view),
+                    Ok(view) => this.apply_if_fresh(view, rev),
                     Err(e) => this.fail_and_resync(e),
                 }
             });
@@ -273,9 +308,14 @@ impl CartContext {
 
         if self.authed.get_untracked() {
             let this = *self;
+            // Sinkron, sebelum `spawn`: permintaan ini membawa keadaan SAAT
+            // diklik, jadi itu pula revisi yang jawabannya berhak menimpa.
+            // Dibaca di dalam tugas, ia justru akan mencatat revisi milik
+            // perubahan lain yang menyelip lebih dulu.
+            let rev = self.rev.get_untracked();
             spawn(async move {
                 match crate::web::api::select_cart_items(tier_ids, selected).await {
-                    Ok(view) => this.apply(view),
+                    Ok(view) => this.apply_if_fresh(view, rev),
                     Err(e) => this.fail_and_resync(e),
                 }
             });
@@ -289,10 +329,11 @@ impl CartContext {
             return;
         }
         let this = *self;
+        let rev = self.rev.get_untracked();
         this.loading.set(true);
         spawn(async move {
             match crate::web::api::apply_cart_promo(code).await {
-                Ok(view) => this.apply(view),
+                Ok(view) => this.apply_if_fresh(view, rev),
                 Err(e) => this.fail(e),
             }
             this.loading.set(false);
@@ -307,9 +348,14 @@ impl CartContext {
             return;
         }
         let this = *self;
+        // Promo & kanal bayar TIDAK mengubah daftar barang, jadi keduanya tak
+        // menaikkan revisi. Justru karena itu jawabannya harus dijaga: ia
+        // membawa daftar barang versi SERVER, dan bila ada perubahan jumlah
+        // yang masih tertahan peredam, daftar itu akan menariknya mundur.
+        let rev = self.rev.get_untracked();
         spawn(async move {
             match crate::web::api::select_payment_method(code).await {
-                Ok(view) => this.apply(view),
+                Ok(view) => this.apply_if_fresh(view, rev),
                 Err(e) => this.fail(e),
             }
         });
@@ -333,10 +379,11 @@ impl CartContext {
             return;
         }
         let this = *self;
+        let rev = self.rev.get_untracked();
         this.loading.set(true);
         spawn(async move {
             match crate::web::api::get_cart().await {
-                Ok(view) => this.apply(view),
+                Ok(view) => this.apply_if_fresh(view, rev),
                 Err(e) => this.fail(e),
             }
             this.loading.set(false);
@@ -367,6 +414,7 @@ impl CartContext {
         };
 
         this.loading.set(true);
+        let rev = self.rev.get_untracked();
         spawn(async move {
             let result = match payload {
                 Some(json) => {
@@ -379,7 +427,7 @@ impl CartContext {
                 None => crate::web::api::get_cart().await,
             };
             match result {
-                Ok(view) => this.apply(view),
+                Ok(view) => this.apply_if_fresh(view, rev),
                 // Sesi ditolak server padahal klien mengira sudah masuk.
                 // JANGAN tampilkan sebagai galat keranjang: pesannya
                 // ("Tidak terautentikasi") tak ada hubungannya dengan
@@ -410,6 +458,19 @@ impl CartContext {
 
     // ── Internal ────────────────────────────────────────────────────────────
 
+    /// Terapkan jawaban server HANYA bila belum ada perubahan lokal yang lebih
+    /// baru sejak permintaannya dikirim.
+    ///
+    /// Jawaban basi dibuang tanpa suara, dan itu memang benar: permintaan yang
+    /// menyusulnya membawa keadaan yang lebih baru dan jawabannya akan tiba
+    /// sebentar lagi. Yang tak boleh terjadi adalah keadaan LAMA dari server
+    /// menimpa keadaan BARU yang sudah dilihat pengguna di layar.
+    fn apply_if_fresh(&self, view: CartView, rev: u64) {
+        if self.rev.get_untracked() == rev {
+            self.apply(view);
+        }
+    }
+
     fn apply(&self, view: CartView) {
         self.items.set(view.items);
         self.summary.set(CartSummary {
@@ -438,6 +499,11 @@ impl CartContext {
     /// server. Tanpa ini, barang yang ditolak server tetap terlihat di
     /// keranjang sampai halaman dimuat ulang — lalu lenyap tanpa penjelasan,
     /// yang justru gejala yang ingin kita hapus.
+    ///
+    /// SENGAJA tak memakai `apply_if_fresh`. Ini jalur GAGAL: server menolak
+    /// sesuatu, dan seluruh gunanya adalah menarik layar kembali ke kebenaran
+    /// server. Menjaganya dengan revisi justru akan membiarkan layar
+    /// menampilkan keadaan yang baru saja ditolak.
     fn fail_and_resync(&self, e: ServerFnError) {
         self.error.set(clean_error(&e.to_string()));
         let this = *self;
@@ -456,6 +522,9 @@ impl CartContext {
     /// Sesudah perubahan optimistis: hitung ulang ringkasan dan (untuk tamu)
     /// simpan ke `localStorage`.
     fn after_local_change(&self) {
+        // Satu-satunya corong yang dilewati SETIAP perubahan lokal — jadi
+        // satu-satunya tempat yang benar untuk menaikkan revisi.
+        self.rev.update(|r| *r = r.wrapping_add(1));
         self.recompute_local();
         if !self.authed.get_untracked() {
             self.persist_local();
