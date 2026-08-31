@@ -892,6 +892,20 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                     // ── Tabs ──────────────────────────────────
                                     // Klik ATAU geser (swipe) panel di bawah untuk
                                     // berpindah antar: EVENTS · TENTANG · ULASAN · STORY.
+                                    // ── Bilah lengket: tab + pencarian ────────
+                                    // Toolbar pencarian DIPINDAH KELUAR dari
+                                    // `.mp-swipe`. Kontainer itu ber-`overflow:
+                                    // hidden` (perlu untuk geser antar-tab), dan
+                                    // `position: sticky` tak bisa keluar dari
+                                    // leluhur ber-overflow — ia akan menempel
+                                    // pada kotak yang ikut tergulir, jadi tak
+                                    // ada yang terlihat menempel sama sekali.
+                                    //
+                                    // Di luar sini ia juga berhenti ikut bergeser
+                                    // saat berpindah tab, yang memang benar:
+                                    // pencarian milik halaman, bukan milik salah
+                                    // satu panel.
+                                    <div class="mp-stickybar">
                                     <div class="mp-tabs">
                                         {["PRODUCT", "TENTANG", "ULASAN", "STORY"]
                                             .into_iter()
@@ -910,6 +924,81 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                             })
                                             .collect_view()}
                                     </div>
+                                    // Hanya pada tab PRODUCT — mencari di tab
+                                    // "Tentang" atau "Ulasan" tak berarti apa pun.
+                                    {move || (tab.get() == 0).then(|| view! {
+                                    // ── Pencarian & urutan ──────────────────
+                                    // Dicari saat ENTER atau saat urutan
+                                    // diganti, BUKAN pada tiap ketukan
+                                    // tombol: mencari per huruf berarti
+                                    // satu permintaan per karakter, dan
+                                    // jawaban yang datang tak berurutan
+                                    // membuat hasil berkedip-kedip.
+                                    <div class="flex items-center gap-2 px-4 pb-3">
+                                        // Ikon di DALAM kolom: tanpa itu kolom
+                                        // cari dan kolom urut tampak sebagai dua
+                                        // pil kosong yang setara, dan mana yang
+                                        // bisa diketik tak terbaca sampai dicoba.
+                                        <div class="relative flex-1 min-w-0">
+                                            <svg
+                                                width="15" height="15" viewBox="0 0 24 24" fill="none"
+                                                stroke="currentColor" stroke-width="2"
+                                                stroke-linecap="round"
+                                                class="absolute left-3.5 top-1/2 -translate-y-1/2 \
+                                                       text-content-muted pointer-events-none"
+                                            >
+                                                <circle cx="11" cy="11" r="7" />
+                                                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                                            </svg>
+                                            <input
+                                                class="w-full h-10 pl-10 pr-3.5 rounded-full bg-card \
+                                                       border border-solid border-line text-content \
+                                                       text-sm placeholder:text-content-muted"
+                                                r#type="search"
+                                                placeholder="Cari di toko ini…"
+                                                prop:value=move || cari.get()
+                                                on:input=move |e| cari.set(event_target_value(&e))
+                                                on:change=move |_| jalankan_saring()
+                                            />
+                                        </div>
+                                        // `appearance-none` + chevron sendiri:
+                                        // panah bawaan sistem muncul sebagai dua
+                                        // segitiga bertumpuk yang tak mengikuti
+                                        // tema mana pun dan terlihat asing di
+                                        // antara komponen lain.
+                                        <div class="relative shrink-0">
+                                            <select
+                                                class="appearance-none h-10 pl-3.5 pr-8 rounded-full \
+                                                       bg-card border border-solid border-line \
+                                                       text-content text-[12px] cursor-pointer"
+                                                aria-label="Urutkan product"
+                                                prop:value=move || urut.get()
+                                                on:change=move |e| {
+                                                    urut.set(event_target_value(&e));
+                                                    jalankan_saring();
+                                                }
+                                            >
+                                            <option value="">"Paling sesuai"</option>
+                                            <option value="harga_asc">"Harga termurah"</option>
+                                            <option value="harga_desc">"Harga tertinggi"</option>
+                                            <option value="terlaris">"Terlaris"</option>
+                                                <option value="terbaru">"Terbaru"</option>
+                                                <option value="acak">"Acak"</option>
+                                            </select>
+                                            <svg
+                                                width="12" height="12" viewBox="0 0 24 24" fill="none"
+                                                stroke="currentColor" stroke-width="2.5"
+                                                stroke-linecap="round"
+                                                class="absolute right-3 top-1/2 -translate-y-1/2 \
+                                                       text-content-muted pointer-events-none"
+                                            >
+                                                <polyline points="6 9 12 15 18 9" />
+                                            </svg>
+                                        </div>
+                                    </div>
+                                    })}
+
+                                    </div>
 
                                     // ── Panel yang bisa digeser ───────────────
                                     <div
@@ -926,76 +1015,6 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                             class:mp-panel--drag=move || dragging.get()
                                             style=move || panel_tf(0)
                                         >
-                                            // ── Pencarian & urutan ──────────────────
-                                            // Dicari saat ENTER atau saat urutan
-                                            // diganti, BUKAN pada tiap ketukan
-                                            // tombol: mencari per huruf berarti
-                                            // satu permintaan per karakter, dan
-                                            // jawaban yang datang tak berurutan
-                                            // membuat hasil berkedip-kedip.
-                                            <div class="flex items-center gap-2 px-4 pb-3">
-                                                // Ikon di DALAM kolom: tanpa itu kolom
-                                                // cari dan kolom urut tampak sebagai dua
-                                                // pil kosong yang setara, dan mana yang
-                                                // bisa diketik tak terbaca sampai dicoba.
-                                                <div class="relative flex-1 min-w-0">
-                                                    <svg
-                                                        width="15" height="15" viewBox="0 0 24 24" fill="none"
-                                                        stroke="currentColor" stroke-width="2"
-                                                        stroke-linecap="round"
-                                                        class="absolute left-3.5 top-1/2 -translate-y-1/2 \
-                                                               text-content-muted pointer-events-none"
-                                                    >
-                                                        <circle cx="11" cy="11" r="7" />
-                                                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                                                    </svg>
-                                                    <input
-                                                        class="w-full h-10 pl-10 pr-3.5 rounded-full bg-card \
-                                                               border border-solid border-line text-content \
-                                                               text-sm placeholder:text-content-muted"
-                                                        r#type="search"
-                                                        placeholder="Cari di toko ini…"
-                                                        prop:value=move || cari.get()
-                                                        on:input=move |e| cari.set(event_target_value(&e))
-                                                        on:change=move |_| jalankan_saring()
-                                                    />
-                                                </div>
-                                                // `appearance-none` + chevron sendiri:
-                                                // panah bawaan sistem muncul sebagai dua
-                                                // segitiga bertumpuk yang tak mengikuti
-                                                // tema mana pun dan terlihat asing di
-                                                // antara komponen lain.
-                                                <div class="relative shrink-0">
-                                                    <select
-                                                        class="appearance-none h-10 pl-3.5 pr-8 rounded-full \
-                                                               bg-card border border-solid border-line \
-                                                               text-content text-[12px] cursor-pointer"
-                                                        aria-label="Urutkan product"
-                                                        prop:value=move || urut.get()
-                                                        on:change=move |e| {
-                                                            urut.set(event_target_value(&e));
-                                                            jalankan_saring();
-                                                        }
-                                                    >
-                                                    <option value="">"Paling sesuai"</option>
-                                                    <option value="harga_asc">"Harga termurah"</option>
-                                                    <option value="harga_desc">"Harga tertinggi"</option>
-                                                    <option value="terlaris">"Terlaris"</option>
-                                                        <option value="terbaru">"Terbaru"</option>
-                                                        <option value="acak">"Acak"</option>
-                                                    </select>
-                                                    <svg
-                                                        width="12" height="12" viewBox="0 0 24 24" fill="none"
-                                                        stroke="currentColor" stroke-width="2.5"
-                                                        stroke-linecap="round"
-                                                        class="absolute right-3 top-1/2 -translate-y-1/2 \
-                                                               text-content-muted pointer-events-none"
-                                                    >
-                                                        <polyline points="6 9 12 15 18 9" />
-                                                    </svg>
-                                                </div>
-                                            </div>
-
                                             <Suspense fallback=|| {
                                                 view! { <ProductGridShimmer count=4 /> }
                                             }>
@@ -1344,3 +1363,4 @@ pub fn MerchantPublicPage() -> impl IntoView {
         </div>
     }
 }
+

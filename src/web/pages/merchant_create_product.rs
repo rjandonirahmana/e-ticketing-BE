@@ -17,6 +17,26 @@ use crate::web::utils::{map_picker, map_set, DEFAULT_LAT, DEFAULT_LNG};
 // DAN sunting. Alias ini menjaga sisa berkas tak perlu ikut berubah.
 use crate::web::models::PRODUCT_CATEGORIES as CATEGORIES;
 
+/// Tanggal hari ini dalam format `YYYY-MM-DD`.
+///
+/// Dibaca dari jam PERAMBAN, bukan server: satu-satunya gunanya adalah mengisi
+/// kolom `event_date` yang tak lagi ditanyakan, dan selisih zona waktu di situ
+/// tak berpengaruh pada apa pun yang dilihat penjual maupun pembeli.
+fn js_hari_ini() -> String {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let d = js_sys::Date::new_0();
+        return format!(
+            "{:04}-{:02}-{:02}",
+            d.get_full_year(),
+            d.get_month() + 1,
+            d.get_date()
+        );
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    "1970-01-01".to_string()
+}
+
 #[component]
 pub fn MerchantCreateProductPage() -> impl IntoView {
     let _auth = use_context::<AuthResource>().expect("AuthResource missing");
@@ -26,9 +46,10 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
     let f_desc     = RwSignal::new(String::new());
     let f_cat: RwSignal<Vec<String>> = RwSignal::new(vec![]);
     let f_date     = RwSignal::new(String::new());
-    let f_time     = RwSignal::new(String::new());
-    let f_end_time = RwSignal::new(String::new());
-    let f_venue    = RwSignal::new(String::new());
+    // Tiga sinyal ini DIBUANG bersama field-nya; nilainya kini ditetapkan di
+    // pengirim (`"00:00"` dan string kosong). Menyimpan sinyal yang tak pernah
+    // dibaca hanya menyisakan jejak bahwa field-nya "sebentar lagi kembali".
+
     let f_city     = RwSignal::new(String::new());
     let f_lat      = RwSignal::new(DEFAULT_LAT);
     let f_lng      = RwSignal::new(DEFAULT_LNG);
@@ -149,16 +170,26 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
         if desc.trim().is_empty() { error_msg.set("Deskripsi product wajib diisi.".into()); return; }
         let cats = f_cat.get_untracked();
         if cats.is_empty() { error_msg.set("Pilih minimal satu kategori.".into()); return; }
+        // Tanggal/waktu/nama-lokasi tak lagi ditanyakan (lihat catatan di
+        // markup). Nilainya diisi di sini supaya bentuk permintaan ke server
+        // tak berubah: `event_date` masih NOT NULL di basis data.
+        //
+        // Hari ini, bukan tanggal kosong: `event_date` dipakai urutan bawaan,
+        // dan string kosong akan ditolak parser tanggal di server dengan pesan
+        // yang menyebut field yang tak pernah dilihat penjual.
         let date = f_date.get_untracked();
-        if date.trim().is_empty() { error_msg.set("Tanggal product wajib diisi.".into()); return; }
-        let time = f_time.get_untracked();
-        if time.trim().is_empty() {
-            error_msg.set("Waktu mulai wajib diisi.".into()); return;
-        }
-        let venue = f_venue.get_untracked();
-        if venue.trim().is_empty() { error_msg.set("Nama lokasi wajib diisi.".into()); return; }
+        let date = if date.trim().is_empty() {
+            js_hari_ini()
+        } else {
+            date
+        };
+        let time = "00:00".to_string();
+        let venue = String::new();
         let city = f_city.get_untracked();
-        if city.trim().is_empty() { error_msg.set("Kota wajib diisi.".into()); return; }
+        if city.trim().is_empty() {
+            error_msg.set("Kota wajib diisi.".into());
+            return;
+        }
 
         // Validasi + serialisasi varian tiket (nama/harga/kuota per baris).
         let variants_json = match rows_to_json(&v_rows.get_untracked(), &v_removed.get_untracked()) {
@@ -472,58 +503,36 @@ pub fn MerchantCreateProductPage() -> impl IntoView {
                         }
                     })
                 />
-                // ── TANGGAL & WAKTU ───────────────────────────────────────────
+                // ── TANGGAL, WAKTU, NAMA LOKASI: DIBUANG DARI FORMULIR ────────
+                //
+                // Ini toko, bukan penjualan tiket acara. Meminta penjual kaos
+                // mengisi "waktu selesai" dan "nama lokasi (cth. Gelora Bung
+                // Karno)" bukan sekadar berlebihan — ia membuat orang berhenti
+                // dan menebak-nebak apa yang sebenarnya diminta, pada formulir
+                // yang seharusnya bisa diselesaikan tanpa berpikir.
+                //
+                // Kolom `event_date` di basis data TETAP ADA dan tetap NOT NULL
+                // — ia dipakai urutan bawaan (`ORDER BY e.event_date`) dan
+                // beberapa tampilan. Yang berubah hanya SIAPA yang mengisinya:
+                // sekarang server, dengan waktu produk dibuat. Membuat kolomnya
+                // nullable berarti menyentuh setiap jalur baca yang sudah
+                // mengandalkannya — perubahan yang jauh lebih besar daripada
+                // yang diminta di sini, dan tak satu pun terlihat oleh penjual.
+                //
+                // `f_date` / `f_time` / `f_end_time` / `f_venue` masih dipakai
+                // saat menyusun permintaan (diisi nilai bawaan), jadi model
+                // server tak perlu ikut berubah.
                 <div class="medit-field-group">
-                    <label class="medit-field-label">"TANGGAL"</label>
-                    <input
-                        type="date"
-                        class="medit-input"
-                        prop:value=move || f_date.get()
-                        on:input=move |e| f_date.set(event_target_value(&e))
-                    />
-                </div>
-                <div class="medit-grid-2">
-                    <div class="medit-field-group">
-                        <label class="medit-field-label">"WAKTU MULAI"</label>
-                        <input
-                            type="time"
-                            class="medit-input"
-                            prop:value=move || f_time.get()
-                            on:input=move |e| f_time.set(event_target_value(&e))
-                        />
-                    </div>
-                    <div class="medit-field-group">
-                        <label class="medit-field-label">"WAKTU SELESAI"</label>
-                        <input
-                            type="time"
-                            class="medit-input"
-                            prop:value=move || f_end_time.get()
-                            on:input=move |e| f_end_time.set(event_target_value(&e))
-                        />
-                    </div>
-                </div>
-                // ── VENUE ─────────────────────────────────────────────────────
-                <div class="medit-field-group">
-                    <label class="medit-field-label">"NAMA LOKASI"</label>
+                    <label class="medit-field-label">"KOTA / LOKASI TOKO"</label>
                     <input
                         type="text"
                         class="medit-input"
-                        placeholder="cth. Gelora Bung Karno"
-                        prop:value=move || f_venue.get()
-                        on:input=move |e| f_venue.set(event_target_value(&e))
-                    />
-                </div>
-                <div class="medit-field-group">
-                    <label class="medit-field-label">"KOTA"</label>
-                    <input
-                        type="text"
-                        class="medit-input"
-                        placeholder="cth. Jakarta Pusat"
+                        placeholder="cth. Jakarta Pusat — asal pengiriman"
                         prop:value=move || f_city.get()
                         on:input=move |e| f_city.set(event_target_value(&e))
                     />
                 </div>
-                // ── VARIAN TIKET ──────────────────────────────────────────────
+                // ── VARIAN PRODUK (ukuran/warna + harga + stok) ───────────────
                 <VariantEditor rows=v_rows removed_ids=v_removed />
                 // ── LOKASI DI PETA ────────────────────────────────────────────
                 <div class="medit-section-header">

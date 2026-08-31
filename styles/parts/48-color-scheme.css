@@ -1,0 +1,88 @@
+/* ===== `color-scheme` — memberi tahu peramban tema aplikasi ini ============
+   MASALAH
+   Pemilih tanggal `<input type="date">`, dropdown `<select>`, scrollbar, dan
+   dialog bawaan lainnya digambar oleh PERAMBAN, bukan oleh CSS kita. Ia tak
+   bisa ditata dengan selector apa pun — satu-satunya kendali yang tersedia
+   adalah properti ini.
+
+   Tanpa `color-scheme`, peramban menganggap halaman ini terang. Maka kalender
+   yang muncul di atas formulir gelap tampil putih menyilaukan dengan teks
+   hitam — persis seperti tempelan dari aplikasi lain, dan pada tema gelap ia
+   menyilaukan tepat saat orang sedang mengetik.
+
+   Diset di `:root` mengikuti `data-theme`, jadi SATU aturan ini memperbaiki
+   seluruh widget bawaan di seluruh aplikasi sekaligus — bukan satu tambalan
+   per input, yang pasti terlewat pada input berikutnya yang ditambahkan. */
+
+:root {
+    color-scheme: light;
+}
+:root[data-theme="dark"] {
+    color-scheme: dark;
+}
+/* Tanpa atribut `data-theme` sama sekali (pengguna memakai preferensi sistem),
+   ikuti sistemnya. Aturan ini SENGAJA di bawah yang di atas: `data-theme` yang
+   eksplisit adalah pilihan yang dinyatakan pengguna dan harus menang. */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]):not([data-theme="dark"]) {
+        color-scheme: dark;
+    }
+}
+
+/* Tinggi `.page-header`, dinyatakan dari bagian-bagiannya supaya turunannya
+   terlihat: 14px padding atas + 40px tombol + 14px padding bawah + 1px garis.
+   Dipakai DUA tempat — `min-height` header itu sendiri dan offset bilah lengket
+   di bawahnya — sehingga keduanya mustahil berselisih. Menuliskan `69px` di
+   satu tempat dan berharap yang lain mengikutinya adalah cara bilah ini
+   menyelinap ke bawah header begitu padding header disetel ulang. */
+:root {
+    --header-h: calc(14px + 40px + 14px + 1px);
+}
+/* Menjadikan token di atas BENAR, bukan sekadar tebakan. */
+.page-header {
+    min-height: var(--header-h);
+}
+
+/* ===== Bilah lengket halaman merchant: tab + pencarian ====================
+   Tab dan kolom cari kini SATU blok yang menempel bersama saat digulir.
+   Disatukan, bukan dua elemen sticky bertingkat: dua sticky menuntut yang
+   kedua tahu tinggi persis yang pertama (`top: 48px` dan semacamnya), dan
+   angka itu meleset begitu ukuran huruf atau padding berubah. Satu blok tak
+   punya angka untuk meleset. */
+.mp-stickybar {
+    position: sticky;
+    /* DI BAWAH header, bukan di 0.
+     *
+     * `.page-header` juga `position: sticky; top: 0`, dan z-index-nya
+     * (`--z-header`, 40) lebih tinggi. Dengan `top: 0`, bilah ini menempel di
+     * tempat yang sama lalu MENYELINAP di bawah header dan terpotong separuh —
+     * kolom cari yang tinggal setengah huruf, persis seperti yang terlihat.
+     *
+     * Menaikkan z-index-nya BUKAN jawabannya: ia akan menutupi header. Yang
+     * benar adalah menempel tepat di bawahnya. */
+    top: var(--header-h);
+    z-index: 20;
+    /* Latar WAJIB legal: tanpa ini isi yang tergulir terlihat menembus dari
+       belakang bilah yang menempel. */
+    background: var(--bg-page);
+    /* Garis bawah menggantikan garis milik `.mp-tabs`, supaya batas bawahnya
+       tetap satu garis saat menempel — bukan dua. */
+    border-bottom: 1px solid var(--border);
+}
+.mp-stickybar .mp-tabs {
+    margin-bottom: 0;
+    border-bottom: none;
+}
+
+/* Jarak yang mencegah TABRAKAN.
+ *
+ * Kolom cari memakai cincin fokus `outline 1px` + `box-shadow 0 0 0 3px`
+ * (lihat `02-components.css`). Keduanya digambar DI LUAR kotak elemen dan
+ * TIDAK ikut diperhitungkan tata letak — jadi dengan padding lama, cincin itu
+ * menabrak garis tab di atasnya dan kartu produk di bawahnya begitu kolomnya
+ * difokuskan. Ruang di sini menyediakan tempat untuk cincin yang tak pernah
+ * meminta tempat sendiri. */
+.mp-stickybar > div:last-child {
+    padding-top: 10px;
+    padding-bottom: 12px;
+}
