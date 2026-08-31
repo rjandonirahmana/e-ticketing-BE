@@ -8,7 +8,7 @@ use crate::web::models::{format_date, format_price};
 #[component]
 pub fn HomePage() -> impl IntoView {
     let banners = Resource::new(|| (), |_| get_banners());
-    let featured = Resource::new(|| (), |_| get_products(Some(1), None, None, None, None));
+    let featured = Resource::new(|| (), |_| get_products(Some(1), None, None, None, None, None));
 
     view! {
         // ── Hero ─────────────────────────────────────────────────────────────

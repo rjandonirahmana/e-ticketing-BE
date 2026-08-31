@@ -32,8 +32,13 @@ impl ThemeCtx {
 /// SSR-safe: seluruh akses `web_sys` dipagari `#[cfg(target_arch = "wasm32")]`,
 /// jadi tidak pernah dipanggil di server (akan panik di target non-wasm).
 pub fn provide_theme() {
-    // Default mengikuti shell() SSR: data-theme="dark".
-    let theme = RwSignal::new("dark".to_string());
+    // Default mengikuti shell() SSR: data-theme="light".
+    //
+    // HARUS sama persis dengan `shell.rs` — nilai awal di sini adalah yang
+    // dipakai saat hidrasi, dan bila keduanya berselisih, Leptos merender ulang
+    // dengan tema yang berbeda dari yang sudah dilukis server: halaman berkedip
+    // dari satu tema ke tema lain tepat setelah termuat.
+    let theme = RwSignal::new("light".to_string());
     provide_context(ThemeCtx { theme });
 
     // Semua akses browser (web_sys) HANYA dikompilasi & dijalankan di target WASM.

@@ -34,6 +34,7 @@ pub async fn record_affinity(
     // dicatat server-side saat order benar-benar dibuat (checkout.rs).
     let sig = match signal.as_deref() {
         Some("cart") => AffinitySignal::Cart,
+        Some("search") => AffinitySignal::Search,
         _ => AffinitySignal::View,
     };
     state.affinity_svc.record(&claims.user_id, &categories, sig);

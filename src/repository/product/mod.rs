@@ -54,6 +54,17 @@ pub(super) fn urutan_sql(sort: Option<&str>) -> &'static str {
         "harga_desc" => " ORDER BY display_price DESC NULLS LAST, e.created_at DESC",
         "terlaris" => " ORDER BY total_sold DESC NULLS LAST, e.created_at DESC",
         "terbaru" => " ORDER BY e.created_at DESC",
+        // Acak, TAPI stabil. `shuffle_key` adalah kolom tersimpan ber-indeks
+        // (migrasi 033), jadi ini pembacaan indeks murni — bukan `random()`,
+        // yang memindai seluruh tabel DAN dinilai ulang tiap kueri sehingga
+        // halaman 2 diacak ulang dari awal: barang yang sama muncul dua kali
+        // dan sebagian lain tak pernah muncul sama sekali.
+        //
+        // `NULLS LAST`: baris lama yang kolomnya belum terisi tetap bisa
+        // tampil, hanya di belakang — bukan menghilang, dan bukan pula
+        // memborong halaman pertama seperti yang terjadi bila NULL diurutkan
+        // lebih dulu.
+        "acak" => " ORDER BY e.shuffle_key ASC NULLS LAST, e.id ASC",
         // Bawaan dipertahankan supaya halaman yang belum mengirim `sort` tak
         // berubah urutannya diam-diam.
         _ => " ORDER BY e.event_date ASC",
@@ -474,3 +485,4 @@ impl ProductRepository for PgProductRepository {
         self.exec_admin_update_status(id, status).await
     }
 }
+

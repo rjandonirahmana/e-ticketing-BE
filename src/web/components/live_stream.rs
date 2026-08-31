@@ -22,6 +22,13 @@ struct ViewerRtcClosures {
 struct RoomInfo {
     merchant_name: String,
     viewer_count: usize,
+    /// Pemilik siaran — dipakai mengambil rincian produk lewat
+    /// `get_merchant_public_products` yang sudah ada.
+    #[serde(default)]
+    merchant_id: String,
+    /// Id produk yang sedang dijual di siaran ini, urut pilihan merchant.
+    #[serde(default)]
+    product_ids: Vec<String>,
 }
 
 async fn api_get_room(room_id: &str) -> Result<RoomInfo, String> {
@@ -105,6 +112,15 @@ pub fn LiveStreamViewer(
     let is_muted = RwSignal::new(true);
     let viewer_count = RwSignal::new(0u32);
     let merchant_name = RwSignal::new(String::new());
+    // ── Keranjang kuning ────────────────────────────────────────────────────
+    // Id produk datang bersama snapshot room (lihat `live/room.rs`), jadi ia
+    // ikut berubah SEKETIKA saat merchant menambah/mencabut produk di tengah
+    // siaran — tanpa penonton memuat ulang apa pun.
+    let produk_ids = RwSignal::new(Vec::<String>::new());
+    let merchant_id = RwSignal::new(String::new());
+    let keranjang_buka = RwSignal::new(false);
+    let produk_live = RwSignal::new(Vec::<crate::web::models::Product>::new());
+    let produk_loading = RwSignal::new(false);
     let error_msg = RwSignal::new(None::<String>);
     let pc: RwSignal<Option<SendWrapper<web_sys::RtcPeerConnection>>> = RwSignal::new(None);
     // Stream remote yang dirakit dari track yang masuk (audio + video).
@@ -127,6 +143,7 @@ pub fn LiveStreamViewer(
         }
         let rid = room_id.get_value();
         let vc = viewer_count;
+        let pids = produk_ids;
 
         // SendWrapper: `Interval` memegang closure non-Send, sedangkan `on_cleanup`
         // menuntut Send+Sync agar tetap type-check di target native (efek hanya
@@ -137,6 +154,13 @@ pub fn LiveStreamViewer(
             wasm_bindgen_futures::spawn_local(async move {
                 if let Ok(room) = api_get_room(&rid).await {
                     vc.set(room.viewer_count as u32);
+                    // Daftar produk ikut disegarkan di sini. Merchant kerap
+                    // menambah produk DI TENGAH siaran karena ada yang
+                    // menanyakannya; tanpa ini penonton baru melihatnya setelah
+                    // memuat ulang halaman — yang berarti keluar dari siaran.
+                    if pids.with_untracked(|v: &Vec<String>| *v != room.product_ids) {
+                        pids.set(room.product_ids);
+                    }
                 }
             });
         }));
@@ -170,6 +194,8 @@ pub fn LiveStreamViewer(
 
             viewer_count.set(room.viewer_count as u32);
             merchant_name.set(room.merchant_name);
+            merchant_id.set(room.merchant_id);
+            produk_ids.set(room.product_ids);
 
             let config = web_sys::RtcConfiguration::new();
             config.set_ice_servers(crate::web::rtc::fetch_ice_servers().await.as_ref());
@@ -804,6 +830,134 @@ pub fn LiveStreamViewer(
             </div>
 
             {move || error_msg.get().map(|e| view! { <div class="live-viewer-error">{e}</div> })}
+
+            // ── Keranjang kuning ────────────────────────────────────────────
+            // Hanya muncul bila merchant memang memilih produk. Tombol keranjang
+            // yang membuka daftar kosong lebih buruk daripada tak ada tombol:
+            // ia menjanjikan sesuatu untuk dibeli lalu tak memberi apa pun.
+            {move || {
+                let n = produk_ids.with(|v| v.len());
+                (n > 0)
+                    .then(|| {
+                        view! {
+                            <button
+                                class="live-bag"
+                                aria-label=format!("Lihat {n} produk yang dijual di siaran ini")
+                                on:click=move |_| {
+                                    let buka = !keranjang_buka.get_untracked();
+                                    keranjang_buka.set(buka);
+                                    // Rincian diambil SAAT DIBUKA, bukan saat
+                                    // bergabung. Sebagian besar penonton tak
+                                    // pernah menyentuh keranjangnya, dan
+                                    // mengambilnya lebih awal berarti satu
+                                    // permintaan per penonton untuk data yang
+                                    // tak dilihat siapa pun.
+                                    if buka && produk_live.get_untracked().is_empty() {
+                                        let mid = merchant_id.get_untracked();
+                                        if mid.is_empty() {
+                                            return;
+                                        }
+                                        produk_loading.set(true);
+                                        leptos::task::spawn_local(async move {
+                                            if let Ok(pg) =
+                                                crate::web::api::get_merchant_public_products(
+                                                    mid, Some(1), None, None,
+                                                )
+                                                .await
+                                            {
+                                                produk_live.set(pg.data);
+                                            }
+                                            produk_loading.set(false);
+                                        });
+                                    }
+                                }
+                            >
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+                                     stroke="currentColor" stroke-width="2"
+                                     stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/>
+                                    <line x1="3" y1="6" x2="21" y2="6"/>
+                                    <path d="M16 10a4 4 0 01-8 0"/>
+                                </svg>
+                                <span class="live-bag-count">{n}</span>
+                            </button>
+                        }
+                    })
+            }}
+
+            {move || {
+                keranjang_buka
+                    .get()
+                    .then(|| {
+                        let ids = produk_ids.get();
+                        // Disaring di klien: `produk_live` berisi produk toko
+                        // ini, dan yang dijual di siaran hanyalah sebagiannya.
+                        // Urutannya mengikuti pilihan merchant, bukan urutan
+                        // datangnya dari server.
+                        let list: Vec<_> = ids
+                            .iter()
+                            .filter_map(|id| {
+                                produk_live.with(|v| v.iter().find(|p| &p.id == id).cloned())
+                            })
+                            .collect();
+                        view! {
+                            <div class="live-bag-sheet">
+                                <div class="live-bag-head">
+                                    <span class="live-bag-title">"Dijual di siaran ini"</span>
+                                    <button
+                                        class="live-bag-x"
+                                        aria-label="Tutup"
+                                        on:click=move |_| keranjang_buka.set(false)
+                                    >
+                                        "✕"
+                                    </button>
+                                </div>
+                                {if produk_loading.get() {
+                                    view! { <p class="live-bag-info">"Memuat…"</p> }.into_any()
+                                } else if list.is_empty() {
+                                    view! {
+                                        <p class="live-bag-info">
+                                            "Produknya sedang tidak tersedia."
+                                        </p>
+                                    }
+                                        .into_any()
+                                } else {
+                                    view! {
+                                        <div class="live-bag-list">
+                                            {list
+                                                .into_iter()
+                                                .map(|p| {
+                                                    let href = format!("/products/{}", p.slug);
+                                                    let harga = crate::web::utils::format_idr(
+                                                        p.display_price as i64,
+                                                    );
+                                                    view! {
+                                                        <a class="live-bag-item" href=href>
+                                                            <img
+                                                                class="live-bag-img"
+                                                                src=p.cover_url.clone()
+                                                                alt=""
+                                                                loading="lazy"
+                                                            />
+                                                            <div class="live-bag-body">
+                                                                <span class="live-bag-name">
+                                                                    {p.name.clone()}
+                                                                </span>
+                                                                <span class="live-bag-price">{harga}</span>
+                                                            </div>
+                                                            <span class="live-bag-go">"Beli"</span>
+                                                        </a>
+                                                    }
+                                                })
+                                                .collect_view()}
+                                        </div>
+                                    }
+                                        .into_any()
+                                }}
+                            </div>
+                        }
+                    })
+            }}
         </div>
     }
     .into_any()

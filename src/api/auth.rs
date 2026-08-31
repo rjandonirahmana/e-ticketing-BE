@@ -47,8 +47,12 @@ pub struct VerifyOtpReq {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ForgotPasswordReq {
-    #[allow(dead_code)]
-    pub email: String,
+    /// Nomor HP, BUKAN email.
+    ///
+    /// Aplikasi ini mendaftarkan dan memasukkan orang lewat nomor HP + WhatsApp;
+    /// email opsional dan sebagian besar akun tak punya. Bentuk lama meminta
+    /// email, dan itu tak mungkin bisa memulihkan akun mana pun.
+    pub phone: String,
 }
 
 #[derive(Deserialize)]
@@ -166,12 +170,20 @@ async fn verify_register(
     }))
 }
 
+/// POST /api/auth/forgot-password — kirim password baru lewat WhatsApp.
+///
+/// Sandi LAMA tidak disentuh di sini. Ia baru berganti saat seseorang benar-
+/// benar masuk memakai sandi barunya — lihat `AuthService::pakai_sandi_menunggu`.
 async fn forgot_password(
-    State(_state): State<Arc<AppState>>,
-    Json(_body): Json<ForgotPasswordReq>,
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<ForgotPasswordReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    // TODO: wire up password reset service
-    Ok(Json(serde_json::json!({ "message": "Jika email terdaftar, link reset akan dikirim" })))
+    let pesan = state
+        .auth_svc
+        .forgot_password(&body.phone)
+        .await
+        .map_err(app_err)?;
+    Ok(Json(serde_json::json!({ "message": pesan })))
 }
 
 /// Tukar refresh token dengan sepasang token baru.

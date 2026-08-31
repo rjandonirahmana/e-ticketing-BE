@@ -1,4 +1,6 @@
 use leptos::prelude::*;
+
+use super::common::gambar_cadangan;
 use leptos_router::components::A;
 use leptos_router::hooks::use_navigate;
 
@@ -19,7 +21,7 @@ pub fn ProductCard(
     view! {
         <A href=href attr:class="explore-product-card-v2">
             <div class="explore-ecard-img-wrap">
-                <img src=img alt=alt class="explore-ecard-img" />
+                <img src=img alt=alt class="explore-ecard-img" on:error=gambar_cadangan />
                 <span class="explore-ecard-cat">{badge}</span>
             </div>
             <div class="explore-ecard-body">
@@ -85,16 +87,47 @@ pub fn ProductCard(
 
 #[component]
 pub fn ProductCardShimmer() -> impl IntoView {
+    // ── Memakai KELAS KARTU YANG ASLI, bukan kelas skeleton sendiri ─────────
+    //
+    // Versi sebelumnya memakai pohon kelas terpisah (`.shim-product-card`,
+    // `.shim-img`, `.shim-body`, …) yang meniru bentuk kartu dengan ukurannya
+    // sendiri. Meniru berarti menebak, dan tebakannya meleset: kartu yang sudah
+    // termuat berukuran lain, sehingga tata letak MELOMPAT tepat pada saat data
+    // tiba — pergeseran yang paling terasa justru di jaringan lambat, yaitu
+    // saat skeleton paling lama terlihat.
+    //
+    // Dengan memakai `exp-mkt-*` yang sama persis, ukurannya identik BUKAN
+    // karena disamakan dengan hati-hati, melainkan karena tak ada dua ukuran
+    // yang bisa berselisih. Kalau kartunya berubah nanti, skeletonnya ikut
+    // berubah sendiri.
+    //
+    // `aria-hidden`: ini hiasan penantian, bukan isi. Pembaca layar tak perlu
+    // mengumumkan delapan kartu kosong.
     view! {
-        <div class="shim-product-card">
-            <div class="shim shim-img"></div>
-            <div class="shim-body">
-                <div class="shim shim-cat"></div>
-                <div class="shim shim-title"></div>
-                <div class="shim shim-date"></div>
-                <div class="shim-foot">
-                    <div class="shim shim-venue"></div>
-                    <div class="shim shim-price"></div>
+        <div class="exp-mkt-card exp-mkt-card--shim" aria-hidden="true">
+            <div class="exp-mkt-img-wrap">
+                <div class="shim exp-mkt-img"></div>
+            </div>
+            <div class="exp-mkt-body">
+                <span class="exp-mkt-merchant shim shim-line"></span>
+                // Dua baris: judul kartu asli boleh membungkus ke baris kedua,
+                // dan skeleton satu baris akan selalu lebih pendek daripada
+                // kebanyakan kartu sungguhan.
+                <h3 class="exp-mkt-title">
+                    <span class="shim shim-line"></span>
+                    <span class="shim shim-line shim-line--pendek"></span>
+                </h3>
+                <span class="exp-mkt-org shim shim-line"></span>
+                <div class="exp-mkt-meta">
+                    <span class="exp-mkt-meta-row shim shim-line"></span>
+                    <span class="exp-mkt-meta-row shim shim-line"></span>
+                </div>
+                <div class="exp-mkt-price-block">
+                    <span class="exp-mkt-from shim shim-line shim-line--pendek"></span>
+                    <span class="exp-mkt-price shim shim-line"></span>
+                </div>
+                <div class="exp-mkt-foot">
+                    <span class="exp-mkt-sold shim shim-line shim-line--pendek"></span>
                 </div>
             </div>
         </div>
@@ -152,6 +185,7 @@ pub fn ProductCardPub(ev: ExploreProduct, #[prop(default = 0)] index: usize) -> 
                     alt=ev.title.clone()
                     class="exp-mkt-img"
                     loading="lazy"
+                    on:error=gambar_cadangan
                 />
                 {ev
                     .is_live

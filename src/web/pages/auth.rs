@@ -16,6 +16,13 @@ pub fn LoginPage() -> impl IntoView {
     let loading  = RwSignal::new(false);
     let error    = RwSignal::new(Option::<String>::None);
     let pass_focused = RwSignal::new(false);
+    // Sandi sedang ditampilkan apa adanya.
+    //
+    // Nyaris seluruh salah-ketik sandi di ponsel berasal dari mengetik buta:
+    // papan ketik kecil, huruf besar-kecil bercampur, dan tak ada satu pun
+    // cara memeriksa selain mengirimkannya lalu ditolak. Tombol ini menjadikan
+    // pemeriksaan itu mungkin.
+    let lihat_sandi = RwSignal::new(false);
     let phone_focused = RwSignal::new(false);
 
     // Auth resource global + navigate: pakai navigasi SPA setelah login (bukan
@@ -114,7 +121,7 @@ pub fn LoginPage() -> impl IntoView {
                         <div class=move || if pass_focused.get() { "field-box field-box--focused" } else { "field-box" }>
                             <input
                                 id="password"
-                                type="password"
+                                type=move || if lihat_sandi.get() { "text" } else { "password" }
                                 class="field-input"
                                 placeholder="••••••••"
                                 autocomplete="current-password"
@@ -124,6 +131,47 @@ pub fn LoginPage() -> impl IntoView {
                                 on:focus=move |_| pass_focused.set(true)
                                 on:blur=move |_| pass_focused.set(false)
                             />
+                            // `type="button"` WAJIB. Tombol di dalam <form>
+                            // tanpa atribut ini bertipe `submit` — mengetuknya
+                            // akan MENGIRIM formulir login alih-alih menampilkan
+                            // sandinya.
+                            //
+                            // `on:mousedown` dicegah supaya kolomnya tak
+                            // kehilangan fokus saat tombol ditekan: tanpa itu
+                            // bingkai fokus berkedip dan posisi kursor teks
+                            // hilang tepat saat orang sedang membetulkan ketikan.
+                            <button
+                                type="button"
+                                class="field-eye"
+                                aria-label=move || {
+                                    if lihat_sandi.get() { "Sembunyikan password" } else { "Tampilkan password" }
+                                }
+                                aria-pressed=move || if lihat_sandi.get() { "true" } else { "false" }
+                                on:mousedown=move |ev| ev.prevent_default()
+                                on:click=move |_| lihat_sandi.update(|v| *v = !*v)
+                            >
+                                {move || if lihat_sandi.get() {
+                                    view! {
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                             stroke="currentColor" stroke-width="2"
+                                             stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/>
+                                            <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/>
+                                            <path d="M14.12 14.12a3 3 0 11-4.24-4.24"/>
+                                            <line x1="1" y1="1" x2="23" y2="23"/>
+                                        </svg>
+                                    }.into_any()
+                                } else {
+                                    view! {
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                             stroke="currentColor" stroke-width="2"
+                                             stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                            <circle cx="12" cy="12" r="3"/>
+                                        </svg>
+                                    }.into_any()
+                                }}
+                            </button>
                         </div>
                     </div>
 

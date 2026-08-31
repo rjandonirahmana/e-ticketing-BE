@@ -146,8 +146,10 @@ impl RoomState {
             event_slug: self.event_slug.clone(),
             viewer_count: self.subscribers.len(),
             started_at: self.started_at.timestamp_millis(),
-            // Identitas penonton dilacak di sisi service (LiveRoom), bukan SFU.
+            // Identitas penonton dan daftar produk dilacak di sisi service
+            // (`LiveRoom`), bukan SFU. Engine ini hanya mengurus media.
             viewers: Vec::new(),
+            product_ids: Vec::new(),
         }
     }
 }
@@ -685,6 +687,35 @@ impl SfuEngine {
                     .values()
                     .filter(|p| matches!(p.role, PeerRole::Subscriber))
                     .count();
+
+                // ── Media masuk, penonton ada, tapi NOL diteruskan ──────────
+                // Kombinasi ini selalu berarti ada yang rusak, dan sebabnya
+                // ada di tiga titik `continue` di `forward_to_subscribers` —
+                // yang semuanya ber-`debug!` dan karena itu tak terlihat pada
+                // `RUST_LOG=info` yang dipakai produksi. Yang tersisa di log
+                // hanyalah `v_fwd=0` tanpa satu pun petunjuk mengapa.
+                //
+                // Baris ini membedah keadaan tiap subscriber pada level `warn`,
+                // jadi jawabannya ada di log yang memang sudah dibaca orang:
+                //   ice=Checking          → ICE tak pernah tuntas (jaringan /
+                //                           SFU_PUBLIC_IP salah)
+                //   mids=0                → media belum ternegosiasi
+                //   writer=false          → DTLS belum tuntas
+                //   semua ok tapi fwd=0   → codec/params tak cocok
+                if subs > 0 && self.frames_forwarded == 0 {
+                    for (id, p) in self.peers.iter() {
+                        if !matches!(p.role, PeerRole::Subscriber) {
+                            continue;
+                        }
+                        tracing::warn!(
+                            subscriber = %id,
+                            mids = p.mids.len(),
+                            punya_alamat = p.remote_addr.is_some(),
+                            "SFU: media mengalir tetapi TIDAK ada yang diteruskan \
+                             ke subscriber ini"
+                        );
+                    }
+                }
                 tracing::info!(
                     v_seen = self.frames_video,
                     a_seen = self.frames_audio,

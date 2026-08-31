@@ -12,9 +12,10 @@ use super::router::App;
 /// Shell HTML — dipanggil Axum untuk setiap SSR request.
 ///
 /// Fix FOUC yang diterapkan:
-/// 1. `data-theme="dark"` pada `<html>` sebagai SSR default.
+/// 1. `data-theme="light"` pada `<html>` sebagai SSR default — TEMA UTAMA
+///    aplikasi ini terang; gelap adalah pilihan, bukan bawaan.
 /// 2. Inline blocking `<script>` — baca localStorage sebelum CSS di-parse,
-///    override data-theme ke "light" jika user memilihnya.
+///    override data-theme ke "dark" jika user memilihnya.
 /// 3. Inline ALL CSS langsung ke `<head>` via include_str! — tidak ada
 ///    HTTP round-trip untuk CSS, tidak pernah 404, tidak perlu assets router.
 ///    Browser tetap bisa cache via ETag pada full-page response.
@@ -27,11 +28,11 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
     let csp_on = std::env::var("ENABLE_CSP").ok().as_deref() == Some("1");
     view! {
         <!DOCTYPE html>
-        <html lang="id" data-theme="dark">
+        <html lang="id" data-theme="light">
             <head>
                 <meta charset="utf-8" />
                 <meta name="viewport" content="width=device-width, initial-scale=1" />
-                <meta name="theme-color" content="#050814" />
+                <meta name="theme-color" content="#ffffff" />
 
                 // ── Content-Security-Policy (opt-in, nonce-based) ────────────
                 {csp_on.then(|| view! {
@@ -51,7 +52,7 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
 
                 // ── Fix FOUC #1: Inline theme script ────────────────────────
                 // Synchronous/blocking — eksekusi sebelum CSS apapun di-parse.
-                <script nonce=use_nonce() inner_html=r#"(function(){try{var t=localStorage.getItem('kinetic.theme');var th=(t==='light'||t==='dark')?t:'dark';document.documentElement.setAttribute('data-theme',th);window.__setThemeColor=function(x){var m=document.querySelector('meta[name=theme-color]');if(m)m.setAttribute('content',x==='light'?'#ffffff':'#050814');};window.__setThemeColor(th);}catch(e){}})();"# />
+                <script nonce=use_nonce() inner_html=r#"(function(){try{var t=localStorage.getItem('kinetic.theme');var th=(t==='light'||t==='dark')?t:'light';document.documentElement.setAttribute('data-theme',th);window.__setThemeColor=function(x){var m=document.querySelector('meta[name=theme-color]');if(m)m.setAttribute('content',x==='light'?'#ffffff':'#050814');};window.__setThemeColor(th);}catch(e){}})();"# />
 
                 // ── Fix FOUC #1b: Critical CSS inline ────────────────────────
                 // Cukup untuk cat pertama SEBELUM app.css turun: token latar +

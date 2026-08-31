@@ -157,3 +157,44 @@ pub fn EmptyState(
         </div>
     }
 }
+
+// ─── Gambar cadangan ──────────────────────────────────────────────────────────
+
+/// Berkas yang dipakai saat gambar asli gagal dimuat. Disajikan dari `public/`,
+/// jadi ia tak pernah bergantung pada host luar mana pun.
+pub const IMG_PLACEHOLDER: &str = "/img-placeholder.svg";
+
+/// Pasang sebagai `on:error` pada `<img>` apa pun yang sumbernya datang dari
+/// luar aplikasi.
+///
+/// ── KENAPA INI ADA ────────────────────────────────────────────────────────
+/// Gambar produk di basis data menunjuk host pihak ketiga. Saat salah satunya
+/// mati — dan `picsum.photos` benar-benar mati dengan 503, membawa satu juta
+/// gambar produk bersamanya — setiap kartu berubah menjadi ikon gambar rusak
+/// bawaan peramban. Halamannya tetap "berhasil": tak ada galat, tak ada log,
+/// hanya kisi-kisi kotak kosong yang terlihat seperti aplikasi yang rusak.
+///
+/// Satu baris `on:error` mengubah kegagalan itu dari "aplikasi rusak" menjadi
+/// "gambar ini tak ada", yang jujur dan jauh lebih tenang dibaca.
+///
+/// `data-fb` mencegah perulangan: bila berkas cadangannya sendiri gagal dimuat,
+/// `error` akan menembak lagi dan menyetel `src` yang sama berulang-ulang.
+pub fn gambar_cadangan(ev: leptos::ev::ErrorEvent) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::JsCast;
+        let Some(el) = ev
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::HtmlImageElement>().ok())
+        else {
+            return;
+        };
+        if el.has_attribute("data-fb") {
+            return;
+        }
+        let _ = el.set_attribute("data-fb", "1");
+        el.set_src(IMG_PLACEHOLDER);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = ev;
+}

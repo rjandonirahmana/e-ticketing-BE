@@ -524,6 +524,7 @@ mod tests_rotasi {
             _id: &str,
             _name: Option<&str>,
             _phone: Option<&str>,
+            _email: Option<Option<&str>>,
         ) -> anyhow::Result<()> {
             Ok(())
         }

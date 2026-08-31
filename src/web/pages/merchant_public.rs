@@ -982,6 +982,7 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                     <option value="harga_desc">"Harga tertinggi"</option>
                                                     <option value="terlaris">"Terlaris"</option>
                                                         <option value="terbaru">"Terbaru"</option>
+                                                        <option value="acak">"Acak"</option>
                                                     </select>
                                                     <svg
                                                         width="12" height="12" viewBox="0 0 24 24" fill="none"

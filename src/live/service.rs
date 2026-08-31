@@ -54,14 +54,42 @@ fn resolve_candidate_ip(bind_ip: IpAddr) -> IpAddr {
     // masuk" (ICE tak pernah connect). Di produksi WAJIB set `SFU_PUBLIC_IP` ke IP
     // publik server + buka UDP port-nya. Teriakkan keras supaya misconfig kelihatan.
     if ip.is_loopback() || is_private(ip) {
-        tracing::warn!(
-            advertised_ip = %ip,
-            "SFU_PUBLIC_IP tak diset → mengiklankan IP privat/loopback sebagai ICE \
-             candidate. Penonton di luar LAN/mesin ini TIDAK akan bisa join. Set \
-             SFU_PUBLIC_IP=<ip_publik_server> dan buka UDP port SFU untuk produksi."
-        );
+        // `error!`, bukan `warn!`.
+        //
+        // Ini BUKAN peringatan yang boleh dilewati: siaran langsung tak akan
+        // pernah bekerja untuk satu pun penonton, dan gejalanya cuma layar
+        // hitam tanpa galat di sisi klien. Sebagai `warn!` di antara ratusan
+        // baris startup, ia terbukti terlewat berhari-hari sementara orang
+        // mencari bug di tempat lain.
+        if di_dalam_docker(ip) {
+            tracing::error!(
+                advertised_ip = %ip,
+                "SFU: alamat yang diiklankan adalah IP INTERNAL DOCKER. Tidak ada                  browser di luar container yang bisa mengirim paket ke sana, jadi                  ICE tak akan pernah tersambung dan SEMUA penonton melihat layar                  hitam tanpa satu pun galat. WAJIB set SFU_PUBLIC_IP=<ip_publik_vps>                  pada `docker run`, dan pastikan `-p 4000:4000/udp` terpasang serta                  UDP 4000 terbuka di firewall."
+            );
+        } else {
+            tracing::error!(
+                advertised_ip = %ip,
+                "SFU: SFU_PUBLIC_IP tak diset → mengiklankan IP privat/loopback                  sebagai ICE candidate. Penonton di luar LAN/mesin ini TIDAK akan                  bisa join. Set SFU_PUBLIC_IP=<ip_publik_server> dan buka UDP port                  SFU untuk produksi."
+            );
+        }
     }
     ip
+}
+
+/// Apakah `ip` berada di rentang bridge Docker (`172.16.0.0/12`)?
+///
+/// Dibedakan dari IP privat lain karena remedinya berbeda dan spesifik: bukan
+/// "atur jaringan LAN Anda", melainkan "set SFU_PUBLIC_IP di `docker run`".
+/// Inilah kasus produksi yang sebenarnya terjadi — alamat seperti `172.17.0.6`
+/// adalah alamat container, bukan alamat server.
+fn di_dalam_docker(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            o[0] == 172 && (16..=31).contains(&o[1])
+        }
+        IpAddr::V6(_) => false,
+    }
 }
 
 /// IP privat (RFC1918 / link-local) yang tak bisa dijangkau dari internet.
@@ -390,6 +418,22 @@ impl LiveStreamService {
         self.rooms.get(room_id).map(|r| r.info())
     }
 
+    /// Tetapkan produk yang dijual pada satu siaran.
+    ///
+    /// Menyiarkan perubahannya lewat `notify_change`, jadi keranjang di layar
+    /// penonton ikut berubah SEKETIKA — tanpa mereka perlu memuat ulang apa
+    /// pun. Itu seluruh gunanya: merchant menambah produk di tengah siaran
+    /// karena ada yang menanyakannya, dan penonton harus langsung melihatnya.
+    pub fn set_room_products(&self, room_id: &str, ids: &[String]) -> Result<(), String> {
+        let Some(room) = self.rooms.get(room_id) else {
+            return Err("Siaran tidak ditemukan".into());
+        };
+        room.set_products(ids);
+        drop(room);
+        self.notify_change();
+        Ok(())
+    }
+
     pub fn is_live(&self, room_id: &str) -> bool {
         self.rooms.contains_key(room_id)
     }
@@ -529,6 +573,33 @@ mod tests_siklus_siaran {
         assert_eq!(a.room_id, b.room_id, "room id deterministik per merchant");
         assert_eq!(svc.list_rooms().len(), 1, "tak boleh jadi dua room");
         assert_eq!(b.viewer_count, 0, "room baru mulai dari nol penonton");
+    }
+
+    /// Alamat container Docker dikenali sebagai Docker, bukan sekadar "privat".
+    ///
+    /// Remedinya berbeda dan spesifik — "set SFU_PUBLIC_IP di `docker run`",
+    /// bukan "periksa LAN Anda" — dan `172.17.0.6` inilah alamat yang benar-
+    /// benar muncul di produksi lalu membuat setiap penonton melihat layar
+    /// hitam tanpa satu pun galat di sisi klien.
+    #[test]
+    fn alamat_docker_dikenali() {
+        use std::net::IpAddr;
+        // Rentang bridge Docker: 172.16.0.0/12.
+        assert!(di_dalam_docker("172.17.0.6".parse::<IpAddr>().unwrap()));
+        assert!(di_dalam_docker("172.16.0.1".parse::<IpAddr>().unwrap()));
+        assert!(di_dalam_docker("172.31.255.254".parse::<IpAddr>().unwrap()));
+
+        // DI LUAR rentang — 172.15 dan 172.32 bukan Docker, dan menyebutnya
+        // Docker akan menuntun orang ke remedi yang salah.
+        assert!(!di_dalam_docker("172.15.0.1".parse::<IpAddr>().unwrap()));
+        assert!(!di_dalam_docker("172.32.0.1".parse::<IpAddr>().unwrap()));
+
+        // Privat, tapi bukan Docker: LAN rumah/kantor.
+        assert!(!di_dalam_docker("192.168.1.10".parse::<IpAddr>().unwrap()));
+        assert!(!di_dalam_docker("10.13.13.2".parse::<IpAddr>().unwrap()));
+
+        // Publik.
+        assert!(!di_dalam_docker("8.8.8.8".parse::<IpAddr>().unwrap()));
     }
 
     /// Port UDP yang sudah terpakai harus MENGHENTIKAN startup, bukan

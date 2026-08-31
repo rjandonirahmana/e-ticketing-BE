@@ -157,6 +157,16 @@ pub fn App() -> impl IntoView {
                             }
                         />
                         <Route
+                            path=path!("/profile/edit")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <EditProfilePage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        <Route
                             path=path!("/profile")
                             view=|| {
                                 view! {

@@ -70,12 +70,15 @@ pub fn ExplorePage() -> impl IntoView {
                 } else {
                     Some(cat)
                 };
+                // Sama dengan store: urutan acak, supaya semua produk punya
+                // kesempatan tampil dan bukan halaman pertama yang itu-itu saja.
                 crate::web::api::get_products(
                     Some(1),
                     None,
                     cat_opt,
                     None,
                     Some(crate::web::state::products::PAGE_SIZE),
+                    Some("acak".into()),
                 )
                 .await
             }
@@ -123,7 +126,8 @@ pub fn ExplorePage() -> impl IntoView {
             let cats = crate::web::behavior::top_categories(1);
             if let Some(cat) = cats.into_iter().next() {
                 if let Ok(res) =
-                    crate::web::api::get_products(Some(1), None, Some(cat), None, Some(10)).await
+                    crate::web::api::get_products(Some(1), None, Some(cat), None, Some(10), Some("acak".into()))
+                        .await
                 {
                     rec_products.set(
                         res.data

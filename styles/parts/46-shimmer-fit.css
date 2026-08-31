@@ -1,0 +1,64 @@
+/* ===== Skeleton kartu produk yang UKURANNYA SAMA dengan kartu asli =========
+   `ProductCardShimmer` kini memakai kelas kartu yang sebenarnya
+   (`.exp-mkt-*`), bukan pohon kelas tiruan. Berkas ini hanya menambahkan
+   perbedaan yang memang perlu: isinya diganti balok abu-abu, dan segala yang
+   interaktif dimatikan.
+
+   Kuncinya: TIDAK ada satu pun ukuran yang ditulis ulang di sini. Tinggi
+   gambar, padding badan, jarak antar-baris, radius — semuanya tetap datang
+   dari aturan kartu aslinya. Itulah yang membuat keduanya mustahil berselisih;
+   versi sebelumnya menulis `height: 170px` sendiri dan meleset dari kartu
+   sungguhan, sehingga tata letak melompat tepat saat data tiba. */
+
+.exp-mkt-card--shim {
+    /* Skeleton bukan tautan. Tanpa ini ia mewarisi kursor & efek hover kartu
+       dan terasa bisa diklik padahal tak menuju ke mana pun. */
+    cursor: default;
+    pointer-events: none;
+}
+.exp-mkt-card--shim:hover {
+    transform: none;
+}
+
+/* Gambar: `.exp-mkt-img` sudah membawa ukurannya sendiri dari kartu asli;
+   di sini ia cuma perlu berhenti berperilaku sebagai <img>. */
+.exp-mkt-card--shim .exp-mkt-img {
+    display: block;
+}
+
+/* Satu baris teks palsu. Tingginya mengikuti `1em` dari elemen yang
+   ditumpanginya, jadi baris judul tetap setinggi baris judul dan baris meta
+   setinggi baris meta — tanpa satu pun angka piksel di sini. */
+.shim-line {
+    display: block;
+    width: 100%;
+    height: 1em;
+    border-radius: 6px;
+}
+.shim-line--pendek {
+    width: 55%;
+}
+
+/* Judul dua baris butuh jarak antar-barisnya sendiri; elemen aslinya mengandalkan
+   `line-height` teks, yang tak berlaku untuk balok kosong. */
+.exp-mkt-card--shim .exp-mkt-title {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.exp-mkt-card--shim .exp-mkt-meta {
+    gap: 6px;
+}
+
+/* Ikon di dalam baris meta/footer tak dirender pada skeleton, jadi baris-baris
+   itu tak boleh lagi menyisakan ruang untuknya. */
+.exp-mkt-card--shim .exp-mkt-meta-row,
+.exp-mkt-card--shim .exp-mkt-foot {
+    gap: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .shim::after {
+        animation: none;
+    }
+}

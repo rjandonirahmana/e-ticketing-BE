@@ -52,7 +52,7 @@ impl VenueProductsCtx {
         let items   = self.items;
         let loading = self.loading;
         spawn_local(async move {
-            if let Ok(res) = get_products(Some(1), None, None, None, Some(6)).await {
+            if let Ok(res) = get_products(Some(1), None, None, None, Some(6), None).await {
                 let mapped = res.data.iter().map(product_to_venue).collect();
                 items.set(mapped);
             }

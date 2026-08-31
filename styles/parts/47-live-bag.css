@@ -1,0 +1,247 @@
+/* ===== Keranjang kuning di dalam siaran langsung ==========================
+   Merchant memilih produk yang dijual; penonton membukanya di sini.
+
+   KUNING, dan sengaja bukan warna aksen aplikasi (`--accent-lime`): tombol ini
+   melayang di atas VIDEO SEMBARANG, bukan di atas permukaan bertema. Warnanya
+   karena itu tak boleh ikut token tema — ia harus tetap terbaca di atas frame
+   terang maupun gelap, dan harus terpisah dari kendali pemutaran di sekitarnya
+   supaya "ini untuk belanja" terbaca tanpa dijelaskan. */
+
+.live-bag {
+    position: absolute;
+    right: 14px;
+    /* Di atas bilah kontrol feed (`.live-viewer-controls`, tinggi ±90px).
+       Sama seperti pil unmute: apa pun yang duduk di tepi bawah akan tertimbun
+       bilah itu dan ketukannya ditelan. */
+    bottom: 104px;
+    z-index: 7;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: none;
+    background: #f5c518;
+    color: #1a1400;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+    transition: transform 0.15s;
+}
+.live-bag:active {
+    transform: scale(0.94);
+}
+.live-bag-count {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    border-radius: 99px;
+    background: var(--danger);
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 20px;
+    text-align: center;
+}
+
+/* ── Lembar produk ───────────────────────────────────────────────────────── */
+.live-bag-sheet {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 8;
+    max-height: 60%;
+    display: flex;
+    flex-direction: column;
+    border-radius: 18px 18px 0 0;
+    /* Pelat gelapnya sendiri, bukan token permukaan: sama alasannya dengan
+       tombolnya — latarnya adalah video, bukan halaman. */
+    background: rgba(16, 15, 22, 0.94);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    color: #fff;
+}
+.live-bag-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px 10px;
+    flex-shrink: 0;
+}
+.live-bag-title {
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #f5c518;
+}
+.live-bag-x {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 0 4px;
+}
+.live-bag-info {
+    padding: 12px 16px 20px;
+    margin: 0;
+    font-family: var(--font-body);
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.65);
+}
+.live-bag-list {
+    overflow-y: auto;
+    padding: 0 12px calc(env(safe-area-inset-bottom, 0px) + 14px);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.live-bag-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.06);
+    text-decoration: none;
+    color: inherit;
+}
+.live-bag-item:active {
+    background: rgba(255, 255, 255, 0.12);
+}
+.live-bag-img {
+    width: 54px;
+    height: 54px;
+    flex-shrink: 0;
+    border-radius: 10px;
+    object-fit: cover;
+    background: rgba(255, 255, 255, 0.08);
+}
+.live-bag-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.live-bag-name {
+    font-family: var(--font-body);
+    font-size: 13px;
+    /* Dua baris lalu dipotong: nama produk kerap panjang, dan satu baris
+       memotong justru pada kata yang membedakan variannya. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.live-bag-price {
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 700;
+    color: #f5c518;
+}
+.live-bag-go {
+    flex-shrink: 0;
+    padding: 8px 14px;
+    border-radius: 99px;
+    background: #f5c518;
+    color: #1a1400;
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 700;
+}
+
+/* ── Pemilih produk di halaman merchant (/merchant/live) ─────────────────── */
+.mlive-pick {
+    margin: 0 16px 16px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--bg-card);
+    overflow: hidden;
+}
+.mlive-pick-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    padding: 14px 16px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+}
+.mlive-pick-title {
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+.mlive-pick-count {
+    font-family: var(--font-body);
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+.mlive-pick-body {
+    padding: 0 12px 14px;
+    border-top: 1px solid var(--border-soft);
+}
+.mlive-pick-list {
+    /* Dibatasi tingginya lalu digulir: merchant bisa punya puluhan produk, dan
+       daftar yang memanjang tanpa batas mendorong tombol simpan keluar layar —
+       tombol yang tak terlihat sama saja dengan tak ada. */
+    max-height: 260px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 0;
+}
+.mlive-pick-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px;
+    border-radius: 12px;
+    cursor: pointer;
+}
+.mlive-pick-item:hover {
+    background: var(--bg-card-hover);
+}
+.mlive-pick-img {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: 8px;
+    object-fit: cover;
+    background: var(--bg-elevated);
+}
+.mlive-pick-name {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-body);
+    font-size: 12px;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.mlive-pick-save {
+    width: 100%;
+    margin-top: 4px;
+}
+.mlive-pick-info {
+    margin: 10px 2px 0;
+    font-family: var(--font-body);
+    font-size: 11px;
+    color: var(--text-muted);
+}

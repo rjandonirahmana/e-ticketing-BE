@@ -733,48 +733,15 @@
 
 /* Skeleton placeholder — lihat .shim di bagian bawah untuk animasi */
 
-/* ── Event card skeleton ──────────────────────────────────────────────── */
-.shim-product-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border-soft);
-    border-radius: 16px;
-    overflow: hidden;
-}
-.shim-product-card .shim-img {
-    height: 170px;
-    width: 100%;
-}
-.shim-product-card .shim-body {
-    padding: 14px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-.shim-product-card .shim-cat {
-    height: 9px;
-    width: 60px;
-}
-.shim-product-card .shim-title {
-    height: 22px;
-    width: 80%;
-}
-.shim-product-card .shim-date {
-    height: 10px;
-    width: 50%;
-}
-.shim-product-card .shim-foot {
-    display: flex;
-    justify-content: space-between;
-    margin-top: 4px;
-}
-.shim-product-card .shim-venue {
-    height: 10px;
-    width: 40%;
-}
-.shim-product-card .shim-price {
-    height: 13px;
-    width: 25%;
-}
+/* ── Skeleton kartu produk ────────────────────────────────────────────────
+   Aturannya DIBUANG, tidak dipindah. `ProductCardShimmer` kini memakai kelas
+   kartu yang sebenarnya (`.exp-mkt-*`), jadi ukurannya datang dari satu tempat
+   dan tak ada lagi angka yang perlu disamakan dengan tangan. Yang tersisa cuma
+   perbedaan perilaku, di `46-shimmer-fit.css`.
+
+   Aturan lama menuliskan sendiri `height: 170px`, `width: 80%`, dan seterusnya
+   — tebakan yang meleset dari kartu sungguhan, sehingga tata letak melompat
+   tepat pada saat data tiba. */
 
 /* ── Ticket card skeleton ── dimensi mengikuti .ticket-card asli ─────── */
 .shim-ticket-card {
@@ -2283,4 +2250,34 @@ textarea:focus {
     color: var(--text-muted);
     font-size: 14px;
     padding: 18px 0;
+}
+
+/* ── Tombol "lihat password" di dalam .field-box ──────────────────────────
+   `.field-box` sudah `display:flex`, jadi tombol ini cukup menjadi anak kedua
+   di sebelah `.field-input` (yang `flex:1`). Tak perlu absolut — dan justru
+   tak boleh: posisi absolut akan menumpuk di atas teks sandi yang panjang,
+   sedangkan sebagai anak flex ia MENYISAKAN ruang untuk dirinya sendiri. */
+.field-eye {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 44px;
+    align-self: stretch;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: color 0.15s;
+    -webkit-tap-highlight-color: transparent;
+}
+.field-eye:hover {
+    color: var(--text-primary);
+}
+/* Sandi yang SEDANG terlihat ditandai warnanya — kalau tidak, satu-satunya
+   petunjuk adalah bentuk ikon, dan mata-dicoret vs mata biasa terlalu mirip
+   untuk dibedakan sekilas di layar kecil. */
+.field-eye[aria-pressed="true"] {
+    color: var(--accent-lime);
 }

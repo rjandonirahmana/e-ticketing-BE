@@ -63,6 +63,27 @@ async fn api_get_room(room_id: &str) -> Result<RoomInfo, String> {
     parse_api_data(&json)
 }
 
+/// Kirim daftar produk yang dijual pada siaran ini.
+///
+/// Daftar UTUH, bukan tambahan: server mengganti isinya apa adanya, sehingga
+/// mencabut satu produk di layar ini benar-benar mencabutnya dari keranjang
+/// penonton. Lihat `LiveRoom::set_products`.
+async fn api_set_products(room_id: &str, ids: &[String]) -> Result<(), String> {
+    let url = format!("/api/live/rooms/{}/products", room_id);
+    let resp = gloo_net::http::Request::put(&url)
+        .json(&serde_json::json!({ "product_ids": ids }))
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if resp.status() == 200 {
+        Ok(())
+    } else {
+        let j: serde_json::Value = resp.json().await.unwrap_or_default();
+        Err(j["error"].as_str().unwrap_or("Gagal menyimpan produk").to_string())
+    }
+}
+
 async fn api_stop_room(room_id: &str) -> Result<(), String> {
     let url = format!("/api/live/rooms/{}", room_id);
     let resp = gloo_net::http::Request::delete(&url)
@@ -100,6 +121,11 @@ pub fn MerchantLivePage() -> impl IntoView {
     let _auth = use_context::<AuthResource>().expect("AuthResource missing");
     let is_live = RwSignal::new(false);
     let room_id = RwSignal::new(String::new());
+    // ── Pemilih produk yang dijual saat siaran ──────────────────────────────
+    let produk_saya = RwSignal::new(Vec::<crate::web::models::Product>::new());
+    let dipilih = RwSignal::new(Vec::<String>::new());
+    let pilih_buka = RwSignal::new(false);
+    let pilih_pesan = RwSignal::new(Option::<String>::None);
     let viewer_count = RwSignal::new(0u32);
     // Toast sementara "{nama} telah join" (tampil sekali, hilang setelah 5 dtk).
     let join_toast = RwSignal::new(None::<String>);
@@ -447,6 +473,135 @@ pub fn MerchantLivePage() -> impl IntoView {
                     }.into_any()
                 }}
             </div>
+
+            // ── Produk yang dijual saat siaran ──────────────────────────────
+            // Hanya muncul SAAT sedang siaran: daftar ini hidup di dalam room,
+            // dan room baru ada setelah "GO LIVE". Menampilkannya lebih awal
+            // berarti menawarkan pilihan yang tak punya tempat untuk disimpan.
+            {move || {
+                is_live
+                    .get()
+                    .then(|| {
+                        view! {
+                            <section class="mlive-pick">
+                                <button
+                                    class="mlive-pick-head"
+                                    on:click=move |_| {
+                                        let buka = !pilih_buka.get_untracked();
+                                        pilih_buka.set(buka);
+                                        if buka && produk_saya.get_untracked().is_empty() {
+                                            leptos::task::spawn_local(async move {
+                                                if let Ok(pg) =
+                                                    crate::web::api::get_merchant_products(Some(1))
+                                                        .await
+                                                {
+                                                    produk_saya.set(pg.data);
+                                                }
+                                            });
+                                        }
+                                    }
+                                >
+                                    <span class="mlive-pick-title">"Produk yang dijual"</span>
+                                    <span class="mlive-pick-count">
+                                        {move || format!("{} dipilih", dipilih.with(|v| v.len()))}
+                                    </span>
+                                </button>
+
+                                {move || {
+                                    pilih_buka
+                                        .get()
+                                        .then(|| {
+                                            let list = produk_saya.get();
+                                            view! {
+                                                <div class="mlive-pick-body">
+                                                    {if list.is_empty() {
+                                                        view! {
+                                                            <p class="mlive-pick-info">
+                                                                "Memuat produk kamu…"
+                                                            </p>
+                                                        }
+                                                            .into_any()
+                                                    } else {
+                                                        view! {
+                                                            <div class="mlive-pick-list">
+                                                                {list
+                                                                    .into_iter()
+                                                                    .map(|p| {
+                                                                        let id = p.id.clone();
+                                                                        let id_cek = id.clone();
+                                                                        let tercentang = move || {
+                                                                            dipilih.with(|v| v.contains(&id_cek))
+                                                                        };
+                                                                        view! {
+                                                                            <label class="mlive-pick-item">
+                                                                                <input
+                                                                                    type="checkbox"
+                                                                                    prop:checked=tercentang
+                                                                                    on:change=move |_| {
+                                                                                        let id = id.clone();
+                                                                                        dipilih
+                                                                                            .update(|v| {
+                                                                                                if let Some(i) = v.iter().position(|x| *x == id) {
+                                                                                                    v.remove(i);
+                                                                                                } else {
+                                                                                                    v.push(id);
+                                                                                                }
+                                                                                            });
+                                                                                    }
+                                                                                />
+                                                                                <img
+                                                                                    class="mlive-pick-img"
+                                                                                    src=p.cover_url.clone()
+                                                                                    alt=""
+                                                                                    loading="lazy"
+                                                                                />
+                                                                                <span class="mlive-pick-name">
+                                                                                    {p.name.clone()}
+                                                                                </span>
+                                                                            </label>
+                                                                        }
+                                                                    })
+                                                                    .collect_view()}
+                                                            </div>
+                                                        }
+                                                            .into_any()
+                                                    }}
+                                                    <button
+                                                        class="mlive-btn mlive-btn--start mlive-pick-save"
+                                                        on:click=move |_| {
+                                                            let rid = room_id.get_untracked();
+                                                            let ids = dipilih.get_untracked();
+                                                            if rid.is_empty() {
+                                                                return;
+                                                            }
+                                                            leptos::task::spawn_local(async move {
+                                                                match api_set_products(&rid, &ids).await {
+                                                                    Ok(()) => {
+                                                                        pilih_pesan
+                                                                            .set(Some("Tersimpan — penonton langsung melihatnya.".into()))
+                                                                    }
+                                                                    Err(e) => pilih_pesan.set(Some(e)),
+                                                                }
+                                                            });
+                                                        }
+                                                    >
+                                                        "SIMPAN KE SIARAN"
+                                                    </button>
+                                                    {move || {
+                                                        pilih_pesan
+                                                            .get()
+                                                            .map(|m| {
+                                                                view! { <p class="mlive-pick-info">{m}</p> }
+                                                            })
+                                                    }}
+                                                </div>
+                                            }
+                                        })
+                                }}
+                            </section>
+                        }
+                    })
+            }}
 
             <div class="mlive-tips">
                 <h4 class="mlive-tips-title">"Tips Live Selling"</h4>

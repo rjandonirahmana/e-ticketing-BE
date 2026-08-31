@@ -292,3 +292,30 @@
     color: rgba(255, 255, 255, 0.5);
 }
 
+
+/* ── Tombol "ketuk untuk suara" di feed fullscreen ────────────────────────
+   Di feed, `.live-viewer-controls` menjadi `position:absolute; bottom:0`
+   dengan `z-index:5`. Overlay unmute ber-`z-index:3` DAN pil-nya juga
+   ditempatkan di tepi bawah (`align-items:flex-end`) — jadi satu-satunya
+   kontrol yang menyalakan suara terkubur persis di bawah bilah kontrol:
+   tak terlihat, dan ketukannya ditelan bilah itu.
+   Akibatnya penonton tak punya cara apa pun menyalakan audio, dan siarannya
+   selalu bisu. Autoplay ber-suara diblokir peramban, jadi ketukan ini bukan
+   kenyamanan — ia SATU-SATUNYA jalan.
+
+   Dua hal diperbaiki sekaligus:
+   1. Pil diangkat melewati bilah kontrol.
+   2. Overlay tak lagi menelan ketukan. Ia menutup seluruh video (`inset:0`),
+      jadi menaikkan z-index-nya saja akan membuat tombol "Keluar" dan hitungan
+      penonton di bawahnya ikut mati. `pointer-events:none` pada overlay +
+      `auto` pada pil membuat hanya pil-nya yang menangkap ketukan — dan
+      klik pada pil tetap menggelembung ke tombol induknya. */
+.lives-slide .live-viewer-unmute-overlay {
+    z-index: 6;
+    pointer-events: none;
+    align-items: flex-end;
+    padding-bottom: 104px;
+}
+.lives-slide .live-viewer-unmute-pill {
+    pointer-events: auto;
+}

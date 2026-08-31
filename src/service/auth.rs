@@ -48,6 +48,36 @@ const OTP_MAX_ATTEMPTS: i64 = 5;
 /// hanya dengan menebak salah berkali-kali atas nama korbannya. Melambatkan
 /// selama lima menit menahan penyerang tanpa memberinya kemampuan itu.
 const LOGIN_MAX_PER_WINDOW: i64 = 10;
+
+/// Umur sandi hasil "lupa password" selama ia belum dipakai.
+///
+/// Tiga jam: cukup lama untuk orang yang baru membuka WhatsApp beberapa saat
+/// kemudian, cukup pendek supaya sandi yang tak pernah diminta pemiliknya tak
+/// menganggur berhari-hari. Selama jendela ini DUA sandi berlaku — lihat
+/// `pakai_sandi_menunggu`.
+const SANDI_MENUNGGU_TTL: u64 = 3 * 60 * 60;
+
+/// Umur pengajuan ganti nomor — cukup untuk membuka WhatsApp dan menyalin kode,
+/// terlalu pendek untuk ditebak.
+const GANTI_NOMOR_TTL: u64 = 600;
+/// Sesudah ini, ajukan ulang dari awal. OTP hanya 6 digit: tanpa batas, seluruh
+/// ruang tebakan habis dalam hitungan menit.
+const GANTI_NOMOR_MAKS_COBA: u64 = 5;
+/// Jeda minimum antar pengiriman kode.
+const GANTI_NOMOR_JEDA: i64 = 60;
+
+/// Perbandingan string dengan waktu tetap.
+///
+/// `==` biasa berhenti pada perbedaan pertama, jadi waktunya membocorkan berapa
+/// digit awal yang sudah benar. Untuk OTP 6 digit, kebocoran itu memangkas
+/// ruang tebakan dari sejuta menjadi enam puluh.
+fn waktu_tetap_sama(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
 const LOGIN_WINDOW_SECS: i64 = 300;
 
 /// Verifikasi OTP per nomor, per jendela — lapis KEDUA di atas
@@ -371,6 +401,312 @@ impl AuthService {
         tracing::debug!("User created: id={}", user.id);
         self.build_auth_response(user)
     }
+    // ── GANTI NOMOR HP ─────────────────────────────────────────────────────────
+    //
+    // ── KENAPA HARUS ADA OTP ───────────────────────────────────────────────
+    // Nomor HP di sini bukan sekadar data kontak: ia IDENTITAS LOGIN
+    // (`find_by_phone`), penerima OTP, dan penerima reset sandi. Membiarkan
+    // seseorang menulis nomor apa pun tanpa bukti kepemilikan berarti ia bisa
+    // memindahkan akunnya ke nomor orang lain — atau, lebih sering, salah ketik
+    // satu digit lalu terkunci selamanya dari akunnya sendiri, karena sandi
+    // pemulihan dikirim ke nomor yang tak pernah ia pegang.
+    //
+    // Kodenya dikirim ke NOMOR BARU, bukan nomor lama. Yang perlu dibuktikan
+    // adalah "saya memegang nomor ini"; bahwa ia pemilik akun sudah dibuktikan
+    // oleh sesi yang sedang berjalan.
+
+    fn ganti_nomor_key(user_id: &str) -> String {
+        format!("hp:ganti:{user_id}")
+    }
+
+    /// Ajukan penggantian nomor: kirim OTP ke NOMOR BARU.
+    pub async fn mulai_ganti_nomor(&self, user_id: &str, nomor_baru: &str) -> AppResult<String> {
+        let nomor_baru = nomor_baru.trim();
+        if nomor_baru.is_empty() {
+            return Err(AppError::UnprocessableEntity("Nomor HP baru wajib diisi.".into()));
+        }
+        let ternormalisasi = normalize_phone(nomor_baru)
+            .map_err(|_| AppError::UnprocessableEntity("Nomor HP tidak sah.".into()))?;
+
+        let saya = self.me(user_id).await?;
+        if normalize_phone(&saya.phone).ok().as_deref() == Some(ternormalisasi.as_str()) {
+            return Err(AppError::UnprocessableEntity(
+                "Nomor itu sama dengan nomor Anda sekarang.".into(),
+            ));
+        }
+
+        // Pemeriksaan PERTAMA. Ada pemeriksaan kedua saat verifikasi, dan itu
+        // yang menentukan — di antara keduanya ada jendela 10 menit, dan siapa
+        // pun bisa mendaftar dengan nomor itu di sela-selanya.
+        if let Some(lain) = self.repo.find_by_phone(nomor_baru).await? {
+            if lain.id != user_id {
+                return Err(AppError::UnprocessableEntity(
+                    "Nomor itu sudah dipakai akun lain.".into(),
+                ));
+            }
+        }
+
+        let mut redis = self.redis.clone();
+        crate::utils::rate_limit::jaga(
+            &mut redis,
+            &format!("rl:hp:{user_id}"),
+            1,
+            GANTI_NOMOR_JEDA,
+            "Kode sudah dikirim kurang dari semenit lalu. Periksa WhatsApp nomor baru Anda.",
+        )
+        .await?;
+
+        let otp = format!("{:06}", rand::rng().random_range(100_000..=999_999));
+        let pengajuan = json!({
+            "nomor": ternormalisasi,
+            "otp": otp,
+            "percobaan": 0,
+        })
+        .to_string();
+
+        // KIRIM DULU, baru simpan — pengajuan untuk pesan yang tak pernah
+        // terkirim hanya menahan orang selama 10 menit tanpa guna.
+        self.send_wa_ganti_nomor(&ternormalisasi, &otp)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, "ganti nomor: gagal kirim WA");
+                AppError::Internal(anyhow!("Gagal mengirim WhatsApp ke nomor baru. Pastikan nomornya benar."))
+            })?;
+
+        redis
+            .set_ex::<_, _, ()>(&Self::ganti_nomor_key(user_id), &pengajuan, GANTI_NOMOR_TTL)
+            .await
+            .map_err(|e| AppError::Internal(anyhow!(e)))?;
+
+        Ok(format!("Kode verifikasi dikirim ke WhatsApp {ternormalisasi}."))
+    }
+
+    /// Verifikasi OTP; bila cocok, nomor akun BENAR-BENAR berpindah.
+    pub async fn verifikasi_ganti_nomor(&self, user_id: &str, otp_input: &str) -> AppResult<String> {
+        let mut redis = self.redis.clone();
+        let key = Self::ganti_nomor_key(user_id);
+
+        let json_str: Option<String> = redis.get(&key).await.unwrap_or(None);
+        let Some(json_str) = json_str else {
+            return Err(AppError::UnprocessableEntity(
+                "Pengajuan ganti nomor sudah kedaluwarsa. Ulangi dari awal.".into(),
+            ));
+        };
+        let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&json_str) else {
+            return Err(AppError::UnprocessableEntity(
+                "Pengajuan tidak terbaca. Ulangi dari awal.".into(),
+            ));
+        };
+
+        let otp_benar = v["otp"].as_str().unwrap_or_default().to_string();
+        let nomor_baru = v["nomor"].as_str().unwrap_or_default().to_string();
+        let mut percobaan = v["percobaan"].as_u64().unwrap_or(0);
+
+        // Perbandingan waktu-tetap: OTP hanya 6 digit, dan `==` biasa bocor
+        // berapa digit awal yang sudah benar lewat waktu yang dipakainya.
+        if !waktu_tetap_sama(&otp_benar, otp_input.trim()) {
+            percobaan += 1;
+            if percobaan >= GANTI_NOMOR_MAKS_COBA {
+                let _: Result<(), _> = redis.del::<_, ()>(&key).await;
+                return Err(AppError::UnprocessableEntity(
+                    "Terlalu banyak percobaan. Ajukan ganti nomor lagi dari awal.".into(),
+                ));
+            }
+            // TTL DIPERTAHANKAN: percobaan gagal tak boleh memperpanjang umur
+            // pengajuan, kalau tidak seseorang bisa menahannya hidup selamanya.
+            let sisa: i64 = redis.ttl(&key).await.unwrap_or(0);
+            v["percobaan"] = serde_json::json!(percobaan);
+            let _: Result<(), _> = redis
+                .set_ex::<_, _, ()>(&key, v.to_string(), sisa.max(1) as u64)
+                .await;
+            return Err(AppError::UnprocessableEntity(format!(
+                "Kode salah. Sisa {} percobaan.",
+                GANTI_NOMOR_MAKS_COBA - percobaan
+            )));
+        }
+
+        // Pemeriksaan KEDUA, dan yang ini yang menentukan.
+        if let Some(lain) = self.repo.find_by_phone(&nomor_baru).await? {
+            if lain.id != user_id {
+                let _: Result<(), _> = redis.del::<_, ()>(&key).await;
+                return Err(AppError::UnprocessableEntity(
+                    "Nomor itu keburu dipakai akun lain. Coba nomor lain.".into(),
+                ));
+            }
+        }
+
+        self.repo
+            .update_profile(user_id, None, Some(&nomor_baru), None)
+            .await?;
+        let _: Result<(), _> = redis.del::<_, ()>(&key).await;
+        tracing::info!(user_id, "nomor HP berhasil diganti");
+        Ok(format!("Nomor HP berhasil diganti ke {nomor_baru}."))
+    }
+
+    async fn send_wa_ganti_nomor(&self, phone: &str, otp: &str) -> anyhow::Result<()> {
+        let body = json!({
+            "chatId": phone,
+            "text": format!(
+                "🔄 *Ganti Nomor Kinetic*\n\nKode verifikasi: *{otp}*\n\n\
+                 Berlaku 10 menit. Masukkan kode ini di halaman Edit Profil untuk \
+                 memindahkan akun Anda ke nomor ini.\n\n\
+                 Bila Anda tidak meminta ini, abaikan saja — nomor lama tetap berlaku."
+            ),
+            "session": self.waha.session,
+        });
+        let url = format!("{}/api/sendText", self.waha.base_url);
+        let mut req = self.http.post(&url).json(&body);
+        if !self.waha.api_key.is_empty() {
+            req = req.header("X-Api-Key", &self.waha.api_key);
+        }
+        let res = req.send().await?;
+        if !res.status().is_success() {
+            let status = res.status();
+            let text = res.text().await.unwrap_or_default();
+            bail!("WAHA error {status}: {text}");
+        }
+        Ok(())
+    }
+
+    // ── LUPA SANDI ─────────────────────────────────────────────────────────────
+
+    /// Kunci Redis tempat sandi-menunggu milik satu akun disimpan.
+    fn sandi_menunggu_key(user_id: &str) -> String {
+        format!("pw:menunggu:{user_id}")
+    }
+
+    /// Cocokkan `password` dengan sandi-menunggu milik `user_id`. Bila cocok:
+    /// TULIS ke `users.password_hash`, buang kuncinya, lalu `true`.
+    ///
+    /// ── KENAPA SANDI RESET TIDAK LANGSUNG DITULIS KE DB ─────────────────────
+    /// Menekan "lupa password" hanya butuh mengetik nomor HP ORANG LAIN. Bila
+    /// reset langsung menimpa DB, siapa pun bisa mengunci siapa pun keluar dari
+    /// akunnya: korban tak melakukan apa-apa, sandinya mendadak tak berlaku, dan
+    /// sandi penggantinya ada di WhatsApp yang mungkin tak pernah ia buka — atau
+    /// tak pernah sampai.
+    ///
+    /// Karena itu sandi baru MENUNGGU: selama tiga jam DUA sandi sama-sama
+    /// berlaku, yang lama dan yang baru. Yang menentukan bukan permintaan
+    /// resetnya, melainkan sandi mana yang benar-benar DIPAKAI masuk. Tak
+    /// dipakai sama sekali → kuncinya kedaluwarsa sendiri dan sandi di DB tak
+    /// pernah tersentuh.
+    ///
+    /// Biayanya: satu bcrypt tambahan pada login yang gagal, dan hanya bila
+    /// memang ada sandi-menunggu (GET dulu, verify belakangan).
+    async fn pakai_sandi_menunggu(&self, user_id: &str, password: &str) -> bool {
+        let mut redis = self.redis.clone();
+        let key = Self::sandi_menunggu_key(user_id);
+
+        // Redis mati → tak ada sandi-menunggu yang bisa dibaca; login berjalan
+        // seperti biasa dengan sandi DB. Jangan menggagalkan login karenanya.
+        let hash: Option<String> = match redis.get(&key).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(user_id, error = %e, "gagal membaca sandi-menunggu");
+                return false;
+            }
+        };
+        let Some(hash) = hash else { return false };
+
+        let pw = password.to_string();
+        let h = hash.clone();
+        let cocok = tokio::task::spawn_blocking(move || verify(&pw, &h))
+            .await
+            .map(|r| r.unwrap_or(false))
+            .unwrap_or(false);
+        if !cocok {
+            return false;
+        }
+
+        // DITULIS DULU, baru kuncinya dibuang. Urutan sebaliknya membuat sandi
+        // baru lenyap bila penulisan DB gagal — dan pemiliknya tinggal dengan
+        // sandi lama yang barusan ia yakini sudah diganti.
+        if let Err(e) = self.repo.update_password_hash(user_id, &hash).await {
+            tracing::error!(user_id, error = %e, "gagal menulis sandi baru ke DB");
+            return false;
+        }
+        let _: Result<(), _> = redis.del::<_, ()>(&key).await;
+        tracing::info!(user_id, "sandi dari lupa-password dipakai — DB diperbarui");
+        true
+    }
+
+    /// Lupa password lewat WhatsApp.
+    ///
+    /// Cari akun dari nomor HP → buat sandi baru → kirim lewat WA → simpan
+    /// HASH-nya di Redis selama tiga jam. Mengembalikan kalimat yang bisa
+    /// langsung ditampilkan.
+    ///
+    /// **Basis data TIDAK disentuh di sini.** Sandi lama tetap berlaku sampai
+    /// seseorang benar-benar masuk memakai sandi barunya — lihat
+    /// `pakai_sandi_menunggu`.
+    pub async fn forgot_password(&self, phone: &str) -> AppResult<String> {
+        let phone = phone.trim();
+        if phone.is_empty() {
+            return Err(AppError::UnprocessableEntity(
+                "Nomor HP wajib diisi.".into(),
+            ));
+        }
+
+        // Jawaban yang SAMA untuk nomor terdaftar dan tidak, supaya halaman ini
+        // tak bisa dipakai memetakan nomor mana yang punya akun.
+        const JAWABAN: &str = "Jika nomor tersebut terdaftar, password baru sudah \
+                               dikirim ke WhatsApp-nya. Password lama masih bisa \
+                               dipakai sampai Anda masuk memakai yang baru.";
+
+        let found = self.repo.find_by_phone(phone).await?;
+        let Some(user) = found else {
+            tracing::info!("forgot_password: tak ada akun dengan nomor tersebut");
+            return Ok(JAWABAN.into());
+        };
+
+        // BATAS LAJU per nomor. Tanpa ini siapa saja bisa membanjiri WA korban
+        // dengan sandi baru berulang kali.
+        let mut redis = self.redis.clone();
+        crate::utils::rate_limit::jaga(
+            &mut redis,
+            &format!("rl:fp:{phone}"),
+            1,
+            600,
+            "Password baru sudah dikirim kurang dari 10 menit lalu. Periksa WhatsApp Anda dulu.",
+        )
+        .await?;
+
+        let sandi_baru = generate_random_password();
+        let pw = sandi_baru.clone();
+        let cost = self.bcrypt_cost;
+        let hash_baru = tokio::task::spawn_blocking(move || hash(&pw, cost))
+            .await
+            .map_err(|e| AppError::Internal(anyhow!(e)))?
+            .map_err(|e| AppError::Internal(anyhow!(e)))?;
+
+        // KIRIM DULU, baru simpan. Urutan sebaliknya menyisakan sandi-menunggu
+        // untuk pesan yang tak pernah terkirim — tak merusak apa pun (sandi lama
+        // tetap jalan), tapi menaruh sandi yang tak diketahui siapa pun di Redis
+        // selama tiga jam tak ada gunanya.
+        if let Err(e) = self.send_wa_reset(&user.phone, &sandi_baru).await {
+            tracing::error!(error = %e, "forgot_password: gagal mengirim WA");
+            return Err(AppError::Internal(anyhow!(
+                "Gagal mengirim WhatsApp. Coba lagi sebentar lagi."
+            )));
+        }
+
+        let key = Self::sandi_menunggu_key(&user.id);
+        if let Err(e) = redis
+            .set_ex::<_, _, ()>(&key, &hash_baru, SANDI_MENUNGGU_TTL)
+            .await
+        {
+            // WA sudah terkirim tapi hash-nya tak tersimpan: sandi di pesan itu
+            // tak akan bisa dipakai. Katakan apa adanya — mendiamkannya membuat
+            // orang mencoba sandi yang mustahil berhasil.
+            tracing::error!(error = %e, "forgot_password: gagal menyimpan sandi-menunggu");
+            return Err(AppError::Internal(anyhow!(
+                "Password baru gagal disiapkan. Coba lagi sebentar lagi."
+            )));
+        }
+
+        Ok(JAWABAN.into())
+    }
+
     // ── LOGIN ──────────────────────────────────────────────────────────────────
 
     pub async fn login(&self, req: LoginRequest) -> AppResult<AuthResponse> {
@@ -472,6 +808,12 @@ impl AuthService {
         );
 
         if !ok {
+            // Sandi DB tak cocok — mungkin ini sandi hasil "lupa password" yang
+            // belum pernah dipakai. Di titik INILAH, dan hanya di sini, sandi
+            // lama benar-benar berganti.
+            if self.pakai_sandi_menunggu(&record.user.id, &req.password).await {
+                return self.build_auth_response(record.user);
+            }
             return Err(AppError::Unauthorized("Invalid email or password".into()));
         }
 
@@ -496,8 +838,29 @@ impl AuthService {
     ) -> AppResult<UserResponse> {
         req.validate()
             .map_err(|e| AppError::UnprocessableEntity(format!("{e}")))?;
+        // NOMOR HP SENGAJA DIABAIKAN DI SINI.
+        //
+        // Dulu ia ikut ditulis, dan itu berarti nomor — identitas login,
+        // penerima OTP, penerima reset sandi — bisa dipindahkan hanya dengan
+        // mengetiknya di formulir, tanpa satu pun bukti kepemilikan. Salah
+        // ketik satu digit sudah cukup untuk mengunci orang keluar dari akunnya
+        // sendiri, karena sandi pemulihannya akan dikirim ke nomor yang tak
+        // pernah ia pegang.
+        //
+        // Penggantian nomor kini punya jalurnya sendiri dengan OTP ke NOMOR
+        // BARU: `mulai_ganti_nomor` → `verifikasi_ganti_nomor`.
+        if req.phone.is_some() {
+            tracing::debug!(user_id, "update_profile: field phone diabaikan (pakai jalur OTP)");
+        }
+        // Email: string kosong berarti "kosongkan", bukan "jangan sentuh".
+        // Keduanya harus bisa dibedakan, kalau tidak orang yang ingin menghapus
+        // emailnya tak punya cara menyatakannya.
+        let email: Option<Option<&str>> = req.email.as_deref().map(|e| {
+            let e = e.trim();
+            if e.is_empty() { None } else { Some(e) }
+        });
         self.repo
-            .update_profile(user_id, req.name.as_deref(), req.phone.as_deref())
+            .update_profile(user_id, req.name.as_deref(), None, email)
             .await?;
         self.me(user_id).await
     }
@@ -536,6 +899,37 @@ impl AuthService {
         }
 
         info!("OTP sent to {}", normalized);
+        Ok(())
+    }
+
+    async fn send_wa_reset(&self, phone: &str, password: &str) -> anyhow::Result<()> {
+        let normalized = normalize_phone(phone)?;
+
+        let body = json!({
+            "chatId": normalized,
+            // Kalimat terakhir bukan basa-basi: tanpa itu orang mengira sandi
+            // lamanya sudah mati dan panik ketika ia ternyata masih bisa masuk.
+            "text": format!(
+                "🔑 *Reset Password Kinetic*\n\nPassword baru Anda: *{password}*\n\n\
+                 Berlaku 3 jam. Password LAMA masih bisa dipakai — yang baru \
+                 menggantikannya hanya setelah Anda berhasil masuk dengan password ini.\n\n\
+                 Jangan bagikan ke siapa pun."
+            ),
+            "session": self.waha.session,
+        });
+
+        let url = format!("{}/api/sendText", self.waha.base_url);
+        let mut req = self.http.post(&url).json(&body);
+        if !self.waha.api_key.is_empty() {
+            req = req.header("X-Api-Key", &self.waha.api_key);
+        }
+        let res = req.send().await?;
+        if !res.status().is_success() {
+            let status = res.status();
+            let text = res.text().await.unwrap_or_default();
+            bail!("WAHA error {status}: {text}");
+        }
+        info!("reset password terkirim ke {}", normalized);
         Ok(())
     }
 
@@ -619,3 +1013,5 @@ fn generate_random_password() -> String {
 
     pass.into_iter().collect()
 }
+
+

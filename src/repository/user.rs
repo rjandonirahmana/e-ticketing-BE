@@ -47,7 +47,15 @@ static INSERT_USER: LazyLock<String> = LazyLock::new(|| {
 static UPDATE_PROFILE: &str = r#"
     UPDATE users
        SET name  = COALESCE($2, name),
-           phone = COALESCE($3, phone)
+           phone = COALESCE($3, phone),
+           -- Email BOLEH dikosongkan, jadi ia tak bisa memakai pola COALESCE
+           -- seperti dua kolom di atas: `NULL` di sana berarti "jangan ubah",
+           -- sehingga tak ada cara menyatakan "hapus email saya".
+           --
+           -- `$4` adalah penanda ubah-atau-tidak, `$5` nilainya. Dengan begitu
+           -- "kosongkan" (ubah=true, nilai=NULL) dan "biarkan" (ubah=false)
+           -- menjadi dua hal yang berbeda.
+           email = CASE WHEN $4 THEN $5 ELSE email END
      WHERE id = $1
 "#;
 
@@ -72,8 +80,16 @@ pub trait UserRepository: Send + Sync {
 
     async fn find_by_email_with_password(&self, email: &str) -> Result<Option<UserWithPassword>>;
 
-    async fn update_profile(&self, id: &str, name: Option<&str>, phone: Option<&str>)
-    -> Result<()>;
+    /// `email`: `None` = jangan sentuh kolomnya; `Some(None)` = kosongkan;
+    /// `Some(Some(v))` = isi dengan `v`. Dua lapis `Option` itu perlu karena
+    /// email boleh dikosongkan — lihat catatan pada `UPDATE_PROFILE`.
+    async fn update_profile(
+        &self,
+        id: &str,
+        name: Option<&str>,
+        phone: Option<&str>,
+        email: Option<Option<&str>>,
+    ) -> Result<()>;
 
     async fn update_password_hash(&self, id: &str, new_hash: &str) -> Result<()>;
 
@@ -181,9 +197,17 @@ impl UserRepository for PgUserRepository {
         id: &str,
         name: Option<&str>,
         phone: Option<&str>,
+        email: Option<Option<&str>>,
     ) -> Result<()> {
         let id_vec = id_to_vec(id)?;
-        exec_drop(&self.pool, UPDATE_PROFILE, &[&id_vec, &name, &phone]).await?;
+        let ubah_email = email.is_some();
+        let nilai_email: Option<&str> = email.flatten();
+        exec_drop(
+            &self.pool,
+            UPDATE_PROFILE,
+            &[&id_vec, &name, &phone, &ubah_email, &nilai_email],
+        )
+        .await?;
         Ok(())
     }
 

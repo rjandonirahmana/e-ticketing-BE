@@ -22,7 +22,7 @@ pub use cards::{
     MerchantProductCardShimmer, MerchantRowShimmer, MessageRowShimmer, OrderCardShimmer,
     TicketCardShimmer,
 };
-pub use common::{EmptyState, ErrorBanner, GridBackground, KineticInput};
+pub use common::{gambar_cadangan, EmptyState, ErrorBanner, GridBackground, KineticInput};
 pub use icons::{
     IconBack, IconBell, IconCart, IconChat, IconChevron, IconEye, IconShield, IconSpinner,
     IconStore,

@@ -10,24 +10,31 @@ pub async fn get_products(
     category: Option<String>,
     search: Option<String>,
     per_page: Option<i64>,
+    /// Urutan tampil. `"acak"` memakai `products.shuffle_key` yang ber-indeks
+    /// (migrasi 033) — lihat `repository/product/mod.rs::urutan_sql`.
+    sort: Option<String>,
 ) -> Result<PaginatedProducts, ServerFnError> {
     use crate::models::products::ProductListQuery;
     let state = app_state().await?;
 
+    // `sort` WAJIB masuk kunci cache. Tanpa itu, permintaan berurutan yang
+    // hanya berbeda urutannya akan saling mengembalikan hasil satu sama lain —
+    // dan urutan acak yang diminta justru dilayani dari salinan urutan lama.
     let cache_key = format!(
-        "{}|{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}|{}",
         page.unwrap_or(1),
         city.as_deref().unwrap_or(""),
         category.as_deref().unwrap_or(""),
         search.as_deref().unwrap_or(""),
         per_page.unwrap_or(20),
+        sort.as_deref().unwrap_or(""),
     );
     if let Some(cached) = state.pub_cache.products.get(&cache_key).await {
         return Ok(cached);
     }
 
     let q = ProductListQuery {
-        sort: None,
+        sort,
         page,
         per_page,
         city,

@@ -349,6 +349,51 @@ async fn leave_room(
     }
 }
 
+/// Batas jumlah produk yang boleh dipajang dalam satu siaran.
+///
+/// Bukan aturan bisnis melainkan plafon muatan: daftar ini ikut di SETIAP
+/// snapshot yang disiarkan ke seluruh penonton lewat `/ws/lives`, jadi
+/// panjangnya dikalikan jumlah penonton pada tiap perubahan. Tiga puluh sudah
+/// jauh lebih banyak daripada yang bisa dibahas dalam satu siaran.
+const MAX_PRODUK_LIVE: usize = 30;
+
+#[derive(Debug, Deserialize)]
+struct SetProductsReq {
+    product_ids: Vec<String>,
+}
+
+/// PUT /api/live/rooms/{room_id}/products — merchant memilih produk yang dijual.
+async fn set_room_products(
+    auth: AuthUser,
+    Path(room_id): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<SetProductsReq>,
+) -> impl IntoResponse {
+    if !owns_room(&auth, &room_id) {
+        return err(StatusCode::FORBIDDEN, "Bukan pemilik siaran ini");
+    }
+    if body.product_ids.len() > MAX_PRODUK_LIVE {
+        return err(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Terlalu banyak produk dipilih untuk satu siaran",
+        );
+    }
+    // Duplikat DIBUANG di sini, bukan dibiarkan sampai ke layar penonton:
+    // `set_products` memetakan id → urutan, jadi id kembar hanya akan saling
+    // menimpa dan menghasilkan daftar yang lebih pendek dari yang dikirim —
+    // perbedaan yang membingungkan justru bagi merchant yang mengirimnya.
+    let mut ids = Vec::with_capacity(body.product_ids.len());
+    for id in body.product_ids {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    match state.live_svc.set_room_products(&room_id, &ids) {
+        Ok(()) => ok(serde_json::json!({ "ok": true, "count": ids.len() })),
+        Err(e) => err(StatusCode::NOT_FOUND, &e),
+    }
+}
+
 async fn stop_room(
     auth: AuthUser,
     Path(room_id): Path<String>,
@@ -624,6 +669,13 @@ pub fn live_router(state: Arc<AppState>) -> Router {
         .route("/api/live/rooms/{room_id}/publish/sdp", post(publish_sdp))
         .route("/api/live/rooms/{room_id}/publish/ice", post(publish_ice))
         .route("/api/live/rooms/{room_id}", delete(stop_room))
+        // Merchant memilih produk yang dijual selama siaran. Ikut di router
+        // ber-`require_auth` di bawah — daftar jualan bukan sesuatu yang boleh
+        // diubah tanpa identitas.
+        .route(
+            "/api/live/rooms/{room_id}/products",
+            axum::routing::put(set_room_products),
+        )
         // WS signaling untuk publisher (auth via cookie — browser kirim otomatis)
         .route("/ws/live/publish/{room_id}", get(live_publish_ws))
         .layer(from_fn_with_state(state.clone(), require_auth));

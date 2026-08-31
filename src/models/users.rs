@@ -69,6 +69,9 @@ pub struct UpdateProfileRequest {
     #[validate(length(min = 2, max = 255))]
     pub name: Option<String>,
     pub phone: Option<String>,
+    /// `None` = jangan sentuh; `Some("")` = kosongkan; `Some(v)` = isi `v`.
+    #[validate(email)]
+    pub email: Option<String>,
 }
 
 /// Response: user info (no password)

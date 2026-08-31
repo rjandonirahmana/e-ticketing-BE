@@ -26,6 +26,14 @@ pub struct RoomInfo {
     /// Daftar penonton yang sedang bergabung.
     #[serde(default)]
     pub viewers: Vec<ViewerInfo>,
+    /// Produk yang sedang DIJUAL dalam siaran ini, urut sesuai pilihan merchant.
+    ///
+    /// Hanya id-nya. Rinciannya (nama, harga, sampul) diambil penonton lewat
+    /// `get_merchant_public_products` yang sudah ada — room sudah tahu
+    /// `merchant_id`, jadi tak ada kueri baru yang perlu ditulis, dan daftar
+    /// ini tak pernah menyimpan harga basi.
+    #[serde(default)]
+    pub product_ids: Vec<String>,
 }
 
 pub struct LiveRoom {
@@ -37,6 +45,17 @@ pub struct LiveRoom {
     pub cmd_tx: mpsc::Sender<SfuCommand>,
     /// connection_id → info penonton (satu user bisa punya beberapa koneksi/tab).
     subscribers: DashMap<String, ViewerInfo>,
+    /// Produk yang dipilih merchant untuk dijual selama siaran ini.
+    ///
+    /// DI MEMORI, bukan di basis data, dan itu disengaja: pilihannya berlaku
+    /// untuk SATU siaran dan mati bersamanya. Menyimpannya di Postgres berarti
+    /// baris yang wajib dibersihkan saat siaran berakhir — termasuk saat
+    /// berakhirnya tak wajar (tab ditutup, proses mati) — untuk data yang tak
+    /// seorang pun perlukan sesudahnya. Room ini sendiri sudah fana dengan cara
+    /// yang sama.
+    ///
+    /// Nilainya = urutan tampil, supaya susunan yang dipilih merchant terjaga.
+    products: DashMap<String, i32>,
     /// user_id → jumlah koneksi hidup. Menjaga `viewer_count()` tetap O(1) &
     /// ter-dedupe tanpa alokasi HashSet tiap panggilan (dipanggil di jalur join
     /// panas). CATATAN: AtomicUsize naif TIDAK bisa dipakai di sini karena akan
@@ -60,8 +79,30 @@ impl LiveRoom {
             started_at: chrono::Utc::now(),
             cmd_tx,
             subscribers: DashMap::new(),
+            products: DashMap::new(),
             unique_viewers: DashMap::new(),
         }
+    }
+
+    /// Ganti seluruh daftar produk yang dijual di siaran ini.
+    ///
+    /// Mengganti, bukan menambah: merchant mengirim daftar utuh dari layarnya,
+    /// jadi menghapus satu produk di sana harus benar-benar menghapusnya di
+    /// sini. Menggabung akan membuat produk yang sudah dicabut tetap tampil di
+    /// keranjang penonton tanpa cara apa pun untuk membuangnya.
+    pub fn set_products(&self, ids: &[String]) {
+        self.products.clear();
+        for (i, id) in ids.iter().enumerate() {
+            self.products.insert(id.clone(), i as i32);
+        }
+    }
+
+    /// Id produk siaran ini, urut sesuai pilihan merchant.
+    pub fn product_ids(&self) -> Vec<String> {
+        let mut v: Vec<(i32, String)> =
+            self.products.iter().map(|e| (*e.value(), e.key().clone())).collect();
+        v.sort_by_key(|(i, _)| *i);
+        v.into_iter().map(|(_, id)| id).collect()
     }
 
     /// Jumlah penonton unik (dedupe by user id). Satu user dengan beberapa
@@ -125,6 +166,7 @@ impl LiveRoom {
             viewer_count: self.viewer_count(),
             started_at: self.started_at.timestamp_millis(),
             viewers: self.viewers(),
+            product_ids: self.product_ids(),
         }
     }
 }

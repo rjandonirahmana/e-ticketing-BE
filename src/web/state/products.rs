@@ -187,7 +187,17 @@ impl ProductsCtx {
             // sebenarnya baik-baik saja ikut DIBATALKAN tepat sebelum ia
             // menjawab — pengguna diberi tahu "tak bisa terhubung" oleh kode
             // yang barusan memutus hubungannya sendiri.
-            let fetch = get_products(Some(1), None, cat_opt, None, Some(PAGE_SIZE));
+            // `"acak"`: urutan tetap membuat satu juta produk mengunci halaman
+            // pertama yang sama selamanya — merchant di urutan 500.000 tak
+            // pernah punya kesempatan tampil. Lihat migrasi 033.
+            let fetch = get_products(
+                Some(1),
+                None,
+                cat_opt,
+                None,
+                Some(PAGE_SIZE),
+                Some("acak".into()),
+            );
             let timeout = gloo_timers::future::TimeoutFuture::new(BATAS_MUAT_MS);
             let result = futures::future::select(Box::pin(fetch), Box::pin(timeout)).await;
 
@@ -254,7 +264,18 @@ impl ProductsCtx {
 
         spawn_local(async move {
             let cat_opt = cat_to_opt(&cat);
-            let res = get_products(Some(next), None, cat_opt, None, Some(PAGE_SIZE)).await;
+            // Urutan HARUS sama dengan halaman pertama. Berbeda sedikit saja,
+            // paginasinya kehilangan makna: halaman 2 diambil dari susunan lain,
+            // sehingga sebagian produk muncul dua kali dan sebagian tak pernah.
+            let res = get_products(
+                Some(next),
+                None,
+                cat_opt,
+                None,
+                Some(PAGE_SIZE),
+                Some("acak".into()),
+            )
+            .await;
             if fetch_gen.get_untracked() == gen {
                 if let Ok(res) = res {
                     has_more.set(res.page < res.total_pages);

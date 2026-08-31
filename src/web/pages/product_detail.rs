@@ -74,7 +74,7 @@ pub fn ProductDetailPage() -> impl IntoView {
         rel_loading.set(true);
         let cat = rel_cat.get_untracked();
         leptos::task::spawn_local(async move {
-            if let Ok(res) = get_products(Some(next), None, cat, None, Some(REL_PAGE_SIZE)).await {
+            if let Ok(res) = get_products(Some(next), None, cat, None, Some(REL_PAGE_SIZE), None).await {
                 rel_has_more.set(res.page < res.total_pages);
                 rel_page.set(next + 1);
                 rel_items.update(|v| v.extend(res.data));

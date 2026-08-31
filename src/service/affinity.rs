@@ -40,6 +40,14 @@ const MAX_CATS_PER_SIGNAL: usize = 3;
 pub enum AffinitySignal {
     /// Membuka halaman detail product.
     View,
+    /// MENCARI sesuatu, lalu kategori hasilnya dicatat.
+    ///
+    /// Bobotnya di ATAS `View` dan di bawah `Cart`, dan itu disengaja:
+    /// mengetik kata pencarian adalah niat yang dinyatakan sendiri oleh
+    /// pengguna, sedangkan membuka satu produk bisa terjadi karena kebetulan
+    /// tergulir atau salah ketuk. Tetapi ia belum memilih apa pun, jadi belum
+    /// sekuat memasukkan barang ke keranjang.
+    Search,
     /// Menambahkan tiket ke keranjang (memilih produk).
     Cart,
     /// Menyelesaikan pembelian.
@@ -50,6 +58,7 @@ impl AffinitySignal {
     fn weight(self) -> f64 {
         match self {
             AffinitySignal::View => 1.0,
+            AffinitySignal::Search => 2.0,
             AffinitySignal::Cart => 3.0,
             AffinitySignal::Purchase => 5.0,
         }
@@ -60,6 +69,7 @@ impl AffinitySignal {
     pub fn from_str_lossy(s: &str) -> Self {
         match s {
             "cart" => AffinitySignal::Cart,
+            "search" => AffinitySignal::Search,
             "purchase" => AffinitySignal::Purchase,
             _ => AffinitySignal::View,
         }

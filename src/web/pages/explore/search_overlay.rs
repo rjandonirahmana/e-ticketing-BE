@@ -85,7 +85,21 @@ pub fn SearchOverlay(
                     if !cats.is_empty() {
                         crate::web::behavior::record_view(&cats);
                         leptos::task::spawn_local(async move {
-                            let _ = crate::web::api::record_affinity(cats, None).await;
+                            // Sinyal "search", BUKAN bawaan (yang jatuh ke
+                            // "view", bobot 1). Blok ini memang merekam
+                            // PENCARIAN — komentarnya sudah menyebut begitu —
+                            // tetapi bobotnya selama ini disamakan dengan
+                            // sekadar tergulir melewati satu produk.
+                            //
+                            // Mengetik kata pencarian adalah niat yang
+                            // DINYATAKAN pengguna; membuka satu produk bisa
+                            // terjadi karena salah ketuk. Bobot 2 menempatkannya
+                            // di antara keduanya.
+                            let _ = crate::web::api::record_affinity(
+                                cats,
+                                Some("search".to_string()),
+                            )
+                            .await;
                         });
                     }
                 }

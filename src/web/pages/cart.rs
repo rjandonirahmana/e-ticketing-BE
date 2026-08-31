@@ -26,7 +26,7 @@ use leptos_router::components::A;
 use leptos_router::hooks::use_navigate;
 
 use crate::web::app::CartContext;
-use crate::web::components::{CartButton, ThemeToggle};
+use crate::web::components::{gambar_cadangan, CartButton, ThemeToggle};
 use crate::web::models::CartItemView;
 use crate::web::utils::format_idr;
 
@@ -572,7 +572,7 @@ fn cart_row(cart: CartContext, item: CartItemView, pertama: bool) -> impl IntoVi
                 {check_box(selected)}
             </label>
 
-            <img src=img alt=item.event_title.clone()
+            <img src=img alt=item.event_title.clone() on:error=gambar_cadangan
                  class="w-[72px] h-[72px] shrink-0 rounded-xl object-cover"/>
 
             <div class="flex-1 min-w-0">

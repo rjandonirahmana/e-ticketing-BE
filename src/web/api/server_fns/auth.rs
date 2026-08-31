@@ -65,6 +65,68 @@ pub async fn verify_otp_action(phone: String, otp: String) -> Result<UserRespons
     return Ok(srv_user_to_web(auth.user));
 }
 
+/// Perbarui profil (nama). Nomor HP TIDAK lewat sini — lihat
+/// `mulai_ganti_nomor_action`.
+#[server(UpdateMyProfile, "/api-fn")]
+pub async fn update_my_profile(
+    name: String,
+    email: Option<String>,
+) -> Result<UserResponse, ServerFnError> {
+    use crate::models::users::UpdateProfileRequest;
+    let claims = auth_claims().await?;
+    let state = app_state().await?;
+    let req = UpdateProfileRequest {
+        name: Some(name),
+        phone: None,
+        email,
+    };
+    state
+        .auth_svc
+        .update_profile(&claims.user_id, req)
+        .await
+        .map(srv_user_to_web)
+        .map_err(map_app_error)
+}
+
+/// Ajukan ganti nomor: kode dikirim ke NOMOR BARU.
+#[server(MulaiGantiNomor, "/api-fn")]
+pub async fn mulai_ganti_nomor_action(phone: String) -> Result<String, ServerFnError> {
+    let claims = auth_claims().await?;
+    let state = app_state().await?;
+    state
+        .auth_svc
+        .mulai_ganti_nomor(&claims.user_id, &phone)
+        .await
+        .map_err(map_app_error)
+}
+
+/// Verifikasi kode; bila cocok, nomor akun benar-benar berpindah.
+#[server(VerifikasiGantiNomor, "/api-fn")]
+pub async fn verifikasi_ganti_nomor_action(otp: String) -> Result<String, ServerFnError> {
+    let claims = auth_claims().await?;
+    let state = app_state().await?;
+    state
+        .auth_svc
+        .verifikasi_ganti_nomor(&claims.user_id, &otp)
+        .await
+        .map_err(map_app_error)
+}
+
+/// Lupa password: kirim password baru ke WhatsApp nomor tersebut.
+///
+/// Sandi LAMA tidak disentuh. Ia baru berganti ketika seseorang benar-benar
+/// masuk memakai sandi barunya — menekan tombol ini hanya butuh mengetik nomor
+/// HP orang lain, jadi permintaannya sendiri tak boleh mengubah apa pun.
+#[server(ForgotPasswordAction, "/api-fn")]
+pub async fn forgot_password_action(phone: String) -> Result<String, ServerFnError> {
+    let state = app_state().await?;
+    state
+        .auth_svc
+        .forgot_password(&phone)
+        .await
+        .map_err(map_app_error)
+}
+
 #[server(ResendOtpAction, "/api-fn")]
 pub async fn resend_otp_action(name: String, phone: String) -> Result<(), ServerFnError> {
     use crate::models::users::RegisterRequest;

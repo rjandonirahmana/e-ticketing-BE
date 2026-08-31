@@ -56,7 +56,7 @@ impl BannersCtx {
         let items   = self.items;
         let loading = self.loading;
         spawn_local(async move {
-            if let Ok(res) = get_products(Some(1), None, None, None, Some(5)).await {
+            if let Ok(res) = get_products(Some(1), None, None, None, Some(5), None).await {
                 let banners = res.data.iter().map(product_to_banner).collect();
                 items.set(banners);
             }
