@@ -14,11 +14,23 @@ pub struct GroupChatService {
     /// Memungkinkan mock/test tanpa database, dan swap implementasi tanpa recompile service.
     pub repo: Arc<dyn GroupChatRepository>,
     pub ws_mgr: Arc<WsManager>,
+    /// Untuk mengesahkan `media_url` yang datang dari klien, dan untuk
+    /// membuang berkasnya saat retensi jatuh tempo. Keduanya soal yang sama —
+    /// siapa pemilik berkas ini — jadi keduanya bertanya ke tempat yang sama.
+    pub storage: Arc<crate::service::storage::StorageService>,
 }
 
 impl GroupChatService {
-    pub fn new(repo: Arc<dyn GroupChatRepository>, ws_mgr: Arc<WsManager>) -> Self {
-        Self { repo, ws_mgr }
+    pub fn new(
+        repo: Arc<dyn GroupChatRepository>,
+        ws_mgr: Arc<WsManager>,
+        storage: Arc<crate::service::storage::StorageService>,
+    ) -> Self {
+        Self {
+            repo,
+            ws_mgr,
+            storage,
+        }
     }
 
     // ── Retensi ──────────────────────────────────────────────────────────────
@@ -36,18 +48,13 @@ impl GroupChatService {
     /// berikutnya akan menemukan baris itu lagi, gagal menghapus berkas yang
     /// memang sudah tiada (dicatat, tidak fatal), lalu membuang barisnya.
     /// Arah kegagalan yang bisa pulih sendiri.
-    pub async fn buang_kadaluarsa(
-        &self,
-        hari: i64,
-        batas_angkatan: i64,
-        storage: &crate::service::storage::StorageService,
-    ) -> Result<(u64, u64)> {
+    pub async fn buang_kadaluarsa(&self, hari: i64, batas_angkatan: i64) -> Result<(u64, u64)> {
         let mut total_pesan = 0u64;
         let mut total_berkas = 0u64;
 
         loop {
             for url in self.repo.media_kadaluarsa(hari, batas_angkatan).await? {
-                match storage.delete_by_url(&url).await {
+                match self.storage.delete_by_url(&url).await {
                     Ok(_) => total_berkas += 1,
                     // Berkas yang memang sudah tidak ada bukan alasan untuk
                     // membatalkan pembersihan — barisnya tetap harus pergi.
@@ -141,6 +148,46 @@ impl GroupChatService {
             msg_type: MsgType::Text,
             content: content.to_string(),
             media_url: None,
+            ticket_card: None,
+            sent_at: chrono::Utc::now(),
+            is_system: false,
+        };
+
+        self.authorize_and_save(&msg).await?;
+        self.fanout(room_id, &msg).await;
+        Ok(msg)
+    }
+
+    /// Kirim gambar yang sudah terunggah ke RustFS.
+    ///
+    /// `media_url` WAJIB berasal dari `POST /upload/chat-image`. Ia diperiksa
+    /// di sini, bukan dipercaya begitu saja: klien mana pun bisa mengirim
+    /// bingkai WebSocket berisi URL sembarang, dan tanpa pemeriksaan ini
+    /// percakapan bisa dipakai menempelkan tautan ke mana saja — termasuk
+    /// alamat yang memuat sesuatu dari luar begitu gelembungnya dirender.
+    pub async fn send_image(
+        &self,
+        room_id: &str,
+        sender_id: &str,
+        sender_name: &str,
+        media_url: &str,
+        caption: &str,
+    ) -> Result<GroupMessage> {
+        if !self.storage.milik_bucket(media_url) {
+            bail!("URL gambar tidak sah");
+        }
+
+        let msg = GroupMessage {
+            id: new_ulid(),
+            room_id: room_id.to_string(),
+            sender_id: sender_id.to_string(),
+            sender_name: sender_name.to_string(),
+            msg_type: MsgType::Image,
+            // Keterangan foto menempati `content`, kolom yang sama dengan
+            // pesan teks — bukan kolom baru. Pencarian, kutipan, dan retensi
+            // karena itu berlaku padanya tanpa satu pun perubahan.
+            content: caption.to_string(),
+            media_url: Some(media_url.to_string()),
             ticket_card: None,
             sent_at: chrono::Utc::now(),
             is_system: false,

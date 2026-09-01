@@ -416,5 +416,9 @@ pub(super) fn srv_group_message_to_web(m: crate::models::group_chat::GroupMessag
         content: m.content,
         sent_at: m.sent_at.timestamp_millis() as u64,
         message_type: m.msg_type.as_str().to_string(),
+        // Tanpa baris ini gambar hanya tampak pada detik ia dikirim, lalu
+        // lenyap begitu halamannya dimuat ulang — barisnya ada di basis data,
+        // tapi tak pernah sampai ke layar.
+        media_url: m.media_url,
     }
 }

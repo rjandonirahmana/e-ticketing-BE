@@ -260,7 +260,12 @@ impl AppState {
         let product_svc = Arc::new(ProductService::new(product_repo));
         let notification_store_svc = Arc::new(NotificationStoreService::new(notification_repo));
         let ticket_svc = Arc::new(TicketService::new(ticket_repo.clone()));
-        let group_chat_svc = Arc::new(GroupChatService::new(group_chat_repo, ws_mgr.clone()));
+        // Dibuat sebelum layanan yang memakainya. `GroupChatService` butuh ia
+        // untuk dua hal yang sebenarnya satu pertanyaan — siapa pemilik berkas
+        // ini: mengesahkan `media_url` yang datang dari klien, dan membuang
+        // berkasnya saat retensi jatuh tempo.
+        let storage = Arc::new(StorageService::new(&rustfs));
+        let group_chat_svc = Arc::new(GroupChatService::new(group_chat_repo, ws_mgr.clone(), storage.clone()));
         // Kanal pembayaran & keranjang dibuat SEBELUM order: checkout membaca
         // keranjang dan menghitung biaya kanal dari sana.
         let payment_svc = Arc::new(PaymentService::new(payment_repo));
@@ -277,7 +282,6 @@ impl AppState {
             payment_svc.clone(),
         ));
         let banner_svc = Arc::new(BannerService::new(banner_repo));
-        let storage = Arc::new(StorageService::new(&rustfs));
 
         let story_svc = Arc::new(StoryService::new(
             story_repo,

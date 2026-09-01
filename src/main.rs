@@ -30,7 +30,7 @@ use e_ticketing::service::telegram::TelegramService;
 use e_ticketing::state::AppState;
 use e_ticketing::utils::error::init_telegram_notifier;
 use e_ticketing::api::rest_router;
-use e_ticketing::web::api::upload::{merchant_image_upload, story_upload};
+use e_ticketing::web::api::upload::{chat_image_upload, merchant_image_upload, story_upload};
 use e_ticketing::web::app::{shell, App};
 use e_ticketing::ws::handler::WsAppState;
 use e_ticketing::ws::routes::chat_router;
@@ -241,7 +241,6 @@ async fn run() -> Result<()> {
     // terlupakan saat pindah server.
     {
         let svc = state.group_chat_svc.clone();
-        let storage = state.storage.clone();
         tokio::spawn(async move {
             // Jeda sebelum jalanan PERTAMA. Saat proses baru bangun, yang
             // sedang terjadi adalah lonjakan permintaan dari orang-orang yang
@@ -250,7 +249,7 @@ async fn run() -> Result<()> {
             tokio::time::sleep(std::time::Duration::from_secs(300)).await;
             loop {
                 match svc
-                    .buang_kadaluarsa(HARI_SIMPAN_CHAT, ANGKATAN_HAPUS, &storage)
+                    .buang_kadaluarsa(HARI_SIMPAN_CHAT, ANGKATAN_HAPUS)
                     .await
                 {
                     Ok((0, 0)) => {}
@@ -367,6 +366,11 @@ async fn run() -> Result<()> {
             "/upload/merchant-image",
             axum::routing::post(merchant_image_upload),
         )
+        // Batas badan permintaan di sini tetap 52 MB — pagar RAM untuk story.
+        // Batas 300 KB gambar chat ditegakkan di handler-nya sendiri, di mana
+        // ia bisa menyebut ukuran sebenarnya dalam pesan galatnya. Pagar
+        // lapisan ini cuma bisa memutus sambungan tanpa penjelasan apa pun.
+        .route("/upload/chat-image", axum::routing::post(chat_image_upload))
         .layer(axum::extract::DefaultBodyLimit::max(52 * 1024 * 1024))
         .layer(axum::Extension(state.clone()));
 

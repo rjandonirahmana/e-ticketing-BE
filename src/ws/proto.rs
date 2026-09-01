@@ -81,6 +81,20 @@ pub enum WsClientMsg {
         client_id: Option<String>,
     },
 
+    /// Kirim gambar yang SUDAH terunggah.
+    ///
+    /// Hanya URL-nya yang lewat sini, bukan berkasnya: WebSocket ini membawa
+    /// pesan seluruh percakapan milik pengguna, dan menyalurkan bita gambar
+    /// lewat kanal yang sama akan menahan setiap pesan teks di belakangnya
+    /// selama unggahan berjalan. Berkasnya naik lewat POST /upload/chat-image.
+    SendImage {
+        room_id: String,
+        media_url: String,
+        /// Keterangan foto. Boleh kosong.
+        caption: Option<String>,
+        client_id: Option<String>,
+    },
+
     /// Share ticket card
     ShareTicket {
         room_id: String,

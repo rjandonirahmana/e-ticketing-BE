@@ -115,6 +115,11 @@ fn gulir_ke_dasar(list_ref: NodeRef<leptos::html::Div>) {
     let _ = win.request_animation_frame(cb.unchecked_ref());
 }
 
+/// Batas gambar chat. Kembar dengan `MAKS_GAMBAR_CHAT` di
+/// `web/api/upload.rs` — yang di sana yang MENEGAKKAN, yang di sini menahan
+/// unggahan sia-sia lewat data seluler sebelum berangkat. Ubah keduanya.
+const MAKS_GAMBAR_CHAT: usize = 300 * 1024;
+
 #[component]
 pub fn ChatRoomPage() -> impl IntoView {
     let params  = use_params_map();
@@ -424,6 +429,101 @@ pub fn ChatRoomPage() -> impl IntoView {
         });
     }
 
+    // Berkas sedang naik. Menahan tombolnya agar satu ketukan gugup tak
+    // menghasilkan tiga unggahan berturut-turut untuk berkas yang sama.
+    let mengunggah = RwSignal::new(false);
+    let berkas_ref = NodeRef::<leptos::html::Input>::new();
+
+    let kirim_gambar = move |_ev: leptos::ev::Event| {
+        #[cfg(target_arch = "wasm32")]
+        {
+            use wasm_bindgen::JsCast;
+            let Some(input) = berkas_ref.get_untracked() else { return };
+            let Some(berkas) = input.files().and_then(|f| f.get(0)) else { return };
+            // Kosongkan SEKARANG, bukan nanti: tanpa ini, memilih berkas yang
+            // SAMA dua kali berturut-turut tak memicu `change` sama sekali —
+            // nilainya tak berubah — dan orangnya menyimpulkan aplikasinya
+            // rusak, padahal ia hanya diam.
+            input.set_value("");
+
+            // Diperiksa di sini juga, bukan hanya di server. Menunggu server
+            // menolaknya berarti mengunggah 4 MB lebih dulu lewat data seluler
+            // hanya untuk diberi tahu bahwa itu terlalu besar.
+            if berkas.size() as usize > MAKS_GAMBAR_CHAT {
+                error_msg.set(format!(
+                    "Gambar maksimal {} KB — punyamu {} KB. Perkecil dulu ya.",
+                    MAKS_GAMBAR_CHAT / 1024,
+                    berkas.size() as usize / 1024
+                ));
+                return;
+            }
+
+            let form = web_sys::FormData::new().unwrap();
+            let _ = form.append_with_blob("file", &berkas);
+            mengunggah.set(true);
+            let rid = room_id();
+
+            leptos::task::spawn_local(async move {
+                let hasil = async {
+                    let opts = web_sys::RequestInit::new();
+                    opts.set_method("POST");
+                    opts.set_body(&form);
+                    let req = web_sys::Request::new_with_str_and_init(
+                        "/upload/chat-image",
+                        &opts,
+                    )
+                    .ok()?;
+                    let win = web_sys::window()?;
+                    let resp =
+                        wasm_bindgen_futures::JsFuture::from(win.fetch_with_request(&req))
+                            .await
+                            .ok()?;
+                    let resp: web_sys::Response = resp.dyn_into().ok()?;
+                    let teks = wasm_bindgen_futures::JsFuture::from(resp.text().ok()?)
+                        .await
+                        .ok()?
+                        .as_string()?;
+                    let nilai: serde_json::Value = serde_json::from_str(&teks).ok()?;
+                    if !resp.ok() {
+                        // Pesan galat server sudah berbahasa manusia dan
+                        // menyebut ukuran sebenarnya — tampilkan apa adanya,
+                        // jangan ditukar dengan kalimat sendiri yang lebih
+                        // umum dan karena itu kurang menolong.
+                        return Some(Err(nilai
+                            .get("message")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("Gagal mengunggah gambar.")
+                            .to_string()));
+                    }
+                    Some(Ok(nilai.get("url")?.as_str()?.to_string()))
+                }
+                .await;
+
+                mengunggah.set(false);
+                match hasil {
+                    Some(Ok(url)) => {
+                        let muatan = serde_json::json!({
+                            "type": "send_image",
+                            "room_id": rid,
+                            "media_url": url,
+                            "client_id": format!("_opt_{}", js_sys_now()),
+                        })
+                        .to_string();
+                        if let Some(b) = bus {
+                            if let Err(pesan) = b.kirim(&muatan) {
+                                error_msg.set(pesan.into());
+                            }
+                        }
+                    }
+                    Some(Err(pesan)) => error_msg.set(pesan),
+                    None => error_msg.set("Gagal mengunggah gambar.".into()),
+                }
+            });
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = _ev;
+    };
+
     let do_send = move || {
         let content = text_input.get_untracked().trim().to_string();
         if content.is_empty() { return; }
@@ -438,6 +538,7 @@ pub fn ChatRoomPage() -> impl IntoView {
             content: content.clone(),
             sent_at: 0,
             message_type: "text".into(),
+            media_url: None,
         };
         live_msgs.update(|v| v.push(msg));
         // Membalas adalah bukti paling kuat bahwa yang di atas sudah terbaca —
@@ -773,6 +874,38 @@ pub fn ChatRoomPage() -> impl IntoView {
                     </svg>
                 </button>
                 <input
+                    type="file"
+                    accept="image/*"
+                    node_ref=berkas_ref
+                    class="chat-file-input"
+                    on:change=kirim_gambar
+                />
+                <button
+                    class="chat-input-icon-btn"
+                    aria-label="Kirim gambar"
+                    disabled=move || mengunggah.get()
+                    on:click=move |_| {
+                        #[cfg(target_arch = "wasm32")]
+                        if let Some(el) = berkas_ref.get_untracked() {
+                            el.click();
+                        }
+                    }
+                >
+                    {move || if mengunggah.get() {
+                        view! { <span class="chat-unggah-putar"></span> }.into_any()
+                    } else {
+                        view! {
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                                 stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                 stroke-linejoin="round">
+                                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                                <circle cx="8.5" cy="8.5" r="1.5"/>
+                                <polyline points="21 15 16 10 5 21"/>
+                            </svg>
+                        }.into_any()
+                    }}
+                </button>
+                <input
                     type="text"
                     class="chat-input"
                     placeholder="Pulse your message..."
@@ -804,6 +937,10 @@ fn message_bubble(msg: ChatMessage, my_id: &str, disorot: bool) -> impl IntoView
     let is_me   = msg.sender_id == my_id;
     let name    = msg.sender_name.clone();
     let text    = msg.content.clone();
+    // Kosong diperlakukan sebagai tak ada: baris tanpa berkas kadang tersimpan
+    // dengan string kosong alih-alih NULL, dan `<img src="">` memuat ULANG
+    // halaman ini sebagai gambar sebelum menyerah.
+    let gambar  = msg.media_url.clone().filter(|u| !u.is_empty());
     let time    = if msg.sent_at > 0 { fmt_time_ms(msg.sent_at) } else { String::new() };
     let initial = name.chars().next().unwrap_or('?').to_uppercase().next().unwrap_or('?').to_string();
 
@@ -828,7 +965,33 @@ fn message_bubble(msg: ChatMessage, my_id: &str, disorot: bool) -> impl IntoView
                 {(!is_me).then(|| view! {
                     <span class="chat-sender-name">{name}</span>
                 })}
-                <div class=bubble_cls>{text}</div>
+                {match gambar {
+                    // Gelembung gambar: tanpa lapisan gelembung di belakangnya,
+                    // dan tanpa padding. Bingkai berwarna di sekeliling foto
+                    // hanya menambah dua sisi yang saling berebut menjadi
+                    // batas bentuknya.
+                    Some(url) => {
+                        // Disalin lebih dulu: `view!` memindahkan tangkapannya
+                        // ke dalam closure atribut, jadi `url` tak bisa dipakai
+                        // lagi sesudahnya di dalam blok yang sama.
+                        let tautan = url.clone();
+                        view! {
+                        <a class="chat-gambar" href=tautan target="_blank" rel="noopener">
+                            // `loading=lazy`: percakapan panjang bisa memuat
+                            // puluhan foto sekaligus saat riwayatnya dibuka.
+                            // `decoding=async` menjaga guliran tetap mulus
+                            // sementara keduanya dikerjakan di luar jalur utama.
+                            <img src=url alt="Gambar" loading="lazy" decoding="async" />
+                            // Keterangan foto menempati `content`, kolom yang
+                            // sama dengan pesan teks — jadi ia mungkin kosong.
+                            {(!text.is_empty()).then(|| view! {
+                                <span class="chat-gambar-teks">{text.clone()}</span>
+                            })}
+                        </a>
+                        }.into_any()
+                    }
+                    None => view! { <div class=bubble_cls>{text}</div> }.into_any(),
+                }}
                 <div class="chat-msg-meta">
                     <span class="chat-msg-time">{time}</span>
                     {is_me.then(|| view! {

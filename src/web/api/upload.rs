@@ -239,3 +239,90 @@ pub async fn merchant_image_upload(
 
     Ok(Json(json!({ "url": url })))
 }
+
+// ── Gambar chat ──────────────────────────────────────────────────────────────
+
+/// Batas gambar chat. Jauh lebih ketat daripada gambar merchant (8 MB) dengan
+/// sengaja: gambar chat tumbuh sebanyak PERCAKAPAN, bukan sebanyak toko, dan
+/// tiap satunya menetap 30 hari sebelum retensi membuangnya. Pada angka
+/// merchant, seribu orang yang saling berkirim foto akan menelan penyimpanan
+/// lebih cepat daripada seluruh katalog produk.
+const MAKS_GAMBAR_CHAT: usize = 300 * 1024;
+
+/// POST /upload/chat-image — unggah gambar percakapan → RustFS, balas
+/// `{ "url": "…" }`.
+///
+/// Hanya mengunggah; PESANNYA dikirim terpisah lewat WebSocket dengan URL ini.
+/// Pemisahan itu disengaja: unggahan adalah permintaan HTTP yang bisa lambat,
+/// gagal, dan diulang, sedangkan pengiriman pesan harus seketika. Menyatukan
+/// keduanya berarti tiap gambar yang gagal terunggah menghasilkan pesan yang
+/// separuh terkirim di dalam percakapan.
+pub async fn chat_image_upload(
+    Extension(state): Extension<Arc<AppState>>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Result<Json<Value>, Response> {
+    let token = cookie_value(&headers, "pulse_token")
+        .ok_or_else(|| err(StatusCode::UNAUTHORIZED, "Tidak terautentikasi"))?;
+    // Cukup terautentikasi — tak ada syarat peran. Siapa pun yang boleh
+    // membuka percakapan boleh mengirim gambar di dalamnya; hak atas RUANGANNYA
+    // sendiri diperiksa saat pesannya dikirim lewat WebSocket.
+    state
+        .jwt
+        .verify(&token)
+        .map_err(|e| err(StatusCode::UNAUTHORIZED, e.to_string()))?;
+
+    let _permit = state
+        .upload_limit
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| {
+            err(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Server sedang sibuk memproses upload, coba lagi sebentar",
+            )
+        })?;
+
+    let mut data: Option<axum::body::Bytes> = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| err(StatusCode::BAD_REQUEST, format!("Multipart error: {e}")))?
+    {
+        let name = field.name().unwrap_or("").to_string();
+        if name == "file" || name == "image" {
+            let bytes = field
+                .bytes()
+                .await
+                .map_err(|e| err(StatusCode::BAD_REQUEST, format!("Read error: {e}")))?;
+            if bytes.len() > MAKS_GAMBAR_CHAT {
+                return Err(err(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    // Ukuran sebenarnya ikut disebut. "Maksimal 300 KB" saja
+                    // meninggalkan orangnya menebak seberapa jauh ia meleset,
+                    // dan menebak berarti mencoba lagi dengan gambar yang sama.
+                    format!(
+                        "Gambar maksimal {} KB — punyamu {} KB. Perkecil dulu ya.",
+                        MAKS_GAMBAR_CHAT / 1024,
+                        bytes.len() / 1024
+                    ),
+                ));
+            }
+            data = Some(bytes);
+        }
+    }
+
+    let data = data.filter(|b| !b.is_empty()).ok_or_else(|| {
+        err(StatusCode::BAD_REQUEST, "Field 'file' tidak ada dalam request")
+    })?;
+
+    // Content-Type diabaikan storage — ia memvalidasi magic bytes sendiri, yang
+    // berarti berkas non-gambar berlabel `image/png` tetap ditolak.
+    let url = state
+        .storage
+        .upload_image(data, "chat", "image")
+        .await
+        .map_err(IntoResponse::into_response)?;
+
+    Ok(Json(json!({ "url": url })))
+}

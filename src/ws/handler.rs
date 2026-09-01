@@ -320,6 +320,45 @@ async fn dispatch(state: &WsAppState, user_id: &str, user_name: &str, raw: &str)
             }
         }
 
+        WsClientMsg::SendImage {
+            room_id,
+            media_url,
+            caption,
+            client_id,
+        } => {
+            match state
+                .group_svc
+                .send_image(
+                    &room_id,
+                    user_id,
+                    user_name,
+                    &media_url,
+                    caption.as_deref().unwrap_or(""),
+                )
+                .await
+            {
+                Ok(m) => {
+                    state
+                        .ws_mgr
+                        .send_to(
+                            user_id,
+                            WsEvent::Ack {
+                                msg_id: m.id,
+                                client_id,
+                                sent_at: crate::ws::proto::to_ts(&m.sent_at),
+                            },
+                        )
+                        .await
+                }
+                Err(e) => {
+                    state
+                        .ws_mgr
+                        .send_to(user_id, WsEvent::err(ErrorCode::SendFailed, e.to_string()))
+                        .await
+                }
+            }
+        }
+
         WsClientMsg::ShareTicket {
             room_id,
             ticket,

@@ -477,6 +477,9 @@ pub struct ChatMessage {
     pub sent_at: u64,
     #[serde(default, alias = "msg_type")]
     pub message_type: String,
+    /// Ada hanya untuk pesan bergambar.
+    #[serde(default)]
+    pub media_url: Option<String>,
 }
 
 // ── Merchant Product Form ────────────────────────────────────────────────────────

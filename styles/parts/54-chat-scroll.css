@@ -44,3 +44,63 @@
     position: relative;
     flex: none;
 }
+
+/* ── Gambar dalam percakapan ───────────────────────────────────────────────
+   Berkas asli disembunyikan; tombol berikonlah yang memicunya. `<input
+   type=file>` bawaan tak bisa digayakan sama sekali dan tampilannya berbeda
+   di tiap peramban — satu-satunya cara memberinya bentuk yang konsisten
+   adalah menyembunyikannya lalu meneruskan klik dari tombol sendiri.
+
+   `display: none`, bukan `visibility: hidden` atau lebar nol: hanya yang
+   pertama yang benar-benar mengeluarkannya dari tata letak, dan komposer ini
+   `display: flex` — elemen tersembunyi yang masih mengambil tempat akan
+   menyisakan celah yang tak ada penjelasannya. */
+.chat-file-input {
+    display: none;
+}
+
+/* Foto tanpa lapisan gelembung di belakangnya. Bingkai berwarna di sekeliling
+   gambar hanya menambah dua sisi yang saling berebut jadi batas bentuknya. */
+.chat-gambar {
+    display: block;
+    max-width: 240px;
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--bg-elevated);
+    text-decoration: none;
+}
+
+.chat-gambar img {
+    display: block;
+    width: 100%;
+    height: auto;
+    /* Foto sangat tinggi (tangkapan layar panjang) bisa mengisi seluruh layar
+       sendirian dan mendorong percakapannya keluar pandangan. */
+    max-height: 320px;
+    object-fit: cover;
+}
+
+.chat-gambar-teks {
+    display: block;
+    padding: 7px 10px 9px;
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+/* Penanda sedang mengunggah — menggantikan ikon di tombolnya, bukan tampil di
+   sebelahnya: lebar komposer tak boleh berubah saat unggahan berjalan. */
+.chat-unggah-putar {
+    display: block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: chat-unggah-putar 700ms linear infinite;
+}
+
+@keyframes chat-unggah-putar {
+    to { transform: rotate(360deg); }
+}

@@ -191,6 +191,21 @@ impl StorageService {
         Ok(format!("{}/{}/{}", self.public_url, self.bucket, key))
     }
 
+    /// Apakah URL ini benar-benar berkas yang kita unggah sendiri?
+    ///
+    /// Dipakai untuk menolak URL karangan yang datang dari klien. Klien mana
+    /// pun bisa mengirim bingkai WebSocket berisi `media_url` sembarang, dan
+    /// tanpa pemeriksaan ini percakapan bisa dipakai menempelkan alamat ke mana
+    /// saja — termasuk alamat yang memuat sesuatu dari luar begitu gelembungnya
+    /// dirender di layar orang lain.
+    ///
+    /// Awalan yang sama dengan `delete_by_url`, dan memang harus sama: apa yang
+    /// kita akui sebagai milik kita saat menyimpan wajib identik dengan apa
+    /// yang kita akui saat membuang.
+    pub fn milik_bucket(&self, media_url: &str) -> bool {
+        media_url.starts_with(&format!("{}/{}/", self.public_url, self.bucket))
+    }
+
     /// Hapus satu object dari bucket berdasarkan public URL hasil upload
     /// (`{public_url}/{bucket}/{key}`). URL yang bukan milik bucket ini
     /// (mis. asset eksternal) diabaikan tanpa error.
