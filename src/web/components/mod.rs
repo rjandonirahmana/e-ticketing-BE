@@ -33,4 +33,4 @@ pub use merchant_live_pip::MerchantLivePip;
 pub use nav::{BottomNav, CartButton, ThemeToggle, TopNav};
 pub use swipe_tabs::{SwipeTabBar, TabItem, TabSwipe};
 pub use toast::{use_toast, ToastHost, ToastKind};
-pub use ws_chat::{langgan_chat, KoneksiChat};
+pub use ws_chat::{langgan_chat, provide_chat_bus, use_chat_bus, ChatBus, KoneksiChat};

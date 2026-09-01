@@ -38,15 +38,76 @@ fn fmt_time_ms(ms: u64) -> String {
 /// `once_into_js`, bukan `once(..) + forget()`: `forget()` adalah `mem::forget`,
 /// jadi pembungkus closure dan slot tabel fungsi wasm-nya tak pernah dibebaskan
 /// — satu kebocoran kecil per pesan masuk, tanpa batas.
+/// Bawa tampilan ke pesan terbaru, apa pun yang sebenarnya menggulir.
+///
+/// ── KENAPA TIDAK LANGSUNG `set_scroll_top` SAJA ──────────────────────────
+/// Elemen yang menggulir ditentukan oleh CSS, dan itu pernah salah tanpa
+/// menimbulkan galat apa pun: saat `.chat-page` masih `min-height` alih-alih
+/// tinggi tetap, daftar pesannya tak pernah meluap sehingga yang tergulir
+/// adalah HALAMAN. `set_scroll_top` pada wadah yang tak bisa menggulir tidak
+/// melempar apa-apa — ia hanya diam, dan seluruh perilaku gulir mati tanpa
+/// satu pun petunjuk di mana pun.
+///
+/// Jadi tanyakan dulu, jangan berasumsi: kalau wadahnya memang meluap, gulir
+/// wadahnya; kalau tidak, yang meluap pasti halamannya.
+#[cfg(target_arch = "wasm32")]
+fn ke_pesan_terbaru(list_ref: NodeRef<leptos::html::Div>) {
+    let Some(el) = list_ref.get_untracked() else { return };
+    if el.scroll_height() > el.client_height() {
+        el.set_scroll_top(el.scroll_height());
+        return;
+    }
+    let Some(win) = web_sys::window() else { return };
+    let tinggi = win
+        .document()
+        .and_then(|d| d.document_element())
+        .map(|d| d.scroll_height())
+        .unwrap_or(0);
+    win.scroll_to_with_x_and_y(0.0, tinggi as f64);
+}
+
+/// Gulir ke dasar saat ruangan BARU dibuka, dan bertahan sampai tata letaknya
+/// benar-benar diam.
+///
+/// ── KENAPA SATU KALI TIDAK CUKUP ─────────────────────────────────────────
+/// `gulir_ke_dasar` menunggu dua bingkai — cukup untuk pesan yang menyusul satu
+/// per satu, karena saat itu tata letaknya sudah mapan. Muat AWAL berbeda:
+/// tingginya masih terus berubah sesudah bingkai kedua. Suspense menukar
+/// shimmer dengan isi sungguhan, fon memuat lalu semua gelembung dihitung ulang
+/// dan sebagian membungkus ke baris kedua. Tiap perubahan itu menambah tinggi
+/// SESUDAH kita menggulir, dan hasilnya berhenti menggantung di tengah — yang
+/// terlihat oleh orangnya sebagai "harus menggulir sendiri jauh ke bawah".
+///
+/// Jadi diulang beberapa kali selama sedetik pertama. Percobaan berhenti begitu
+/// orangnya menyentuh gulirannya sendiri: menyeret balik ke dasar seseorang
+/// yang sedang membaca ke atas jauh lebih buruk daripada mendarat kurang pas.
+#[cfg(target_arch = "wasm32")]
+fn gulir_awal(list_ref: NodeRef<leptos::html::Div>, dibatalkan: StoredValue<bool>) {
+    use wasm_bindgen::JsCast;
+    // 0 dan 60ms menangkap kasus lazim; 200/450/900 menangkap fon dan gambar
+    // yang datang belakangan. Sesudah itu tata letaknya boleh dianggap diam.
+    for tunda in [0, 60, 200, 450, 900, 1500] {
+        let Some(win) = web_sys::window() else { return };
+        let cb = wasm_bindgen::closure::Closure::once_into_js(move || {
+            if dibatalkan.get_value() {
+                return;
+            }
+            ke_pesan_terbaru(list_ref);
+        });
+        let _ = win.set_timeout_with_callback_and_timeout_and_arguments_0(
+            cb.unchecked_ref(),
+            tunda,
+        );
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 fn gulir_ke_dasar(list_ref: NodeRef<leptos::html::Div>) {
     let Some(win) = web_sys::window() else { return };
     let w2 = win.clone();
     let cb = wasm_bindgen::closure::Closure::once_into_js(move || {
         let dalam = wasm_bindgen::closure::Closure::once_into_js(move || {
-            if let Some(el) = list_ref.get_untracked() {
-                el.set_scroll_top(el.scroll_height());
-            }
+            ke_pesan_terbaru(list_ref);
         });
         let _ = w2.request_animation_frame(dalam.unchecked_ref());
     });
@@ -63,6 +124,17 @@ pub fn ChatRoomPage() -> impl IntoView {
     let is_logged_in = move || auth.get().and_then(|r| r.ok()).flatten().is_some();
     let current_user_id = move || {
         auth.get().and_then(|r| r.ok()).flatten().map(|u| u.id)
+    };
+    // Pasangan untracked untuk dipakai DI DALAM Effect pendengar bus — lihat
+    // alasannya di sana. Hanya ada di wasm; di SSR tak ada peristiwa WS sama
+    // sekali, jadi tanpa pagar ini keduanya jadi kode mati yang berisik.
+    #[cfg(target_arch = "wasm32")]
+    let current_user_id_untracked = move || {
+        auth.get_untracked().and_then(|r| r.ok()).flatten().map(|u| u.id)
+    };
+    #[cfg(target_arch = "wasm32")]
+    let room_id_untracked = move || {
+        params.get_untracked().get("id").unwrap_or_default()
     };
 
     let room = Resource::new(
@@ -87,11 +159,20 @@ pub fn ChatRoomPage() -> impl IntoView {
         },
     );
 
+    // Satu-satunya koneksi WS aplikasi, disediakan di root. Dideklarasikan
+    // sebelum Effect mana pun di bawah — beberapa di antaranya memakainya.
+    let bus = crate::web::components::use_chat_bus();
+
     let text_input  = RwSignal::new(String::new());
     let error_msg   = RwSignal::new(String::new());
     let live_msgs: RwSignal<Vec<ChatMessage>> = RwSignal::new(vec![]);
 
     let msg_list_ref = NodeRef::<leptos::html::Div>::new();
+
+    // Ditandai saat orangnya menggulir sendiri. Percobaan gulir awal berhenti
+    // seketika sesudahnya — lihat `gulir_awal`.
+    #[cfg(target_arch = "wasm32")]
+    let gulir_manual: StoredValue<bool> = StoredValue::new(false);
 
     // ── Pemisah "pesan baru" ────────────────────────────────────────────────
     // Diambil SEKALI saat halaman dibuka, lalu dibekukan. Kalau ia mengikuti
@@ -154,7 +235,13 @@ pub fn ChatRoomPage() -> impl IntoView {
                     batas_belum.set(r.unread_count.max(0) as usize);
                 }
             }
-            let _ = crate::web::api::mark_chat_read(id).await;
+            let _ = crate::web::api::mark_chat_read(id.clone()).await;
+            // Lencana navbar ikut turun seketika. Tanpa ini ia tetap menyala
+            // sampai kunjungan berikutnya ke `/pulse` — memberi tahu ada pesan
+            // menunggu, padahal pesannya sedang dibaca saat itu juga.
+            if let Some(b) = bus {
+                b.tandai_dibaca(&id);
+            }
         });
     });
 
@@ -165,7 +252,16 @@ pub fn ChatRoomPage() -> impl IntoView {
     // dan bersih-bersihnya — sehingga dua tempat yang harus bersikap identik
     // punya dua peluang berbeda untuk salah, dan hanya satu yang pernah
     // diperbaiki tiap kali.
-    let koneksi = crate::web::components::langgan_chat(move |evt| {
+    // Menumpang koneksi milik bus, tidak membuka sendiri: server menyimpan sesi
+    // per `user_id`, jadi koneksi kedua dari tab yang sama akan MENGGANTIKAN
+    // yang pertama — lencana navbar dan ruangan ini akan saling mematikan.
+    //
+    // Semua bacaan sinyal di dalam Effect ini WAJIB untracked. Effect hanya
+    // boleh bangun oleh `peristiwa`; kalau `auth` (atau apa pun) ikut terlacak,
+    // perubahannya akan menjalankan ulang Effect ini dengan peristiwa LAMA yang
+    // masih tersimpan di slot — dan pesan yang sama diproses dua kali.
+    Effect::new(move |_| {
+        let Some(evt) = bus.and_then(|b| b.peristiwa.get()) else { return };
         #[cfg(target_arch = "wasm32")]
         {
             match evt.get("type").and_then(|t| t.as_str()) {
@@ -176,12 +272,12 @@ pub fn ChatRoomPage() -> impl IntoView {
                     let Ok(m) = serde_json::from_value::<ChatMessage>(evt.clone()) else {
                         return;
                     };
-                    let my_id = current_user_id().unwrap_or_default();
+                    let my_id = current_user_id_untracked().unwrap_or_default();
                     // Koneksi ini menerima pesan SELURUH room milik pengguna
                     // (server mendaftarkan semuanya saat Hello), jadi yang dari
                     // room lain harus disaring — tapi jangan dibuang diam-diam:
                     // munculkan toast yang menuju ke sana.
-                    if m.room_id.trim() != room_id().trim() {
+                    if m.room_id.trim() != room_id_untracked().trim() {
                         if m.sender_id != my_id {
                             let preview: String = m.content.chars().take(60).collect();
                             toast.notify(
@@ -309,7 +405,9 @@ pub fn ChatRoomPage() -> impl IntoView {
         #[cfg(not(target_arch = "wasm32"))]
         let _ = evt;
     });
-    let ws_ready = koneksi.siap;
+    let ws_ready = bus
+        .map(|b| b.siap())
+        .unwrap_or_else(|| RwSignal::new(false));
 
     #[cfg(target_arch = "wasm32")]
     {
@@ -321,7 +419,7 @@ pub fn ChatRoomPage() -> impl IntoView {
         // pesannya membungkus ke dua baris. Satu tempat, satu perilaku.
         Effect::new(move |_| {
             if history.get().is_some() {
-                gulir_ke_dasar(msg_list_ref);
+                gulir_awal(msg_list_ref, gulir_manual);
             }
         });
     }
@@ -362,8 +460,13 @@ pub fn ChatRoomPage() -> impl IntoView {
                 "content": content,
                 "client_id": client_id,
             }).to_string();
-            if let Err(pesan) = koneksi.kirim(&payload) {
-                error_msg.set(pesan.into());
+            match bus {
+                Some(b) => {
+                    if let Err(pesan) = b.kirim(&payload) {
+                        error_msg.set(pesan.into());
+                    }
+                }
+                None => error_msg.set("Tidak terhubung.".into()),
             }
         }
     };
@@ -443,6 +546,27 @@ pub fn ChatRoomPage() -> impl IntoView {
             <div
                 class="chat-messages"
                 node_ref=msg_list_ref
+                // Isyarat "orangnya menggulir sendiri" HARUS datang dari
+                // gerakan tangan, bukan dari `on:scroll`.
+                //
+                // `set_scroll_top` juga memicu `scroll`, dan peristiwa itu tiba
+                // SESUDAH tata letak berubah — jadi percobaan gulir awal yang
+                // pertama (saat isinya belum selesai ditata) menghasilkan
+                // peristiwa dengan sisa yang besar, yang terbaca sebagai "orang
+                // ini menggulir ke atas". Penandanya menyala dan seluruh
+                // percobaan berikutnya membatalkan diri: mekanisme retry-nya
+                // mematikan dirinya sendiri pada langkah pertama.
+                //
+                // `wheel` dan `touchstart` tak bisa dipalsukan oleh penggulir
+                // mana pun. Keduanya hanya lahir dari jari dan roda tetikus.
+                on:wheel=move |_| {
+                    #[cfg(target_arch = "wasm32")]
+                    gulir_manual.set_value(true);
+                }
+                on:touchstart=move |_| {
+                    #[cfg(target_arch = "wasm32")]
+                    gulir_manual.set_value(true);
+                }
                 on:scroll=move |ev| {
                     #[cfg(target_arch = "wasm32")]
                     {
@@ -468,6 +592,24 @@ pub fn ChatRoomPage() -> impl IntoView {
                     let _ = ev;
                 }
             >
+                // Masa simpan. Diletakkan DI DALAM daftar, di atas pesan
+                // tertua — bukan sebagai spanduk menetap di puncak layar.
+                // Aturan yang selalu terpampang berhenti dibaca dalam dua hari;
+                // yang ini muncul tepat di tempat orangnya menggulir untuk
+                // mencari pesan lama, yaitu satu-satunya saat pertanyaannya
+                // benar-benar timbul: "yang dulu itu ke mana?"
+                <div class="chat-retensi">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="9" />
+                        <polyline points="12 7 12 12 15 14" />
+                    </svg>
+                    <span>
+                        "Pesan disimpan 30 hari. Setelah itu pesan dan gambarnya dihapus permanen dan tidak bisa dipulihkan."
+                    </span>
+                </div>
+
                 <Suspense fallback=|| view! {
                     <div class="chat-shimmer-wrap">
                         <div class="chat-shimmer-row chat-shimmer-row--other">

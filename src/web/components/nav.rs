@@ -122,6 +122,11 @@ pub fn CartButton() -> impl IntoView {
 #[component]
 pub fn BottomNav(#[prop(default = "")] active: &'static str) -> impl IntoView {
     let auth_ctx = use_auth();
+    // Lencana pesan belum dibaca. `None` selama patokan dari server belum tiba
+    // — dibedakan dari nol supaya lencananya tidak sempat berkedip dengan angka
+    // yang belum tentu benar.
+    let bus = crate::web::components::use_chat_bus();
+    let belum_chat = move || bus.and_then(|b| b.total()).unwrap_or(0);
     let cls = move |key: &str| {
         if key == active {
             "bottom-item bottom-item--active"
@@ -183,6 +188,19 @@ pub fn BottomNav(#[prop(default = "")] active: &'static str) -> impl IntoView {
                 >
                     <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
                 </svg>
+                // Ditaruh SESUDAH svg tapi diposisikan mutlak ke ikonnya:
+                // menaruhnya di dalam <svg> berarti ia ikut aturan koordinat
+                // SVG, bukan CSS.
+                {move || {
+                    let n = belum_chat();
+                    (n > 0).then(|| {
+                        // Di atas 99 angkanya melebar sampai memakan label di
+                        // bawahnya, dan selisih antara 100 dan 340 pesan tak
+                        // mengubah apa pun yang akan dilakukan orangnya.
+                        let teks = if n > 99 { "99+".to_string() } else { n.to_string() };
+                        view! { <span class="bottom-badge">{teks}</span> }
+                    })
+                }}
                 <span class="bottom-label">"CHAT"</span>
             </A>
 

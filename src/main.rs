@@ -40,6 +40,15 @@ use e_ticketing::meet::api::meet_router;
 use leptos::config::get_configuration;
 use leptos_axum::{generate_route_list, LeptosRoutes};
 
+/// Masa simpan pesan chat. Diberitahukan kepada pengguna di layar percakapan —
+/// mengubah angka ini berarti mengubah kalimat itu juga (`web/pages/chat_room.rs`).
+const HARI_SIMPAN_CHAT: i64 = 30;
+
+/// Baris per angkatan penghapusan. Kecil dengan sengaja: yang dikejar bukan
+/// kecepatan menyelesaikannya, melainkan tidak adanya satu pun jeda yang terasa
+/// oleh orang yang sedang mengirim pesan saat pembersihan berjalan.
+const ANGKATAN_HAPUS: i64 = 500;
+
 /// Entry: bangun runtime tokio dengan BATAS aman untuk box kecil, lalu jalankan
 /// `run()`. Sengaja TIDAK memakai `#[tokio::main]` karena makro itu tak bisa
 /// menyetel `max_blocking_threads`.
@@ -213,6 +222,46 @@ async fn run() -> Result<()> {
                             lain => lain.to_string(),
                         };
                         tracing::warn!(error = %sebab, "pembersihan refresh token gagal");
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
+            }
+        });
+    }
+
+    // ── Retensi pesan chat 30 hari ───────────────────────────────────────────
+    // Dijanjikan kepada pengguna di layar percakapan, jadi ia harus benar-benar
+    // terjadi — janji retensi yang tak dijalankan lebih buruk daripada tidak
+    // berjanji sama sekali.
+    //
+    // Di dalam proses, bukan `cron` sistem: satu-satunya yang tahu cara membuang
+    // berkas dari RustFS adalah aplikasi ini sendiri, dan cron di host tak punya
+    // kredensialnya. Menaruhnya di sini juga berarti ia ikut ke mana pun
+    // wadahnya dijalankan, tanpa langkah pemasangan terpisah yang bisa
+    // terlupakan saat pindah server.
+    {
+        let svc = state.group_chat_svc.clone();
+        let storage = state.storage.clone();
+        tokio::spawn(async move {
+            // Jeda sebelum jalanan PERTAMA. Saat proses baru bangun, yang
+            // sedang terjadi adalah lonjakan permintaan dari orang-orang yang
+            // menunggu selama penerapan; pembersihan yang tak mendesak tak
+            // pantas ikut berebut koneksi pool di menit itu.
+            tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+            loop {
+                match svc
+                    .buang_kadaluarsa(HARI_SIMPAN_CHAT, ANGKATAN_HAPUS, &storage)
+                    .await
+                {
+                    Ok((0, 0)) => {}
+                    Ok((pesan, berkas)) => tracing::info!(
+                        pesan,
+                        berkas,
+                        hari = HARI_SIMPAN_CHAT,
+                        "pesan kedaluwarsa dibersihkan"
+                    ),
+                    Err(e) => {
+                        tracing::warn!(error = %format!("{e:#}"), "retensi chat gagal")
                     }
                 }
                 tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;

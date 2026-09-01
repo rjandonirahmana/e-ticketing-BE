@@ -1,0 +1,46 @@
+/* ── Ruang obrolan: daftar pesannya yang menggulir, bukan halamannya ───────
+   ── AKAR MASALAHNYA ────────────────────────────────────────────────────
+   `.chat-page` diberi `min-height: 100dvh` — MIN, bukan tinggi tetap. Artinya
+   ia boleh tumbuh setinggi isinya. Anaknya `.chat-messages` punya `flex: 1`
+   dan `overflow-y: auto`, tapi keduanya tak pernah berlaku: dalam wadah yang
+   ikut memanjang, tak ada yang meluap, jadi tak ada yang perlu digulir. Yang
+   tergulir selama ini adalah HALAMAN.
+
+   Akibatnya seluruh perkakas gulir di berkas ini menghitung nol:
+     `scroll_height() == client_height()`  → `set_scroll_top()` tak berefek
+     `sisa = 0` selalu                     → "sudah di dasar" selalu benar
+
+   Itu satu sebab yang menjelaskan semuanya sekaligus — daftar tak menyusul ke
+   pesan baru, ruangan tak terbuka di dasar, tombol "ke pesan terbaru" diam.
+   Percobaan gulir berulang, pengukuran dari DOM, semuanya bekerja dengan
+   benar; yang salah adalah elemen yang mereka suruh menggulir tidak pernah
+   bisa menggulir.
+
+   `height`, bukan `min-height`: hanya tinggi TETAP yang memaksa anaknya
+   meluap. `overflow: hidden` di induk supaya halamannya sendiri tak ikut
+   menggulir — dua batang gulir bersarang membuat orang menggulir yang salah.
+   `padding-bottom: 72px` yang sudah ada tetap membebaskan komposer melayang,
+   dan karena `box-sizing: border-box` berlaku global, ia ikut terhitung di
+   dalam 100dvh — bukan menambahinya. */
+.chat-page {
+    height: 100dvh;
+    overflow: hidden;
+}
+
+/* Prasyarat yang mudah terlewat: item flex bawaannya `min-height: auto`, yang
+   berarti ia MENOLAK mengecil di bawah tinggi isinya. Tanpa baris ini,
+   `height` di induk pun tak menolong — anaknya tetap memanjang melewati
+   induknya alih-alih meluap ke dalam dirinya sendiri. */
+.chat-messages {
+    min-height: 0;
+    /* Guliran sentuh yang berhenti di ujung tak lagi merembet menggulir
+       halaman di belakangnya. */
+    overscroll-behavior: contain;
+}
+
+/* Header tak lagi perlu `sticky` — ia kini saudara tetap di atas daftar yang
+   menggulir, bukan sesuatu yang harus menempel saat halaman bergerak. */
+.chat-header {
+    position: relative;
+    flex: none;
+}

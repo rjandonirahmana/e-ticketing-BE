@@ -35,6 +35,12 @@ pub(crate) fn provide_all_app_contexts() {
     // Daftar toast kosong di SSR (toast hanya ditambah di client) → aman.
     crate::web::components::toast::provide_toast();
 
+    // ── Bus chat (SATU koneksi WS untuk seluruh aplikasi) ───────────────────
+    // Harus di root, bukan per halaman: server menyimpan sesi per `user_id`,
+    // jadi koneksi kedua MENGGANTIKAN yang pertama alih-alih berdampingan.
+    // Aman di SSR — `langgan_chat` tak melakukan apa pun di luar wasm.
+    crate::web::components::provide_chat_bus();
+
     // ── Cart ────────────────────────────────────────────────────────────────
     // Kosong di SSR (server tak tahu keranjang siapa sebelum cookie dibaca), lalu
     // diisi setelah hydration: dari server bila sudah masuk, dari localStorage

@@ -21,6 +21,56 @@ impl GroupChatService {
         Self { repo, ws_mgr }
     }
 
+    // ── Retensi ──────────────────────────────────────────────────────────────
+
+    /// Buang pesan yang sudah lewat masa simpan, berikut berkasnya di RustFS.
+    ///
+    /// Mengembalikan `(pesan_dihapus, berkas_dihapus)`.
+    ///
+    /// ── URUTANNYA TIDAK BOLEH DIBALIK ────────────────────────────────────
+    /// Berkas dibuang LEBIH DULU, barisnya menyusul. Sebaliknya — baris dulu —
+    /// berarti kehilangan satu-satunya alamat berkasnya begitu barisnya hilang,
+    /// dan yang tertinggal adalah berkas yatim di penyimpanan yang tak ada lagi
+    /// cara menemukannya. Kalaupun proses ini mati di antara keduanya, yang
+    /// terjadi hanya berkas terhapus sementara barisnya masih ada: jalanan
+    /// berikutnya akan menemukan baris itu lagi, gagal menghapus berkas yang
+    /// memang sudah tiada (dicatat, tidak fatal), lalu membuang barisnya.
+    /// Arah kegagalan yang bisa pulih sendiri.
+    pub async fn buang_kadaluarsa(
+        &self,
+        hari: i64,
+        batas_angkatan: i64,
+        storage: &crate::service::storage::StorageService,
+    ) -> Result<(u64, u64)> {
+        let mut total_pesan = 0u64;
+        let mut total_berkas = 0u64;
+
+        loop {
+            for url in self.repo.media_kadaluarsa(hari, batas_angkatan).await? {
+                match storage.delete_by_url(&url).await {
+                    Ok(_) => total_berkas += 1,
+                    // Berkas yang memang sudah tidak ada bukan alasan untuk
+                    // membatalkan pembersihan — barisnya tetap harus pergi.
+                    Err(e) => tracing::warn!(url = %url, galat = ?e, "berkas chat gagal dihapus"),
+                }
+            }
+
+            let n = self.repo.hapus_kadaluarsa(hari, batas_angkatan).await?;
+            total_pesan += n;
+            // Angkatan yang tak penuh berarti sudah habis. Berhenti di sini,
+            // bukan menunggu nol, supaya tak ada satu putaran sia-sia di akhir.
+            if (n as i64) < batas_angkatan {
+                break;
+            }
+            // Beri napas ke basis data di antara angkatan. Pembersihan ini tak
+            // mendesak sama sekali; yang mendesak adalah pesan yang sedang
+            // dikirim orang saat ini juga.
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+
+        Ok((total_pesan, total_berkas))
+    }
+
     // ── Room ─────────────────────────────────────────────────────────────────
 
     // `get_or_create_room` DIBUANG bersama grup produk (migrasi 029).

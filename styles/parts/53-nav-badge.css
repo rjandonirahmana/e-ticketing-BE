@@ -1,0 +1,97 @@
+/* ── Lencana pesan belum dibaca di navbar bawah ────────────────────────────
+   Kabar pesan masuk selama ini cuma hidup di dua halaman chat. Di halaman
+   mana pun selain itu — menjelajah product, memeriksa pesanan — tak ada apa
+   pun yang memberi tahu ada pesan menunggu, jadi satu-satunya cara mengetahui
+   adalah menengok berkala ke `/pulse`, yang berarti ingatan orangnya sendiri
+   yang dijadikan sistem notifikasi. */
+
+/* `.bottom-item` sudah `display: flex` tapi belum pernah punya `position`,
+   jadi lencana mutlak di dalamnya akan berlabuh ke `.bottom-nav` — melayang di
+   tengah bilah, tak berkaitan dengan ikon mana pun. `relative` tanpa offset
+   tidak menggeser tata letaknya sedikit pun. */
+.bottom-item {
+    position: relative;
+}
+
+.bottom-badge {
+    position: absolute;
+    /* Diikatkan ke ikon, bukan ke kotak tombolnya: kotaknya setinggi ikon +
+       label, dan lencana yang berlabuh ke sudut kotak akan mengambang jauh di
+       atas ikon dengan celah yang berubah-ubah menurut panjang label. */
+    top: 2px;
+    left: 50%;
+    margin-left: 6px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 5px;
+    box-sizing: border-box;
+
+    border-radius: 99px;
+    /* Cincin sewarna bilahnya memisahkan lencana dari ikon di bawahnya tanpa
+       menambah garis baru — tanpa itu angka merah di atas ikon gelap terbaca
+       seperti bagian dari ikonnya. */
+    border: 2px solid var(--bg-elevated, #fff);
+    background: var(--danger);
+    color: #fff;
+
+    font-family: var(--font-body);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0;
+    /* "99+" tak boleh terpatah dua baris. */
+    white-space: nowrap;
+
+    /* Ikonnya bisa diklik menembus lencana — ia penanda, bukan tombol. */
+    pointer-events: none;
+
+    animation: bottom-badge-muncul 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes bottom-badge-muncul {
+    from { opacity: 0; transform: scale(0.6); }
+    to   { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .bottom-badge { animation: none; }
+}
+
+/* ── Pemberitahuan masa simpan ─────────────────────────────────────────────
+   Sengaja tenang — abu-abu, kecil, tanpa ikon peringatan. Ia menyampaikan
+   aturan yang berlaku, bukan sesuatu yang perlu ditanggapi; digarap seperti
+   peringatan, ia akan mengambil perhatian yang seharusnya jatuh ke pesan yang
+   sedang dibaca, setiap kali ruangan dibuka. */
+.chat-retensi {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    margin: 4px 0 14px;
+    padding: 0 4px;
+    color: var(--text-muted);
+    font-family: var(--font-body);
+    font-size: 11px;
+    line-height: 1.45;
+    /* Daftarnya `flex-direction: column`; tanpa ini ia ikut meregang mengisi
+       sisa ruang saat percakapannya masih pendek. */
+    flex: none;
+}
+
+.chat-retensi svg {
+    flex: none;
+    margin-top: 1px;
+    opacity: 0.7;
+}
+
+.msg-retensi {
+    margin: 14px 4px 4px;
+    color: var(--text-muted);
+    font-family: var(--font-body);
+    font-size: 11px;
+    line-height: 1.45;
+    text-align: center;
+}

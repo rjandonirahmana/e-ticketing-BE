@@ -8,7 +8,7 @@ use crate::web::app::AuthResource;
 use crate::web::components::story_bars::StoryBar;
 use crate::web::components::story_viewer::StoryViewer;
 use crate::web::components::{
-    langgan_chat, BannerSlider, BottomNav, EmptyState, MessageRowShimmer,
+    use_chat_bus, BannerSlider, BottomNav, EmptyState, MessageRowShimmer,
 };
 
 #[component]
@@ -31,43 +31,27 @@ pub fn MessagesPage() -> impl IntoView {
 
     // ── Lencana yang hidup ──────────────────────────────────────────────────
     // `rooms` bertanya SEKALI lalu diam, jadi hitungan belum-dibaca yang ia
-    // bawa adalah foto keadaan pada detik halaman dimuat. Alih-alih memuat
-    // ulang seluruh daftar tiap ada pesan (mahal, dan membuat daftarnya
-    // berkedip), tambahan disimpan terpisah lalu DIJUMLAHKAN saat merender.
+    // bawa adalah foto keadaan pada detik halaman dimuat.
     //
-    // Pemisahan ini juga yang membuat urutannya tak pernah kacau: yang datang
-    // dari server tetap utuh, yang datang dari WebSocket hanya menumpang.
-    let tambahan: RwSignal<std::collections::HashMap<String, i32>> =
-        RwSignal::new(std::collections::HashMap::new());
-
-    let saya = move || auth.get().and_then(|r| r.ok()).flatten().map(|u| u.id);
-
-    langgan_chat(move |evt| {
-        if evt.get("type").and_then(|t| t.as_str()) != Some("new_message") {
-            return;
-        }
-        let Some(rid) = evt.get("room_id").and_then(|v| v.as_str()) else { return };
-        let pengirim = evt.get("sender_id").and_then(|v| v.as_str()).unwrap_or_default();
-        // Pesan sendiri bukan pesan belum dibaca. Server menggemakannya kembali
-        // ke pengirim (itulah yang membuat pesan muncul di perangkat lain milik
-        // orang yang sama), jadi tanpa saringan ini setiap kali seseorang
-        // mengirim, ia menaikkan lencananya sendiri.
-        if Some(pengirim) == saya().as_deref() {
-            return;
-        }
-        tambahan.update(|m| *m.entry(rid.to_string()).or_insert(0) += 1);
-    });
+    // Halaman ini TIDAK membuka koneksinya sendiri: bus di root sudah memegang
+    // satu-satunya koneksi yang boleh ada (server menyimpan sesi per pengguna,
+    // koneksi kedua menggantikan yang pertama), dan ia sudah menghitung
+    // susulannya untuk lencana navbar. Di sini tinggal dipakai.
+    let bus = use_chat_bus();
 
     let filtered_rooms = Memo::new(move |_| {
         let q = search.get().to_lowercase();
-        let plus = tambahan.get();
+        // Angka dari bus MENGGANTIKAN angka server, bukan dijumlahkan: bus
+        // memulai dari patokan server yang sama lalu menambahinya sendiri, jadi
+        // menjumlahkan keduanya akan menghitung ganda.
+        let hidup = bus.and_then(|b| b.belum.get());
         match rooms.get() {
             Some(Ok(list)) => list
                 .into_iter()
                 .filter(|r| q.is_empty() || r.name.to_lowercase().contains(&q))
                 .map(|mut r| {
-                    if let Some(n) = plus.get(&r.id) {
-                        r.unread_count = r.unread_count.max(0) + n;
+                    if let Some(n) = hidup.as_ref().and_then(|m| m.get(&r.id)) {
+                        r.unread_count = *n;
                     }
                     r
                 })
@@ -214,6 +198,12 @@ pub fn MessagesPage() -> impl IntoView {
                                         }.into_any(),
                                     }}
                                 </div>
+                                // Masa simpan, di KAKI daftar. Di puncak ia akan
+                                // mendorong percakapan turun demi kalimat yang
+                                // hanya perlu dibaca sekali seumur pemakaian.
+                                <p class="msg-retensi">
+                                    "Pesan disimpan 30 hari, lalu dihapus permanen beserta gambarnya."
+                                </p>
                             </section>
                         }.into_any()
                     })
