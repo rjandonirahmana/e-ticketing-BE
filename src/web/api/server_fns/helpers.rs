@@ -398,7 +398,10 @@ pub(super) fn srv_group_room_to_web(r: crate::models::group_chat::GroupRoom) -> 
         name: r.name,
         member_count: r.member_count as i32,
         last_message: None,
-        unread_count: 0,
+        // Dulu ditulis mati `0` — kolom `unread_count` di model web memang ada
+        // sejak awal, tetapi tak pernah ada yang mengisinya, sehingga lencana
+        // "pesan baru" mustahil muncul betapapun banyak pesan yang masuk.
+        unread_count: r.unread_count as i32,
         cover_url: r.cover_url,
     }
 }

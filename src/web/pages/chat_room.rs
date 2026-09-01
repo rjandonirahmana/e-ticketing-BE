@@ -22,6 +22,38 @@ fn fmt_time_ms(ms: u64) -> String {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+/// Gulir daftar pesan ke dasar SETELAH DOM digambar.
+///
+/// ── KENAPA HARUS DITUNDA ────────────────────────────────────────────────
+/// `RwSignal::update` hanya MENANDAI sinyalnya kotor; Leptos merender di
+/// microtask berikutnya. Membaca `scroll_height()` tepat sesudahnya karena itu
+/// mengukur daftar yang BELUM memuat pesan baru — hasilnya menggulir ke dasar
+/// yang LAMA, dan pesan yang baru tiba mendarat tepat di bawah lipatan layar.
+/// Dari sisi pengguna itu terlihat seperti pesannya tak pernah masuk.
+///
+/// DUA rAF, bukan satu: yang pertama menunggu Leptos menerapkan perubahannya,
+/// yang kedua menunggu peramban selesai menata ulang. Dengan satu rAF saja,
+/// pesan yang tingginya membungkus ke dua baris masih terukur setinggi satu.
+///
+/// `once_into_js`, bukan `once(..) + forget()`: `forget()` adalah `mem::forget`,
+/// jadi pembungkus closure dan slot tabel fungsi wasm-nya tak pernah dibebaskan
+/// — satu kebocoran kecil per pesan masuk, tanpa batas.
+#[cfg(target_arch = "wasm32")]
+fn gulir_ke_dasar(list_ref: NodeRef<leptos::html::Div>) {
+    let Some(win) = web_sys::window() else { return };
+    let w2 = win.clone();
+    let cb = wasm_bindgen::closure::Closure::once_into_js(move || {
+        let dalam = wasm_bindgen::closure::Closure::once_into_js(move || {
+            if let Some(el) = list_ref.get_untracked() {
+                el.set_scroll_top(el.scroll_height());
+            }
+        });
+        let _ = w2.request_animation_frame(dalam.unchecked_ref());
+    });
+    use wasm_bindgen::JsCast;
+    let _ = win.request_animation_frame(cb.unchecked_ref());
+}
+
 #[component]
 pub fn ChatRoomPage() -> impl IntoView {
     let params  = use_params_map();
@@ -56,219 +88,240 @@ pub fn ChatRoomPage() -> impl IntoView {
     );
 
     let text_input  = RwSignal::new(String::new());
-    let ws_ready    = RwSignal::new(false);
     let error_msg   = RwSignal::new(String::new());
     let live_msgs: RwSignal<Vec<ChatMessage>> = RwSignal::new(vec![]);
 
     let msg_list_ref = NodeRef::<leptos::html::Div>::new();
 
-    // Defined here so do_send can capture it outside the #[cfg] block.
+    // ── Pemisah "pesan baru" ────────────────────────────────────────────────
+    // Diambil SEKALI saat halaman dibuka, lalu dibekukan. Kalau ia mengikuti
+    // hitungan yang hidup, garisnya akan melompat tiap ada pesan masuk — dan
+    // yang dicari orang justru "sampai mana tadi saya membaca", yaitu titik
+    // yang TIDAK boleh bergerak selama ia masih membacanya.
+    let batas_belum = RwSignal::new(0usize);
+    // Sudah di dasar daftar? Menentukan tombol gulir tampil atau tidak.
+    let di_dasar = RwSignal::new(true);
+    // Pesan yang TIBA saat layar tidak berada di dasar — yaitu pesan yang
+    // benar-benar belum terlihat mata. Berbeda dari `batas_belum`, yang dibaca
+    // sekali dari server saat halaman dibuka: yang ini hidup selama halaman
+    // terbuka dan kembali nol begitu orang menggulir turun.
+    let baru_masuk = RwSignal::new(0usize);
+
+    // Pengumuman DALAM ruangan. Menambahkan gelembung di dasar daftar bukan
+    // pemberitahuan: kalau layar sudah di dasar, pesannya cuma muncul begitu
+    // saja dan mata yang sedang tidak menatap ke sana tak punya apa pun yang
+    // menarik perhatiannya. Yang hilang selama ini bukan pesannya — melainkan
+    // kabar bahwa ada pesan. Isi: (nama pengirim, sepenggal isi).
+    let pengumuman: RwSignal<Option<(String, String)>> = RwSignal::new(None);
+    // Id pesan yang barusan tiba, untuk menyorot gelembungnya sekejap. Sorotan
+    // menjawab pertanyaan lanjutan yang selalu datang sesudah "ada pesan baru":
+    // yang mana.
+    let sorot: RwSignal<Option<String>> = RwSignal::new(None);
+    // Berapa pesan orang lain yang masuk sejak terakhir kali kita menanggapi.
+    // Pil kabar di atas padam sesudah beberapa detik — kalau saat itu mata
+    // sedang tidak di layar, kabarnya lewat. Hitungan ini yang tinggal, dan ia
+    // TIDAK padam sendiri.
+    //
+    // Berbeda dari `batas_belum`, yang dibaca SEKALI dari server saat halaman
+    // dibuka dan hanya berlaku untuk riwayat.
+    let jml_baru = RwSignal::new(0usize);
+    // Naik tiap ada pengumuman baru. Timer penutup yang dijadwalkan pengumuman
+    // LAMA tidak boleh menutup pengumuman yang lebih muda — tanpa penanda ini,
+    // dua pesan yang datang beriringan membuat kabar kedua lenyap seketika saat
+    // timer pertama jatuh tempo.
     #[cfg(target_arch = "wasm32")]
-    let ws_store: StoredValue<Option<web_sys::WebSocket>> = StoredValue::new(None);
+    let umur_umum: StoredValue<u32> = StoredValue::new(0);
 
-    // ── WebSocket (WASM only) ─────────────────────────────────────────────────
+    // Toast global — untuk pesan dari room LAIN. Koneksi ini menerima pesan
+    // semua room milik pengguna, jadi pesan room lain tetap sampai ke sini.
     #[cfg(target_arch = "wasm32")]
-    {
-        use wasm_bindgen::prelude::*;
-        use wasm_bindgen::JsCast;
-        use web_sys::WebSocket;
-        let cb_onmessage: StoredValue<Option<JsValue>> = StoredValue::new(None);
-        let cb_onopen:    StoredValue<Option<JsValue>> = StoredValue::new(None);
-        let cb_onclose:   StoredValue<Option<JsValue>> = StoredValue::new(None);
-        let cb_onerror:   StoredValue<Option<JsValue>> = StoredValue::new(None);
+    let toast = crate::web::components::use_toast();
 
-        // Ditandai true di on_cleanup → watchdog berhenti reconnect setelah
-        // halaman ditinggalkan (cegah reconnect zombie).
-        let closing: StoredValue<bool> = StoredValue::new(false);
-
-        // Toast global — untuk notifikasi "pesan masuk" dari room LAIN. Koneksi
-        // WS ini menerima pesan SEMUA room milik user (server register_rooms),
-        // jadi pesan room lain sampai ke sini walau sedang membuka room lain.
-        let toast = crate::web::components::use_toast();
-
-        // `connect` dibuat reusable agar bisa dipanggil ulang oleh watchdog
-        // reconnect (penyebab "tidak live": koneksi putus & tak pernah pulih).
-        // Tidak membaca signal reaktif (login dicek untracked) supaya Effect
-        // pemanggil hanya jalan SEKALI — tidak ada churn connect/disconnect.
-        let connect = move || {
-            // Guard: hanya konek jika sudah login (untracked → tak bikin Effect re-run).
-            let logged_in = auth
-                .get_untracked()
-                .and_then(|r| r.ok())
-                .flatten()
-                .is_some();
-            if !logged_in {
-                return;
+    // Ambil hitungan belum-dibaca SEBELUM menandainya dibaca, lalu tandai.
+    // Urutannya penting: kebalikannya selalu menghasilkan nol, dan pemisahnya
+    // tak akan pernah muncul untuk siapa pun.
+    Effect::new(move |prev: Option<()>| {
+        if prev.is_some() {
+            return;
+        }
+        let id = room_id();
+        if id.is_empty() {
+            return;
+        }
+        leptos::task::spawn_local(async move {
+            if let Ok(rooms) = crate::web::api::get_chat_rooms().await {
+                if let Some(r) = rooms.iter().find(|r| r.id == id) {
+                    batas_belum.set(r.unread_count.max(0) as usize);
+                }
             }
+            let _ = crate::web::api::mark_chat_read(id).await;
+        });
+    });
 
-            let proto = if web_sys::window()
-                .map(|w| w.location().protocol().unwrap_or_default() == "https:")
-                .unwrap_or(false) { "wss" } else { "ws" };
-            let host = web_sys::window()
-                .and_then(|w| w.location().host().ok())
-                .unwrap_or_default();
-            // Browser otomatis kirim cookie pulse_token (HttpOnly, SameSite=Lax)
-            // saat WebSocket upgrade ke same-origin — tidak perlu token di URL.
-            let url = format!("{}://{}/api/ws/chat", proto, host);
 
-            let Ok(ws) = WebSocket::new(&url) else {
-                error_msg.set("Tidak dapat terhubung ke server.".into());
-                return;
-            };
-
-            let scroll_ref = msg_list_ref;
-            let onmessage = wasm_bindgen::closure::Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
-                move |e: web_sys::MessageEvent| {
-                    let Ok(txt) = e.data().dyn_into::<web_sys::js_sys::JsString>() else { return };
-                    let s: String = txt.into();
-                    let Ok(evt) = serde_json::from_str::<serde_json::Value>(&s) else { return };
-                    match evt.get("type").and_then(|t| t.as_str()) {
-                        Some("new_message") => {
-                            // Fields are at top-level — #[serde(tag="type")] flattens newtype variant.
-                            // ChatMessage.message_type has alias "msg_type" to match server field.
-                            if let Ok(m) = serde_json::from_str::<ChatMessage>(&s) {
-                                let my_id = current_user_id().unwrap_or_default();
-                                // Pesan dari ROOM LAIN (koneksi ini terima semua room
-                                // user): jangan tampilkan di sini — munculkan TOAST
-                                // "pesan masuk" (klik → buka room itu). Pesan sendiri
-                                // di-skip (echo broadcast server ke pengirim).
-                                if m.room_id != room_id() {
-                                    if m.sender_id != my_id {
-                                        let preview: String = m.content.chars().take(60).collect();
-                                        toast.notify(
-                                            crate::web::components::ToastKind::Info,
-                                            format!("Pesan dari {}", m.sender_name),
-                                            Some(preview),
-                                            Some(format!("/pulse/{}", m.room_id)),
-                                        );
-                                    }
-                                    return;
-                                }
-                                live_msgs.update(|v| {
-                                    // Standard dedup: server already confirmed this id.
-                                    if v.iter().any(|x| x.id == m.id) { return; }
-                                    // For self-messages: merge with matching optimistic entry
-                                    // instead of pushing a new one.
-                                    // Prevents duplicate when broadcast arrives before ack
-                                    // (server sends both new_message to all members AND ack to sender).
-                                    if m.sender_id == my_id {
-                                        if let Some(opt) = v.iter_mut().find(|x| {
-                                            x.id.starts_with("_opt_") && x.content == m.content
-                                        }) {
-                                            opt.id = m.id.clone();
-                                            opt.sent_at = m.sent_at;
-                                            return;
-                                        }
-                                    }
-                                    v.push(m);
-                                });
-                                if let Some(el) = scroll_ref.get() {
-                                    el.set_scroll_top(el.scroll_height());
-                                }
-                            }
+    // ── WebSocket ─────────────────────────────────────────────────────────────
+    // Memakai langganan yang SAMA dengan daftar `/pulse`. Dulu halaman ini
+    // merakit koneksinya sendiri — lengkap dengan salinan watchdog sambung-ulang
+    // dan bersih-bersihnya — sehingga dua tempat yang harus bersikap identik
+    // punya dua peluang berbeda untuk salah, dan hanya satu yang pernah
+    // diperbaiki tiap kali.
+    let koneksi = crate::web::components::langgan_chat(move |evt| {
+        #[cfg(target_arch = "wasm32")]
+        {
+            match evt.get("type").and_then(|t| t.as_str()) {
+                Some("new_message") => {
+                    // Bidangnya rata di tingkat atas — `#[serde(tag="type")]`
+                    // melarutkan varian newtype. `message_type` punya alias
+                    // `msg_type` agar cocok dengan nama di server.
+                    let Ok(m) = serde_json::from_value::<ChatMessage>(evt.clone()) else {
+                        return;
+                    };
+                    let my_id = current_user_id().unwrap_or_default();
+                    // Koneksi ini menerima pesan SELURUH room milik pengguna
+                    // (server mendaftarkan semuanya saat Hello), jadi yang dari
+                    // room lain harus disaring — tapi jangan dibuang diam-diam:
+                    // munculkan toast yang menuju ke sana.
+                    if m.room_id.trim() != room_id().trim() {
+                        if m.sender_id != my_id {
+                            let preview: String = m.content.chars().take(60).collect();
+                            toast.notify(
+                                crate::web::components::ToastKind::Info,
+                                format!("Pesan dari {}", m.sender_name),
+                                Some(preview),
+                                Some(format!("/pulse/{}", m.room_id)),
+                            );
                         }
-                        Some("ack") => {
-                            // Replace optimistic id (client_id) with real server msg_id.
-                            if let (Some(msg_id), Some(client_id)) = (
-                                evt.get("msg_id").and_then(|v| v.as_str()),
-                                evt.get("client_id").and_then(|v| v.as_str()),
-                            ) {
-                                let msg_id = msg_id.to_string();
-                                let client_id = client_id.to_string();
-                                live_msgs.update(|v| {
-                                    if let Some(m) = v.iter_mut().find(|m| m.id == client_id) {
-                                        m.id = msg_id;
-                                    }
-                                });
-                            }
-                        }
-                        _ => {}
-                    }
-                },
-            );
-            let onopen  = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
-                ws_ready.set(true);
-                error_msg.set(String::new());
-            });
-            let onclose = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
-                ws_ready.set(false);
-            });
-            let onerror = wasm_bindgen::closure::Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
-                ws_ready.set(false);
-            });
-
-            ws.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
-            ws.set_onopen(Some(onopen.as_ref().unchecked_ref()));
-            ws.set_onclose(Some(onclose.as_ref().unchecked_ref()));
-            ws.set_onerror(Some(onerror.as_ref().unchecked_ref()));
-
-            cb_onmessage.set_value(Some(onmessage.into_js_value()));
-            cb_onopen.set_value(Some(onopen.into_js_value()));
-            cb_onclose.set_value(Some(onclose.into_js_value()));
-            cb_onerror.set_value(Some(onerror.into_js_value()));
-            ws_store.set_value(Some(ws.clone()));
-        };
-
-        // Buka koneksi + watchdog reconnect. Effect ini hanya jalan SEKALI
-        // (connect tidak membaca signal reaktif), jadi tidak ada churn.
-        Effect::new(move |_| {
-            connect();
-
-            // Watchdog: tiap 3 dtk, bila WS sudah CLOSED (putus) & halaman belum
-            // ditinggalkan, sambung ulang → "● LIVE" pulih otomatis tanpa refresh.
-            let interval = send_wrapper::SendWrapper::new(
-                gloo_timers::callback::Interval::new(3_000, move || {
-                    if closing.get_value() {
                         return;
                     }
-                    let need = ws_store.with_value(|opt| match opt {
-                        None => true,
-                        Some(ws) => ws.ready_state() == web_sys::WebSocket::CLOSED,
+                    let m_sendiri = m.sender_id == my_id;
+
+                    // Diukur DARI DOM, di sini, sebelum pesannya ditambahkan —
+                    // bukan dibaca dari sinyal `di_dasar`.
+                    //
+                    // Sinyal itu hanya diperbarui oleh peristiwa `scroll`,
+                    // padahal wadahnya berubah tinggi tanpa ada gulir sama
+                    // sekali: shimmer berganti isi sungguhan, avatar selesai
+                    // dimuat, gelembung membungkus ke baris kedua. Sesudah
+                    // salah satu dari itu, catatannya basi — biasanya basi
+                    // `false`, dan penerima berhenti disusulkan ke dasar
+                    // selamanya sampai ia menggulir manual.
+                    //
+                    // Diukur SEBELUM `push`: sesudahnya `scroll_height` sudah
+                    // termasuk pesan barunya, dan jawabannya selalu "tidak di
+                    // dasar" — yaitu tepat kesalahan yang hendak dihindari.
+                    let sudah_di_dasar = msg_list_ref
+                        .get_untracked()
+                        .map(|el| {
+                            // Ambang 40px, bukan nol: gulir mulus jarang
+                            // berhenti tepat di dasar.
+                            el.scroll_height() - el.scroll_top() - el.client_height() <= 40
+                        })
+                        // Belum terpasang = belum ada yang bisa tergulir lewat.
+                        .unwrap_or(true);
+                    di_dasar.set(sudah_di_dasar);
+
+                    // Diambil SEBELUM `m` dipindahkan ke dalam Vec.
+                    let nama_kirim = m.sender_name.clone();
+                    let cuplikan: String = m.content.chars().take(70).collect();
+                    let id_baru = m.id.clone();
+                    live_msgs.update(|v| {
+                        // Server sudah mengesahkan id ini.
+                        if v.iter().any(|x| x.id == m.id) {
+                            return;
+                        }
+                        // Pesan sendiri: gabungkan dengan entri optimistis yang
+                        // cocok, jangan dorong entri baru. Server mengirim DUA
+                        // hal ke pengirim — siaran `new_message` ke semua anggota
+                        // dan `ack` — dan tanpa penggabungan ini yang mana pun
+                        // yang tiba lebih dulu akan menggandakan pesannya.
+                        if m.sender_id == my_id {
+                            if let Some(opt) = v
+                                .iter_mut()
+                                .find(|x| x.id.starts_with("_opt_") && x.content == m.content)
+                            {
+                                opt.id = m.id.clone();
+                                opt.sent_at = m.sent_at;
+                                return;
+                            }
+                        }
+                        v.push(m);
                     });
-                    if need {
-                        connect();
-                    }
-                }),
-            );
 
-            on_cleanup(move || {
-                closing.set_value(true);
-                drop(interval); // hentikan watchdog
-                ws_store.with_value(|opt| {
-                    if let Some(ws) = opt {
-                        ws.set_onmessage(None);
-                        ws.set_onopen(None);
-                        ws.set_onclose(None);
-                        ws.set_onerror(None);
-                        let _ = ws.close();
+                    // Kabar masuk — tampil TERLEPAS dari posisi gulir. Ini
+                    // bedanya dengan `baru_masuk` di bawah, yang hanya bicara
+                    // pada orang yang sedang tersesat di tengah riwayat.
+                    if !m_sendiri {
+                        jml_baru.update(|n| *n += 1);
+                        sorot.set(Some(id_baru));
+                        pengumuman.set(Some((nama_kirim, cuplikan)));
+                        umur_umum.update_value(|n| *n += 1);
+                        let generasi = umur_umum.get_value();
+                        set_timeout(
+                            move || {
+                                if umur_umum.get_value() == generasi {
+                                    pengumuman.set(None);
+                                    sorot.set(None);
+                                }
+                            },
+                            std::time::Duration::from_millis(4500),
+                        );
                     }
-                });
-                ws_store.set_value(None);
-                cb_onmessage.set_value(None);
-                cb_onopen.set_value(None);
-                cb_onclose.set_value(None);
-                cb_onerror.set_value(None);
-            });
-        });
 
-        // Scroll to bottom once history finishes loading.
-        // Uses rAF so the DOM is fully painted before we read scroll_height.
+                    // Hanya menyusul ke dasar bila memang SEDANG di dasar.
+                    // Menyeret orang yang sengaja menggulir ke atas membaca
+                    // riwayat adalah perilaku paling menjengkelkan di aplikasi
+                    // obrolan mana pun — dan tombol "ke pesan terbaru" sudah
+                    // tampil untuk mereka, jadi jalan kembalinya tetap ada.
+                    //
+                    // Pesan SENDIRI selalu menggulir: menekan kirim adalah
+                    // pernyataan bahwa yang ingin dilihat adalah yang barusan
+                    // dikirim.
+                    if sudah_di_dasar || m_sendiri {
+                        gulir_ke_dasar(msg_list_ref);
+                        di_dasar.set(true);
+                        baru_masuk.set(0);
+                    } else {
+                        // Tidak di dasar: JANGAN diseret, tapi beri tahu. Tanpa
+                        // hitungan ini yang tampil cuma panah polos — ia memberi
+                        // tahu "ada bawah", bukan "ada yang baru", dan keduanya
+                        // pertanyaan yang berbeda.
+                        baru_masuk.update(|n| *n += 1);
+                    }
+                }
+                Some("ack") => {
+                    // Tukar id optimistis (client_id) dengan msg_id sungguhan.
+                    if let (Some(msg_id), Some(client_id)) = (
+                        evt.get("msg_id").and_then(|v| v.as_str()),
+                        evt.get("client_id").and_then(|v| v.as_str()),
+                    ) {
+                        let msg_id = msg_id.to_string();
+                        let client_id = client_id.to_string();
+                        live_msgs.update(|v| {
+                            if let Some(m) = v.iter_mut().find(|m| m.id == client_id) {
+                                m.id = msg_id;
+                            }
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = evt;
+    });
+    let ws_ready = koneksi.siap;
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        // Gulir ke dasar begitu riwayat selesai dimuat.
+        //
+        // Memakai helper yang SAMA dengan jalur pesan masuk. Dulu blok ini punya
+        // salinan rAF-nya sendiri — satu rAF, bukan dua — sehingga muat awal
+        // kadang berhenti beberapa piksel di atas dasar pada percakapan yang
+        // pesannya membungkus ke dua baris. Satu tempat, satu perilaku.
         Effect::new(move |_| {
             if history.get().is_some() {
-                let list_ref = msg_list_ref;
-                // `once_into_js`, bukan `once(..) + forget()`: `forget()` adalah
-                // `mem::forget`, jadi pembungkus closure dan slot tabel fungsi
-                // wasm-nya tak pernah dibebaskan. Efek ini berjalan SETIAP KALI
-                // riwayat pesan berubah — di ruang obrolan yang ramai itu berarti
-                // satu kebocoran kecil per pesan masuk, tanpa batas.
-                let cb = wasm_bindgen::closure::Closure::once_into_js(move || {
-                    if let Some(el) = list_ref.get() {
-                        el.set_scroll_top(el.scroll_height());
-                    }
-                });
-                if let Some(win) = web_sys::window() {
-                    let _ = win.request_animation_frame(cb.unchecked_ref());
-                }
+                gulir_ke_dasar(msg_list_ref);
             }
         });
     }
@@ -289,6 +342,17 @@ pub fn ChatRoomPage() -> impl IntoView {
             message_type: "text".into(),
         };
         live_msgs.update(|v| v.push(msg));
+        // Membalas adalah bukti paling kuat bahwa yang di atas sudah terbaca —
+        // lebih kuat daripada gulir, yang bisa saja tak sengaja.
+        jml_baru.set(0);
+        // Pesan sendiri SELALU menggulir: menekan kirim adalah pernyataan bahwa
+        // yang ingin dilihat adalah yang barusan dikirim. Tanpa ini, mengirim
+        // dari tengah riwayat membuat pesan sendiri lenyap ke bawah lipatan.
+        #[cfg(target_arch = "wasm32")]
+        {
+            gulir_ke_dasar(msg_list_ref);
+            di_dasar.set(true);
+        }
 
         #[cfg(target_arch = "wasm32")]
         {
@@ -298,19 +362,9 @@ pub fn ChatRoomPage() -> impl IntoView {
                 "content": content,
                 "client_id": client_id,
             }).to_string();
-            ws_store.with_value(|opt| {
-                if let Some(ws) = opt {
-                    if ws.ready_state() == web_sys::WebSocket::OPEN {
-                        if ws.send_with_str(&payload).is_err() {
-                            error_msg.set("Gagal kirim pesan.".into());
-                        }
-                    } else {
-                        error_msg.set("Koneksi terputus, coba lagi.".into());
-                    }
-                } else {
-                    error_msg.set("Tidak terhubung.".into());
-                }
-            });
+            if let Err(pesan) = koneksi.kirim(&payload) {
+                error_msg.set(pesan.into());
+            }
         }
     };
 
@@ -355,6 +409,20 @@ pub fn ChatRoomPage() -> impl IntoView {
                                     } else {
                                         view! { <span class="chat-status-connecting">"○ CONNECTING"</span> }.into_any()
                                     }}
+                                    // Bersebelahan dengan status koneksi: dua
+                                    // hal yang sama-sama menjawab "apa yang
+                                    // sedang terjadi di ruangan ini", jadi mata
+                                    // cukup singgah di satu tempat. Sebagai
+                                    // penanda melayang ia justru bersaing
+                                    // dengan pil kabar yang tampil bersamaan.
+                                    {move || {
+                                        let n = jml_baru.get();
+                                        (n > 0).then(|| view! {
+                                            <span class="chat-tanda-baru">
+                                                {format!("{n} pesan baru")}
+                                            </span>
+                                        })
+                                    }}
                                 </span>
                             </div>
                             <div class="chat-header-actions">
@@ -372,7 +440,34 @@ pub fn ChatRoomPage() -> impl IntoView {
             </Suspense>
 
             // ── Messages ───────────────────────────────────────────────────────
-            <div class="chat-messages" node_ref=msg_list_ref>
+            <div
+                class="chat-messages"
+                node_ref=msg_list_ref
+                on:scroll=move |ev| {
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        use wasm_bindgen::JsCast;
+                        let Some(el) = ev
+                            .target()
+                            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+                        else { return };
+                        // Ambang 40px, bukan nol: gulir mulus jarang berhenti
+                        // tepat di dasar, dan tanpa toleransi ini tombolnya
+                        // berkedip muncul-hilang di akhir tiap guliran.
+                        let sisa = el.scroll_height() - el.scroll_top() - el.client_height();
+                        let bawah = sisa <= 40;
+                        if di_dasar.get_untracked() != bawah {
+                            di_dasar.set(bawah);
+                        }
+                        // Sampai di dasar = semuanya sudah terlihat.
+                        if bawah && baru_masuk.get_untracked() != 0 {
+                            baru_masuk.set(0);
+                        }
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let _ = ev;
+                }
+            >
                 <Suspense fallback=|| view! {
                     <div class="chat-shimmer-wrap">
                         <div class="chat-shimmer-row chat-shimmer-row--other">
@@ -398,7 +493,30 @@ pub fn ChatRoomPage() -> impl IntoView {
                         }.into_any(),
                         Ok(hist) => {
                             let me = current_user_id().unwrap_or_default();
-                            hist.into_iter().map(|msg| message_bubble(msg, &me)).collect_view().into_any()
+                            // Pemisah diletakkan SEBELUM pesan belum-dibaca yang
+                            // PERTAMA, yaitu `n - belum` dari awal daftar —
+                            // riwayat datang terurut lama→baru. Dihitung dari
+                            // ekor, bukan dari kepala, supaya benar meski
+                            // riwayatnya terpotong batas halaman.
+                            let n = hist.len();
+                            let belum = batas_belum.get_untracked().min(n);
+                            let mulai = n - belum;
+                            hist.into_iter()
+                                .enumerate()
+                                .map(|(i, msg)| {
+                                    let pemisah = (belum > 0 && i == mulai).then(|| {
+                                        view! {
+                                            <div class="chat-pemisah-baru">
+                                                <span>
+                                                    {format!("{belum} pesan baru")}
+                                                </span>
+                                            </div>
+                                        }
+                                    });
+                                    view! { {pemisah} {message_bubble(msg, &me, false)} }
+                                })
+                                .collect_view()
+                                .into_any()
                         }
                         _ => view! { <div/> }.into_any(),
                     }).unwrap_or_else(|| view! { <div/> }.into_any())}
@@ -407,9 +525,94 @@ pub fn ChatRoomPage() -> impl IntoView {
                 // Live WS messages appended client-side
                 {move || {
                     let me = current_user_id().unwrap_or_default();
-                    live_msgs.get().into_iter().map(|msg| message_bubble(msg, &me)).collect_view()
+                    let disorot = sorot.get();
+                    live_msgs.get().into_iter().map(|msg| {
+                        let kena = disorot.as_deref() == Some(msg.id.as_str());
+                        message_bubble(msg, &me, kena)
+                    }).collect_view()
                 }}
             </div>
+
+            // ── Kabar di puncak ruangan ───────────────────────────────────────
+            // Ditumpuk dalam SATU wadah, bukan dua elemen yang masing-masing
+            // berlabuh sendiri: keduanya mengincar tempat yang sama persis di
+            // bawah header, dan yang berlabuh sendiri-sendiri akan saling
+            // menindih begitu keduanya tampil bersamaan.
+            //
+            // Wadahnya tembus klik; hanya anaknya yang menangkap tekanan —
+            // kalau tidak, pita tak terlihat selebar layar ini akan memakan
+            // setiap sentuhan pada pesan yang kebetulan lewat di bawahnya.
+            <div class="chat-kabar-atas">
+                // Kabar sekilas: siapa, dan sepenggal isinya. Ditekan =
+                // melompat ke pesan itu.
+                {move || pengumuman.get().map(|(nama, isi)| view! {
+                    <button
+                        class="chat-masuk"
+                        on:click=move |_| {
+                            #[cfg(target_arch = "wasm32")]
+                            gulir_ke_dasar(msg_list_ref);
+                            di_dasar.set(true);
+                            baru_masuk.set(0);
+                            pengumuman.set(None);
+                        }
+                    >
+                        <span class="chat-masuk-titik"></span>
+                        <span class="chat-masuk-teks">
+                            <span class="chat-masuk-nama">{nama}</span>
+                            <span class="chat-masuk-isi">{isi}</span>
+                        </span>
+                    </button>
+                })}
+            </div>
+
+            // ── Tombol gulir ke pesan terbaru ──────────────────────────────────
+            // Muncul HANYA saat tidak di dasar. Percakapan panjang mudah
+            // membuat orang tersesat di tengah riwayat — terutama sesudah
+            // pemisah "pesan baru" melompatkan mereka ke atas — dan tanpa ini
+            // satu-satunya jalan kembali adalah menggulir manual sampai habis.
+            {move || {
+                let n = baru_masuk.get();
+                // Tampil bila ada yang belum terlihat, ATAU sekadar tersesat di
+                // tengah riwayat. Dua alasan berbeda, satu tombol — tapi
+                // bentuknya berbeda supaya alasannya terbaca.
+                (n > 0 || !di_dasar.get()).then(|| {
+                    let ada_baru = n > 0;
+                    let kelas = if ada_baru {
+                        "chat-ke-bawah chat-ke-bawah--baru"
+                    } else {
+                        "chat-ke-bawah"
+                    };
+                    view! {
+                        <button
+                            class=kelas
+                            aria-label=if ada_baru {
+                                "Lihat pesan baru"
+                            } else {
+                                "Ke pesan terbaru"
+                            }
+                            on:click=move |_| {
+                                if let Some(el) = msg_list_ref.get_untracked() {
+                                    el.set_scroll_top(el.scroll_height());
+                                    di_dasar.set(true);
+                                    baru_masuk.set(0);
+                                }
+                            }
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                 stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                                 stroke-linejoin="round">
+                                <line x1="12" y1="5" x2="12" y2="19" />
+                                <polyline points="19 12 12 19 5 12" />
+                            </svg>
+                            {ada_baru.then(|| view! {
+                                <span class="chat-ke-bawah-label">
+                                    {format!("{n} pesan baru")}
+                                </span>
+                            })}
+                        </button>
+                    }
+                })
+            }}
 
             // ── Error toast ────────────────────────────────────────────────────
             {move || (!error_msg.get().is_empty()).then(|| view! {
@@ -455,7 +658,7 @@ pub fn ChatRoomPage() -> impl IntoView {
 
 // ── Message bubble renderer ───────────────────────────────────────────────────
 
-fn message_bubble(msg: ChatMessage, my_id: &str) -> impl IntoView {
+fn message_bubble(msg: ChatMessage, my_id: &str, disorot: bool) -> impl IntoView {
     let is_me   = msg.sender_id == my_id;
     let name    = msg.sender_name.clone();
     let text    = msg.content.clone();
@@ -464,7 +667,13 @@ fn message_bubble(msg: ChatMessage, my_id: &str) -> impl IntoView {
 
     let row_cls    = if is_me { "chat-row chat-row--self" } else { "chat-row chat-row--other" };
     let wrap_cls   = if is_me { "chat-bubble-wrap chat-bubble-wrap--self" } else { "chat-bubble-wrap" };
-    let bubble_cls = if is_me { "chat-bubble chat-bubble--self" } else { "chat-bubble chat-bubble--other" };
+    let bubble_cls = match (is_me, disorot) {
+        (true, _)      => "chat-bubble chat-bubble--self",
+        (false, false) => "chat-bubble chat-bubble--other",
+        // Sorotan hanya untuk pesan orang lain: menyorot pesan sendiri berarti
+        // memberi tahu seseorang tentang kalimat yang baru saja ia ketik.
+        (false, true)  => "chat-bubble chat-bubble--other chat-bubble--sorot",
+    };
 
     view! {
         <div class=row_cls>

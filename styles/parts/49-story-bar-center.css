@@ -1,0 +1,36 @@
+/* ===== Bilah bawah pembuat story: shutter benar-benar di tengah ===========
+   MASALAH
+   `.sc-area-bawah` memakai `justify-content: space-between` dengan tiga anak
+   yang sisi-sisinya TIDAK sama lebar: tombol galeri 52px di kiri, tombol balik
+   kamera 40px di kanan. `space-between` membagi sisa ruang secara merata di
+   antara anak-anaknya — jadi anak tengah berhenti di tengah SISA RUANG, bukan
+   di tengah bilah. Melesetnya persis (52 − 40) ÷ 2 = 6px ke kanan, cukup untuk
+   terlihat justru karena shutter adalah lingkaran besar yang jadi titik pandang
+   utama layar.
+
+   KENAPA BUKAN DISAMAKAN LEBARNYA
+   Menyamakan kedua sisi jadi 52px akan membesarkan tombol balik kamera tanpa
+   alasan, dan menyamakan jadi 40px mengecilkan pratinjau galeri yang memang
+   perlu terbaca sebagai gambar. Ukurannya berbeda karena perannya berbeda.
+
+   CARANYA
+   Shutter dikeluarkan dari aliran flex dan dipusatkan ke bilahnya sendiri.
+   `.sc-area-bawah` sudah `position: absolute`, jadi ia otomatis menjadi blok
+   penampung — tak perlu `position: relative` tambahan. Dengan begitu posisinya
+   tak lagi bergantung pada lebar apa pun di kiri dan kanannya, sekarang maupun
+   nanti bila salah satu tombol berubah ukuran. */
+
+.sc-area-bawah,
+.sc-bottom {
+    /* Shutter keluar dari aliran, jadi tinggi bilah tak lagi ikut mengikutinya.
+       Tanpa ini bilahnya menyusut setinggi tombol samping (52px) dan shutter
+       76px menonjol keluar dari gradiennya. */
+    min-height: 76px;
+}
+
+.sc-wrap-shutter,
+.sc-shutter-wrap {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+}

@@ -1,0 +1,141 @@
+/* ===== Pesan belum dibaca: lencana, pemisah, tombol gulir =================
+   Kolom `chats.buyer_read_at` / `merchant_read_at` sudah ada sejak percakapan
+   dibuat tetapi TAK PERNAH dibaca maupun ditulis satu baris kode pun. Daftar
+   percakapan karena itu tak bisa membedakan yang sudah dibaca dari yang belum,
+   dan pesan baru hanya terlihat bila seseorang kebetulan membukanya. */
+
+/* ── Lencana di daftar (/pulse) ──────────────────────────────────────────── */
+.msg-convo-badge {
+    flex-shrink: 0;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 7px;
+    border-radius: 99px;
+    background: var(--danger);
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 22px;
+    text-align: center;
+}
+/* Baris yang punya pesan belum dibaca ditandai HURUFNYA, bukan latarnya.
+   Latar berwarna pada baris daftar terbaca sebagai "terpilih", dan di daftar
+   yang sebagian besarnya belum dibaca ia berubah jadi blok warna yang justru
+   menyembunyikan mana yang penting. */
+.msg-convo-row--belum .msg-convo-name {
+    font-weight: 700;
+    color: var(--text-primary);
+}
+.msg-convo-row--belum .msg-convo-preview {
+    color: var(--text-secondary);
+}
+
+/* ── Pemisah "N pesan baru" (/pulse/{id}) ────────────────────────────────── */
+.chat-pemisah-baru {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 18px 0 10px;
+    /* Garis di kiri-kanan teks, dibuat dari border elemen semu supaya
+       panjangnya mengikuti ruang yang tersisa — bukan lebar tetap yang meleset
+       begitu teksnya berubah ("3 pesan baru" vs "12 pesan baru"). */
+}
+.chat-pemisah-baru::before,
+.chat-pemisah-baru::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: color-mix(in srgb, var(--danger) 30%, transparent);
+}
+.chat-pemisah-baru span {
+    flex-shrink: 0;
+    padding: 3px 12px;
+    border-radius: 99px;
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    color: var(--danger);
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+/* ── Tombol ke pesan terbaru ─────────────────────────────────────────────── */
+/* `.chat-page` tak pernah punya `position`, jadi tombol absolut di dalamnya
+   akan berlabuh ke viewport — melayang di tempat yang tak ada hubungannya
+   dengan percakapan, dan tetap di sana saat halaman digulir. Menjadikannya
+   blok penampung memperbaiki itu tanpa mengubah tata letak apa pun: `relative`
+   tanpa offset tidak menggeser elemen sedikit pun. */
+.chat-page {
+    position: relative;
+}
+
+.chat-ke-bawah {
+    position: absolute;
+    right: 16px;
+    /* Di atas kolom ketik, bukan menempel di dasar layar — kalau tidak ia
+       menutupi tombol kirim tepat saat orang hendak membalas. */
+    bottom: 86px;
+    z-index: 15;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+    transition: transform 0.15s, background 0.15s;
+}
+.chat-ke-bawah:hover {
+    background: var(--bg-elevated-2);
+}
+.chat-ke-bawah:active {
+    transform: scale(0.92);
+}
+
+/* ── Pil "N pesan baru" ──────────────────────────────────────────────────
+   Tombol yang sama berubah bentuk menurut ALASANNYA tampil:
+
+     tersesat di tengah riwayat  → lingkaran, panah saja
+     ada yang belum terlihat     → pil, panah + hitungannya
+
+   Panah polos menjawab "ada bawah"; yang ditanyakan orang adalah "ada yang
+   baru?". Dua pertanyaan berbeda, dan hanya yang kedua yang membuat seseorang
+   menoleh. */
+.chat-ke-bawah--baru {
+    width: auto;
+    padding: 0 14px 0 11px;
+    gap: 7px;
+    border-radius: 99px;
+    background: var(--danger);
+    border-color: transparent;
+    color: #fff;
+    /* Sekali, bukan berulang: animasi yang terus berdenyut di sudut layar
+       menarik mata sepanjang waktu dan berubah jadi gangguan, bukan kabar. */
+    animation: chat-pil-masuk 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.chat-ke-bawah-label {
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+@keyframes chat-pil-masuk {
+    from {
+        opacity: 0;
+        transform: translateY(6px) scale(0.94);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .chat-ke-bawah--baru {
+        animation: none;
+    }
+}

@@ -1,0 +1,74 @@
+/* ===== Satu bentuk pesan untuk seluruh aplikasi ===========================
+   MASALAH
+   Konsep yang sama — "ada yang salah" / "berhasil" — punya EMPAT perlakuan
+   visual yang nyaris sama tapi tak pernah persis:
+
+     .error-banner         radius 8px
+     .medit-error-banner   radius 12px
+     .success-banner       hijau `--live-green`, radius 8px
+     .medit-success-banner hijau `--accent-lime`, radius 12px
+     .abn-msg / .admin-toast  bentuk ketiga dan keempat
+
+   Selisih 4px radius dan dua hijau berbeda terlalu kecil untuk terbaca sebagai
+   keputusan, tapi cukup untuk membuat aplikasi terasa dirakit dari beberapa
+   aplikasi. Dan karena tiap halaman memakai kelasnya sendiri, memperbaiki satu
+   tak pernah memperbaiki yang lain.
+
+   CARANYA
+   Kelas-kelas yang sudah ada TIDAK diganti namanya — itu berarti menyunting
+   puluhan tempat di markup dan setiap satu yang terlewat menjadi pesan yang
+   tampil berbeda. Yang dilakukan di sini: seluruh nama itu diarahkan ke SATU
+   definisi. Berkas ini bernomor lebih tinggi, jadi ia menang tanpa `!important`
+   kecuali di satu tempat yang memang sudah memakainya. */
+
+.error-banner,
+.medit-error-banner,
+.success-banner,
+.medit-success-banner,
+.abn-msg,
+.admin-toast {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: 12px !important;
+    border: 1px solid transparent;
+    font-family: var(--font-body);
+    font-size: 12px;
+    line-height: 1.55;
+    /* Pesan panjang dari server kerap berupa satu kalimat tanpa spasi panjang
+       (URL, id). Tanpa ini ia melebarkan kotaknya dan merusak tata letak. */
+    overflow-wrap: anywhere;
+}
+
+/* ── Galat ──────────────────────────────────────────────────────────────── */
+.error-banner,
+.medit-error-banner,
+.abn-msg--err,
+.admin-toast--err {
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    border-color: color-mix(in srgb, var(--danger) 28%, transparent);
+    color: var(--danger);
+}
+
+/* ── Berhasil ───────────────────────────────────────────────────────────── */
+/* SATU hijau, bukan dua. `--live-green` dipakai untuk "sedang siaran" di
+   seluruh aplikasi; memakainya juga untuk "tersimpan" membuat dua keadaan yang
+   sama sekali berbeda tampil dengan warna yang sama. Warna berhasil mengikuti
+   warna aksi utama aplikasi. */
+.success-banner,
+.medit-success-banner,
+.abn-msg,
+.admin-toast--ok {
+    background: var(--color-primary-soft);
+    border-color: var(--color-primary-border);
+    color: var(--text-primary);
+}
+
+/* Ikon/tombol tutup di dalamnya tak ikut mengecil saat teksnya panjang. */
+.error-banner svg,
+.medit-error-banner svg,
+.success-banner svg,
+.medit-success-banner svg {
+    flex-shrink: 0;
+}

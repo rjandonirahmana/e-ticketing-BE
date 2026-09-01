@@ -1,0 +1,163 @@
+/* ── Kabar "pesan masuk" di dalam ruangan ──────────────────────────────────
+   Kenapa ada, padahal pesannya sudah tertambah di dasar daftar: menambah
+   gelembung bukan memberi tahu. Kalau layar memang sudah di dasar, pesan baru
+   muncul tanpa suara, tanpa gerak yang menarik mata — orang yang sedang
+   menatap kolom ketik atau baru menoleh kembali ke layar tidak punya apa pun
+   yang mengabarinya. Selama ini satu-satunya tanda ada pesan baru justru
+   terletak di HALAMAN LAIN (daftar /pulse), yang berarti harus meninggalkan
+   ruangan untuk tahu ada sesuatu di dalam ruangan itu.
+
+   Melayang, tidak ikut mengalir bersama pesan: kalau ia bagian dari daftar,
+   ia tergulir keluar layar persis pada orang yang paling perlu melihatnya. */
+.chat-masuk {
+    display: flex;
+    pointer-events: auto;
+    align-items: center;
+    gap: 9px;
+    max-width: min(88%, 420px);
+    padding: 9px 15px 9px 12px;
+
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    background: var(--bg-elevated);
+    box-shadow: 0 6px 20px rgb(0 0 0 / 0.16);
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+
+    animation: chat-masuk-turun 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes chat-masuk-turun {
+    from { opacity: 0; transform: translateY(-12px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.chat-masuk:hover  { background: var(--bg-elevated-2); }
+.chat-masuk:active { transform: scale(0.97); }
+
+/* Titik yang berdenyut — satu-satunya bagian yang BERGERAK, dan gerak itulah
+   yang sebenarnya menangkap mata di penglihatan tepi. */
+.chat-masuk-titik {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--danger);
+    animation: chat-masuk-denyut 1.4s ease-in-out infinite;
+}
+
+@keyframes chat-masuk-denyut {
+    0%, 100% { opacity: 1;   transform: scale(1); }
+    50%      { opacity: 0.45; transform: scale(0.72); }
+}
+
+.chat-masuk-teks {
+    min-width: 0;               /* prasyarat agar ellipsis anaknya bekerja */
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.chat-masuk-nama {
+    flex: none;
+    font-size: 13px;
+    font-weight: 700;
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-masuk-isi {
+    min-width: 0;
+    font-size: 13px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Sorotan gelembung yang barusan tiba ───────────────────────────────────
+   Kabar di atas menjawab "ada pesan baru"; sorotan menjawab pertanyaan yang
+   selalu menyusul sesudahnya — yang mana. Sekali jalan lalu padam: kalau ia
+   menetap, ia berhenti berarti "baru" dan berubah jadi hiasan. */
+.chat-bubble--sorot {
+    animation: chat-sorot 1.6s ease-out;
+}
+
+@keyframes chat-sorot {
+    0%   { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 55%, transparent); }
+    60%  { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 30%, transparent); }
+    100% { box-shadow: 0 0 0 3px transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .chat-masuk        { animation: none; }
+    .chat-masuk-titik  { animation: none; }
+    .chat-bubble--sorot { animation: none; }
+}
+
+/* ── Tumpukan kabar di puncak ruangan ──────────────────────────────────────
+   Satu wadah untuk keduanya. Sebelumnya masing-masing berlabuh sendiri ke
+   `.chat-page` dengan `top` yang sama — yang berarti begitu keduanya tampil
+   bersamaan, mereka saling menindih tepat di tengah.
+
+   Tembus klik. Wadah ini selebar layar dan menggantung di atas percakapan;
+   tanpa `pointer-events: none` ia akan memakan setiap sentuhan pada pesan yang
+   kebetulan lewat di bawahnya — pita tak terlihat yang mustahil ditebak
+   penyebabnya. Anaknya mengembalikan `auto` masing-masing. */
+.chat-kabar-atas {
+    position: absolute;
+    left: 50%;
+    /* Di bawah header, bukan menempel di puncak: menutupi nama lawan bicara
+       dan status "● LIVE" berarti menukar satu informasi dengan informasi
+       lain. */
+    top: calc(var(--header-h, 56px) + 12px);
+    transform: translateX(-50%);
+    z-index: 16;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: max-content;
+    max-width: min(88%, 420px);
+    pointer-events: none;
+}
+
+/* ── Penanda "N pesan baru" di header ──────────────────────────────────────
+   Duduk bersebelahan dengan "● LIVE" / "○ CONNECTING". Keduanya menjawab
+   pertanyaan yang sama — apa yang sedang terjadi di ruangan ini — jadi mata
+   cukup singgah di satu tempat, dan penandanya tak lagi bersaing dengan pil
+   kabar yang tampil bersamaan di puncak.
+
+   `inline-flex`, bukan `block`: induknya (`.chat-header-sub`) adalah baris
+   teks, dan elemen blok di dalamnya akan mematahkan barisnya. */
+.chat-tanda-baru {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 8px;
+    padding: 2px 9px;
+    border-radius: 99px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    /* Header sempit di ponsel; tanpa ini "12 pesan baru" bisa terpatah jadi
+       dua baris dan menaikkan tinggi seluruh header. */
+    white-space: nowrap;
+    /* Sekali berkedip saat muncul — di header ia diam, jadi tanpa isyarat
+       kemunculan ia mudah terlewat begitu saja. */
+    animation: chat-tanda-muncul 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes chat-tanda-muncul {
+    from { opacity: 0; transform: scale(0.82); }
+    to   { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .chat-tanda-baru { animation: none; }
+}

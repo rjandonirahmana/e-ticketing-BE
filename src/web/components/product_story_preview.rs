@@ -4,6 +4,31 @@
 
 use leptos::prelude::*;
 
+/// Batas panjang deskripsi di pratinjau.
+const MAKS_KARAKTER: usize = 120;
+
+/// Potong deskripsi untuk pratinjau — per KARAKTER, bukan per bita.
+///
+/// ── KENAPA INI PENTING ──────────────────────────────────────────────────
+/// Versi sebelumnya memakai `d.len()` (jumlah BITA) lalu memotong dengan
+/// `&d[..117]` (indeks BITA). Pada teks yang seluruhnya ASCII keduanya
+/// kebetulan sama, jadi ia lolos pengujian. Begitu deskripsi memuat satu saja
+/// karakter non-ASCII yang mendarat di sekitar bita ke-117 — tanda pisah "—",
+/// kutip melengkung, atau emoji, yang semuanya lazim di deskripsi produk —
+/// potongannya jatuh di TENGAH karakter dan Rust PANIK:
+/// "byte index 117 is not a char boundary".
+///
+/// Di WASM panik bukan galat yang bisa ditangani: ia menghentikan SELURUH
+/// aplikasi. Jadi satu emoji di posisi yang salah membuat halaman produk mati
+/// total, bukan sekadar pratinjaunya yang salah potong.
+fn potong_deskripsi(d: &str) -> String {
+    if d.chars().count() <= MAKS_KARAKTER {
+        return d.to_string();
+    }
+    let potong: String = d.chars().take(MAKS_KARAKTER - 1).collect();
+    format!("{potong}…")
+}
+
 /// Inline 9:16 Instagram-frame preview.
 /// Dipasang di MerchantCreateProductPage setelah cover upload.
 /// Update otomatis saat title / cover / desc berubah.
@@ -22,15 +47,24 @@ pub fn ProductStoryPreviewInline(
 ) -> impl IntoView {
     let show = RwSignal::new(false);
 
-    // Potong deskripsi max 3 baris ~120 char untuk preview
-    let short_desc = move || {
-        let d = description.get();
-        if d.len() > 120 {
-            format!("{}…", &d[..117])
-        } else {
-            d
-        }
-    };
+    // Potong deskripsi untuk pratinjau — per KARAKTER, bukan per bita.
+    //
+    // ── KENAPA INI PENTING ──────────────────────────────────────────────
+    // Versi sebelumnya memakai `d.len()` (jumlah BITA) lalu memotong dengan
+    // `&d[..117]` (indeks BITA). Pada teks yang seluruhnya ASCII keduanya
+    // kebetulan sama, jadi ia bekerja selama pengujian. Begitu deskripsi memuat
+    // satu saja karakter non-ASCII yang mendarat di sekitar bita ke-117 — tanda
+    // pisah "—", kutip melengkung, atau emoji, yang semuanya lazim di deskripsi
+    // produk — potongannya jatuh di TENGAH karakter dan Rust PANIK:
+    // "byte index 117 is not a char boundary".
+    //
+    // Di WASM panik bukan galat yang bisa ditangani: ia menghentikan seluruh
+    // aplikasi. Jadi satu emoji di posisi yang salah membuat halaman produk
+    // mati total, bukan sekadar pratinjaunya yang salah potong.
+    //
+    // `chars()` menghitung dan memotong pada batas karakter, jadi tak ada
+    // posisi yang bisa membelah apa pun.
+    let short_desc = move || potong_deskripsi(&description.get());
 
     let has_cover = move || cover_url.get().is_some();
     let has_title = move || !title.get().is_empty();
@@ -220,5 +254,54 @@ pub fn ProductStoryPreviewInline(
                 </div>
             </Show>
         </div>
+    }
+}
+
+// ─── Uji pemotong deskripsi ───────────────────────────────────────────────────
+#[cfg(test)]
+mod tests_potong {
+    use super::*;
+
+    /// Teks pendek dikembalikan apa adanya.
+    #[test]
+    fn pendek_tak_dipotong() {
+        assert_eq!(potong_deskripsi("Kaos polos"), "Kaos polos");
+    }
+
+    /// REGRESI: teks panjang berisi karakter non-ASCII tepat di sekitar batas.
+    /// Versi lama PANIK di sini dan menghentikan seluruh aplikasi WASM.
+    #[test]
+    fn non_ascii_di_batas_tak_panik() {
+        // Em dash 3 bita; ditaruh berulang supaya salah satunya pasti mendarat
+        // di sekitar bita ke-117, tempat pemotong lama membelah karakter.
+        let d = "—".repeat(200);
+        let hasil = potong_deskripsi(&d);
+        assert!(hasil.ends_with('…'));
+        assert_eq!(hasil.chars().count(), MAKS_KARAKTER);
+    }
+
+    /// Emoji (4 bita) juga tak boleh membelah.
+    #[test]
+    fn emoji_tak_panik() {
+        let d = "🎉".repeat(150);
+        let hasil = potong_deskripsi(&d);
+        assert_eq!(hasil.chars().count(), MAKS_KARAKTER);
+    }
+
+    /// Tepat di batas: tak dipotong, tak ada elipsis.
+    #[test]
+    fn tepat_di_batas() {
+        let d = "a".repeat(MAKS_KARAKTER);
+        assert_eq!(potong_deskripsi(&d), d);
+        assert!(!potong_deskripsi(&d).ends_with('…'));
+    }
+
+    /// Satu karakter melebihi batas → dipotong.
+    #[test]
+    fn satu_lebih_dipotong() {
+        let d = "a".repeat(MAKS_KARAKTER + 1);
+        let hasil = potong_deskripsi(&d);
+        assert!(hasil.ends_with('…'));
+        assert_eq!(hasil.chars().count(), MAKS_KARAKTER);
     }
 }

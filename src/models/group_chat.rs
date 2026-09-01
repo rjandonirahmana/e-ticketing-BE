@@ -12,6 +12,11 @@ pub struct GroupRoom {
     pub created_by: String, // user_id merchant
     pub created_at: DateTime<Utc>,
     pub member_count: i64,
+    /// Pesan dari LAWAN BICARA yang tiba sesudah terakhir kali kita membuka
+    /// percakapan ini. Pesan sendiri tak pernah ikut dihitung — yang baru saja
+    /// kita kirim bukan pesan yang belum kita baca.
+    #[serde(default)]
+    pub unread_count: i64,
 }
 
 // ── GroupMember ────────────────────────────────────────────────────────────────

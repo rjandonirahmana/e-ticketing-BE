@@ -129,6 +129,17 @@ impl GroupChatService {
         Ok(msg)
     }
 
+    /// Tandai percakapan sudah dibaca oleh `user_id`.
+    ///
+    /// Keanggotaan diperiksa DI DALAM SQL-nya (`WHERE ... buyer_id = $2 OR
+    /// merchant_id = $2`), jadi id percakapan orang lain tak menghasilkan apa
+    /// pun — bukan galat, hanya nol baris. Itu jawaban yang benar: memberi tahu
+    /// pemanggil bahwa percakapan itu ada tapi bukan miliknya sudah membocorkan
+    /// keberadaannya.
+    pub async fn mark_read(&self, room_id: &str, user_id: &str) -> anyhow::Result<()> {
+        self.repo.mark_read(room_id, user_id).await
+    }
+
     pub async fn get_history(
         &self,
         room_id: &str,

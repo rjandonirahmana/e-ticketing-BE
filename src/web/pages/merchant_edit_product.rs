@@ -791,43 +791,25 @@ pub fn MerchantEditProductPage() -> impl IntoView {
                     })
                 />
 
-                // ── TANGGAL & WAKTU ───────────────────────────
+                // ── TANGGAL / WAKTU / NAMA LOKASI: DIBUANG ────
+                // Sama alasannya dengan formulir buat-produk: ini toko, bukan
+                // penjualan tiket acara. Nilai `event_date` dan `start_time`
+                // yang sudah tersimpan DIPERTAHANKAN apa adanya (sinyalnya
+                // masih terisi dari data yang dimuat), jadi menyunting produk
+                // tak diam-diam menghapus data yang pernah ada.
                 <div class="medit-section-header">
-                    <span class="medit-section-label">"WAKTU & TEMPAT"</span>
+                    <span class="medit-section-label">"LOKASI TOKO"</span>
                 </div>
 
                 <div class="medit-field-group">
-                    <label class="medit-field-label">"TANGGAL"</label>
-                    <input type="date" class="medit-input"
-                           prop:value=move || f_date.get()
-                           on:input=move |e| f_date.set(event_target_value(&e))/>
-                </div>
-
-                <div class="medit-grid-2">
-                    <div class="medit-field-group">
-                        <label class="medit-field-label">"WAKTU MULAI"</label>
-                        <input type="time" class="medit-input"
-                               prop:value=move || f_time.get()
-                               on:input=move |e| f_time.set(event_target_value(&e))/>
-                    </div>
-                    <div class="medit-field-group">
-                        <label class="medit-field-label">"KOTA"</label>
-                        <input type="text" class="medit-input"
-                               placeholder="Jakarta"
-                               prop:value=move || f_city.get()
-                               on:input=move |e| f_city.set(event_target_value(&e))/>
-                    </div>
-                </div>
-
-                <div class="medit-field-group">
-                    <label class="medit-field-label">"NAMA LOKASI"</label>
+                    <label class="medit-field-label">"KOTA / ASAL PENGIRIMAN"</label>
                     <input type="text" class="medit-input"
-                           placeholder="Gelora Bung Karno"
-                           prop:value=move || f_venue.get()
-                           on:input=move |e| f_venue.set(event_target_value(&e))/>
+                           placeholder="cth. Jakarta Pusat"
+                           prop:value=move || f_city.get()
+                           on:input=move |e| f_city.set(event_target_value(&e))/>
                 </div>
 
-                // ── VARIAN TIKET ──────────────────────────────
+                // ── VARIAN PRODUK (ukuran/warna + harga + stok) ─
                 <VariantEditor rows=v_rows removed_ids=v_removed />
 
                 // ── LOKASI DI PETA ────────────────────────────
@@ -918,3 +900,4 @@ pub fn MerchantEditProductPage() -> impl IntoView {
         </div>
     }
 }
+

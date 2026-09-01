@@ -27,6 +27,21 @@ pub async fn get_chat_history(room_id: String) -> Result<Vec<ChatMessage>, Serve
     return Ok(messages.into_iter().map(srv_group_message_to_web).collect());
 }
 
+/// Tandai satu percakapan sudah dibaca sampai sekarang.
+///
+/// Dipanggil saat halaman percakapan dibuka. Tanpa ini lencana "pesan baru"
+/// tak pernah turun — ia akan terus tumbuh meski percakapannya dibaca.
+#[server(MarkChatRead, "/api-fn")]
+pub async fn mark_chat_read(room_id: String) -> Result<(), ServerFnError> {
+    let claims = auth_claims().await?;
+    let state = app_state().await?;
+    state
+        .group_chat_svc
+        .mark_read(&room_id, &claims.user_id)
+        .await
+        .map_err(|e| ServerFnError::ServerError(e.to_string()))
+}
+
 #[server(GetChatRoomDetail, "/api-fn")]
 pub async fn get_chat_room_detail(room_id: String) -> Result<ChatRoom, ServerFnError> {
     let claims = auth_claims().await?;

@@ -7,7 +7,9 @@ use crate::web::api::get_chat_rooms;
 use crate::web::app::AuthResource;
 use crate::web::components::story_bars::StoryBar;
 use crate::web::components::story_viewer::StoryViewer;
-use crate::web::components::{BannerSlider, BottomNav, EmptyState, MessageRowShimmer};
+use crate::web::components::{
+    langgan_chat, BannerSlider, BottomNav, EmptyState, MessageRowShimmer,
+};
 
 #[component]
 pub fn MessagesPage() -> impl IntoView {
@@ -27,12 +29,48 @@ pub fn MessagesPage() -> impl IntoView {
 
     let search = RwSignal::new(String::new());
 
+    // ── Lencana yang hidup ──────────────────────────────────────────────────
+    // `rooms` bertanya SEKALI lalu diam, jadi hitungan belum-dibaca yang ia
+    // bawa adalah foto keadaan pada detik halaman dimuat. Alih-alih memuat
+    // ulang seluruh daftar tiap ada pesan (mahal, dan membuat daftarnya
+    // berkedip), tambahan disimpan terpisah lalu DIJUMLAHKAN saat merender.
+    //
+    // Pemisahan ini juga yang membuat urutannya tak pernah kacau: yang datang
+    // dari server tetap utuh, yang datang dari WebSocket hanya menumpang.
+    let tambahan: RwSignal<std::collections::HashMap<String, i32>> =
+        RwSignal::new(std::collections::HashMap::new());
+
+    let saya = move || auth.get().and_then(|r| r.ok()).flatten().map(|u| u.id);
+
+    langgan_chat(move |evt| {
+        if evt.get("type").and_then(|t| t.as_str()) != Some("new_message") {
+            return;
+        }
+        let Some(rid) = evt.get("room_id").and_then(|v| v.as_str()) else { return };
+        let pengirim = evt.get("sender_id").and_then(|v| v.as_str()).unwrap_or_default();
+        // Pesan sendiri bukan pesan belum dibaca. Server menggemakannya kembali
+        // ke pengirim (itulah yang membuat pesan muncul di perangkat lain milik
+        // orang yang sama), jadi tanpa saringan ini setiap kali seseorang
+        // mengirim, ia menaikkan lencananya sendiri.
+        if Some(pengirim) == saya().as_deref() {
+            return;
+        }
+        tambahan.update(|m| *m.entry(rid.to_string()).or_insert(0) += 1);
+    });
+
     let filtered_rooms = Memo::new(move |_| {
         let q = search.get().to_lowercase();
+        let plus = tambahan.get();
         match rooms.get() {
             Some(Ok(list)) => list
                 .into_iter()
                 .filter(|r| q.is_empty() || r.name.to_lowercase().contains(&q))
+                .map(|mut r| {
+                    if let Some(n) = plus.get(&r.id) {
+                        r.unread_count = r.unread_count.max(0) + n;
+                    }
+                    r
+                })
                 .collect::<Vec<_>>(),
             _ => vec![],
         }
@@ -121,8 +159,16 @@ pub fn MessagesPage() -> impl IntoView {
                                                         let name = room.name.clone();
                                                         let preview = format!("{} anggota", room.member_count);
                                                         let is_live = i == 0;
+                                                        let belum = room.unread_count.max(0);
+                                                        // Kelas dirakit DI LUAR `view!`: makro-nya tak menerima
+                                                        // `if` telanjang sebagai nilai atribut.
+                                                        let kelas_baris = if belum > 0 {
+                                                            "msg-convo-row msg-convo-row--belum"
+                                                        } else {
+                                                            "msg-convo-row"
+                                                        };
                                                         view! {
-                                                            <A href=href attr:class="msg-convo-row">
+                                                            <A href=href attr:class=kelas_baris>
                                                                 <div class="msg-convo-avatar-wrap">
                                                                     <img src=cover alt=name.clone() class="msg-convo-avatar" />
                                                                     {is_live.then(|| view! {
@@ -137,10 +183,29 @@ pub fn MessagesPage() -> impl IntoView {
                                                                         <span class="msg-convo-preview">{preview}</span>
                                                                     </div>
                                                                 </div>
-                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                                                    stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                                                                    <polyline points="9 18 15 12 9 6" />
-                                                                </svg>
+                                                                // Lencana jumlah pesan belum dibaca. Menggantikan
+                                                                // panah saat ada yang belum dibaca: panah cuma
+                                                                // mengulang "baris ini bisa dibuka", yang sudah
+                                                                // jelas — sedangkan angkanya membawa keterangan
+                                                                // yang tak ada di tempat lain.
+                                                                {if belum > 0 {
+                                                                    view! {
+                                                                        <span class="msg-convo-badge">
+                                                                            {if belum > 99 {
+                                                                                "99+".to_string()
+                                                                            } else {
+                                                                                belum.to_string()
+                                                                            }}
+                                                                        </span>
+                                                                    }.into_any()
+                                                                } else {
+                                                                    view! {
+                                                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                                                            stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                                                                            <polyline points="9 18 15 12 9 6" />
+                                                                        </svg>
+                                                                    }.into_any()
+                                                                }}
                                                             </A>
                                                         }
                                                     }).collect_view().into_any()

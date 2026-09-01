@@ -27,6 +27,14 @@ pub trait GroupChatRepository: Send + Sync {
     /// Inbox, terbaru di atas — diurut `last_message_at`, bukan `created_at`.
     async fn get_user_rooms(&self, user_id: &str) -> Result<Vec<GroupRoom>>;
 
+    /// Tandai percakapan sudah dibaca sampai SEKARANG oleh `user_id`.
+    ///
+    /// Sisi mana yang ditulis (`buyer_read_at` atau `merchant_read_at`)
+    /// ditentukan di dalam SQL dari baris itu sendiri, bukan dari parameter —
+    /// pemanggil tak perlu tahu ia pembeli atau merchant, dan karena itu tak
+    /// bisa salah menebaknya.
+    async fn mark_read(&self, room_id: &str, user_id: &str) -> Result<()>;
+
     // Peserta — dibaca dari baris `chats`, tak ada tabel anggota lagi.
     async fn is_member(&self, room_id: &str, user_id: &str) -> Result<bool>;
     async fn get_member_ids(&self, room_id: &str) -> Result<Vec<String>>;
@@ -84,6 +92,10 @@ impl PgGroupChatRepository {
             created_by: bin_to_ulid(merchant_b)?,
             created_at: row.try_get("created_at")?,
             member_count: 2,
+            // Toleran: kueri yang tak menyertakan kolom ini (mis. `find_by_id`)
+            // tetap memakai mapper yang sama. Nol adalah jawaban yang benar di
+            // sana — bukan galat.
+            unread_count: row.try_get("unread_count").unwrap_or(0),
         })
     }
 
@@ -169,7 +181,26 @@ impl GroupChatRepository for PgGroupChatRepository {
                    CASE WHEN c.buyer_id = $1
                         THEN COALESCE(d.store_name, um.name, '')
                         ELSE COALESCE(ub.name, '') END AS name,
-                   CASE WHEN c.buyer_id = $1 THEN d.logo_url ELSE NULL END AS cover_url
+                   CASE WHEN c.buyer_id = $1 THEN d.logo_url ELSE NULL END AS cover_url,
+                   -- Pesan LAWAN BICARA yang tiba sesudah terakhir kali kita
+                   -- membuka percakapan ini.
+                   --
+                   -- `sender_id <> $1`: pesan yang baru saja kita kirim bukan
+                   -- pesan yang belum kita baca. Tanpa syarat ini, mengirim
+                   -- pesan justru menaikkan lencana "belum dibaca" sendiri.
+                   --
+                   -- `COALESCE(..., c.created_at)`: percakapan yang belum
+                   -- pernah dibuka bertanda NULL. Diperlakukan sebagai "sejak
+                   -- percakapan lahir" — bukan `epoch`, yang sama saja hasilnya
+                   -- di sini tetapi menyembunyikan maksudnya.
+                   (SELECT COUNT(*)::BIGINT FROM chat_messages m
+                     WHERE m.chat_id = c.id
+                       AND m.sender_id <> $1
+                       AND m.sent_at > COALESCE(
+                             CASE WHEN c.buyer_id = $1
+                                  THEN c.buyer_read_at
+                                  ELSE c.merchant_read_at END,
+                             c.created_at)) AS unread_count
             FROM chats c
             JOIN users um ON um.id = c.merchant_id
             JOIN users ub ON ub.id = c.buyer_id
@@ -190,6 +221,26 @@ impl GroupChatRepository for PgGroupChatRepository {
     /// (migrasi 029) justru karena ia sumber kebenaran kedua yang bisa
     /// berselisih dengan baris ini, dan selisihnya berbentuk percakapan yang
     /// ada tetapi tak bisa dimasuki siapa pun.
+    async fn mark_read(&self, room_id: &str, user_id: &str) -> Result<()> {
+        let room_b = id_to_vec(room_id)?;
+        let user_b = id_to_vec(user_id)?;
+        // Satu UPDATE untuk kedua sisi. `WHERE` memastikan hanya peserta
+        // percakapan ini yang bisa menandainya — tanpa itu, siapa pun yang tahu
+        // id percakapan bisa menghapus lencana milik orang lain.
+        exec_drop(
+            &self.pool,
+            r#"
+            UPDATE chats
+               SET buyer_read_at    = CASE WHEN buyer_id    = $2 THEN NOW() ELSE buyer_read_at    END,
+                   merchant_read_at = CASE WHEN merchant_id = $2 THEN NOW() ELSE merchant_read_at END
+             WHERE id = $1 AND (buyer_id = $2 OR merchant_id = $2)
+            "#,
+            &[&room_b, &user_b],
+        )
+        .await?;
+        Ok(())
+    }
+
     async fn is_member(&self, room_id: &str, user_id: &str) -> Result<bool> {
         let room_b = id_to_vec(room_id)?;
         let user_b = id_to_vec(user_id)?;
@@ -391,3 +442,4 @@ impl GroupChatRepository for PgGroupChatRepository {
         Ok((msgs, has_more))
     }
 }
+
