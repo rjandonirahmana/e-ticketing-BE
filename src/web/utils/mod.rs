@@ -2,6 +2,8 @@
 //!
 //! Murni fungsi sinkron tanpa I/O atau API browser → aman dipakai di SSR & WASM.
 
+pub mod waktu;
+
 /// Format angka dengan pemisah ribuan gaya Indonesia (titik).
 /// `1000000` → `"1.000.000"`. Menangani nilai negatif.
 pub fn format_number(n: i64) -> String {
@@ -29,6 +31,21 @@ pub fn format_number(n: i64) -> String {
 /// Format Rupiah: `1000000` → `"Rp1.000.000"`.
 pub fn format_idr(n: i64) -> String {
     format!("Rp{}", format_number(n))
+}
+
+/// Rupiah, tapi nol berbunyi `"Gratis"`.
+///
+/// Dulu ini ditulis ulang empat kali — `format_price` di models, `format_idr`
+/// di dua halaman pembayaran, dan `price_label` di keranjang serta checkout —
+/// dengan dua ejaan yang berbeda: `Rp1.000.000` dan `Rp 1.000.000`. Dua ejaan
+/// untuk satu hal di satu aplikasi bukan pilihan gaya, itu kelalaian yang
+/// kebetulan tak pernah terlihat karena keduanya tak pernah muncul berdampingan.
+pub fn rupiah_atau_gratis(n: i64) -> String {
+    if n == 0 {
+        "Gratis".to_string()
+    } else {
+        format_idr(n)
+    }
 }
 
 // ── OpenStreetMap / Leaflet interop ──────────────────────────────────────────
@@ -231,4 +248,30 @@ pub fn identitas_tamu() -> (String, String) {
         let _ = s.set_item(KUNCI_TAMU, &format!("{id}|{nama}"));
     }
     (id, nama)
+}
+
+/// Alamat WebSocket same-origin untuk `path`.
+///
+/// `wss` saat halamannya `https`, `ws` selebihnya — ketentuan yang tak boleh
+/// ditebak dua kali: peramban menolak `ws://` dari halaman aman tanpa pesan
+/// yang menjelaskan apa pun, dan itu gejala yang mahal untuk dilacak.
+pub fn build_ws_url(path: &str) -> String {
+    #[cfg(target_arch = "wasm32")]
+    {
+        // `if let`, bukan `.expect("no window")`. Salah satu dari tiga salinan
+        // yang digabung ke sini memang memanikkan di situ — dan panik di wasm
+        // menggugurkan SELURUH aplikasi, bukan cuma pemanggilnya. Tak ada
+        // alamat WebSocket yang cukup berharga untuk itu.
+        if let Some(win) = web_sys::window() {
+            let loc = win.location();
+            let proto = if loc.protocol().unwrap_or_default() == "https:" {
+                "wss"
+            } else {
+                "ws"
+            };
+            let host = loc.host().unwrap_or_default();
+            return format!("{proto}://{host}{path}");
+        }
+    }
+    format!("ws://localhost{path}")
 }

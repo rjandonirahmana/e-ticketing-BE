@@ -167,13 +167,7 @@ fn kelompokkan_per_toko(items: &[CartItemView]) -> Vec<KelompokToko> {
     out
 }
 
-fn price_label(amount: i64) -> String {
-    if amount == 0 {
-        "Gratis".to_string()
-    } else {
-        format_idr(amount)
-    }
-}
+use crate::web::utils::rupiah_atau_gratis as price_label;
 
 /// Kartu permukaan standar. Dipakai baris keranjang dan kartu ringkasan supaya
 /// radius, garis, dan latar tak pernah berbeda antar-blok di halaman yang sama.

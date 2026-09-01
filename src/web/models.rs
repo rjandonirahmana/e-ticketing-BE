@@ -732,43 +732,18 @@ pub struct AdminStats {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/// Harga tampilan. Nol berbunyi "Gratis".
+///
+/// Meneruskan, tidak menyalin: badannya dulu merakit pemisah ribuan sendiri —
+/// salinan keempat dari logika yang sama — dan mengejanya `Rp 1.000.000`
+/// sementara sebagian besar aplikasi mengeja `Rp1.000.000`.
 pub fn format_price(price: f64) -> String {
-    let p = price as i64;
-    if p == 0 {
-        return "Gratis".to_string();
-    }
-    let s = p.to_string();
-    let chars: Vec<char> = s.chars().rev().collect();
-    let grouped: String = chars
-        .chunks(3)
-        .map(|c| c.iter().collect::<String>())
-        .collect::<Vec<_>>()
-        .join(".")
-        .chars()
-        .rev()
-        .collect();
-    format!("Rp {}", grouped)
+    crate::web::utils::rupiah_atau_gratis(price as i64)
 }
 
-pub fn format_date(dt: &DateTime<Utc>) -> String {
-    use chrono::Datelike;
-    let months = [
-        "Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des",
-    ];
-    format!(
-        "{} {} {}",
-        dt.day(),
-        months[(dt.month() as usize) - 1],
-        dt.year()
-    )
-}
+/// Tanggal tampilan, zona WIB, nama bulan Indonesia.
+pub use crate::web::utils::waktu::tanggal as format_date;
 
-pub fn format_datetime(dt: &DateTime<Utc>) -> String {
-    use chrono::Timelike;
-    format!(
-        "{}, {:02}:{:02} WIB",
-        format_date(dt),
-        dt.hour(),
-        dt.minute()
-    )
-}
+// `format_datetime` DIBUANG: nol pemanggil, dan ia menampilkan jam UTC dengan
+// label "WIB" — tujuh jam meleset, dengan keterangan zona yang meyakinkan.
+// Penggantinya bila kelak dibutuhkan: `web::utils::waktu::tanggal_jam`.

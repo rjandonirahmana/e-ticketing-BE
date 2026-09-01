@@ -7,7 +7,7 @@ use wasm_bindgen::prelude::*;
 
 use super::tiles::{remove_tile, set_tile_state};
 use super::webrtc::{handle_answer, handle_candidate, handle_offer, make_offer};
-use super::{build_ws_url, get_user_media, Ctx, Phase};
+use super::{build_ws_url, Ctx, Phase};
 
 /// Tangani satu pesan JSON dari server.
 pub(super) async fn handle_msg(ctx: &Ctx, raw: &str) {
@@ -166,13 +166,12 @@ pub(super) async fn handle_msg(ctx: &Ctx, raw: &str) {
             }
         }
         "meeting_ended" => {
+            // Dulu di sini ada pembersihan SEPARUH — peer connection dan
+            // WebSocket ditutup, kamera tidak. Saat host membubarkan meet,
+            // peserta lain ditinggalkan dengan kamera yang masih menyala.
+            // Tak ada alasan jalur ini berbeda dari menekan tombol keluar.
             ctx.phase.set(Phase::Ended);
-            for (_, pc) in ctx.pcs.borrow_mut().drain() {
-                pc.close();
-            }
-            if let Some(ws) = ctx.ws.borrow().as_ref() {
-                let _ = ws.close();
-            }
+            teardown(ctx);
         }
         "error" => {
             ctx.error_msg.set(Some(
@@ -189,7 +188,10 @@ pub(super) async fn setup_preview(
     ctx: Ctx,
     local_sig: RwSignal<Option<send_wrapper::SendWrapper<web_sys::MediaStream>>>,
 ) {
-    let stream = match get_user_media().await {
+    let stream = match crate::web::rtc::request_camera_mic()
+        .await
+        .map_err(|e| e.user_message())
+    {
         Ok(s) => s,
         Err(e) => {
             ctx.error_msg.set(Some(e));
@@ -197,6 +199,19 @@ pub(super) async fn setup_preview(
             return;
         }
     };
+    // Izin kamera bisa memakan waktu lama — orangnya sempat menekan tombol
+    // kembali sebelum dialognya dijawab. Bila itu terjadi, `teardown` sudah
+    // lewat, dan menyimpan stream ini berarti menyimpannya di tempat yang tak
+    // akan pernah dibersihkan lagi: kamera menyala di halaman yang bahkan sudah
+    // ditinggalkan.
+    if ctx.bubar.get() {
+        let tracks = stream.get_tracks();
+        for i in 0..tracks.length() {
+            let t: web_sys::MediaStreamTrack = tracks.get(i).unchecked_into();
+            t.stop();
+        }
+        return;
+    }
     *ctx.local.borrow_mut() = Some(stream.clone());
     local_sig.set(Some(send_wrapper::SendWrapper::new(stream)));
     ctx.phase.set(Phase::Prejoin);
@@ -274,6 +289,32 @@ pub(super) async fn connect(ctx: Ctx, room_id: String, as_host: bool, name: Stri
 
 /// Hentikan semua: tutup PC, stop track kamera/mic, tutup WS.
 pub(super) fn teardown(ctx: &Ctx) {
+    // ── MEDIA DIMATIKAN PALING DULU ───────────────────────────────────────
+    // Bukan urutan yang sembarang. Segala yang di bawah ini — meminjam
+    // `RefCell`, menutup peer connection yang bisa memicu handler, menutup
+    // WebSocket — punya cara masing-masing untuk gagal atau memanikkan, dan
+    // apa pun yang gagal di sana akan melewati baris yang mematikan kamera.
+    //
+    // Dari sudut pandang orangnya, itu kegagalan yang paling tidak bisa
+    // dimaafkan: lampu kamera tetap menyala sesudah ia merasa sudah keluar.
+    // Jadi kamera mati lebih dulu, selalu, apa pun yang terjadi sesudahnya.
+    ctx.bubar.set(true);
+    for slot in [&ctx.local, &ctx.screen] {
+        if let Some(stream) = slot.borrow().clone() {
+            let tracks = stream.get_tracks();
+            for i in 0..tracks.length() {
+                let t: web_sys::MediaStreamTrack = tracks.get(i).unchecked_into();
+                // Lepas `onended` dulu: menghentikan track berbagi layar akan
+                // memicunya, dan penanganannya mencoba memulihkan kamera —
+                // tepat pada saat kita sedang membubarkan semuanya.
+                t.set_onended(None);
+                t.stop();
+            }
+        }
+    }
+    *ctx.local.borrow_mut() = None;
+    *ctx.screen.borrow_mut() = None;
+
     for (_, pc) in ctx.pcs.borrow_mut().drain() {
         pc.set_onicecandidate(None);
         pc.set_ontrack(None);
@@ -281,14 +322,6 @@ pub(super) fn teardown(ctx: &Ctx) {
     }
     // Drop semua closure per-peer (onicecandidate/ontrack) → tak bocor.
     ctx.pc_closures.borrow_mut().clear();
-    let stream = ctx.local.borrow().clone();
-    if let Some(stream) = stream {
-        let tracks = stream.get_tracks();
-        for i in 0..tracks.length() {
-            let t: web_sys::MediaStreamTrack = tracks.get(i).unchecked_into();
-            t.stop();
-        }
-    }
     let ws = ctx.ws.borrow().clone();
     if let Some(ws) = ws {
         // Lepas handler sebelum drop closure di bawah; close() menghentikan product.

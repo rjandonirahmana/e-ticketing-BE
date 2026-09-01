@@ -1,4 +1,5 @@
 pub mod capacity;
+pub mod cookie;
 pub mod error;
 pub mod jwt;
 pub mod phone;

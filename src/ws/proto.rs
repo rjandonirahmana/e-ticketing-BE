@@ -274,3 +274,190 @@ impl WsMessage {
         }
     }
 }
+
+// ── Uji ───────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests_protokol {
+    use super::*;
+
+    fn pesan() -> WsMessage {
+        WsMessage {
+            id: "01J".into(),
+            room_id: "room-1".into(),
+            sender_id: "u1".into(),
+            sender_name: "Rani".into(),
+            msg_type: MsgType::Text,
+            content: "halo".into(),
+            media_url: None,
+            ticket_card: None,
+            sent_at: 1_756_700_000_000,
+            is_system: false,
+        }
+    }
+
+    fn json(e: &WsEvent) -> serde_json::Value {
+        serde_json::from_str(&serde_json::to_string(e).unwrap()).unwrap()
+    }
+
+    // ── Kontrak yang dipegang klien ───────────────────────────────────────
+
+    /// `#[serde(tag = "type")]` MELARUTKAN varian newtype: bidang pesannya
+    /// berada di tingkat ATAS, bersebelahan dengan `type`, bukan bersarang di
+    /// bawah kunci lain.
+    ///
+    /// Klien mengurai bingkai yang sama ini langsung menjadi satu struct. Kalau
+    /// bentuknya berubah jadi bersarang, penguraian itu gagal DIAM-DIAM — pesan
+    /// tak pernah muncul di layar dan tak ada galat di mana pun.
+    #[test]
+    fn pesan_baru_rata_di_tingkat_atas() {
+        let v = json(&WsEvent::NewMessage(Box::new(pesan())));
+        assert_eq!(v["type"], "new_message");
+        assert_eq!(v["room_id"], "room-1");
+        assert_eq!(v["sender_id"], "u1");
+        assert_eq!(v["content"], "halo");
+        assert!(v.get("id").is_some());
+    }
+
+    /// `sent_at` adalah ANGKA unix millis, bukan teks RFC3339. Pergantian ini
+    /// pernah memecahkan klien; ujinya ada supaya tak terjadi diam-diam lagi.
+    #[test]
+    fn waktu_kirim_berupa_angka() {
+        let v = json(&WsEvent::NewMessage(Box::new(pesan())));
+        assert!(v["sent_at"].is_number(), "sent_at bukan angka: {}", v["sent_at"]);
+        assert_eq!(v["sent_at"].as_u64().unwrap(), 1_756_700_000_000);
+    }
+
+    /// Klien mengurai `msg_type` ke dalam bidang bernama `message_type` lewat
+    /// alias. Nama di kawat harus tetap `msg_type`, huruf kecil.
+    #[test]
+    fn jenis_pesan_bernama_msg_type_huruf_kecil() {
+        let v = json(&WsEvent::NewMessage(Box::new(pesan())));
+        assert_eq!(v["msg_type"], "text");
+
+        let mut m = pesan();
+        m.msg_type = MsgType::Image;
+        assert_eq!(json(&WsEvent::NewMessage(Box::new(m)))["msg_type"], "image");
+    }
+
+    #[test]
+    fn ack_membawa_client_id_untuk_mencocokkan_pesan_optimistis() {
+        let v = json(&WsEvent::Ack {
+            msg_id: "real-1".into(),
+            client_id: Some("_opt_123".into()),
+            sent_at: 42,
+        });
+        assert_eq!(v["type"], "ack");
+        assert_eq!(v["msg_id"], "real-1");
+        assert_eq!(v["client_id"], "_opt_123");
+    }
+
+    /// KONTRAK PENTING: klien berhenti menyambung ulang saat menerima kode ini.
+    ///
+    /// Server menyimpan satu sesi per pengguna — koneksi baru menggantikan yang
+    /// lama. Tanpa kode ini sampai dengan ejaan yang tepat, tab yang tergusur
+    /// akan menyambung ulang dan menggusur balik, selamanya, empat puluh kali
+    /// semenit. Ejaannya bagian dari kontrak, bukan detail.
+    #[test]
+    fn kode_replaced_dieja_screaming_snake_case() {
+        let v = json(&WsEvent::err(ErrorCode::Replaced, "diganti"));
+        assert_eq!(v["type"], "error");
+        assert_eq!(v["code"], "REPLACED");
+    }
+
+    #[test]
+    fn kode_galat_lain_ejaannya_tetap() {
+        assert_eq!(json(&WsEvent::err(ErrorCode::Unauthorized, "x"))["code"], "UNAUTHORIZED");
+        assert_eq!(json(&WsEvent::err(ErrorCode::RateLimited, "x"))["code"], "RATE_LIMITED");
+        assert_eq!(json(&WsEvent::err(ErrorCode::SendFailed, "x"))["code"], "SEND_FAILED");
+    }
+
+    // ── Bingkai dari sambungan yang buruk ─────────────────────────────────
+
+    #[test]
+    fn kirim_teks_terurai() {
+        let m: WsClientMsg = serde_json::from_str(
+            r#"{"type":"send_text","room_id":"r1","content":"halo","client_id":"_opt_1"}"#,
+        )
+        .unwrap();
+        match m {
+            WsClientMsg::SendText { room_id, content, client_id } => {
+                assert_eq!(room_id, "r1");
+                assert_eq!(content, "halo");
+                assert_eq!(client_id.as_deref(), Some("_opt_1"));
+            }
+            lain => panic!("varian salah: {lain:?}"),
+        }
+    }
+
+    /// `client_id` dan `caption` boleh hilang — klien lama tak mengirimkannya.
+    #[test]
+    fn kirim_gambar_tanpa_keterangan_tetap_sah() {
+        let m: WsClientMsg = serde_json::from_str(
+            r#"{"type":"send_image","room_id":"r1","media_url":"https://x/y.png"}"#,
+        )
+        .unwrap();
+        match m {
+            WsClientMsg::SendImage { media_url, caption, client_id, .. } => {
+                assert_eq!(media_url, "https://x/y.png");
+                assert!(caption.is_none());
+                assert!(client_id.is_none());
+            }
+            lain => panic!("varian salah: {lain:?}"),
+        }
+    }
+
+    /// SKENARIO KONEKSI LEMAH: bingkai terpotong di tengah jalan.
+    ///
+    /// Yang dituntut di sini bukan "diurai dengan benar" — itu mustahil —
+    /// melainkan GAGAL, bukan panik. Panik di jalur ini menjatuhkan tugas yang
+    /// melayani seluruh percakapan pengguna itu, bukan cuma satu pesannya.
+    #[test]
+    fn bingkai_terpotong_gagal_tanpa_panik() {
+        for potongan in [
+            r#"{"type":"send_text","room_id":"r1","cont"#,
+            r#"{"type":"send_te"#,
+            "{",
+            "",
+        ] {
+            assert!(
+                serde_json::from_str::<WsClientMsg>(potongan).is_err(),
+                "potongan {potongan:?} seharusnya ditolak"
+            );
+        }
+    }
+
+    #[test]
+    fn bingkai_dengan_bidang_hilang_ditolak() {
+        // `room_id` tak ada — server tak boleh menebaknya.
+        assert!(serde_json::from_str::<WsClientMsg>(
+            r#"{"type":"send_text","content":"halo"}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn jenis_pesan_tak_dikenal_ditolak() {
+        assert!(serde_json::from_str::<WsClientMsg>(
+            r#"{"type":"kirim_rudal","room_id":"r1"}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn bidang_tambahan_dari_klien_lebih_baru_diabaikan() {
+        // Klien yang lebih baru boleh mengirim bidang yang belum dikenal server;
+        // pesannya tetap harus sampai, bukan ditolak seluruhnya.
+        let m: WsClientMsg = serde_json::from_str(
+            r#"{"type":"send_text","room_id":"r1","content":"halo","fitur_baru":true}"#,
+        )
+        .unwrap();
+        assert!(matches!(m, WsClientMsg::SendText { .. }));
+    }
+
+    #[test]
+    fn ping_terurai() {
+        let m: WsClientMsg = serde_json::from_str(r#"{"type":"ping"}"#).unwrap();
+        assert!(matches!(m, WsClientMsg::Ping));
+    }
+}

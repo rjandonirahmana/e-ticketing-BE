@@ -46,22 +46,7 @@ async fn api_get_room(room_id: &str) -> Result<RoomInfo, String> {
 
 /// Bangun URL WebSocket dari path relatif.
 /// Otomatis menggunakan wss:// bila halaman di-serve via HTTPS.
-fn build_ws_url(path: &str) -> String {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let window = web_sys::window().expect("no window");
-        let location = window.location();
-        let proto = if location.protocol().unwrap_or_default() == "https:" {
-            "wss"
-        } else {
-            "ws"
-        };
-        let host = location.host().unwrap_or_default();
-        return format!("{}://{}{}", proto, host, path);
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    format!("ws://localhost{}", path)
-}
+use crate::web::utils::build_ws_url;
 
 /// Bangun daftar ICE server sebagai array berisi objek JS biasa.
 /// `serde_wasm_bindgen` (default) menserialisasi map jadi `Map` JS — bukan

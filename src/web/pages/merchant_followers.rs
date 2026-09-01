@@ -18,9 +18,7 @@ use super::merchant_public::fmt_count;
 
 const PER_PAGE: usize = 30;
 
-fn fmt_date(d: &chrono::DateTime<chrono::Utc>) -> String {
-    d.format("%d %b %Y").to_string()
-}
+use crate::web::utils::waktu::tanggal as fmt_date;
 
 /// Skeleton daftar follower.
 #[component]

@@ -50,23 +50,7 @@ pub(crate) fn fmt_count(n: i64) -> String {
 }
 
 /// Baris bintang statis untuk panel ulasan in-page (mirror dari reviews.rs).
-#[component]
-fn Stars(#[prop(into)] rating: f64) -> impl IntoView {
-    view! {
-        <span class="mrv-stars" aria-label=format!("{rating:.1} dari 5")>
-            {(1..=5)
-                .map(|i| {
-                    let cls = if (i as f64) <= rating + 0.25 {
-                        "mrv-star mrv-star--on"
-                    } else {
-                        "mrv-star"
-                    };
-                    view! { <span class=cls>"★"</span> }
-                })
-                .collect_view()}
-        </span>
-    }
-}
+use crate::web::components::common::Stars;
 
 /// Skeleton grid story 9:16 (dipakai panel STORY di /m/{id} dan /u/{id}).
 #[component]

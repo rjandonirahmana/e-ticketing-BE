@@ -1,0 +1,87 @@
+/* ── Kartu produk di dalam gelembung pesan ─────────────────────────────────
+   Pesan pertama dari halaman produk membawa konteksnya sebagai teks mentah:
+   `[Judul] /products/ea2472c40573d31c94f119a7 pertanyaannya`. Konteksnya
+   memang perlu ada — merchant yang menjual puluhan barang tak bisa menebak
+   pertanyaan ini tentang yang mana — tapi bentuk mentahnya menempatkan beban
+   itu pada mata pembacanya: dua baris alamat acak yang harus dilompati untuk
+   sampai ke pertanyaan yang sebenarnya, setiap kali. */
+
+.chat-produk {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    /* Ditarik keluar sedikit dari padding gelembungnya lalu diberi padding
+       sendiri, supaya kartunya terbaca sebagai satu keping utuh dan bukan
+       sebagai paragraf pertama yang kebetulan berlatar lain. */
+    margin: -2px -2px 8px;
+    padding: 7px;
+    border-radius: 12px;
+    /* Diambil dari warna teks gelembungnya sendiri, bukan token tetap: gelembung
+       "punya sendiri" dan "punya lawan bicara" berbeda latar, dan satu warna
+       tetap akan menghilang di salah satunya. */
+    background: color-mix(in srgb, currentColor 8%, transparent);
+    color: inherit;
+    text-decoration: none;
+}
+
+.chat-produk:hover {
+    background: color-mix(in srgb, currentColor 13%, transparent);
+}
+
+.chat-produk-gambar {
+    flex: none;
+    width: 44px;
+    height: 44px;
+    border-radius: 9px;
+    overflow: hidden;
+    background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.chat-produk-gambar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.chat-produk-teks {
+    /* Prasyarat ellipsis pada anak-anaknya. */
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.chat-produk-nama {
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.3;
+    /* Dua baris, lalu potong: judul panjang tak boleh mendorong pertanyaannya
+       keluar layar, tapi satu baris terlalu sering memotong di tengah kata
+       yang justru membedakan satu varian dari varian lain. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.chat-produk-harga {
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0.75;
+}
+
+.chat-produk-panah {
+    flex: none;
+    margin-left: auto;
+    opacity: 0.45;
+}
+
+/* Pertanyaannya, di bawah kartu. Ia yang sebenarnya ditulis orangnya, jadi ia
+   yang mendapat ukuran teks penuh — kartunya keterangan, bukan isinya. */
+.chat-produk-tanya {
+    display: block;
+    white-space: pre-wrap;
+}

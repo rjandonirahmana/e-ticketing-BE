@@ -20,11 +20,7 @@ fn kind_eyebrow(kind: &str) -> &'static str {
     }
 }
 
-fn fmt_time(iso: &str) -> String {
-    let s = iso.replace('T', " ");
-    let head = s.split(['.', '+']).next().unwrap_or(&s);
-    head.chars().take(16).collect()
-}
+
 
 // ── Skeleton body (used inside the always-rendered .page wrapper) ─────────────
 
@@ -165,7 +161,7 @@ pub fn NotificationDetailPage() -> impl IntoView {
                             _        => "",
                         };
                         let created = n.created_at
-                            .map(|dt| fmt_time(&dt.to_rfc3339()))
+                            .map(|dt| crate::web::utils::waktu::tanggal_jam(&dt))
                             .unwrap_or_default();
                         let id_short = n.id.chars().take(8).collect::<String>();
                         let title = n.title.clone();

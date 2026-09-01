@@ -99,22 +99,7 @@ async fn api_stop_room(room_id: &str) -> Result<(), String> {
 
 /// Bangun URL WebSocket dari path relatif.
 /// Otomatis menggunakan wss:// bila halaman di-serve via HTTPS.
-fn build_ws_url(path: &str) -> String {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let window = web_sys::window().expect("no window");
-        let location = window.location();
-        let proto = if location.protocol().unwrap_or_default() == "https:" {
-            "wss"
-        } else {
-            "ws"
-        };
-        let host = location.host().unwrap_or_default();
-        return format!("{}://{}{}", proto, host, path);
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    format!("ws://localhost{}", path)
-}
+use crate::web::utils::build_ws_url;
 
 #[component]
 pub fn MerchantLivePage() -> impl IntoView {
@@ -174,7 +159,7 @@ pub fn MerchantLivePage() -> impl IntoView {
             room_id.set(room.room_id.clone());
             status_text.set("Requesting camera...".to_string());
 
-            let stream = match get_user_media().await {
+            let stream = match crate::web::rtc::request_camera_mic().await.map_err(|e| e.user_message()) {
                 Ok(s) => s,
                 Err(e) => {
                     // `e` sudah pesan actionable (mis. cara mengizinkan). Tombol
@@ -619,11 +604,9 @@ pub fn MerchantLivePage() -> impl IntoView {
 
 /// Minta izin kamera/mic via sumber tunggal `rtc::request_camera_mic`. Error
 /// dikembalikan sebagai pesan siap-tampil + panduan izin (lihat `MediaError`).
-async fn get_user_media() -> Result<web_sys::MediaStream, String> {
-    crate::web::rtc::request_camera_mic()
-        .await
-        .map_err(|e| e.user_message())
-}
+/// Pembungkus setipis ini tak menambah apa pun di atas `rtc::request_camera_mic`
+/// selain satu nama lagi untuk dicari orang. Dipanggil langsung sekarang.
+
 
 /// Buat RTCPeerConnection sebagai publisher via WS signaling.
 ///

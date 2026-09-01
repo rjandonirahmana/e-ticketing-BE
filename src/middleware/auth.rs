@@ -42,15 +42,7 @@ impl AuthUser {
 /// requests (Leptos WASM) can't read the HttpOnly cookie to build an
 /// `Authorization` header, but the cookie *is* sent automatically — so we
 /// read it server-side as a fallback to the Bearer header.
-fn cookie_token(headers: &header::HeaderMap, name: &str) -> Option<String> {
-    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
-    raw.split(';').map(str::trim).find_map(|p| {
-        p.strip_prefix(&format!("{name}="))
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .map(String::from)
-    })
-}
+
 
 /// Axum middleware that validates the JWT and attaches the Claims to the
 /// request extensions. Accepts either an `Authorization: Bearer <token>`
@@ -69,7 +61,7 @@ pub async fn require_auth(
         .and_then(|h| h.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
         .map(String::from)
-        .or_else(|| cookie_token(req.headers(), "pulse_token"))
+        .or_else(|| crate::utils::cookie::nilai(req.headers(), "pulse_token"))
         .ok_or_else(|| AppError::Unauthorized("Missing auth token".into()))?;
 
     let claims = state

@@ -4,38 +4,7 @@ use leptos_router::components::A;
 use crate::web::api::{delete_product_admin, update_product_status_admin};
 use crate::web::models::{format_date, format_price, Product};
 
-#[derive(Clone, PartialEq)]
-pub(super) enum ProductStatus {
-    OnSale,
-    SoldOut,
-    Presale,
-}
-
-impl ProductStatus {
-    pub(super) fn from_product(e: &Product) -> Self {
-        if e.total_quota > 0 && e.total_sold >= e.total_quota {
-            Self::SoldOut
-        } else if e.status == "active" {
-            Self::OnSale
-        } else {
-            Self::Presale
-        }
-    }
-    pub(super) fn css_mod(&self) -> &'static str {
-        match self {
-            Self::OnSale  => "mhub-product-status mhub-product-status--sale",
-            Self::SoldOut => "mhub-product-status mhub-product-status--sold",
-            Self::Presale => "mhub-product-status mhub-product-status--presale",
-        }
-    }
-    pub(super) fn label(&self) -> &'static str {
-        match self {
-            Self::OnSale  => "Dijual",
-            Self::SoldOut => "Habis Terjual",
-            Self::Presale => "Pre-order",
-        }
-    }
-}
+pub(super) use crate::web::components::merchant_dashboard_product::ProductStatus;
 
 /// Daftar seluruh produk platform, dengan kendali terbit/tahan per produk.
 ///

@@ -17,9 +17,7 @@ use crate::web::state::stories::{use_stories_store, StoryGroup, StoryMediaType};
 /// Jumlah USER per halaman (bukan jumlah story).
 const PER_PAGE: usize = 24;
 
-fn fmt_date(d: &chrono::DateTime<chrono::Utc>) -> String {
-    d.format("%d %b %Y").to_string()
-}
+use crate::web::utils::waktu::tanggal as fmt_date;
 
 #[component]
 pub fn StoriesArchivePage() -> impl IntoView {

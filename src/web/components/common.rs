@@ -198,3 +198,28 @@ pub fn gambar_cadangan(ev: leptos::ev::ErrorEvent) {
     #[cfg(not(target_arch = "wasm32"))]
     let _ = ev;
 }
+
+/// Bintang penilaian 1–5.
+///
+/// Dulu berdiri sendiri-sendiri di tiga halaman — ulasan, profil toko, profil
+/// pengguna — dengan isi yang persis sama. Ambang `+ 0.25` itu yang paling
+/// berbahaya untuk digandakan: ia memutuskan kapan 4,3 tampil sebagai empat
+/// bintang dan 4,3 lainnya sebagai lima. Salinan yang menyimpang sedikit saja
+/// membuat satu toko tampak lebih baik daripada toko lain dengan angka sama.
+#[component]
+pub fn Stars(#[prop(into)] rating: f64) -> impl IntoView {
+    view! {
+        <span class="mrv-stars" aria-label=format!("{rating:.1} dari 5")>
+            {(1..=5)
+                .map(|i| {
+                    let cls = if (i as f64) <= rating + 0.25 {
+                        "mrv-star mrv-star--on"
+                    } else {
+                        "mrv-star"
+                    };
+                    view! { <span class=cls>"★"</span> }
+                })
+                .collect_view()}
+        </span>
+    }
+}

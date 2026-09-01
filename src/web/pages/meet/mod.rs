@@ -59,22 +59,7 @@ fn parse_api_data<T: for<'de> Deserialize<'de>>(json: &serde_json::Value) -> Res
     serde_json::from_value(data.clone()).map_err(|e| e.to_string())
 }
 
-fn build_ws_url(path: &str) -> String {
-    #[cfg(target_arch = "wasm32")]
-    {
-        if let Some(win) = web_sys::window() {
-            let loc = win.location();
-            let proto = if loc.protocol().unwrap_or_default() == "https:" {
-                "wss"
-            } else {
-                "ws"
-            };
-            let host = loc.host().unwrap_or_default();
-            return format!("{proto}://{host}{path}");
-        }
-    }
-    format!("ws://localhost{path}")
-}
+use crate::web::utils::build_ws_url;
 
 fn origin() -> String {
     #[cfg(target_arch = "wasm32")]
@@ -88,11 +73,9 @@ fn origin() -> String {
 
 /// Minta izin kamera/mic via sumber tunggal `rtc::request_camera_mic`. Error
 /// dikembalikan sebagai pesan actionable + panduan izin (lihat `MediaError`).
-async fn get_user_media() -> Result<web_sys::MediaStream, String> {
-    crate::web::rtc::request_camera_mic()
-        .await
-        .map_err(|e| e.user_message())
-}
+/// Pembungkus setipis ini tak menambah apa pun di atas `rtc::request_camera_mic`
+/// selain satu nama lagi untuk dicari orang. Dipanggil langsung sekarang.
+
 
 async fn get_display_media() -> Result<web_sys::MediaStream, String> {
     let window = web_sys::window().ok_or("No window")?;
@@ -132,6 +115,7 @@ fn stop_share(
         }
     }
     screen_store.set_value(None);
+    *ctx.screen.borrow_mut() = None;
     let cam_stream = ctx.local.borrow().clone();
     if let Some(cam_stream) = cam_stream {
         let vtracks = cam_stream.get_video_tracks();
@@ -197,6 +181,18 @@ struct Ctx {
     /// Peer yang remote description-nya sudah di-set (boleh terima candidate).
     remote_ready: Rc<RefCell<HashSet<String>>>,
     local: Rc<RefCell<Option<web_sys::MediaStream>>>,
+    /// Stream berbagi layar, bila sedang berbagi.
+    ///
+    /// Disimpan DI SINI, bukan hanya di `screen_store` milik komponen, supaya
+    /// `teardown` bisa menghentikannya. Sebelumnya ia tak pernah dihentikan
+    /// sama sekali — meninggalkan meet saat sedang berbagi layar membuat
+    /// peramban terus menampilkan "Anda sedang membagikan layar".
+    screen: Rc<RefCell<Option<web_sys::MediaStream>>>,
+    /// Sudah dibubarkan. Permintaan kamera yang masih berjalan saat orangnya
+    /// keluar akan selesai SESUDAH `teardown` — tanpa penanda ini, stream yang
+    /// baru tiba itu disimpan ke `local` yang tak akan pernah dibersihkan lagi,
+    /// dan lampu kamera menyala terus.
+    bubar: Rc<std::cell::Cell<bool>>,
     /// Daftar ICE server (STUN + TURN) yang diambil sekali saat connect.
     ice: Rc<RefCell<Option<js_sys::Array>>>,
     tiles: NodeRef<leptos::html::Div>,
@@ -288,6 +284,8 @@ pub fn MeetPage() -> impl IntoView {
         pending_ice: Rc::new(RefCell::new(HashMap::new())),
         remote_ready: Rc::new(RefCell::new(HashSet::new())),
         local: Rc::new(RefCell::new(None)),
+        screen: Rc::new(RefCell::new(None)),
+        bubar: Rc::new(std::cell::Cell::new(false)),
         ice: Rc::new(RefCell::new(None)),
         tiles: tiles_ref,
         phase,
@@ -410,6 +408,8 @@ pub fn MeetPage() -> impl IntoView {
             }
             let strack: web_sys::MediaStreamTrack = first.unchecked_into();
             replace_video_everywhere(&c, Some(&strack));
+            // Dicerminkan ke Ctx supaya `teardown` bisa menghentikannya.
+            *c.screen.borrow_mut() = Some(screen.clone());
             local_sig.set(Some(send_wrapper::SendWrapper::new(screen.clone())));
             // Browser punya tombol "Stop sharing" sendiri → track akan 'ended'.
             {
@@ -506,7 +506,24 @@ pub fn MeetPage() -> impl IntoView {
         on_cleanup(move || drop(interval));
     });
 
-    on_cleanup(move || teardown(&ctx.get_value()));
+    // `Ctx` disalin SEKARANG, selagi `StoredValue`-nya masih hidup.
+    //
+    // `ctx.get_value()` DI DALAM `on_cleanup` adalah taruhan pada urutan
+    // pembuangan: bila arena reaktif membuang nilainya lebih dulu, pemanggilan
+    // itu memanikkan — dan panik di dalam cleanup berarti baris berikutnya, yang
+    // mematikan kamera, tak pernah dijalankan. Gejalanya persis "kamera menyala
+    // terus sesudah keluar", tanpa satu pun galat yang terlihat di layar.
+    //
+    // Salinannya murah dan aman: seluruh isi `Ctx` adalah `Rc`, jadi ia tetap
+    // menunjuk keadaan yang sama dan tetap sah sesudah komponennya dibuang.
+    //
+    // Dibungkus `SendWrapper` karena `on_cleanup` menuntut closure yang `Send`,
+    // sementara `Ctx` penuh `Rc` — itu pula sebabnya kode aslinya menempuh
+    // `StoredValue`, bukan karena kelalaian. Pembungkus ini memberi jaminan yang
+    // dibutuhkan tanpa taruhan urutan pembuangan: ia hanya memanikkan bila
+    // diakses dari utas LAIN, dan wasm tak punya utas lain.
+    let ctx_akhir = send_wrapper::SendWrapper::new(ctx.get_value());
+    on_cleanup(move || teardown(&ctx_akhir));
 
     let stage_visible = move || matches!(phase.get(), Phase::Prejoin | Phase::InMeet);
     let participants = move || count.get() + 1;

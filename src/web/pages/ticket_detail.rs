@@ -7,7 +7,7 @@
 //!   - Layout `td-*` (hero, stub, perf-divider, QR, pills, info card, actions,
 //!     pulse strip) dipertahankan identik.
 
-use chrono::{DateTime, FixedOffset, Utc};
+use chrono::{DateTime, Utc};
 use leptos::prelude::*;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_params_map};
@@ -132,11 +132,8 @@ fn TicketDetailSkeleton() -> impl IntoView {
 
 // ── Helper: UTC → WIB (UTC+7) ─────────────────────────────────────────────────
 fn fmt_wib(dt: &DateTime<Utc>) -> (String, String) {
-    let wib = dt.with_timezone(&FixedOffset::east_opt(7 * 3600).unwrap());
-    (
-        wib.format("%d %b %Y").to_string(),
-        wib.format("%H:%M WIB").to_string(),
-    )
+    use crate::web::utils::waktu;
+    (waktu::tanggal(dt), waktu::jam_berzona(dt))
 }
 
 #[component]

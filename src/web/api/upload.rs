@@ -44,22 +44,14 @@ fn err(status: StatusCode, msg: impl Into<String>) -> Response {
     (status, Json(json!({ "error": msg.into() }))).into_response()
 }
 
-fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
-    let raw = headers.get("cookie")?.to_str().ok()?;
-    raw.split(';').map(str::trim).find_map(|p| {
-        p.strip_prefix(&format!("{name}="))
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .map(String::from)
-    })
-}
+
 
 pub async fn story_upload(
     Extension(state): Extension<Arc<AppState>>,
     headers: HeaderMap,
     mut multipart: Multipart,
 ) -> Result<Json<Value>, Response> {
-    let token = cookie_value(&headers, "pulse_token")
+    let token = crate::utils::cookie::nilai(&headers, "pulse_token")
         .ok_or_else(|| err(StatusCode::UNAUTHORIZED, "Tidak terautentikasi"))?;
 
     let claims = state
@@ -180,7 +172,7 @@ pub async fn merchant_image_upload(
     headers: HeaderMap,
     mut multipart: Multipart,
 ) -> Result<Json<Value>, Response> {
-    let token = cookie_value(&headers, "pulse_token")
+    let token = crate::utils::cookie::nilai(&headers, "pulse_token")
         .ok_or_else(|| err(StatusCode::UNAUTHORIZED, "Tidak terautentikasi"))?;
     let claims = state
         .jwt
@@ -262,7 +254,7 @@ pub async fn chat_image_upload(
     headers: HeaderMap,
     mut multipart: Multipart,
 ) -> Result<Json<Value>, Response> {
-    let token = cookie_value(&headers, "pulse_token")
+    let token = crate::utils::cookie::nilai(&headers, "pulse_token")
         .ok_or_else(|| err(StatusCode::UNAUTHORIZED, "Tidak terautentikasi"))?;
     // Cukup terautentikasi — tak ada syarat peran. Siapa pun yang boleh
     // membuka percakapan boleh mengirim gambar di dalamnya; hak atas RUANGANNYA

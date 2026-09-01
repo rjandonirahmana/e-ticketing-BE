@@ -19,13 +19,7 @@ use crate::web::components::ThemeToggle;
 use crate::web::models::{OrderRef, PaymentMethodView};
 use crate::web::utils::{client_nonce, format_idr};
 
-fn price_label(amount: i64) -> String {
-    if amount == 0 {
-        "Gratis".to_string()
-    } else {
-        format_idr(amount)
-    }
-}
+use crate::web::utils::rupiah_atau_gratis as price_label;
 
 /// Ikon sederhana per jenis kanal — cukup untuk membedakan sekilas tanpa
 /// menyeret berkas gambar dari luar (halaman ini dikirim sebagai satu bundel).

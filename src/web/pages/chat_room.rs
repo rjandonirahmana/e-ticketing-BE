@@ -13,12 +13,7 @@ use crate::web::models::ChatMessage;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn fmt_time_ms(ms: u64) -> String {
-    let secs = ms / 1000 + 7 * 3600; // WIB offset
-    let hours = (secs / 3600) % 24;
-    let mins  = (secs / 60) % 60;
-    format!("{:02}:{:02}", hours, mins)
-}
+use crate::web::utils::waktu::jam_dari_millis as fmt_time_ms;
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -118,6 +113,8 @@ fn gulir_ke_dasar(list_ref: NodeRef<leptos::html::Div>) {
 /// Batas gambar chat. Kembar dengan `MAKS_GAMBAR_CHAT` di
 /// `web/api/upload.rs` — yang di sana yang MENEGAKKAN, yang di sini menahan
 /// unggahan sia-sia lewat data seluler sebelum berangkat. Ubah keduanya.
+/// Hanya dipakai di klien — di SSR tak ada berkas yang dipilih siapa pun.
+#[cfg(target_arch = "wasm32")]
 const MAKS_GAMBAR_CHAT: usize = 300 * 1024;
 
 #[component]
@@ -931,6 +928,166 @@ pub fn ChatRoomPage() -> impl IntoView {
     }
 }
 
+// ── Rujukan produk di dalam pesan ─────────────────────────────────────────────
+
+/// Pesan pertama dari halaman produk dirakit di `chat_new.rs` sebagai
+/// `[Judul] /products/slug\npertanyaan`. Konteksnya memang perlu ikut — merchant
+/// yang menjual puluhan barang tak bisa menebak pertanyaan ini tentang yang mana
+/// — tapi bentuk mentahnya menempatkan beban itu pada MATA pembacanya: baris
+/// alamat sepanjang dua puluh karakter acak yang harus dilompati untuk sampai ke
+/// pertanyaan yang sebenarnya.
+///
+/// Mengurai di sisi pembaca, bukan mengubah yang dikirim: pesan lama sudah
+/// telanjur tersimpan dengan bentuk ini, dan ribuan di antaranya tak bisa
+/// ditulis ulang. Penguraian membuat yang lama ikut tampil rapi.
+///
+/// Mengembalikan `(judul, slug, sisa pesan)`.
+fn pisah_rujukan_produk(teks: &str) -> Option<(String, String, String)> {
+    let sisa = teks.strip_prefix('[')?;
+
+    // Alamatnya dicari LEBIH DULU, lalu mundur ke `]` terdekat sebelumnya.
+    // Memotong di `]` pertama akan mematahkan judul yang memuat kurung siku di
+    // dalamnya — "Tiket [VIP] Malam" — dan judul semacam itu bukan hal aneh.
+    let mulai_alamat = sisa.find("/products/")?;
+    let tutup = sisa[..mulai_alamat].rfind(']')?;
+
+    let judul = sisa[..tutup].trim().to_string();
+    if judul.is_empty() {
+        return None;
+    }
+    // Di antara `]` dan alamatnya hanya boleh ada spasi putih. Tanpa syarat ini,
+    // kalimat biasa yang kebetulan menyebut sebuah tautan produk akan ikut
+    // terurai jadi kartu.
+    if !sisa[tutup + 1..mulai_alamat].trim().is_empty() {
+        return None;
+    }
+
+    let alamat = &sisa[mulai_alamat + "/products/".len()..];
+
+    // Slug berakhir di spasi putih PERTAMA. Pertanyaannya menyusul sesudah itu —
+    // biasanya dipisah baris baru, tapi jangan bergantung pada baris baru:
+    // sebagian klien memampatkannya jadi spasi biasa dalam perjalanan.
+    let batas = alamat
+        .find(char::is_whitespace)
+        .unwrap_or(alamat.len());
+    let slug = alamat[..batas].to_string();
+    if slug.is_empty() {
+        return None;
+    }
+
+    Some((judul, slug, alamat[batas..].trim().to_string()))
+}
+
+#[cfg(test)]
+mod tests_rujukan {
+    use super::pisah_rujukan_produk;
+
+    #[test]
+    fn bentuk_baku() {
+        let (j, s, sisa) =
+            pisah_rujukan_produk("[Neon Night Rave] /products/ea2472c40573\nmasih ada?").unwrap();
+        assert_eq!(j, "Neon Night Rave");
+        assert_eq!(s, "ea2472c40573");
+        assert_eq!(sisa, "masih ada?");
+    }
+
+    /// Sebagian klien memampatkan baris baru jadi spasi dalam perjalanan.
+    #[test]
+    fn dipisah_spasi_bukan_baris_baru() {
+        let (_, s, sisa) =
+            pisah_rujukan_produk("[Neon Night] /products/ddd88ea24633 teta").unwrap();
+        assert_eq!(s, "ddd88ea24633");
+        assert_eq!(sisa, "teta");
+    }
+
+    #[test]
+    fn tanpa_pertanyaan_menyusul() {
+        let (_, s, sisa) = pisah_rujukan_produk("[Neon] /products/abc123").unwrap();
+        assert_eq!(s, "abc123");
+        assert_eq!(sisa, "");
+    }
+
+    /// Judul yang MEMUAT kurung siku tak boleh memotong slug-nya.
+    #[test]
+    fn judul_berkurung_siku_di_dalamnya() {
+        let (j, s, _) =
+            pisah_rujukan_produk("[Tiket [VIP] Malam] /products/xyz").unwrap();
+        assert_eq!(j, "Tiket [VIP] Malam");
+        assert_eq!(s, "xyz");
+    }
+
+    #[test]
+    fn pesan_biasa_bukan_rujukan() {
+        assert!(pisah_rujukan_produk("halo kak").is_none());
+        assert!(pisah_rujukan_produk("[Neon Night] halo").is_none());
+        assert!(pisah_rujukan_produk("[] /products/abc").is_none());
+        assert!(pisah_rujukan_produk("[Neon] /products/").is_none());
+    }
+
+    /// Kurung siku yang dipakai orang untuk hal lain tak boleh ikut terurai.
+    #[test]
+    fn kurung_siku_tanpa_alamat_produk() {
+        assert!(pisah_rujukan_produk("[penting] tolong dibalas").is_none());
+        // Kalimat yang kebetulan menyebut tautan, bukan rujukan yang dirakit.
+        assert!(pisah_rujukan_produk("[catatan] lihat /products/abc ya").is_none());
+    }
+}
+
+/// Kartu produk di dalam gelembung pesan.
+///
+/// Judulnya sudah ada di dalam pesan, jadi kartunya bisa langsung tampil tanpa
+/// menunggu apa pun — gambar dan harga menyusul begitu tiba. Urutan itu penting:
+/// meminta orang menatap kotak kosong demi sampul yang mungkin gagal dimuat
+/// adalah menukar sesuatu yang sudah pasti dengan sesuatu yang belum tentu.
+#[component]
+fn KartuProduk(judul: String, slug: String) -> impl IntoView {
+    let s = slug.clone();
+    let rinci = Resource::new(
+        move || s.clone(),
+        |slug| async move {
+            if slug.is_empty() {
+                return None;
+            }
+            crate::web::api::get_product_detail(slug).await.ok()
+        },
+    );
+
+    let href = format!("/products/{slug}");
+    let judul_awal = judul.clone();
+
+    view! {
+        <A href=href attr:class="chat-produk">
+            <div class="chat-produk-gambar">
+                {move || rinci.get().flatten().and_then(|p| p.cover_url).map(|url| view! {
+                    <img src=url alt="" loading="lazy" decoding="async"
+                         on:error=crate::web::components::gambar_cadangan />
+                })}
+            </div>
+            <div class="chat-produk-teks">
+                // Nama dari pesan dulu, lalu ditimpa nama dari basis data begitu
+                // tiba — produk yang sudah berganti nama tak terus tampil dengan
+                // nama lamanya selamanya.
+                <span class="chat-produk-nama">
+                    {move || rinci
+                        .get()
+                        .flatten()
+                        .map(|p| p.name)
+                        .unwrap_or_else(|| judul_awal.clone())}
+                </span>
+                {move || rinci.get().flatten().map(|p| view! {
+                    <span class="chat-produk-harga">
+                        {crate::web::utils::rupiah_atau_gratis(p.display_price as i64)}
+                    </span>
+                })}
+            </div>
+            <svg class="chat-produk-panah" width="16" height="16" viewBox="0 0 24 24"
+                 fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                <polyline points="9 18 15 12 9 6"/>
+            </svg>
+        </A>
+    }
+}
+
 // ── Message bubble renderer ───────────────────────────────────────────────────
 
 fn message_bubble(msg: ChatMessage, my_id: &str, disorot: bool) -> impl IntoView {
@@ -990,7 +1147,21 @@ fn message_bubble(msg: ChatMessage, my_id: &str, disorot: bool) -> impl IntoView
                         </a>
                         }.into_any()
                     }
-                    None => view! { <div class=bubble_cls>{text}</div> }.into_any(),
+                    None => match pisah_rujukan_produk(&text) {
+                        Some((judul, slug, sisa)) => view! {
+                            <div class=bubble_cls>
+                                <KartuProduk judul=judul slug=slug />
+                                // Pertanyaannya di BAWAH kartu, bukan di atas:
+                                // kartu menjawab "tentang apa", dan itu yang
+                                // dibaca lebih dulu oleh merchant yang membuka
+                                // percakapan baru.
+                                {(!sisa.is_empty()).then(|| view! {
+                                    <span class="chat-produk-tanya">{sisa}</span>
+                                })}
+                            </div>
+                        }.into_any(),
+                        None => view! { <div class=bubble_cls>{text}</div> }.into_any(),
+                    },
                 }}
                 <div class="chat-msg-meta">
                     <span class="chat-msg-time">{time}</span>

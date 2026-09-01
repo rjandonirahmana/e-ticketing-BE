@@ -235,3 +235,153 @@ mod tests {
         assert_eq!(r.viewer_count(), 5);
     }
 }
+
+// ── Uji ───────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests_penonton {
+    use super::*;
+
+    fn ruang() -> LiveRoom {
+        // `cmd_tx` tak pernah dipakai jalur yang diuji di sini — seluruhnya
+        // pembukuan penonton di dalam peta, tanpa satu pun perintah ke SFU.
+        let (tx, _rx) = mpsc::channel(1);
+        LiveRoom::new(
+            "live_m1".into(),
+            "m1".into(),
+            "Toko".into(),
+            None,
+            tx,
+        )
+    }
+
+    fn orang(id: &str) -> ViewerInfo {
+        ViewerInfo {
+            id: id.into(),
+            name: format!("Orang {id}"),
+            photo_url: None,
+        }
+    }
+
+    /// Merchant menonton siarannya sendiri di tab lain — itu bukan penonton.
+    /// Menghitungnya berarti setiap siaran dimulai dari angka satu.
+    #[test]
+    fn merchant_tak_dihitung_sebagai_penonton() {
+        let r = ruang();
+        r.add_subscriber("conn-m", orang("m1"));
+        assert_eq!(r.viewer_count(), 0);
+        assert!(r.viewers().is_empty());
+    }
+
+    /// Satu orang membuka DUA tab: dua koneksi, tapi satu penonton.
+    #[test]
+    fn dua_tab_satu_orang_dihitung_sekali() {
+        let r = ruang();
+        r.add_subscriber("conn-a", orang("u1"));
+        r.add_subscriber("conn-b", orang("u1"));
+        // `viewer_count` MENGHITUNG ORANG, bukan koneksi — angka inilah yang
+        // dipajang ke penonton lain, dan "12 menonton" yang sebenarnya enam
+        // orang dengan dua tab adalah angka yang membohongi.
+        assert_eq!(r.viewer_count(), 1);
+        assert_eq!(r.viewers().len(), 1);
+    }
+
+    /// SKENARIO KONEKSI LEMAH: sambungan putus lalu tersambung lagi.
+    ///
+    /// Urutan yang sebenarnya terjadi di lapangan BUKAN "putus lalu sambung",
+    /// melainkan "sambung lalu putus": koneksi baru sering berhasil sebelum
+    /// yang lama sempat menutup. Bila pembukuannya salah menangani celah itu,
+    /// orang yang MASIH menonton lenyap dari hitungan — dan saat ia benar-benar
+    /// pergi, tak ada lagi entri untuk dikurangi, sehingga hitungannya rusak
+    /// sampai siaran berakhir.
+    #[test]
+    fn sambung_dulu_baru_putus_tak_menghilangkan_penonton() {
+        let r = ruang();
+        r.add_subscriber("conn-lama", orang("u1"));
+        r.add_subscriber("conn-baru", orang("u1")); // tab baru masuk
+        r.remove_subscriber("conn-lama"); // tab lama baru menutup
+
+        assert_eq!(r.viewers().len(), 1, "ia masih menonton");
+        assert_eq!(r.viewer_count(), 1);
+    }
+
+    /// Dan setelah koneksi terakhirnya benar-benar pergi, ia hilang dari daftar.
+    #[test]
+    fn koneksi_terakhir_pergi_menghapus_penonton() {
+        let r = ruang();
+        r.add_subscriber("conn-a", orang("u1"));
+        r.add_subscriber("conn-b", orang("u1"));
+        r.remove_subscriber("conn-a");
+        r.remove_subscriber("conn-b");
+        assert!(r.viewers().is_empty());
+        assert_eq!(r.viewer_count(), 0);
+    }
+
+    /// Jaringan yang buruk membuat pesan "keluar" terkirim dua kali.
+    #[test]
+    fn keluar_dua_kali_tak_membuat_hitungan_minus() {
+        let r = ruang();
+        r.add_subscriber("conn-a", orang("u1"));
+        r.remove_subscriber("conn-a");
+        r.remove_subscriber("conn-a");
+        assert_eq!(r.viewer_count(), 0);
+        assert!(r.viewers().is_empty());
+
+        // Dan ia masih bisa kembali dengan hitungan yang benar.
+        r.add_subscriber("conn-c", orang("u1"));
+        assert_eq!(r.viewers().len(), 1);
+    }
+
+    #[test]
+    fn keluar_dari_koneksi_tak_dikenal_aman() {
+        let r = ruang();
+        r.add_subscriber("conn-a", orang("u1"));
+        r.remove_subscriber("conn-entah");
+        assert_eq!(r.viewer_count(), 1);
+    }
+
+    /// Id koneksi yang sama dipakai ulang (mis. klien menyambung ulang dengan
+    /// id yang sama) tak boleh menggandakan hitungan uniknya.
+    #[test]
+    fn id_koneksi_dipakai_ulang_tak_menggandakan() {
+        let r = ruang();
+        r.add_subscriber("conn-a", orang("u1"));
+        r.add_subscriber("conn-a", orang("u1"));
+        assert_eq!(r.viewer_count(), 1);
+        assert_eq!(r.viewers().len(), 1);
+        r.remove_subscriber("conn-a");
+        assert!(r.viewers().is_empty());
+    }
+
+    #[test]
+    fn banyak_penonton_terhitung_terpisah() {
+        let r = ruang();
+        for i in 0..5 {
+            r.add_subscriber(&format!("c{i}"), orang(&format!("u{i}")));
+        }
+        assert_eq!(r.viewers().len(), 5);
+        assert_eq!(r.info().viewer_count, 5);
+    }
+
+    // ── Keranjang kuning ──────────────────────────────────────────────────
+
+    /// Mengganti, bukan menggabung: merchant mengirim daftar utuh dari layarnya,
+    /// jadi produk yang ia cabut harus benar-benar hilang dari keranjang
+    /// penonton — menggabung membuatnya menetap tanpa cara membuangnya.
+    #[test]
+    fn daftar_produk_diganti_bukan_ditambah() {
+        let r = ruang();
+        r.set_products(&["p1".into(), "p2".into()]);
+        r.set_products(&["p3".into()]);
+        assert_eq!(r.product_ids(), vec!["p3".to_string()]);
+    }
+
+    #[test]
+    fn daftar_produk_dikosongkan() {
+        let r = ruang();
+        r.set_products(&["p1".into()]);
+        r.set_products(&[]);
+        assert!(r.product_ids().is_empty());
+        assert!(r.info().product_ids.is_empty());
+    }
+}

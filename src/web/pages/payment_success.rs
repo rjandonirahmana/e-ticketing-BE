@@ -6,22 +6,7 @@ use leptos_router::hooks::use_query_map;
 use crate::web::app::PendingOrderCtx;
 use crate::web::components::ThemeToggle;
 
-fn format_idr(amount: i64) -> String {
-    if amount == 0 {
-        return "Gratis".to_string();
-    }
-    let s = amount.to_string();
-    let chars: Vec<char> = s.chars().rev().collect();
-    let grouped: String = chars
-        .chunks(3)
-        .map(|c| c.iter().collect::<String>())
-        .collect::<Vec<_>>()
-        .join(".")
-        .chars()
-        .rev()
-        .collect();
-    format!("Rp {}", grouped)
-}
+use crate::web::utils::rupiah_atau_gratis as format_idr;
 
 #[component]
 pub fn PaymentSuccessPage() -> impl IntoView {

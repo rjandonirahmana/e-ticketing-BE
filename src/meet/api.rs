@@ -15,7 +15,7 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         Path, State,
     },
-    http::{header, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -78,15 +78,7 @@ async fn get_room(Path(room_id): Path<String>, State(state): State<Arc<AppState>
 
 // ── Cookie JWT (salinan lokal dari middleware::auth — fn-nya privat) ───────────
 
-fn cookie_token(headers: &HeaderMap, name: &str) -> Option<String> {
-    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
-    raw.split(';').map(str::trim).find_map(|p| {
-        p.strip_prefix(&format!("{name}="))
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .map(String::from)
-    })
-}
+
 
 // ── WS signaling ──────────────────────────────────────────────────────────────
 
@@ -98,7 +90,7 @@ async fn meet_ws(
 ) -> Response {
     // Verifikasi host SEBELUM upgrade: ambil klaim dari cookie bila ada.
     // Disimpan sebagai (user_id, name) — dipakai hanya jika klien minta `as_host`.
-    let claims = cookie_token(&headers, "pulse_token")
+    let claims = crate::utils::cookie::nilai(&headers, "pulse_token")
         .and_then(|t| state.jwt.verify(&t).ok())
         .map(|c| (c.user_id, c.name, c.role));
     ws.on_upgrade(move |socket| meet_ws_loop(socket, room_id, state, claims))

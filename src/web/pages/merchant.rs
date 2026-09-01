@@ -17,38 +17,7 @@ use super::merchant_public::fmt_count;
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
-#[derive(Clone, PartialEq)]
-enum ProductStatus {
-    OnSale,
-    SoldOut,
-    Presale,
-}
-
-impl ProductStatus {
-    fn from_product(e: &Product) -> Self {
-        if e.total_quota > 0 && e.total_sold >= e.total_quota {
-            Self::SoldOut
-        } else if e.status == "active" {
-            Self::OnSale
-        } else {
-            Self::Presale
-        }
-    }
-    fn css_mod(&self) -> &'static str {
-        match self {
-            Self::OnSale  => "mhub-product-status mhub-product-status--sale",
-            Self::SoldOut => "mhub-product-status mhub-product-status--sold",
-            Self::Presale => "mhub-product-status mhub-product-status--presale",
-        }
-    }
-    fn label(&self) -> &'static str {
-        match self {
-            Self::OnSale  => "On Sale",
-            Self::SoldOut => "Sold Out",
-            Self::Presale => "Presale",
-        }
-    }
-}
+use crate::web::components::merchant_dashboard_product::ProductStatus;
 
 /// Tombol ikon bundar di header Merchant Hub.
 ///
