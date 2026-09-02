@@ -56,6 +56,13 @@ const SHRINK_INTERVAL: Duration = Duration::from_secs(300);
 const REPLACED_GRACE: Duration = Duration::from_millis(500);
 
 const REDIS_PUBLISH_RETRIES: u8 = 3;
+/// Koneksi WebSocket serentak per pengguna: ponsel, laptop, beberapa tab.
+///
+/// Ada plafonnya karena tanpa itu satu klien yang menyambung ulang tanpa henti
+/// karena bug bisa menghabiskan jatah koneksi seluruh server atas nama satu
+/// orang.
+const MAKS_SESI_PER_USER: usize = 5;
+
 const REDIS_PUBLISH_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 const RATE_LIMIT_MAX: u32 = 30;
@@ -210,7 +217,22 @@ impl RateLimitRegistry {
 
 pub struct WsManager {
     /// user_id → sesi aktif (tx + generasi koneksi)
-    sessions: DashMap<Arc<str>, Session, RandomState>,
+    /// user_id → SELURUH koneksi miliknya.
+    ///
+    /// ── KENAPA BANYAK, BUKAN SATU ─────────────────────────────────────────
+    /// Dulu satu pengguna = satu sesi, dan koneksi baru MENGGANTIKAN yang lama.
+    /// Itu berarti membuka tab kedua membuat tab pertama tuli — dan karena
+    /// keduanya menyambung ulang sendiri saat putus, keduanya saling merebut
+    /// sesi tanpa henti: di log tampak sebagai "WS opened"/"WS closed"
+    /// bergantian tiap tiga detik, dua deret sekaligus.
+    ///
+    /// Padahal punya ponsel dan laptop terbuka bersamaan adalah cara orang
+    /// memakai aplikasi chat, bukan penyalahgunaan.
+    ///
+    /// `Vec`, bukan peta ber-hash: isinya beberapa entri, dan pemindaian linear
+    /// atas tiga elemen lebih cepat daripada hashing. Mutasinya aman karena
+    /// selalu lewat kunci shard `DashMap` induknya.
+    sessions: DashMap<Arc<str>, Vec<Session>, RandomState>,
     /// Penerbit `conn_id` monoton — pembeda generasi koneksi per user.
     next_conn_id: AtomicU64,
 
@@ -307,45 +329,48 @@ impl WsManager {
         let key: Arc<str> = user_id.into();
         let conn_id = self.next_conn_id.fetch_add(1, Ordering::Relaxed);
 
-        // Kick existing session (replaced connection). insert() mengembalikan
-        // sesi lama bila ada — satu operasi map (bukan remove+insert), dan
-        // hitungan aktif tak berubah saat replace (lama keluar, baru masuk).
-        match self.sessions.insert(
-            key,
-            Session {
-                conn_id,
-                tx,
-                cancel: conn_token.clone(),
-            },
-        ) {
-            Some(old) => {
-                // Pre-serialized error untuk session lama — tidak perlu serialize baru
-                let msg = WsEvent::err(ErrorCode::Replaced, "Session replaced by newer connection")
-                    .to_json();
-                let _ = old.tx.try_send(msg);
+        let sesi = Session {
+            conn_id,
+            tx,
+            cancel: conn_token.clone(),
+        };
 
-                // Lalu HENTIKAN koneksi lama, jangan tunggu heartbeat-nya habis.
-                //
-                // Diberi tenggang singkat, bukan dibatalkan seketika: pesan
-                // `Replaced` di atas baru masuk antrean channel, dan write task
-                // yang langsung dibatalkan akan keluar sebelum sempat menuliskannya
-                // ke socket. Klien lama lalu hanya melihat socket tertutup begitu
-                // saja — tak bisa dibedakan dari gangguan jaringan, dan ia akan
-                // mencoba menyambung ulang, merebut kembali sesi yang baru saja
-                // diambil alih. Tenggang ini yang membuat pesannya sampai lebih
-                // dulu sehingga klien tahu harus berhenti.
-                //
-                // Task-nya sangat pendek dan jumlahnya sebanyak reconnect, bukan
-                // sebanyak koneksi hidup.
-                tokio::spawn(async move {
-                    tokio::time::sleep(REPLACED_GRACE).await;
-                    old.cancel.cancel();
-                });
-            }
-            None => {
+        {
+            let mut daftar = self.sessions.entry(key).or_default();
+            if daftar.is_empty() {
                 self.active_conns.fetch_add(1, Ordering::Relaxed);
             }
+
+            // Plafon per pengguna. Tanpa ini, satu klien yang menyambung ulang
+            // tanpa henti karena bug bisa menumpuk ratusan koneksi atas nama
+            // satu orang dan menghabiskan jatah seluruh server.
+            //
+            // Yang TERTUA yang pergi: perangkat yang baru saja dipakai hampir
+            // pasti yang sedang ditatap orangnya.
+            while daftar.len() >= MAKS_SESI_PER_USER {
+                let tua = daftar.remove(0);
+                crate::service::metrik::METRIK
+                    .sesi_diganti
+                    .fetch_add(1, Ordering::Relaxed);
+                let msg =
+                    WsEvent::err(ErrorCode::Replaced, "Terlalu banyak perangkat aktif").to_json();
+                let _ = tua.tx.try_send(msg);
+                // Tenggang singkat, bukan pembatalan seketika: pesan `Replaced`
+                // di atas baru masuk antrean, dan task tulis yang langsung
+                // dibatalkan akan keluar sebelum sempat menuliskannya ke socket.
+                // Klien lama lalu hanya melihat socket tertutup begitu saja —
+                // tak bisa dibedakan dari gangguan jaringan — dan ia akan
+                // menyambung ulang, merebut kembali tempat yang baru saja
+                // dilepas. Tenggang inilah yang membuat pesannya sampai lebih
+                // dulu sehingga klien tahu harus berhenti.
+                tokio::spawn(async move {
+                    tokio::time::sleep(REPLACED_GRACE).await;
+                    tua.cancel.cancel();
+                });
+            }
+            daftar.push(sesi);
         }
+
         tracing::debug!(user_id, conn_id, "WS connected");
         Some((rx, conn_token, permit, conn_id))
     }
@@ -356,19 +381,30 @@ impl WsManager {
         // mencabut sesi baru + room membership-nya → koneksi baru jadi "hantu"
         // (TCP hidup, tak menerima apa pun) → klien reconnect → koneksi itu
         // pun dibunuh cleanup berikutnya → chat "connecting" tanpa akhir.
-        if self
-            .sessions
-            .remove_if(user_id, |_, s| s.conn_id == conn_id)
-            .is_some()
-        {
+        let kosong = {
+            let Some(mut daftar) = self.sessions.get_mut(user_id) else {
+                return;
+            };
+            let sebelum = daftar.len();
+            daftar.retain(|s| s.conn_id != conn_id);
+            if daftar.len() == sebelum {
+                // Bukan koneksi ini yang tercatat — sudah tergantikan lebih
+                // dulu. Jangan sentuh apa pun.
+                return;
+            }
+            daftar.is_empty()
+        };
+
+        if kosong {
+            // Keanggotaan room dibersihkan HANYA saat koneksi TERAKHIR miliknya
+            // pergi. Dulu tiap satu koneksi putus ia mencabut seluruh room
+            // pengguna itu — dengan banyak perangkat, menutup satu tab akan
+            // membuat perangkat lainnya berhenti menerima apa pun.
+            self.sessions.remove(user_id);
             self.active_conns.fetch_sub(1, Ordering::Relaxed);
-            // FIX: Bersihkan room_members saat disconnect — mencegah "ghost members"
-            // yang menumpuk di DashMap. Aman terhadap reconnect karena hanya jalan
-            // bila sesi yang dicabut memang generasi ini (sesi baru me-register
-            // ulang room-nya sendiri saat Hello).
             self.leave_all_rooms(user_id);
-            tracing::debug!(user_id, conn_id, "WS disconnected");
         }
+        tracing::debug!(user_id, conn_id, "WS disconnected");
     }
 
     // ── Room membership ───────────────────────────────────────────────────────
@@ -554,55 +590,80 @@ impl WsManager {
     /// Sekarang: try_send → jika Full, tunggu 50ms lalu coba sekali lagi.
     /// Hanya evict jika setelah timeout masih tidak bisa terkirim.
     async fn deliver_local(&self, user_id: &str, json: Arc<str>) -> bool {
-        // Clone Sender keluar dari DashMap guard sebelum await
-        // (tidak boleh hold DashMap ref across await point)
-        let tx = match self.sessions.get(user_id) {
-            Some(r) => r.value().tx.clone(),
+        // Salinan pengirim diambil KELUAR dari guard DashMap sebelum `await` —
+        // memegang guard melintasi titik tunggu akan mengunci shard-nya bagi
+        // semua orang lain selama penungguan itu.
+        let pengirim: Vec<(u64, WsTx)> = match self.sessions.get(user_id) {
+            Some(r) => r.value().iter().map(|s| (s.conn_id, s.tx.clone())).collect(),
             None => {
-                // Session tidak ada — bersihkan ghost membership
+                // Sesi tak ada — bersihkan keanggotaan hantu.
                 self.leave_all_rooms(user_id);
                 return false;
             }
         };
+        if pengirim.is_empty() {
+            self.leave_all_rooms(user_id);
+            return false;
+        }
 
-        // Evict HANYA bila sesi di map masih channel yang kita pegang —
-        // reconnect bisa saja sudah mengganti sesi selama kita await; sesi
-        // baru tidak boleh ikut tercabut (guard sama dengan `disconnect`).
-        let evict = |reason: &str| {
-            if self
-                .sessions
-                .remove_if(user_id, |_, s| s.tx.same_channel(&tx))
-                .is_some()
-            {
+        // Buang HANYA koneksi yang bermasalah, bukan seluruh sesi pengguna.
+        // Ponsel yang sinyalnya hilang di kereta tak boleh memutus laptopnya
+        // yang sedang dipakai membalas.
+        let buang = |conn_id: u64, alasan: &str| {
+            let mut kosong = false;
+            if let Some(mut daftar) = self.sessions.get_mut(user_id) {
+                daftar.retain(|s| s.conn_id != conn_id);
+                kosong = daftar.is_empty();
+            }
+            if kosong {
+                self.sessions.remove(user_id);
                 self.active_conns.fetch_sub(1, Ordering::Relaxed);
                 self.leave_all_rooms(user_id);
-                tracing::warn!(user_id, reason, "WS session evicted");
             }
+            tracing::warn!(user_id, conn_id, alasan, "WS session evicted");
         };
 
-        match tx.try_send(json.clone()) {
-            Ok(_) => return true,
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                // P1: Retry sekali dengan timeout 50ms — beri kesempatan client drain buffer
-                // sebelum memutuskan untuk evict (cegah aggressive disconnect saat burst)
-                match tokio::time::timeout(Duration::from_millis(50), tx.send(json)).await {
-                    Ok(Ok(_)) => return true,
-                    _ => {
-                        self.dropped.fetch_add(1, Ordering::Relaxed);
-                        evict("channel full after 50ms retry");
+        let mut ada_yang_sampai = false;
+        for (conn_id, tx) in pengirim {
+            match tx.try_send(json.clone()) {
+                Ok(_) => {
+                    ada_yang_sampai = true;
+                    continue;
+                }
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    // Beri kesempatan klien menguras buffernya sebelum diputus —
+                    // buffer yang penuh sesaat saat lonjakan bukan alasan
+                    // memutus sambungan orang.
+                    match tokio::time::timeout(
+                        Duration::from_millis(50),
+                        tx.send(json.clone()),
+                    )
+                    .await
+                    {
+                        Ok(Ok(_)) => {
+                            ada_yang_sampai = true;
+                            continue;
+                        }
+                        _ => {
+                            self.dropped.fetch_add(1, Ordering::Relaxed);
+                            crate::service::metrik::METRIK
+                                .pesan_dibuang
+                                .fetch_add(1, Ordering::Relaxed);
+                            buang(conn_id, "channel full after 50ms retry");
+                        }
                     }
                 }
-            }
-            Err(mpsc::error::TrySendError::Closed(_)) => {
-                // Lazy eviction — hapus dari semua room saat channel closed
-                evict("channel closed");
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    buang(conn_id, "channel closed");
+                }
             }
         }
-        false
+        ada_yang_sampai
     }
 
     /// Redis publish dengan retry + exponential backoff.
     async fn redis_publish_with_retry(&self, channel: &str, json: &str) {
+        let _ukur = crate::service::metrik::ukur(&crate::service::metrik::METRIK.redis_publish);
         let mut delay = REDIS_PUBLISH_RETRY_DELAY;
 
         for attempt in 0..REDIS_PUBLISH_RETRIES {

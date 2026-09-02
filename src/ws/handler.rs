@@ -291,10 +291,11 @@ async fn dispatch(state: &WsAppState, user_id: &str, user_name: &str, raw: &str)
             room_id,
             content,
             client_id,
+            reply_to,
         } => {
             match state
                 .group_svc
-                .send_text(&room_id, user_id, user_name, &content)
+                .send_text(&room_id, user_id, user_name, &content, reply_to.as_deref())
                 .await
             {
                 Ok(m) => {
@@ -325,6 +326,7 @@ async fn dispatch(state: &WsAppState, user_id: &str, user_name: &str, raw: &str)
             media_url,
             caption,
             client_id,
+            reply_to,
         } => {
             match state
                 .group_svc
@@ -334,6 +336,7 @@ async fn dispatch(state: &WsAppState, user_id: &str, user_name: &str, raw: &str)
                     user_name,
                     &media_url,
                     caption.as_deref().unwrap_or(""),
+                    reply_to.as_deref(),
                 )
                 .await
             {

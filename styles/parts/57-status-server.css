@@ -1,0 +1,117 @@
+/* ── Kartu status server (tab Analitik admin) ──────────────────────────────
+   Sebelum ada ini, satu-satunya cara mengetahui mesinnya sedang kehabisan
+   memori atau kolam koneksinya jenuh adalah SSH ke VPS. Padahal gejalanya
+   sampai lebih dulu ke admin — halaman lambat, unggahan gagal — dan justru
+   pada saat itulah ia paling tak sempat membuka terminal. */
+
+.srv-status {
+    padding: 20px 16px 8px;
+}
+
+.srv-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.srv-btn {
+    padding: 7px 16px;
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    background: var(--bg-elevated);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+}
+
+.srv-btn:hover:not(:disabled) { background: var(--bg-elevated-2); }
+.srv-btn:disabled { opacity: 0.55; cursor: default; }
+
+.srv-galat,
+.srv-catatan {
+    margin: 0 0 12px;
+    font-family: var(--font-body);
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-muted);
+}
+
+.srv-galat { color: var(--danger); }
+
+.srv-grid {
+    display: grid;
+    /* Dua kolom di ponsel, empat begitu ruangnya ada. `auto-fit` + `minmax`
+       supaya tak perlu titik henti sendiri. */
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.srv-kartu {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--bg-elevated);
+}
+
+.srv-kartu--lebar {
+    grid-column: 1 / -1;
+    margin-bottom: 10px;
+}
+
+.srv-kartu--awas {
+    border-color: var(--danger);
+}
+
+.srv-judul {
+    font-family: var(--font-body);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+}
+
+.srv-nilai {
+    font-family: var(--font-display, var(--font-body));
+    font-size: 24px;
+    font-weight: 800;
+    line-height: 1.15;
+    /* Angka bergerak tiap penyegaran; tanpa ini lebarnya berubah-ubah dan
+       kartunya tampak bergetar. */
+    font-variant-numeric: tabular-nums;
+}
+
+/* Waktu hidup berbentuk kalimat ("3 hari 4 jam"), bukan angka — pada ukuran
+   yang sama dengan persentase ia akan terpotong di ponsel. */
+.srv-nilai--kecil { font-size: 15px; }
+
+.srv-sub {
+    font-family: var(--font-body);
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.srv-awas {
+    margin-top: 6px;
+    font-family: var(--font-body);
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--danger);
+}
+
+/* Satu skala untuk CPU, memori, dan disk — dua kartu bersebelahan tak boleh
+   memakai ambang yang berbeda diam-diam. */
+.stat-aman   { color: var(--success, #16a34a); }
+.stat-sedang { color: var(--text); }
+.stat-tinggi { color: var(--warning, #d97706); }
+.stat-kritis { color: var(--danger); }

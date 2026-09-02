@@ -208,6 +208,11 @@ web-sys = { version = "0.3", features = [
 # Semua dep yang menarik mio/tokio-net/native TLS ada di sini.
 # Saat cargo leptos build WASM (target=wasm32), bagian ini DILEWATI sepenuhnya.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Ruang disk lewat `statvfs(2)`. `/proc` hanya memuat daftar mount, bukan
+# kapasitasnya — kapasitas memang cuma tersedia lewat syscall ini, dan
+# memanggil `df` berarti menjalankan proses tiap tombol status ditekan.
+libc = "0.2"
+
 # Global allocator untuk server SSR+WebSocket: mengurangi fragmentasi memori
 # pada proses berumur panjang (banyak alloc kecil dari serialisasi/SSR/WS).
 # Penting di box kecil 2 vCPU / 4 GB. Hanya untuk native (bukan wasm — sisi

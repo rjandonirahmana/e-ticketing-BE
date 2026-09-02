@@ -342,10 +342,33 @@ impl ChatBus {
 pub fn provide_chat_bus() {
     let belum: RwSignal<Option<std::collections::HashMap<String, i32>>> = RwSignal::new(None);
     let peristiwa: RwSignal<Option<serde_json::Value>> = RwSignal::new(None);
+    // Dibaca DI DALAM penangan, tak dilacak: siapa kita tak berubah selama satu
+    // sesi, dan melacaknya akan membangunkan penangan ini tiap auth bergerak.
+    let auth_ku = use_context::<crate::web::app::AuthResource>();
 
     let koneksi = langgan_chat(move |evt| {
         if evt.get("type").and_then(|t| t.as_str()) == Some("new_message") {
-            if let Some(rid) = evt.get("room_id").and_then(|v| v.as_str()) {
+            // Pesan SENDIRI bukan pesan belum dibaca.
+            //
+            // Server menggemakan `new_message` kembali ke pengirimnya — itulah
+            // yang membuat pesan muncul di perangkat lain milik orang yang sama.
+            // Tanpa saringan ini, setiap kali seseorang mengirim pesan ia
+            // menaikkan lencananya SENDIRI, dan begitu ia kembali ke daftar
+            // percakapan seolah ada pesan masuk dari lawan bicaranya.
+            //
+            // Penyaring ini dulu ada di `messages.rs` dan ikut terbuang saat
+            // hitungannya dipindahkan ke bus.
+            let saya = auth_ku
+                .and_then(|a| a.get_untracked())
+                .and_then(|r| r.ok())
+                .flatten()
+                .map(|u| u.id);
+            let pengirim = evt.get("sender_id").and_then(|v| v.as_str());
+            let dari_sendiri = matches!((pengirim, saya.as_deref()), (Some(a), Some(b)) if a == b);
+
+            if let (false, Some(rid)) =
+                (dari_sendiri, evt.get("room_id").and_then(|v| v.as_str()))
+            {
                 belum.update(|opt| {
                     // Sebelum patokan server tiba, jangan mengarang peta dari
                     // nol — hitungannya akan lebih kecil dari yang sebenarnya,

@@ -20,4 +20,5 @@ pub mod rtc;
 pub mod seo;
 pub mod services;
 pub mod state;
+pub mod status;
 pub mod utils;

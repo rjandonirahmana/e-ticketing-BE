@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 
 use crate::web::models::{format_price, AdminStats, Product};
+use crate::web::status::{fmt_bytes, peringatan_disk, tingkat_pakai, StatusServer};
 
 pub(super) fn view_analytics_admin(evs: Vec<Product>, stats: Option<AdminStats>) -> impl IntoView {
     let total        = evs.len();
@@ -76,6 +77,8 @@ pub(super) fn view_analytics_admin(evs: Vec<Product>, stats: Option<AdminStats>)
                 </div>
             </div>
         </section>
+
+        <StatusServerCard />
     }
 }
 
@@ -147,6 +150,181 @@ pub(super) fn view_settings_admin() -> impl IntoView {
                 }
             })
             .collect_view()}
+        </section>
+    }
+}
+
+
+// ── Status server ─────────────────────────────────────────────────────────────
+
+/// Kartu kesehatan mesin, dimuat SAAT DIMINTA.
+///
+/// Bukan ikut dimuat bersama tab: pembacaan CPU menuntut dua cuplikan
+/// `/proc/stat` berjarak 300 ms, dan membebankan jeda itu pada setiap orang
+/// yang kebetulan membuka Analitik berarti membayar mahal untuk angka yang
+/// jarang ditanyakan. Ia ditanyakan justru saat ada yang dicurigai.
+#[component]
+pub(super) fn StatusServerCard() -> impl IntoView {
+    let data: RwSignal<Option<StatusServer>> = RwSignal::new(None);
+    let memuat = RwSignal::new(false);
+    let galat: RwSignal<Option<String>> = RwSignal::new(None);
+
+    let ambil = move |_| {
+        if memuat.get_untracked() {
+            return;
+        }
+        memuat.set(true);
+        galat.set(None);
+        leptos::task::spawn_local(async move {
+            match crate::web::api::status_server_admin().await {
+                Ok(s) => data.set(Some(s)),
+                Err(e) => galat.set(Some(e.to_string())),
+            }
+            memuat.set(false);
+        });
+    };
+
+    view! {
+        <section class="srv-status">
+            <div class="srv-head">
+                <h3 class="merchant-label">"STATUS SERVER"</h3>
+                <button class="srv-btn" disabled=move || memuat.get() on:click=ambil>
+                    {move || if memuat.get() {
+                        "MEMBACA…"
+                    } else if data.get().is_some() {
+                        "SEGARKAN"
+                    } else {
+                        "CEK STATUS"
+                    }}
+                </button>
+            </div>
+
+            {move || galat.get().map(|e| view! {
+                <p class="srv-galat">{e}</p>
+            })}
+
+            {move || data.get().map(|s| {
+                let (cpu_label, cpu_kelas) = tingkat_pakai(s.cpu_pct);
+                let (mem_label, mem_kelas) = tingkat_pakai(s.mem_pct);
+                // Kolam koneksi: nol menganggur terus-menerus adalah gejala
+                // paling awal halaman lambat — dan persis keadaan yang pernah
+                // menjatuhkan situs ini.
+                let pool_kritis = s.pool_idle == 0 && s.pool_size >= s.pool_max;
+                view! {
+                    {(!s.tersedia).then(|| view! {
+                        <p class="srv-catatan">{s.catatan.clone()}</p>
+                    })}
+
+                    <div class="srv-grid">
+                        <div class="srv-kartu">
+                            <span class="srv-judul">"CPU"</span>
+                            <span class=format!("srv-nilai {cpu_kelas}")>
+                                {format!("{:.0}%", s.cpu_pct)}
+                            </span>
+                            <span class="srv-sub">
+                                {format!("{cpu_label} · {} inti", s.cpu_cores)}
+                            </span>
+                            // Beban BUKAN persen: 2,0 pada mesin 2 inti berarti
+                            // antrean tepat penuh, pada 4 inti berarti setengah.
+                            <span class="srv-sub">
+                                {format!("beban {:.2} / {:.2} / {:.2}", s.load1, s.load5, s.load15)}
+                            </span>
+                        </div>
+
+                        <div class="srv-kartu">
+                            <span class="srv-judul">"MEMORI"</span>
+                            <span class=format!("srv-nilai {mem_kelas}")>
+                                {format!("{:.0}%", s.mem_pct)}
+                            </span>
+                            <span class="srv-sub">
+                                {format!("{mem_label} · {} / {}",
+                                    fmt_bytes(s.mem_terpakai), fmt_bytes(s.mem_total))}
+                            </span>
+                            <span class="srv-sub">{s.mem_sumber.clone()}</span>
+                            <span class="srv-sub">
+                                {format!("aplikasi ini {}", fmt_bytes(s.app_rss))}
+                            </span>
+                            {(s.swap_total > 0).then(|| view! {
+                                <span class="srv-sub">
+                                    {format!("swap {} / {}",
+                                        fmt_bytes(s.swap_terpakai), fmt_bytes(s.swap_total))}
+                                </span>
+                            })}
+                        </div>
+
+                        <div class=move || if pool_kritis { "srv-kartu srv-kartu--awas" } else { "srv-kartu" }>
+                            <span class="srv-judul">"KOLAM DB"</span>
+                            <span class="srv-nilai">
+                                {format!("{} / {}", s.pool_size, s.pool_max)}
+                            </span>
+                            <span class="srv-sub">{format!("{} menganggur", s.pool_idle)}</span>
+                            {pool_kritis.then(|| view! {
+                                <span class="srv-awas">
+                                    "Tak ada koneksi menganggur — permintaan sedang mengantre."
+                                </span>
+                            })}
+                        </div>
+
+                        <div class="srv-kartu">
+                            <span class="srv-judul">"WAKTU HIDUP"</span>
+                            <span class="srv-nilai srv-nilai--kecil">{s.uptime_app.clone()}</span>
+                            <span class="srv-sub">"aplikasi"</span>
+                            <span class="srv-sub">
+                                {format!("mesin {}", s.uptime_mesin)}
+                            </span>
+                        </div>
+                    </div>
+
+                    // Latensi jalur panas. Persentil, bukan rata-rata: saat
+                    // situs ini jatuh, rata-ratanya tetap tampak wajar karena
+                    // sebagian besar permintaan adalah aset statis yang cepat.
+                    // Yang rusak adalah ekornya, dan hanya p95/p99 yang
+                    // memperlihatkannya.
+                    <div class="srv-kartu srv-kartu--lebar">
+                        <span class="srv-judul">"LATENSI (p50 / p95 / p99)"</span>
+                        {s.latensi.iter().map(|l| {
+                            let angka = match (l.p50, l.p95, l.p99) {
+                                (Some(a), Some(b), Some(c)) => {
+                                    format!("≤{a} / ≤{b} / ≤{c} ms · {} kali", l.jumlah)
+                                }
+                                // "Belum ada data" BUKAN "nol milidetik".
+                                _ => "belum ada data".to_string(),
+                            };
+                            view! {
+                                <span class="srv-sub">
+                                    {format!("{}: {angka}", l.nama)}
+                                </span>
+                            }
+                        }).collect_view()}
+                        <span class="srv-sub">
+                            {format!("pesan dibuang {} · sesi diganti {}",
+                                s.pesan_dibuang, s.sesi_diganti)}
+                        </span>
+                    </div>
+
+                    // Penyimpanan: angka besarnya SISA, bukan yang terpakai.
+                    // Disk penuh membuat Postgres berhenti menerima tulisan, dan
+                    // itu tak pulih sendiri setelah restart.
+                    {s.disk.iter().map(|d| {
+                        let awas = peringatan_disk(d.tersedia, d.pct);
+                        let (_, kelas) = tingkat_pakai(d.pct);
+                        view! {
+                            <div class="srv-kartu srv-kartu--lebar">
+                                <span class="srv-judul">{d.label.clone()}</span>
+                                <span class=format!("srv-nilai {kelas}")>
+                                    {format!("{} sisa", fmt_bytes(d.tersedia))}
+                                </span>
+                                <span class="srv-sub">
+                                    {format!("{} dari {} terpakai ({:.0}%)",
+                                        fmt_bytes(d.terpakai), fmt_bytes(d.total), d.pct)}
+                                </span>
+                                <span class="srv-sub">{d.path.clone()}</span>
+                                {awas.map(|a| view! { <span class="srv-awas">{a}</span> })}
+                            </div>
+                        }
+                    }).collect_view()}
+                }
+            })}
         </section>
     }
 }

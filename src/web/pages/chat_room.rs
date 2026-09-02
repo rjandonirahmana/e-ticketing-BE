@@ -208,6 +208,11 @@ pub fn ChatRoomPage() -> impl IntoView {
     // Berbeda dari `batas_belum`, yang dibaca SEKALI dari server saat halaman
     // dibuka dan hanya berlaku untuk riwayat.
     let jml_baru = RwSignal::new(0usize);
+
+    // Pesan yang sedang dibalas. Disimpan UTUH, bukan cuma id-nya: pratinjau di
+    // atas kolom ketik harus menampilkan nama dan cuplikannya seketika, dan
+    // mencarinya ulang di riwayat berarti gagal untuk pesan yang belum dimuat.
+    let membalas: RwSignal<Option<crate::web::models::KutipanChat>> = RwSignal::new(None);
     // Naik tiap ada pengumuman baru. Timer penutup yang dijadwalkan pengumuman
     // LAMA tidak boleh menutup pengumuman yang lebih muda — tanpa penanda ini,
     // dua pesan yang datang beriringan membuat kabar kedua lenyap seketika saat
@@ -349,6 +354,19 @@ pub fn ChatRoomPage() -> impl IntoView {
                     // bedanya dengan `baru_masuk` di bawah, yang hanya bicara
                     // pada orang yang sedang tersesat di tengah riwayat.
                     if !m_sendiri {
+                        // Ruangan ini SEDANG dibuka, jadi pesannya terbaca saat
+                        // itu juga. Lencana navbar dinolkan seketika, dan
+                        // penanda baca di server ikut dimajukan — kalau hanya
+                        // yang pertama, memuat ulang halaman akan menghidupkan
+                        // kembali lencana untuk pesan yang sudah dilihat.
+                        if let Some(b) = bus {
+                            b.tandai_dibaca(&room_id_untracked());
+                        }
+                        let rid_baca = room_id_untracked();
+                        leptos::task::spawn_local(async move {
+                            let _ = crate::web::api::mark_chat_read(rid_baca).await;
+                        });
+
                         jml_baru.update(|n| *n += 1);
                         sorot.set(Some(id_baru));
                         pengumuman.set(Some((nama_kirim, cuplikan)));
@@ -459,6 +477,8 @@ pub fn ChatRoomPage() -> impl IntoView {
             let _ = form.append_with_blob("file", &berkas);
             mengunggah.set(true);
             let rid = room_id();
+            let balas_id = membalas.get_untracked().map(|k| k.id);
+            membalas.set(None);
 
             leptos::task::spawn_local(async move {
                 let hasil = async {
@@ -504,6 +524,7 @@ pub fn ChatRoomPage() -> impl IntoView {
                             "room_id": rid,
                             "media_url": url,
                             "client_id": format!("_opt_{}", js_sys_now()),
+                            "reply_to": balas_id,
                         })
                         .to_string();
                         if let Some(b) = bus {
@@ -527,6 +548,11 @@ pub fn ChatRoomPage() -> impl IntoView {
         let client_id = format!("_opt_{}", js_sys_now());
         text_input.set(String::new());
         let me_id = current_user_id().unwrap_or_default();
+        // Diambil SEBELUM dinolkan di bawah — pesan optimistis harus sudah
+        // membawa kutipannya, kalau tidak ia berkedip tanpa kutipan lalu
+        // kutipannya muncul saat gemanya tiba dari server.
+        let balasan = membalas.get_untracked();
+        membalas.set(None);
         let msg = ChatMessage {
             id: client_id.clone(),
             room_id: room_id(),
@@ -536,6 +562,7 @@ pub fn ChatRoomPage() -> impl IntoView {
             sent_at: 0,
             message_type: "text".into(),
             media_url: None,
+            reply_to: balasan.clone(),
         };
         live_msgs.update(|v| v.push(msg));
         // Membalas adalah bukti paling kuat bahwa yang di atas sudah terbaca —
@@ -557,6 +584,7 @@ pub fn ChatRoomPage() -> impl IntoView {
                 "room_id": room_id(),
                 "content": content,
                 "client_id": client_id,
+                "reply_to": balasan.as_ref().map(|k| k.id.clone()),
             }).to_string();
             match bus {
                 Some(b) => {
@@ -753,7 +781,7 @@ pub fn ChatRoomPage() -> impl IntoView {
                                             </div>
                                         }
                                     });
-                                    view! { {pemisah} {message_bubble(msg, &me, false)} }
+                                    view! { {pemisah} {message_bubble(msg, &me, false, membalas)} }
                                 })
                                 .collect_view()
                                 .into_any()
@@ -768,7 +796,7 @@ pub fn ChatRoomPage() -> impl IntoView {
                     let disorot = sorot.get();
                     live_msgs.get().into_iter().map(|msg| {
                         let kena = disorot.as_deref() == Some(msg.id.as_str());
-                        message_bubble(msg, &me, kena)
+                        message_bubble(msg, &me, kena, membalas)
                     }).collect_view()
                 }}
             </div>
@@ -860,6 +888,36 @@ pub fn ChatRoomPage() -> impl IntoView {
             })}
 
             // ── Input bar ──────────────────────────────────────────────────────
+            // Pratinjau balasan, TEPAT di atas kolom ketik — bukan melayang di
+            // tempat lain. Ia harus berada di jalur pandang yang sama dengan
+            // kalimat yang sedang diketik; kalau tidak, orang mengetik balasan
+            // panjang tanpa sadar ia sedang membalas pesan yang keliru.
+            {move || membalas.get().map(|k| {
+                let isi = if k.is_image && k.content.is_empty() {
+                    "Foto".to_string()
+                } else {
+                    k.content.clone()
+                };
+                view! {
+                    <div class="chat-balas-pratinjau">
+                        <div class="chat-balas-teks">
+                            <span class="chat-kutip-nama">{k.sender_name.clone()}</span>
+                            <span class="chat-kutip-isi">{isi}</span>
+                        </div>
+                        <button
+                            class="chat-balas-batal"
+                            aria-label="Batalkan balasan"
+                            on:click=move |_| membalas.set(None)
+                        >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                 stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                                <line x1="18" y1="6" x2="6" y2="18"/>
+                                <line x1="6" y1="6" x2="18" y2="18"/>
+                            </svg>
+                        </button>
+                    </div>
+                }
+            })}
             <div class="chat-input-bar">
                 <button class="chat-input-icon-btn" aria-label="Emoji">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
@@ -1090,7 +1148,12 @@ fn KartuProduk(judul: String, slug: String) -> impl IntoView {
 
 // ── Message bubble renderer ───────────────────────────────────────────────────
 
-fn message_bubble(msg: ChatMessage, my_id: &str, disorot: bool) -> impl IntoView {
+fn message_bubble(
+    msg: ChatMessage,
+    my_id: &str,
+    disorot: bool,
+    membalas: RwSignal<Option<crate::web::models::KutipanChat>>,
+) -> impl IntoView {
     let is_me   = msg.sender_id == my_id;
     let name    = msg.sender_name.clone();
     let text    = msg.content.clone();
@@ -1103,6 +1166,19 @@ fn message_bubble(msg: ChatMessage, my_id: &str, disorot: bool) -> impl IntoView
 
     let row_cls    = if is_me { "chat-row chat-row--self" } else { "chat-row chat-row--other" };
     let wrap_cls   = if is_me { "chat-bubble-wrap chat-bubble-wrap--self" } else { "chat-bubble-wrap" };
+    let kutipan = msg.reply_to.clone();
+    // Bahan untuk pratinjau saat gelembung INI yang dibalas. Disiapkan sekarang
+    // karena `msg` akan berpindah ke dalam view di bawah.
+    let umpan = crate::web::models::KutipanChat {
+        id: msg.id.clone(),
+        sender_name: if is_me { "Kamu".to_string() } else { msg.sender_name.clone() },
+        content: if gambar.is_some() && msg.content.is_empty() {
+            String::new()
+        } else {
+            msg.content.chars().take(120).collect()
+        },
+        is_image: gambar.is_some(),
+    };
     let bubble_cls = match (is_me, disorot) {
         (true, _)      => "chat-bubble chat-bubble--self",
         (false, false) => "chat-bubble chat-bubble--other",
@@ -1121,6 +1197,22 @@ fn message_bubble(msg: ChatMessage, my_id: &str, disorot: bool) -> impl IntoView
             <div class=wrap_cls>
                 {(!is_me).then(|| view! {
                     <span class="chat-sender-name">{name}</span>
+                })}
+                // Kutipan di ATAS isi balasannya — urutan yang sama dengan cara
+                // orang membacanya: dulu ada yang bilang begini, lalu ini
+                // jawabannya.
+                {kutipan.map(|k| {
+                    let isi = if k.is_image && k.content.is_empty() {
+                        "Foto".to_string()
+                    } else {
+                        k.content.clone()
+                    };
+                    view! {
+                        <div class="chat-kutip">
+                            <span class="chat-kutip-nama">{k.sender_name.clone()}</span>
+                            <span class="chat-kutip-isi">{isi}</span>
+                        </div>
+                    }
                 })}
                 {match gambar {
                     // Gelembung gambar: tanpa lapisan gelembung di belakangnya,
@@ -1164,6 +1256,22 @@ fn message_bubble(msg: ChatMessage, my_id: &str, disorot: bool) -> impl IntoView
                     },
                 }}
                 <div class="chat-msg-meta">
+                    // Tombol, bukan geser: geser lebih halus tapi tak terlihat
+                    // sama sekali sampai seseorang kebetulan menemukannya, dan
+                    // fitur yang harus ditemukan sendiri sama saja dengan tidak
+                    // ada bagi kebanyakan orang.
+                    <button
+                        class="chat-balas-btn"
+                        aria-label="Balas pesan ini"
+                        on:click=move |_| membalas.set(Some(umpan.clone()))
+                    >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                             stroke-linejoin="round">
+                            <polyline points="9 17 4 12 9 7"/>
+                            <path d="M20 18v-2a4 4 0 0 0-4-4H4"/>
+                        </svg>
+                    </button>
                     <span class="chat-msg-time">{time}</span>
                     {is_me.then(|| view! {
                         <span class="chat-msg-sent-icon">

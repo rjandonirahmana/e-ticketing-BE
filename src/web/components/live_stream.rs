@@ -20,6 +20,15 @@ struct ViewerRtcClosures {
 // Hanya field yang dipakai UI viewer; field lain di respons diabaikan serde.
 #[derive(Debug, Clone, Deserialize)]
 struct RoomInfo {
+    /// Dibutuhkan sejak hitungan penonton datang lewat `/ws/lives`: snapshot
+    /// itu memuat SELURUH room, jadi harus ada cara memilih yang ini.
+    ///
+    /// Hanya DIBACA di klien — pemilihannya ada di dalam blok yang dipagari
+    /// wasm. Bidangnya tetap harus ada di kedua target supaya bentuk yang
+    /// diurai serde tak berbeda antara SSR dan klien.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    #[serde(default)]
+    room_id: String,
     merchant_name: String,
     viewer_count: usize,
     /// Pemilik siaran — dipakai mengambil rincian produk lewat
@@ -120,38 +129,91 @@ pub fn LiveStreamViewer(
     // memenuhi bound Send StoredValue (single-thread WASM; no-op native).
     let rtc_closures: StoredValue<Option<SendWrapper<ViewerRtcClosures>>> = StoredValue::new(None);
 
-    // ── Polling viewer count ──────────────────────────────────────────────
-    Effect::new(move |_| {
-        // Pratinjau tak menampilkan angkanya, jadi tak perlu memintanya.
-        if preview || !is_playing.get() {
-            return;
-        }
-        let rid = room_id.get_value();
-        let vc = viewer_count;
-        let pids = produk_ids;
+    // ── Hitungan penonton & daftar produk lewat WS ────────────────────────
+    // Dulu di sini ada polling `GET /api/live/rooms/:id` tiap 5 detik. Data
+    // yang sama SUDAH didorong server lewat `/ws/lives` tiap ada perubahan —
+    // jadi yang dilakukan polling itu hanya menanyakan ulang sesuatu yang
+    // sudah dikirim cuma-cuma.
+    //
+    // Ongkosnya nyata: sepuluh ribu penonton × sekali per lima detik = dua ribu
+    // permintaan per detik ke basis data yang sama dengan yang melayani
+    // halaman, hanya untuk satu angka di pojok layar. Itu persis bentuk beban
+    // yang sudah pernah menjatuhkan situs ini.
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::prelude::*;
+        use wasm_bindgen::JsCast;
 
-        // SendWrapper: `Interval` memegang closure non-Send, sedangkan `on_cleanup`
-        // menuntut Send+Sync agar tetap type-check di target native (efek hanya
-        // benar-benar dijalankan di klien/WASM, jadi tak ada drop lintas-thread).
-        let interval = SendWrapper::new(gloo_timers::callback::Interval::new(5_000, move || {
-            let rid = rid.clone();
-            let vc = vc;
-            wasm_bindgen_futures::spawn_local(async move {
-                if let Ok(room) = api_get_room(&rid).await {
+        let ws_store: StoredValue<Option<web_sys::WebSocket>> = StoredValue::new(None);
+        let cb_msg: StoredValue<Option<JsValue>> = StoredValue::new(None);
+
+        Effect::new(move |_| {
+            // Pratinjau tak menampilkan angkanya, jadi tak perlu mendengarkan.
+            if preview {
+                return;
+            }
+            let rid = room_id.get_value();
+
+            let proto = if web_sys::window()
+                .map(|w| w.location().protocol().unwrap_or_default() == "https:")
+                .unwrap_or(false)
+            {
+                "wss"
+            } else {
+                "ws"
+            };
+            let host = web_sys::window()
+                .and_then(|w| w.location().host().ok())
+                .unwrap_or_default();
+            let Ok(ws) = web_sys::WebSocket::new(&format!("{proto}://{host}/ws/lives")) else {
+                return;
+            };
+
+            let vc = viewer_count;
+            let pids = produk_ids;
+            let onmessage = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
+                move |e: web_sys::MessageEvent| {
+                    let Ok(txt) = e.data().dyn_into::<js_sys::JsString>() else {
+                        return;
+                    };
+                    let s: String = txt.into();
+                    let Ok(list) = serde_json::from_str::<Vec<RoomInfo>>(&s) else {
+                        return;
+                    };
+                    // Snapshot memuat SELURUH room; yang kita perlukan satu.
+                    let Some(room) = list.into_iter().find(|r| r.room_id == rid) else {
+                        return;
+                    };
                     vc.set(room.viewer_count as u32);
-                    // Daftar produk ikut disegarkan di sini. Merchant kerap
-                    // menambah produk DI TENGAH siaran karena ada yang
-                    // menanyakannya; tanpa ini penonton baru melihatnya setelah
-                    // memuat ulang halaman — yang berarti keluar dari siaran.
+                    // Daftar produk ikut di sini. Merchant kerap menambah produk
+                    // DI TENGAH siaran karena ada yang menanyakannya; tanpa ini
+                    // penonton baru melihatnya setelah memuat ulang halaman —
+                    // yang berarti keluar dari siaran.
+                    //
+                    // Dibandingkan dulu: menyetel ulang daftar yang isinya sama
+                    // membuat Leptos merender ulang keranjangnya tiap ada
+                    // penonton masuk atau keluar.
                     if pids.with_untracked(|v: &Vec<String>| *v != room.product_ids) {
                         pids.set(room.product_ids);
                     }
-                }
-            });
-        }));
+                },
+            );
+            ws.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
+            cb_msg.set_value(Some(onmessage.into_js_value()));
+            ws_store.set_value(Some(ws));
 
-        on_cleanup(move || drop(interval));
-    });
+            on_cleanup(move || {
+                ws_store.with_value(|opt| {
+                    if let Some(ws) = opt {
+                        ws.set_onmessage(None);
+                        let _ = ws.close();
+                    }
+                });
+                ws_store.set_value(None);
+                cb_msg.set_value(None);
+            });
+        });
+    }
 
     let connect = Action::new_local(move |_: &()| {
         let room_id = room_id.get_value();

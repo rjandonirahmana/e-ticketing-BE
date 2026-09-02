@@ -139,6 +139,7 @@ pub async fn exec_drop(
     query: &str,
     params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
 ) -> Result<u64> {
+    let _ukur = crate::service::metrik::ukur(&crate::service::metrik::METRIK.db_kueri);
     let conn = get_conn(pool).await?;
     let stmt = conn
         .prepare_cached(query)
@@ -155,6 +156,7 @@ pub async fn exec_rows(
     query: &str,
     params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
 ) -> Result<Vec<Row>> {
+    let _ukur = crate::service::metrik::ukur(&crate::service::metrik::METRIK.db_kueri);
     let conn = get_conn(pool).await?;
     let stmt = conn
         .prepare_cached(query)

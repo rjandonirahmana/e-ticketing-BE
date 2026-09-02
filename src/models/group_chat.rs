@@ -104,6 +104,42 @@ pub struct GroupMessage {
     pub ticket_card: Option<TicketCard>,
     pub sent_at: DateTime<Utc>,
     pub is_system: bool,
+    /// Pesan yang dibalas, bila ada.
+    ///
+    /// Kutipannya disimpan sebagai SALINAN saat dibaca, bukan sebagai rujukan
+    /// yang diambil belakangan: pesan yang dikutip bisa sudah dibuang retensi,
+    /// dan balasannya tetap harus tampil. Yang hilang cuma kutipannya.
+    #[serde(default)]
+    pub reply_to: Option<KutipanPesan>,
+}
+
+/// Sepenggal pesan yang sedang dibalas — cukup untuk dikenali, tak lebih.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct KutipanPesan {
+    pub id: String,
+    pub sender_name: String,
+    /// Sudah dipotong di sisi server. Kutipan bukan tempat membaca ulang pesan
+    /// panjang — ia hanya penunjuk, dan pesan aslinya ada beberapa baris di atas.
+    pub content: String,
+    /// Kutipan atas pesan bergambar tampil sebagai "Foto", bukan keterangan
+    /// kosong yang membuat kutipannya seperti gagal dimuat.
+    pub is_image: bool,
+}
+
+impl KutipanPesan {
+    /// Panjang maksimum kutipan. Dipotong di sisi SERVER supaya tak ada klien
+    /// yang mengirimkan kalimat panjang lewat jalur ini.
+    pub const MAKS: usize = 120;
+
+    pub fn potong(teks: &str) -> String {
+        // `chars()`, bukan indeks bita: memotong di tengah karakter multi-bita
+        // menggagalkan seluruh string, dan nama serta pesan di sini berbahasa
+        // Indonesia dengan emoji yang lumrah.
+        if teks.chars().count() <= Self::MAKS {
+            return teks.to_string();
+        }
+        teks.chars().take(Self::MAKS).collect::<String>() + "…"
+    }
 }
 
 // ── REST request/response bodies ───────────────────────────────────────────────

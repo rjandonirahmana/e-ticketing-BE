@@ -79,6 +79,9 @@ pub enum WsClientMsg {
         room_id: String,
         content: String,
         client_id: Option<String>,
+        /// Id pesan yang dibalas. Klien lama tak mengirimkannya.
+        #[serde(default)]
+        reply_to: Option<String>,
     },
 
     /// Kirim gambar yang SUDAH terunggah.
@@ -93,6 +96,8 @@ pub enum WsClientMsg {
         /// Keterangan foto. Boleh kosong.
         caption: Option<String>,
         client_id: Option<String>,
+        #[serde(default)]
+        reply_to: Option<String>,
     },
 
     /// Share ticket card
@@ -248,6 +253,10 @@ pub struct WsMessage {
     /// u64 unix millis — 8 bytes, zero alloc vs RFC3339 String ~25 bytes.
     pub sent_at: TimestampMillis,
     pub is_system: bool,
+    /// Pesan yang dibalas — sudah lengkap dengan nama dan cuplikan isinya,
+    /// jadi klien tak perlu mencari sendiri pesan asalnya di riwayat yang
+    /// mungkin belum ia muat.
+    pub reply_to: Option<crate::models::group_chat::KutipanPesan>,
 }
 
 impl WsMessage {
@@ -271,6 +280,7 @@ impl WsMessage {
             ticket_card: m.ticket_card.clone(),
             sent_at: to_ts(&m.sent_at), // stack u64, no heap alloc
             is_system: m.is_system,
+            reply_to: m.reply_to.clone(),
         }
     }
 }
@@ -293,6 +303,7 @@ mod tests_protokol {
             ticket_card: None,
             sent_at: 1_756_700_000_000,
             is_system: false,
+            reply_to: None,
         }
     }
 
@@ -381,13 +392,46 @@ mod tests_protokol {
         )
         .unwrap();
         match m {
-            WsClientMsg::SendText { room_id, content, client_id } => {
+            WsClientMsg::SendText { room_id, content, client_id, reply_to } => {
                 assert_eq!(room_id, "r1");
                 assert_eq!(content, "halo");
                 assert_eq!(client_id.as_deref(), Some("_opt_1"));
+                // Klien lama tak mengirimkannya — harus tetap terurai.
+                assert!(reply_to.is_none());
             }
             lain => panic!("varian salah: {lain:?}"),
         }
+    }
+
+    #[test]
+    fn balasan_membawa_id_pesan_yang_dibalas() {
+        let m: WsClientMsg = serde_json::from_str(
+            r#"{"type":"send_text","room_id":"r1","content":"iya ada","reply_to":"01ABC"}"#,
+        )
+        .unwrap();
+        match m {
+            WsClientMsg::SendText { reply_to, .. } => {
+                assert_eq!(reply_to.as_deref(), Some("01ABC"));
+            }
+            lain => panic!("varian salah: {lain:?}"),
+        }
+    }
+
+    /// Kutipan ikut terserialisasi rata bersama pesannya, jadi klien tak perlu
+    /// mencari sendiri pesan asalnya di riwayat yang mungkin belum ia muat.
+    #[test]
+    fn kutipan_ikut_dalam_pesan_baru() {
+        let mut m = pesan();
+        m.reply_to = Some(crate::models::group_chat::KutipanPesan {
+            id: "01ABC".into(),
+            sender_name: "Budi".into(),
+            content: "stoknya masih?".into(),
+            is_image: false,
+        });
+        let v = json(&WsEvent::NewMessage(Box::new(m)));
+        assert_eq!(v["reply_to"]["sender_name"], "Budi");
+        assert_eq!(v["reply_to"]["content"], "stoknya masih?");
+        assert_eq!(v["reply_to"]["is_image"], false);
     }
 
     /// `client_id` dan `caption` boleh hilang — klien lama tak mengirimkannya.

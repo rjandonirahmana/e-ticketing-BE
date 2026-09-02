@@ -121,7 +121,7 @@ pub async fn send_first_chat_message(
 
     state
         .group_chat_svc
-        .send_text(&room.id, &claims.user_id, &claims.name, &content)
+        .send_text(&room.id, &claims.user_id, &claims.name, &content, None)
         .await
         .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })?;
 

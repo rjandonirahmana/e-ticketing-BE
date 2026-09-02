@@ -53,6 +53,11 @@ const ANGKATAN_HAPUS: i64 = 500;
 /// `run()`. Sengaja TIDAK memakai `#[tokio::main]` karena makro itu tak bisa
 /// menyetel `max_blocking_threads`.
 fn main() -> Result<()> {
+    // Jam "waktu hidup aplikasi" di kartu status server dimulai DI SINI, bukan
+    // saat kartunya pertama dibuka — kalau tidak, ia selalu melaporkan beberapa
+    // detik dan selisihnya dengan uptime mesin jadi tak berarti apa-apa.
+    e_ticketing::service::server_status::catat_waktu_mulai();
+
     // Blocking-pool: bcrypt hash/verify (service/auth.rs) dijalankan lewat
     // `spawn_blocking`. Default tokio = 512 thread → storm login/registrasi bisa
     // memunculkan ratusan thread (tiap thread mencadangkan stack) → boros RAM &

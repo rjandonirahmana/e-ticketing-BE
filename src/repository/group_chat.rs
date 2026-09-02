@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use deadpool_postgres::Pool;
 
-use crate::models::group_chat::{GroupMessage, GroupRoom, MsgType, TicketCard};
+use crate::models::group_chat::{GroupMessage, GroupRoom, KutipanPesan, MsgType, TicketCard};
 use crate::repository::db::{col_opt_str, exec_drop, exec_rows};
 use crate::utils::ulid::{bin_to_ulid, id_to_vec, new_ulid, ulid_to_arr, ulid_to_vec};
 
@@ -40,7 +40,19 @@ pub trait GroupChatRepository: Send + Sync {
     async fn get_member_ids(&self, room_id: &str) -> Result<Vec<String>>;
 
     // Messages
-    async fn save_message(&self, msg: &GroupMessage) -> Result<()>;
+    /// Simpan pesan, periksa keanggotaan, dan naikkan percakapan ke puncak
+    /// inbox — SEMUANYA dalam satu perjalanan ke basis data.
+    ///
+    /// Mengembalikan `false` bila pengirim bukan peserta percakapan itu.
+    async fn save_message(&self, msg: &GroupMessage) -> Result<bool>;
+
+    /// Kutipan satu pesan, HANYA bila ia memang berada di ruangan itu.
+    ///
+    /// `room_id` bukan kenyamanan, melainkan pagar: tanpanya, klien mana pun
+    /// bisa membalas id pesan dari percakapan ORANG LAIN dan isinya akan ikut
+    /// tersalin ke kutipan yang dikirim balik ke layarnya. Pemeriksaannya di
+    /// dalam SQL, bukan sesudahnya, supaya tak ada jalan melewatinya.
+    async fn kutipan(&self, room_id: &str, msg_id: &str) -> Result<Option<KutipanPesan>>;
     async fn count_user_messages(&self, room_id: &str, user_id: &str) -> Result<i64>;
     async fn get_history(
         &self,
@@ -235,19 +247,21 @@ impl GroupChatRepository for PgGroupChatRepository {
                    -- `sender_id <> $1`: pesan yang baru saja kita kirim bukan
                    -- pesan yang belum kita baca. Tanpa syarat ini, mengirim
                    -- pesan justru menaikkan lencana "belum dibaca" sendiri.
+                   -- Hitungan SIMPANAN, bukan dihitung ulang di sini.
                    --
-                   -- `COALESCE(..., c.created_at)`: percakapan yang belum
-                   -- pernah dibuka bertanda NULL. Diperlakukan sebagai "sejak
-                   -- percakapan lahir" — bukan `epoch`, yang sama saja hasilnya
-                   -- di sini tetapi menyembunyikan maksudnya.
-                   (SELECT COUNT(*)::BIGINT FROM chat_messages m
-                     WHERE m.chat_id = c.id
-                       AND m.sender_id <> $1
-                       AND m.sent_at > COALESCE(
-                             CASE WHEN c.buyer_id = $1
-                                  THEN c.buyer_read_at
-                                  ELSE c.merchant_read_at END,
-                             c.created_at)) AS unread_count
+                   -- Dulu baris ini adalah subkueri berkorelasi: satu `COUNT(*)`
+                   -- untuk SETIAP percakapan, tiap kali inbox dibuka. Indeksnya
+                   -- (migrasi 034) membuat tiap hitungan murah, tapi jumlah
+                   -- hitungannya tumbuh bersama jumlah percakapan yang dipunyai
+                   -- orang itu — dua ratus percakapan berarti dua ratus
+                   -- subkueri untuk satu halaman.
+                   --
+                   -- Sekarang dinaikkan pada pernyataan yang sama dengan yang
+                   -- menyimpan pesannya (lihat `save_message`), jadi membacanya
+                   -- tinggal memilih kolom.
+                   (CASE WHEN c.buyer_id = $1
+                         THEN c.buyer_unread
+                         ELSE c.merchant_unread END)::BIGINT AS unread_count
             FROM chats c
             JOIN users um ON um.id = c.merchant_id
             JOIN users ub ON ub.id = c.buyer_id
@@ -279,7 +293,13 @@ impl GroupChatRepository for PgGroupChatRepository {
             r#"
             UPDATE chats
                SET buyer_read_at    = CASE WHEN buyer_id    = $2 THEN NOW() ELSE buyer_read_at    END,
-                   merchant_read_at = CASE WHEN merchant_id = $2 THEN NOW() ELSE merchant_read_at END
+                   merchant_read_at = CASE WHEN merchant_id = $2 THEN NOW() ELSE merchant_read_at END,
+                   -- Penanda waktu TETAP ditulis di samping hitungan yang
+                   -- dinolkan. Ia yang membuat hitungannya bisa dibangun ulang
+                   -- bila kelak melenceng — angka simpanan tanpa cara
+                   -- memverifikasinya adalah angka yang tak bisa dipercaya.
+                   buyer_unread    = CASE WHEN buyer_id    = $2 THEN 0 ELSE buyer_unread    END,
+                   merchant_unread = CASE WHEN merchant_id = $2 THEN 0 ELSE merchant_unread END
              WHERE id = $1 AND (buyer_id = $2 OR merchant_id = $2)
             "#,
             &[&room_b, &user_b],
@@ -320,8 +340,7 @@ impl GroupChatRepository for PgGroupChatRepository {
 
     // ── Messages ──────────────────────────────────────────────────────────────
 
-    async fn save_message(&self, msg: &GroupMessage) -> Result<()> {
-        // FIX: ulid_to_arr → stack [u8;16], tidak ada Vec heap alloc untuk msg ID
+    async fn save_message(&self, msg: &GroupMessage) -> Result<bool> {
         let id_arr = ulid_to_arr(&msg.id)?;
         let room_b = id_to_vec(&msg.room_id)?;
         let sender_b = id_to_vec(&msg.sender_id)?;
@@ -330,15 +349,73 @@ impl GroupChatRepository for PgGroupChatRepository {
             .as_ref()
             .map(|t| serde_json::to_value(t))
             .transpose()?;
-        exec_drop(
+        // Id pesan yang dibalas → biner, atau NULL. Id yang tak sah
+        // diperlakukan sebagai "tanpa balasan" alih-alih menggagalkan
+        // pengiriman: kehilangan kutipan jauh lebih ringan daripada kehilangan
+        // pesannya.
+        let balas_b: Option<Vec<u8>> = msg
+            .reply_to
+            .as_ref()
+            .and_then(|k| id_to_vec(&k.id).ok());
+
+        // ── SATU perjalanan, bukan tiga ───────────────────────────────────
+        // Dulu: SELECT keanggotaan → INSERT pesan → UPDATE percakapan. Tiga
+        // kali bolak-balik ke basis data untuk setiap pesan yang dikirim
+        // siapa pun, dan pada beban tinggi ketiganya berebut kolam koneksi
+        // yang sama dengan yang melayani halaman.
+        //
+        // Menyatukannya juga menutup celah yang tak kentara: di antara SELECT
+        // dan INSERT ada jeda tempat keanggotaan bisa berubah. Di sini
+        // `INSERT ... SELECT FROM sah` menjadikan pemeriksaannya bagian dari
+        // penulisan itu sendiri — bukan janji yang dibuat sesaat sebelumnya.
+        //
+        // CTE yang MENGUBAH data di Postgres selalu dijalankan sampai tuntas,
+        // dipakai atau tidak oleh kueri utamanya. Jadi `sisip` dan `naik`
+        // benar-benar berjalan meski yang dikembalikan hanya `anggota`.
+        let rows = exec_rows(
             &self.pool,
             r#"
-            INSERT INTO chat_messages
-                (id, chat_id, sender_id, sender_name, msg_type,
-                 content, media_url, ticket_card, is_system, sent_at)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)
-            ON CONFLICT (id) DO NOTHING
-        "#,
+            WITH sah AS (
+                SELECT id FROM chats
+                WHERE id = $2 AND ($3 = buyer_id OR $3 = merchant_id)
+            ),
+            sisip AS (
+                INSERT INTO chat_messages
+                    (id, chat_id, sender_id, sender_name, msg_type,
+                     content, media_url, ticket_card, is_system, sent_at, reply_to_id)
+                SELECT $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11
+                FROM sah
+                ON CONFLICT (id) DO NOTHING
+                RETURNING 1
+            ),
+            naik AS (
+                -- Inilah yang membuat `ORDER BY last_message_at` bermakna.
+                -- `GREATEST` menjaga agar pesan yang datang TERLAMBAT — retry
+                -- jaringan, atau pesan lama yang baru tersimpan — tak menarik
+                -- mundur percakapan yang sudah punya pesan lebih baru.
+                UPDATE chats
+                SET last_message_at = GREATEST(last_message_at, $10),
+                    -- Hitungan belum-dibaca ikut naik DI SINI, di pernyataan
+                    -- yang sama dengan yang menyimpan pesannya: tak ada
+                    -- perjalanan tambahan, dan mustahil ada keadaan di mana
+                    -- pesannya tersimpan tapi hitungannya tidak.
+                    --
+                    -- Hanya sisi PENERIMA yang naik. Pesan sendiri tak pernah
+                    -- jadi pesan belum dibaca.
+                    buyer_unread = buyer_unread
+                        + CASE WHEN $3 <> buyer_id THEN 1 ELSE 0 END,
+                    merchant_unread = merchant_unread
+                        + CASE WHEN $3 <> merchant_id THEN 1 ELSE 0 END
+                WHERE id = $2 AND EXISTS (SELECT 1 FROM sisip)
+                RETURNING 1
+            )
+            -- Dikembalikan dari `sah`, BUKAN dari `sisip`: pesan berulang
+            -- (id yang sama dikirim dua kali karena retry) menghasilkan
+            -- `sisip` kosong, dan melaporkannya sebagai "bukan anggota" akan
+            -- menampilkan galat izin untuk pesan yang sebenarnya sudah aman
+            -- tersimpan.
+            SELECT EXISTS (SELECT 1 FROM sah) AS anggota
+            "#,
             &[
                 &&id_arr[..],
                 &room_b,
@@ -350,39 +427,39 @@ impl GroupChatRepository for PgGroupChatRepository {
                 &ticket_json,
                 &msg.is_system,
                 &msg.sent_at,
+                &balas_b,
             ],
         )
         .await?;
 
-        // ── Naikkan percakapan ke puncak inbox ──────────────────────────────
-        // Inilah yang membuat `ORDER BY last_message_at` bermakna. Tanpa baris
-        // ini, kolomnya membeku di waktu pembuatan dan urutannya kembali persis
-        // seperti cacat yang diperbaiki migrasi 029: pesan baru dari pembeli
-        // tenggelam di bawah percakapan lama yang sudah selesai.
-        //
-        // `GREATEST` menjaga agar pesan yang datang TERLAMBAT — retry jaringan,
-        // atau pesan lama yang baru tersimpan — tak menarik mundur percakapan
-        // yang sudah punya pesan lebih baru.
-        //
-        // Kegagalannya tidak menggagalkan penyimpanan pesan: pesannya sudah
-        // tersimpan, dan urutan inbox yang meleset jauh lebih ringan daripada
-        // pesan yang hilang.
-        if let Err(e) = exec_drop(
-            &self.pool,
-            "UPDATE chats SET last_message_at = GREATEST(last_message_at, $2) WHERE id = $1",
-            &[&room_b, &msg.sent_at],
-        )
-        .await
-        {
-            tracing::warn!(error = %e, room_id = %msg.room_id,
-                "gagal memperbarui last_message_at (pesan tetap tersimpan)");
-        }
-        Ok(())
+        Ok(rows.first().and_then(|r| r.try_get("anggota").ok()).unwrap_or(false))
     }
 
     /// Atomic INSERT + limit check via CTE.
     /// Count check dan insert dalam satu query — tidak ada race condition.
     /// Return `Ok(true)` jika berhasil insert, `Ok(false)` jika limit sudah tercapai.
+    async fn kutipan(&self, room_id: &str, msg_id: &str) -> Result<Option<KutipanPesan>> {
+        let room_b = id_to_vec(room_id)?;
+        let msg_b = id_to_vec(msg_id)?;
+        let rows = exec_rows(
+            &self.pool,
+            "SELECT sender_name, content, msg_type FROM chat_messages \
+             WHERE id = $1 AND chat_id = $2",
+            &[&msg_b, &room_b],
+        )
+        .await?;
+        let Some(r) = rows.first() else {
+            return Ok(None);
+        };
+        let jenis: String = r.try_get("msg_type")?;
+        Ok(Some(KutipanPesan {
+            id: msg_id.to_string(),
+            sender_name: r.try_get("sender_name")?,
+            content: KutipanPesan::potong(r.try_get("content")?),
+            is_image: jenis == "image",
+        }))
+    }
+
     async fn count_user_messages(&self, room_id: &str, user_id: &str) -> Result<i64> {
         let room_b = id_to_vec(room_id)?;
         let sender_b = id_to_vec(user_id)?;
@@ -421,8 +498,12 @@ impl GroupChatRepository for PgGroupChatRepository {
                     SELECT sent_at, id FROM chat_messages WHERE id = $3
                 )
                 SELECT m.id, m.chat_id, m.sender_id, m.sender_name, m.msg_type,
-                       m.content, m.media_url, m.ticket_card, m.is_system, m.sent_at
-                FROM chat_messages m, cursor c
+                       m.content, m.media_url, m.ticket_card, m.is_system, m.sent_at,
+                       m.reply_to_id,
+                       b.sender_name AS balas_nama, b.content AS balas_isi,
+                       b.msg_type    AS balas_jenis
+                FROM chat_messages m
+                LEFT JOIN chat_messages b ON b.id = m.reply_to_id, cursor c
                 WHERE m.chat_id = $1
                   AND (m.sent_at < c.sent_at OR (m.sent_at = c.sent_at AND m.id < c.id))
                 ORDER BY m.sent_at DESC, m.id DESC LIMIT $2
@@ -434,11 +515,15 @@ impl GroupChatRepository for PgGroupChatRepository {
             exec_rows(
                 &self.pool,
                 r#"
-                SELECT id, chat_id, sender_id, sender_name, msg_type,
-                       content, media_url, ticket_card, is_system, sent_at
-                FROM chat_messages
-                WHERE chat_id = $1
-                ORDER BY sent_at DESC, id DESC LIMIT $2
+                SELECT m.id, m.chat_id, m.sender_id, m.sender_name, m.msg_type,
+                       m.content, m.media_url, m.ticket_card, m.is_system, m.sent_at,
+                       m.reply_to_id,
+                       b.sender_name AS balas_nama, b.content AS balas_isi,
+                       b.msg_type    AS balas_jenis
+                FROM chat_messages m
+                LEFT JOIN chat_messages b ON b.id = m.reply_to_id
+                WHERE m.chat_id = $1
+                ORDER BY m.sent_at DESC, m.id DESC LIMIT $2
             "#,
                 &[&room_b, &fetch],
             )
@@ -471,6 +556,27 @@ impl GroupChatRepository for PgGroupChatRepository {
                     .flatten()
                     .map(serde_json::from_value)
                     .transpose()?;
+                // Kutipan hanya terbentuk bila pesan asalnya MASIH ADA.
+                // `reply_to_id` yang terisi tapi tanpa baris pasangan berarti
+                // pesannya sudah dibuang retensi — balasannya tetap tampil,
+                // tanpa kutipan.
+                let reply_to = row
+                    .try_get::<_, Option<Vec<u8>>>("reply_to_id")
+                    .ok()
+                    .flatten()
+                    .and_then(|b| bin_to_ulid(b).ok())
+                    .and_then(|id| {
+                        let nama = col_opt_str(row, "balas_nama").ok().flatten()?;
+                        let isi = col_opt_str(row, "balas_isi").ok().flatten()?;
+                        let jenis = col_opt_str(row, "balas_jenis").ok().flatten()?;
+                        Some(KutipanPesan {
+                            id,
+                            sender_name: nama,
+                            content: KutipanPesan::potong(&isi),
+                            is_image: jenis == "image",
+                        })
+                    });
+
                 Ok(GroupMessage {
                     id: bin_to_ulid(id_b)?,
                     room_id: bin_to_ulid(room_b2)?,
@@ -482,6 +588,7 @@ impl GroupChatRepository for PgGroupChatRepository {
                     ticket_card,
                     sent_at: row.try_get("sent_at")?,
                     is_system: row.try_get("is_system")?,
+                    reply_to,
                 })
             })
             .collect::<Result<_>>()?;

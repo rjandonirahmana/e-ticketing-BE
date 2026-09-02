@@ -420,5 +420,11 @@ pub(super) fn srv_group_message_to_web(m: crate::models::group_chat::GroupMessag
         // lenyap begitu halamannya dimuat ulang — barisnya ada di basis data,
         // tapi tak pernah sampai ke layar.
         media_url: m.media_url,
+        reply_to: m.reply_to.map(|k| crate::web::models::KutipanChat {
+            id: k.id,
+            sender_name: k.sender_name,
+            content: k.content,
+            is_image: k.is_image,
+        }),
     }
 }

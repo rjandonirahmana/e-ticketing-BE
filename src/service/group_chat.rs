@@ -18,6 +18,8 @@ pub struct GroupChatService {
     /// membuang berkasnya saat retensi jatuh tempo. Keduanya soal yang sama —
     /// siapa pemilik berkas ini — jadi keduanya bertanya ke tempat yang sama.
     pub storage: Arc<crate::service::storage::StorageService>,
+    /// Penyalur pesan ke Redis, di luar jalur balasan ke pengirim.
+    background: Arc<crate::service::background::BackgroundJobs>,
 }
 
 impl GroupChatService {
@@ -30,6 +32,32 @@ impl GroupChatService {
             repo,
             ws_mgr,
             storage,
+            // Kecil dengan sengaja: penyaluran satu pesan hanyalah satu
+            // `PUBLISH`. Yang dijaga bukan throughput-nya melainkan plafonnya —
+            // agar lonjakan tak melahirkan ribuan task yang semuanya menunggu
+            // Redis yang sedang bermasalah.
+            background: crate::service::background::BackgroundJobs::new(64, 4_096),
+        }
+    }
+
+    /// Kutipan yang SAH untuk ruangan ini, atau `None`.
+    ///
+    /// Gagal mengambil kutipan TIDAK menggagalkan pengiriman. Pesan yang dibalas
+    /// bisa saja sudah dibuang retensi, atau id-nya karangan — dan dalam kedua
+    /// hal itu yang benar adalah mengirim pesannya tanpa kutipan, bukan menolak
+    /// kalimat yang sudah terlanjur diketik orangnya.
+    async fn kutipan_sah(
+        &self,
+        room_id: &str,
+        balas: Option<&str>,
+    ) -> Option<crate::models::group_chat::KutipanPesan> {
+        let id = balas?;
+        match self.repo.kutipan(room_id, id).await {
+            Ok(k) => k,
+            Err(e) => {
+                tracing::warn!(room_id, id, galat = ?e, "gagal mengambil kutipan");
+                None
+            }
         }
     }
 
@@ -151,16 +179,20 @@ impl GroupChatService {
         sender_id: &str,
         sender_name: &str,
         content: &str,
+        balas: Option<&str>,
     ) -> Result<GroupMessage> {
         if content.trim().is_empty() {
             bail!("Pesan tidak boleh kosong");
         }
+        let _ukur = crate::service::metrik::ukur(&crate::service::metrik::METRIK.chat_kirim);
+        let reply_to = self.kutipan_sah(room_id, balas).await;
 
         let msg = GroupMessage {
             id: new_ulid(),
             room_id: room_id.to_string(),
             sender_id: sender_id.to_string(),
             sender_name: sender_name.to_string(),
+            reply_to,
             msg_type: MsgType::Text,
             content: content.to_string(),
             media_url: None,
@@ -188,16 +220,20 @@ impl GroupChatService {
         sender_name: &str,
         media_url: &str,
         caption: &str,
+        balas: Option<&str>,
     ) -> Result<GroupMessage> {
         if !self.storage.milik_bucket(media_url) {
             bail!("URL gambar tidak sah");
         }
+        let _ukur = crate::service::metrik::ukur(&crate::service::metrik::METRIK.chat_kirim);
+        let reply_to = self.kutipan_sah(room_id, balas).await;
 
         let msg = GroupMessage {
             id: new_ulid(),
             room_id: room_id.to_string(),
             sender_id: sender_id.to_string(),
             sender_name: sender_name.to_string(),
+            reply_to,
             msg_type: MsgType::Image,
             // Keterangan foto menempati `content`, kolom yang sama dengan
             // pesan teks — bukan kolom baru. Pencarian, kutipan, dan retensi
@@ -229,6 +265,8 @@ impl GroupChatService {
             room_id: room_id.to_string(),
             sender_id: sender_id.to_string(),
             sender_name: sender_name.to_string(),
+            // Kartu tiket tak pernah jadi balasan — ia dibagikan, bukan dijawab.
+            reply_to: None,
             msg_type: MsgType::SharedTicket,
             content: caption.to_string(),
             media_url: None,
@@ -301,10 +339,13 @@ impl GroupChatService {
     /// yang benar: `RateLimitRegistry` per-user (30 pesan / 10 detik), yang
     /// dilewati SETIAP jalur kirim — WebSocket maupun server function.
     async fn authorize_and_save(&self, msg: &GroupMessage) -> Result<()> {
-        if !self.repo.is_member(&msg.room_id, &msg.sender_id).await? {
+        // Keanggotaan diperiksa DI DALAM penulisannya, bukan sebelumnya —
+        // lihat `save_message`. Satu perjalanan, dan tak ada jeda tempat
+        // keanggotaan bisa berubah di antara pemeriksaan dan penulisan.
+        if !self.repo.save_message(msg).await? {
             bail!("Bukan member room ini");
         }
-        self.repo.save_message(msg).await
+        Ok(())
     }
 
     // `build_system_msg` dibuang bersama grup produk: pesan sistem dulu hanya
@@ -317,8 +358,33 @@ impl GroupChatService {
     /// 3× × 200ms worst-case = ~350ms per fanout, 1k msg/s = ~350 outstanding tasks).
     /// broadcast_room local-delivery via try_send (non-blocking), Redis 1 publish.
     /// Latency tambahan ke caller hanya μs untuk local + ~1ms untuk Redis — acceptable.
+    /// Salurkan pesan ke penerima lain — DI LUAR jalur balasan ke pengirim.
+    ///
+    /// ── KENAPA TIDAK DITUNGGU ─────────────────────────────────────────────
+    /// `broadcast_room` menerbitkan ke Redis dengan percobaan ulang 50→100→200
+    /// ms. Menunggunya berarti: saat Redis sedang bermasalah, orang yang
+    /// menekan kirim menunggu hampir empat ratus milidetik untuk pesan yang
+    /// SUDAH aman tersimpan di basis data. Ia membayar ongkos gangguan yang
+    /// tak ada hubungannya dengan pesannya.
+    ///
+    /// Basis data yang berwenang; penyaluran menyusul. Kalau penyalurannya
+    /// gagal, pesannya tetap ada dan muncul saat penerima memuat riwayat —
+    /// yang hilang cuma kesegeraan.
     async fn fanout(&self, room_id: &str, msg: &GroupMessage) {
         let product = WsEvent::NewMessage(Box::new(WsMessage::from_model(msg)));
-        self.ws_mgr.broadcast_room(room_id, product).await;
+        let mgr = self.ws_mgr.clone();
+        let rid = room_id.to_string();
+
+        // Antrean penuh berarti Redis sedang tertinggal jauh. Di situ kita
+        // MENUNGGU, tak membuang: lambat masih jauh lebih baik daripada pesan
+        // yang tak pernah sampai ke layar lawan bicara. Penungguan itu
+        // sekaligus menahan laju masuknya — tekanan balik yang alami.
+        let ev_cadangan = WsEvent::NewMessage(Box::new(WsMessage::from_model(msg)));
+        let terjadwal = self.background.spawn(async move {
+            mgr.broadcast_room(&rid, product).await;
+        });
+        if !terjadwal {
+            self.ws_mgr.broadcast_room(room_id, ev_cadangan).await;
+        }
     }
 }

@@ -1,0 +1,129 @@
+/* ── Membalas pesan tertentu ───────────────────────────────────────────────
+   Percakapan jual-beli sering berjalan cepat dan bercabang: pembeli bertanya
+   soal ukuran, merchant menjawab soal stok, lalu keduanya menulis bersamaan.
+   Tanpa kutipan, jawaban "iya ada" bisa berarti tiga hal berbeda, dan
+   satu-satunya cara memastikannya adalah bertanya ulang. */
+
+/* Kutipan di dalam gelembung. Garis tebal di kiri, bukan kotak berbingkai
+   penuh: yang perlu disampaikan adalah "ini bagian yang dirujuk", dan garis
+   tepi menyampaikannya tanpa menambah bentuk kedua yang bersaing dengan
+   gelembungnya sendiri. */
+.chat-kutip {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin-bottom: 6px;
+    padding: 5px 9px;
+    border-left: 3px solid currentColor;
+    border-radius: 5px;
+    /* Diturunkan dari warna teks gelembungnya, bukan token tetap — gelembung
+       sendiri dan gelembung lawan bicara berlatar berbeda, dan satu warna
+       tetap akan lenyap di salah satunya. */
+    background: color-mix(in srgb, currentColor 9%, transparent);
+    opacity: 0.9;
+}
+
+.chat-kutip-nama {
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.chat-kutip-isi {
+    font-family: var(--font-body);
+    font-size: 12px;
+    line-height: 1.35;
+    opacity: 0.8;
+    /* Dua baris lalu potong. Kutipan adalah penunjuk, bukan tempat membaca
+       ulang — aslinya ada beberapa baris di atas. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* ── Tombol balas pada tiap gelembung ──────────────────────────────────── */
+.chat-balas-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    margin-right: 2px;
+    border-radius: 50%;
+    background: transparent;
+    color: inherit;
+    /* Tenang sampai disentuh. Ia ada di SETIAP gelembung; pada kecerahan penuh
+       ia akan jadi deretan ikon yang menarik mata di sepanjang percakapan,
+       bersaing dengan pesan yang seharusnya dibaca. */
+    opacity: 0.35;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+
+.chat-balas-btn:hover,
+.chat-balas-btn:focus-visible {
+    opacity: 1;
+}
+
+/* Di layar sentuh tak ada hover — dibuat cukup terlihat untuk ditemukan, dan
+   sasaran sentuhnya diperbesar melampaui bentuk tampaknya. */
+@media (hover: none) {
+    .chat-balas-btn {
+        opacity: 0.55;
+        width: 28px;
+        height: 28px;
+    }
+}
+
+/* ── Pratinjau di atas kolom ketik ─────────────────────────────────────── */
+.chat-balas-pratinjau {
+    position: fixed;
+    bottom: 62px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 19;
+    width: 100%;
+    max-width: 480px;
+
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+
+    border-top: 1px solid var(--border);
+    border-left: 3px solid var(--accent, var(--danger));
+    background: var(--overlay-blur);
+    backdrop-filter: blur(20px);
+}
+
+.chat-balas-teks {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    color: var(--text);
+}
+
+.chat-balas-teks .chat-kutip-isi {
+    -webkit-line-clamp: 1;
+}
+
+.chat-balas-batal {
+    flex: none;
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.chat-balas-batal:hover {
+    background: color-mix(in srgb, currentColor 12%, transparent);
+}

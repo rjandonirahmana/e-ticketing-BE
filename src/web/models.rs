@@ -480,6 +480,23 @@ pub struct ChatMessage {
     /// Ada hanya untuk pesan bergambar.
     #[serde(default)]
     pub media_url: Option<String>,
+    /// Pesan yang dibalas, bila ada.
+    #[serde(default)]
+    pub reply_to: Option<KutipanChat>,
+}
+
+/// Cerminan `models::group_chat::KutipanPesan` untuk sisi web.
+///
+/// Disalin, bukan dipakai bersama: `crate::models` dipagari khusus server di
+/// `lib.rs`, sedangkan bentuk ini harus ikut terkompilasi ke WASM. Bidangnya
+/// wajib bernama sama persis — keduanya diurai dari bingkai JSON yang SATU.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct KutipanChat {
+    pub id: String,
+    pub sender_name: String,
+    pub content: String,
+    #[serde(default)]
+    pub is_image: bool,
 }
 
 // ── Merchant Product Form ────────────────────────────────────────────────────────

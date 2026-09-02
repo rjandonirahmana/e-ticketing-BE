@@ -3,6 +3,19 @@ use leptos::prelude::*;
 #[cfg(feature = "ssr")]
 use super::helpers::*;
 
+/// Potret kesehatan mesin. Khusus admin.
+///
+/// TIDAK dimuat bersama tab — dipanggil saat tombolnya ditekan. Pembacaan CPU
+/// menuntut dua cuplikan `/proc/stat` berjarak 300 ms, dan membebankan jeda itu
+/// pada setiap orang yang kebetulan membuka tab Analitik berarti membayar
+/// mahal untuk angka yang jarang ditanyakan.
+#[server(StatusServerAdmin, "/api-fn")]
+pub async fn status_server_admin() -> Result<crate::web::status::StatusServer, ServerFnError> {
+    let _claims = require_role("admin").await?;
+    let state = app_state().await?;
+    Ok(crate::service::server_status::potret(&state.pool, &state.upload_tmp_dir).await)
+}
+
 #[server(GetAdminStats, "/api-fn")]
 pub async fn get_admin_stats() -> Result<AdminStats, ServerFnError> {
     use rust_decimal::prelude::ToPrimitive;
