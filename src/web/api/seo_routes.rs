@@ -19,7 +19,41 @@ use crate::web::seo::SITE_BASE;
 
 /// GET /robots.txt — izinkan semua + tunjuk sitemap.
 pub async fn robots_txt() -> Response {
-    let body = format!("User-agent: *\nAllow: /\n\nSitemap: {SITE_BASE}/sitemap.xml\n");
+    // ── KENAPA TIDAK `Allow: /` SAJA ──────────────────────────────────────
+    // Setiap halaman produk adalah render SSR yang menyentuh basis data, dan
+    // katalog ini berisi ratusan ribu produk. `Allow: /` tanpa batas berarti
+    // mengundang perayap menyusuri semuanya, secepat yang ia mau, ke mesin yang
+    // sama yang melayani pembeli sungguhan. Perayap tidak menemukan halaman itu
+    // secara kebetulan — kita yang menyodorkannya lewat sitemap.
+    //
+    // Yang dilarang di bawah dipilih dengan satu ukuran: apakah halaman ini
+    // punya nilai bagi orang yang datang dari mesin pencari? Halaman peta lokasi
+    // sebuah produk tidak — ia hanya berguna bagi yang SUDAH membuka produknya,
+    // sementara ongkos merayapinya sama persis dengan halaman produk itu
+    // sendiri. Begitu pula keranjang, checkout, dan seluruh halaman yang
+    // menuntut masuk: perayap tak bisa melihat apa pun di sana selain
+    // pengalihan, tapi tetap membayar penuh untuk mengetahuinya.
+    //
+    // `Crawl-delay` tidak dihormati Googlebot (ia memakai setelan di Search
+    // Console), tetapi dihormati Bing, Yandex, dan sebagian besar perayap kecil
+    // — dan justru perayap kecil yang datang tanpa pengaturan laju sama sekali.
+    let body = format!(
+        "User-agent: *\n\
+         Allow: /\n\
+         Disallow: /products/*/location\n\
+         Disallow: /cart\n\
+         Disallow: /checkout\n\
+         Disallow: /orders\n\
+         Disallow: /profile\n\
+         Disallow: /pulse\n\
+         Disallow: /meet\n\
+         Disallow: /admin\n\
+         Disallow: /merchant\n\
+         Disallow: /api-fn/\n\
+         Crawl-delay: 10\n\
+         \n\
+         Sitemap: {SITE_BASE}/sitemap.xml\n"
+    );
     (
         [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
         body,
@@ -36,11 +70,23 @@ pub async fn sitemap_xml(Extension(state): Extension<Arc<AppState>>) -> Response
     .map(|p| format!("{SITE_BASE}{p}"))
     .collect();
 
-    // Produk aktif (terbaru dulu). Cap 45k → sisakan ruang utk statis + merchant.
+    // ── Produk aktif ──────────────────────────────────────────────────────
+    // Data seed DIKECUALIKAN. Sitemap adalah undangan: setiap URL di dalamnya
+    // akan benar-benar diminta perayap, dan tiap permintaan adalah render SSR
+    // ke basis data yang sama yang melayani pembeli. Mengundang puluhan ribu
+    // kunjungan ke produk PALSU berarti membayar penuh ongkosnya tanpa satu pun
+    // pengunjung yang mungkin membeli.
+    //
+    // Batasnya juga diturunkan 45.000 → 5.000. Pada mesin 4 vCPU, angka yang
+    // lebih besar bukan menambah jangkauan melainkan menambah antrean: perayap
+    // yang menyusuri empat puluh lima ribu halaman dinamis akan menghabiskan
+    // kolam koneksi jauh sebelum ia selesai. Naikkan lagi setelah katalognya
+    // benar-benar berisi produk sungguhan.
     if let Ok(rows) = exec_rows(
         &state.pool,
-        "SELECT slug FROM products WHERE status = 'active' AND slug <> '' \
-         ORDER BY event_date DESC LIMIT 45000",
+        "SELECT slug FROM products \
+          WHERE status = 'active' AND slug <> '' AND slug NOT LIKE 'seed-%' \
+          ORDER BY event_date DESC LIMIT 5000",
         &[],
     )
     .await
