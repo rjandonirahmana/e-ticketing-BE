@@ -15,6 +15,46 @@ pub async fn get_chat_rooms() -> Result<Vec<ChatRoom>, ServerFnError> {
     return Ok(rooms.into_iter().map(srv_group_room_to_web).collect());
 }
 
+/// Percakapan yang SUDAH ADA dengan satu toko, berikut pesan terakhirnya.
+///
+/// Dipakai halaman "tanya produk": kalau pembeli pernah bicara dengan toko itu,
+/// riwayatnya harus terlihat sebelum ia mengetik — kalau tidak, ia mengulang
+/// pertanyaan yang sudah dijawab, dan merchant menerima pertanyaan yang tampak
+/// datang dari orang asing padahal percakapannya masih hidup.
+///
+/// `None` bila belum pernah ada percakapan. TIDAK membuat apa pun: room baru
+/// lahir dari pesan pertama, bukan dari membuka halamannya.
+#[server(CariChatMerchant, "/api-fn")]
+pub async fn cari_chat_merchant(
+    merchant_id: String,
+) -> Result<Option<(String, Vec<ChatMessage>)>, ServerFnError> {
+    let claims = auth_claims().await?;
+    let state = app_state().await?;
+
+    let Some(room) = state
+        .group_chat_svc
+        .find_dm(&claims.user_id, &merchant_id)
+        .await
+        .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })?
+    else {
+        return Ok(None);
+    };
+
+    // Sedikit saja. Ini pratinjau untuk mengembalikan konteks, bukan pengganti
+    // ruang obrolan — dan mengambil riwayat penuh di sini akan membayar ongkos
+    // halaman yang lebih besar untuk sesuatu yang tak semua orang butuhkan.
+    let (msgs, _) = state
+        .group_chat_svc
+        .get_history(&room.id, &claims.user_id, 12, None)
+        .await
+        .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })?;
+
+    Ok(Some((
+        room.id,
+        msgs.into_iter().map(srv_group_message_to_web).collect(),
+    )))
+}
+
 #[server(GetChatHistory, "/api-fn")]
 pub async fn get_chat_history(room_id: String) -> Result<Vec<ChatMessage>, ServerFnError> {
     let claims = auth_claims().await?;

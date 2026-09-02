@@ -15,6 +15,7 @@ pub mod swipe_tabs;
 pub mod toast;
 pub mod variant_editor;
 pub mod story_viewer;
+pub mod kabar_chat;
 pub mod ws_chat;
 
 pub use banner_slider::BannerSlider;
@@ -33,4 +34,5 @@ pub use merchant_live_pip::MerchantLivePip;
 pub use nav::{BottomNav, CartButton, ThemeToggle, TopNav};
 pub use swipe_tabs::{SwipeTabBar, TabItem, TabSwipe};
 pub use toast::{use_toast, ToastHost, ToastKind};
+pub use kabar_chat::KabarChat;
 pub use ws_chat::{langgan_chat, provide_chat_bus, use_chat_bus, ChatBus, KoneksiChat};

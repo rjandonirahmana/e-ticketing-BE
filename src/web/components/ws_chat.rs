@@ -105,6 +105,12 @@ where
     // "WS closed" bergantian tiap tiga detik, dua deret sekaligus.
     let menyerah: StoredValue<bool> = StoredValue::new(false);
 
+    // Diam sampai kapan (ms sejak epoch). Berbeda dari `menyerah`: kapasitas
+    // server yang penuh bersifat SEMENTARA, jadi menyerah selamanya salah —
+    // tapi mencoba tiap tiga detik juga salah, karena ribuan klien yang
+    // melakukannya bersamaan adalah yang membuatnya penuh sejak awal.
+    let tenang_sampai: StoredValue<f64> = StoredValue::new(0.0);
+
     let connect = move || {
         let masuk = auth
             .and_then(|a| a.get_untracked())
@@ -152,6 +158,13 @@ where
                             // kita adalah badai yang sama dengan sebab berbeda.
                             Some("UNAUTHORIZED") => {
                                 menyerah.set_value(true);
+                                return;
+                            }
+                            // Penuh — bukan penolakan, hanya belum sekarang.
+                            // Mundur tiga puluh detik alih-alih tiga.
+                            Some("OVERLOADED") => {
+                                tenang_sampai
+                                    .set_value(web_sys::js_sys::Date::now() + 30_000.0);
                                 return;
                             }
                             _ => {}
@@ -233,6 +246,9 @@ where
             3_000,
             move || {
                 if closing.get_value() || menyerah.get_value() {
+                    return;
+                }
+                if web_sys::js_sys::Date::now() < tenang_sampai.get_value() {
                     return;
                 }
                 let perlu = ws_store.with_value(|opt| match opt {

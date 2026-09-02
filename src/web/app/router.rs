@@ -13,7 +13,7 @@ use leptos_router::{
     path,
 };
 
-use crate::web::components::{GridBackground, ToastHost};
+use crate::web::components::{GridBackground, KabarChat, ToastHost};
 use crate::web::pages::*;
 
 use super::guards::{AdminGuard, AuthGuard, MerchantGuard};
@@ -55,6 +55,9 @@ pub fn App() -> impl IntoView {
             // seluruh app (checkout/order, pesan masuk, dll). Di dalam <Router>
             // agar klik toast bisa navigasi (use_navigate).
             <ToastHost />
+            // Kabar pesan masuk di halaman mana pun. Tak membuka koneksi
+            // sendiri — menumpang WebSocket tunggal milik bus di root.
+            <KabarChat />
             // Latar grid global di belakang SEMUA halaman (fixed, z-index 0).
             // Kolom halaman OPAQUE + ≤480px terpusat → grid hanya terlihat di
             // gutter kiri/kanan pada layar lebar (persis /lives & /login).

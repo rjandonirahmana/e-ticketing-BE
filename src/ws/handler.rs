@@ -117,6 +117,25 @@ async fn handle_socket(socket: WebSocket, state: Arc<WsAppState>, claims: Claims
         Some(v) => v,
         None => {
             tracing::warn!(user_id, "WS rejected: connection limit reached");
+            // Katakan SEBABNYA sebelum menutup.
+            //
+            // Menutup begitu saja tak bisa dibedakan klien dari gangguan
+            // jaringan, dan watchdog-nya akan menyambung ulang tiap tiga detik
+            // — dari SETIAP klien yang ditolak, selamanya. Artinya persis pada
+            // detik server kehabisan kapasitas, ia mulai dihantam paling keras.
+            //
+            // Satu bingkai ini yang memutus lingkarannya.
+            let mut socket = socket;
+            let _ = socket
+                .send(Message::Text(
+                    (*WsEvent::err(
+                        ErrorCode::Overloaded,
+                        "Server sedang penuh, coba lagi sebentar",
+                    )
+                    .to_json())
+                    .into(),
+                ))
+                .await;
             return;
         }
     };

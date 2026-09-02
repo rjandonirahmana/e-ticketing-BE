@@ -27,8 +27,43 @@ use leptos_router::hooks::{use_navigate, use_params_map, use_query_map};
 use crate::web::api::{get_merchant_public_profile, send_first_chat_message};
 use crate::web::components::{IconBack, ThemeToggle};
 
+/// Rujukan produk dalam pesan lama tampil sebagai JUDULNYA saja.
+///
+/// Pesan pertama dari halaman produk berbentuk `[Judul] /products/slug\nisi`.
+/// Kartu penuh seperti di ruang obrolan justru menutupi percakapan di pratinjau
+/// sesempit ini, dan alamat mentahnya lebih buruk lagi — dua puluh empat
+/// karakter acak yang harus dilompati mata untuk sampai ke kalimatnya.
+fn ringkas_pesan(teks: &str) -> String {
+    let Some(sisa) = teks.strip_prefix('[') else {
+        return teks.to_string();
+    };
+    let Some(mulai) = sisa.find("/products/") else {
+        return teks.to_string();
+    };
+    let Some(tutup) = sisa[..mulai].rfind(']') else {
+        return teks.to_string();
+    };
+    let judul = sisa[..tutup].trim();
+    // Sesudah slug: sisa kalimatnya.
+    let alamat = &sisa[mulai + "/products/".len()..];
+    let batas = alamat.find(char::is_whitespace).unwrap_or(alamat.len());
+    let isi = alamat[batas..].trim();
+    if isi.is_empty() {
+        format!("[{judul}]")
+    } else {
+        format!("[{judul}] {isi}")
+    }
+}
+
 #[component]
 pub fn ChatNewPage() -> impl IntoView {
+    let auth = use_context::<crate::web::app::AuthResource>();
+    let current_user_id = move || {
+        auth.and_then(|a| a.get())
+            .and_then(|r| r.ok())
+            .flatten()
+            .map(|u| u.id)
+    };
     let params = use_params_map();
     let query = use_query_map();
     let merchant_id = move || params.read().get("merchant_id").unwrap_or_default();
@@ -49,6 +84,26 @@ pub fn ChatNewPage() -> impl IntoView {
             return Err(ServerFnError::ServerError("merchant kosong".into()));
         }
         get_merchant_public_profile(id).await
+    });
+
+    // ── Percakapan yang sudah ada ─────────────────────────────────────────
+    // Berjalan BERDAMPINGAN dengan kotak ketik, tidak menghalanginya.
+    //
+    // Komentar di kepala berkas ini menolak "mencari room lebih dulu", dan
+    // alasannya benar — tapi ia berlaku untuk pencarian yang MENGHALANGI:
+    // dua perjalanan berurutan sebelum satu huruf pun bisa diketik. Yang ini
+    // tidak menahan apa pun; kotak ketiknya tetap tampil seketika dan riwayat
+    // menyusul bila memang ada.
+    //
+    // Tanpa ini, pembeli yang sudah pernah bicara dengan toko itu melihat layar
+    // kosong dan mengulang pertanyaan yang sudah dijawab — sementara merchant
+    // menerima pertanyaan yang tampak datang dari orang asing, padahal
+    // percakapannya masih hidup beberapa baris di bawah.
+    let riwayat = Resource::new(merchant_id, |id| async move {
+        if id.is_empty() {
+            return None;
+        }
+        crate::web::api::cari_chat_merchant(id).await.ok().flatten()
     });
 
     let draft = RwSignal::new(String::new());
@@ -266,9 +321,61 @@ pub fn ChatNewPage() -> impl IntoView {
             }}
 
             <div class="flex-1 px-5 pt-4">
-                <p class="text-[12px] text-content-muted">
-                    "Tanya stok, ukuran, ongkir, atau kapan barang bisa diambil."
-                </p>
+                // Riwayat bila ada; bila tidak, ajakan yang lama. Keduanya tak
+                // pernah tampil bersamaan — orang yang percakapannya sudah
+                // berjalan tak perlu diberi tahu apa yang boleh ditanyakan.
+                <Suspense fallback=|| view! {
+                    <p class="text-[12px] text-content-muted">
+                        "Tanya stok, ukuran, ongkir, atau kapan barang bisa diambil."
+                    </p>
+                }>
+                    {move || match riwayat.get().flatten() {
+                        None => view! {
+                            <p class="text-[12px] text-content-muted">
+                                "Tanya stok, ukuran, ongkir, atau kapan barang bisa diambil."
+                            </p>
+                        }.into_any(),
+                        Some((room_id, pesan)) => {
+                            let me = current_user_id().unwrap_or_default();
+                            view! {
+                                <div class="mb-3 flex items-center justify-between gap-3">
+                                    <span class="text-[10px] tracking-[0.08em] text-content-muted">
+                                        "PERCAKAPAN SEBELUMNYA"
+                                    </span>
+                                    // Pratinjau ini sengaja pendek. Yang ingin
+                                    // dilihat orang adalah "sampai mana tadi",
+                                    // dan untuk membaca seluruhnya ada ruang
+                                    // obrolan yang memang dibuat untuk itu.
+                                    <A
+                                        href=format!("/pulse/{room_id}")
+                                        attr:class="text-[11px] font-semibold text-brand no-underline"
+                                    >
+                                        "Buka semua"
+                                    </A>
+                                </div>
+                                <div class="flex flex-col gap-1.5">
+                                    {pesan.into_iter().map(|m| {
+                                        let sendiri = m.sender_id == me;
+                                        let kelas = if sendiri {
+                                            "self-end max-w-[85%] rounded-2xl px-3 py-2 \
+                                             bg-brand text-white text-[13px] leading-snug"
+                                        } else {
+                                            "self-start max-w-[85%] rounded-2xl px-3 py-2 \
+                                             bg-card border border-solid border-line-soft \
+                                             text-content text-[13px] leading-snug"
+                                        };
+                                        // Rujukan produk pada pesan lama tampil
+                                        // sebagai judulnya saja — kartu penuh di
+                                        // pratinjau sesempit ini justru menutupi
+                                        // percakapannya.
+                                        let teks = ringkas_pesan(&m.content);
+                                        view! { <span class=kelas>{teks}</span> }
+                                    }).collect_view()}
+                                </div>
+                            }.into_any()
+                        }
+                    }}
+                </Suspense>
             </div>
 
             {move || {

@@ -20,10 +20,8 @@
 
 .toast {
     pointer-events: auto;
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    padding: 12px 12px 12px 14px;
+    /* Penampung untuk tombol tutup yang ditumpuk di atas jangkarnya. */
+    position: relative;
     border-radius: 14px;
     background: var(--bg-elevated);
     border: 1px solid var(--border-strong);
@@ -41,6 +39,22 @@
         opacity: 1;
         transform: translateY(0) scale(1);
     }
+}
+
+/* Jangkar yang MEMENUHI kartu. Padding pindah ke sini, bukan di `.toast`:
+   wilayah yang bisa ditekan harus sama persis dengan yang terlihat sebagai
+   kartu — kalau paddingnya milik pembungkus, tepiannya tampak bagian dari
+   kartu tetapi tak menanggapi tekanan, dan itu terbaca sebagai kerusakan. */
+.toast-tautan {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    /* Kanan dilebihkan: tombol tutup menumpang di situ, dan teks yang mengalir
+       ke bawahnya akan tertutup. */
+    padding: 12px 40px 12px 14px;
+    border-radius: inherit;
+    color: inherit;
+    text-decoration: none;
 }
 
 .toast--link {
@@ -114,7 +128,14 @@
 }
 
 .toast-x {
-    flex: none;
+    /* Di ATAS jangkar, bukan di dalamnya. Menyarangkan tombol di dalam jangkar
+       adalah HTML yang tak sah, dan peramban menanganinya berbeda-beda —
+       persis jenis perbedaan yang menghasilkan "kadang bisa diklik, kadang
+       tidak". */
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 1;
     width: 24px;
     height: 24px;
     border: none;

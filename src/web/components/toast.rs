@@ -15,7 +15,7 @@
 use std::time::Duration;
 
 use leptos::prelude::*;
-use leptos_router::hooks::use_navigate;
+use leptos_router::components::A;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ToastKind {
@@ -51,8 +51,17 @@ pub struct Toast {
     pub href: Option<String>,
 }
 
-/// Durasi tampil default (ms).
+/// Durasi tampil (ms) untuk toast yang hanya MEMBERI TAHU.
 const TOAST_MS: u64 = 4500;
+
+/// Durasi untuk toast yang bisa DITINDAKLANJUTI (punya href).
+///
+/// Lebih lama karena yang diminta darinya lebih banyak: memberitahu cukup
+/// dibaca sekilas, tetapi menindaklanjuti berarti membaca, memutuskan,
+/// menggerakkan tangan, lalu menekan. Empat setengah detik habis di tengah
+/// rangkaian itu — dan toast yang lenyap tepat saat jari bergerak ke arahnya
+/// terasa seperti tombol yang tak berfungsi.
+const TOAST_AKSI_MS: u64 = 9000;
 /// Maksimum toast tampak sekaligus (cegah tumpukan tak terbatas bila di-spam).
 const MAX_VISIBLE: usize = 4;
 
@@ -89,6 +98,7 @@ impl ToastCtx {
         if is_server() {
             return;
         }
+        let punya_href = href.is_some();
         let mut id = 0;
         self.seq.update(|s| {
             *s = s.wrapping_add(1);
@@ -110,9 +120,10 @@ impl ToastCtx {
         // Auto-dismiss. `set_timeout` (leptos) memakai Closure::once → callback
         // dibebaskan setelah fire (tidak bocor). No-op di server.
         let items = self.items;
+        let umur = if punya_href { TOAST_AKSI_MS } else { TOAST_MS };
         set_timeout(
             move || items.update(|v| v.retain(|t| t.id != id)),
-            Duration::from_millis(TOAST_MS),
+            Duration::from_millis(umur),
         );
     }
 
@@ -139,7 +150,6 @@ pub fn use_toast() -> ToastCtx {
 #[component]
 pub fn ToastHost() -> impl IntoView {
     let ctx = use_toast();
-    let navigate = use_navigate();
     view! {
         <div class="toast-host" aria-live="polite">
             <For
@@ -147,38 +157,64 @@ pub fn ToastHost() -> impl IntoView {
                 key=|t| t.id
                 children=move |t| {
                     let id = t.id;
-                    let nav = navigate.clone();
                     let href = t.href.clone();
-                    let clickable = href.is_some();
-                    let go = move |_| {
-                        if let Some(h) = href.clone() {
-                            ctx.dismiss(id);
-                            nav(&h, Default::default());
+                    let ikon = t.kind.icon();
+                    let judul = t.title.clone();
+                    let isi = t.body.clone();
+
+                    // Isi kartu, dipakai baik oleh versi bertaut maupun tidak.
+                    // Dihitung SEBELUM `href` dipindahkan ke dalam `view!`.
+                    let bertaut = href.is_some();
+                    let muatan = move || {
+                        view! {
+                            <span class="toast-icon">{ikon}</span>
+                            <div class="toast-text">
+                                <span class="toast-title">{judul.clone()}</span>
+                                {isi.clone().map(|b| view! { <span class="toast-body">{b}</span> })}
+                            </div>
                         }
                     };
+
                     view! {
                         <div
                             class=format!(
                                 "toast {}{}",
                                 t.kind.cls(),
-                                if clickable { " toast--link" } else { "" },
+                                if bertaut { " toast--link" } else { "" },
                             )
                             role="status"
-                            on:click=go
                         >
-                            <span class="toast-icon">{t.kind.icon()}</span>
-                            <div class="toast-text">
-                                <span class="toast-title">{t.title.clone()}</span>
-                                {t
-                                    .body
-                                    .clone()
-                                    .map(|b| view! { <span class="toast-body">{b}</span> })}
-                            </div>
+                            // ── SELURUH kartu yang bisa ditekan, bukan teksnya
+                            // saja. Sebelumnya penangan klik dipasang pada
+                            // pembungkusnya sementara tombol tutup berada DI
+                            // DALAMNYA — dan sasaran tekan yang memuat sasaran
+                            // tekan lain membuat wilayah yang benar-benar aktif
+                            // sulit ditebak dari melihatnya.
+                            //
+                            // `<A>`, bukan `div` ber-`on:click`: ia jangkar
+                            // sungguhan. Bisa dibuka di tab baru, bisa dijangkau
+                            // papan ketik, dan navigasinya tak bergantung pada
+                            // closure yang harus masih hidup saat ditekan.
+                            {match href {
+                                Some(h) => view! {
+                                    <A href=h attr:class="toast-tautan">{muatan()}</A>
+                                }.into_any(),
+                                None => view! {
+                                    <div class="toast-tautan">{muatan()}</div>
+                                }.into_any(),
+                            }}
+
+                            // Tombol tutup DI LUAR jangkar, ditumpuk di atasnya.
+                            // Menyarangkan tombol di dalam jangkar adalah HTML
+                            // yang tak sah, dan peramban menanganinya
+                            // berbeda-beda — persis jenis perbedaan yang
+                            // menghasilkan "kadang bisa diklik, kadang tidak".
                             <button
                                 class="toast-x"
                                 aria-label="Tutup"
                                 on:click=move |ev| {
                                     ev.stop_propagation();
+                                    ev.prevent_default();
                                     ctx.dismiss(id);
                                 }
                             >

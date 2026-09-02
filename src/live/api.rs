@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::middleware::auth::{require_auth, AuthUser};
 use crate::state::AppState;
+use tokio::sync::Semaphore;
 use axum::middleware::from_fn_with_state;
 
 /// Batas metadata penonton dari klien (anti-OOM — sama seperti meet):
@@ -201,8 +202,33 @@ fn ping_interval() -> tokio::time::Interval {
 
 /// WS /ws/lives — push daftar room live realtime (pengganti polling).
 /// Kirim snapshot saat connect, lalu tiap ada perubahan.
+/// Plafon penonton yang mendengarkan daftar siaran sekaligus.
+///
+/// ── KENAPA HARUS ADA PLAFON ───────────────────────────────────────────────
+/// Titik ini TERBUKA — tak menuntut masuk sama sekali, karena daftar siaran
+/// memang publik. Tiap sambungan menahan satu tugas dan satu penerima siaran,
+/// dan tanpa batas siapa pun bisa membuka ribuan sekaligus dari satu mesin.
+///
+/// Dulu itu nyaris tak berarti karena hanya halaman `/lives` yang memakainya.
+/// Sejak penonton berhenti menjajak dan ikut mendengarkan di sini, titik ini
+/// jadi jauh lebih ramai — dan yang ramai tanpa batas pada mesin 8 GB pada
+/// akhirnya menjadi cara termudah menjatuhkannya.
+///
+/// Ditolak berarti angka penonton tak diperbarui; siarannya sendiri tetap
+/// jalan. Itu kehilangan yang benar untuk dipilih di bawah tekanan.
+static PENDENGAR_LIVES: std::sync::LazyLock<Arc<Semaphore>> =
+    std::sync::LazyLock::new(|| Arc::new(Semaphore::new(3_000)));
+
 async fn lives_ws(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> Response {
-    ws.on_upgrade(move |socket| lives_ws_loop(socket, state))
+    let Ok(izin) = PENDENGAR_LIVES.clone().try_acquire_owned() else {
+        tracing::warn!("WS /ws/lives ditolak: plafon pendengar tercapai");
+        return (axum::http::StatusCode::SERVICE_UNAVAILABLE, "Terlalu banyak pendengar").into_response();
+    };
+    ws.on_upgrade(move |socket| async move {
+        // Izin dipegang selama sambungan hidup, dilepas saat ia berakhir.
+        let _izin = izin;
+        lives_ws_loop(socket, state).await;
+    })
 }
 
 async fn lives_ws_loop(mut socket: WebSocket, state: Arc<AppState>) {

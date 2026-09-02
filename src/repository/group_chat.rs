@@ -383,7 +383,20 @@ impl GroupChatRepository for PgGroupChatRepository {
                 INSERT INTO chat_messages
                     (id, chat_id, sender_id, sender_name, msg_type,
                      content, media_url, ticket_card, is_system, sent_at, reply_to_id)
-                SELECT $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11
+                -- TIAP parameter diberi tipe eksplisit.
+                --
+                -- Pada `INSERT ... VALUES`, Postgres menyimpulkan tipe
+                -- parameter dari kolom sasarannya. Lewat `SELECT`, penyimpulan
+                -- itu tak lagi sepasti sebelumnya — dan bentuk kegagalannya
+                -- adalah `could not determine data type of parameter $N` SAAT
+                -- DIJALANKAN, bukan saat dikompilasi. Artinya ia lolos seluruh
+                -- pemeriksaan lokal dan baru muncul di produksi, pada jalur
+                -- terpanas yang ada: setiap pesan yang dikirim siapa pun.
+                --
+                -- Menuliskannya berbiaya nol dan menghapus seluruh keraguan.
+                SELECT $1::bytea, $2::bytea, $3::bytea, $4::text, $5::text,
+                       $6::text, $7::text, $8::jsonb, $9::boolean,
+                       $10::timestamptz, $11::bytea
                 FROM sah
                 ON CONFLICT (id) DO NOTHING
                 RETURNING 1
