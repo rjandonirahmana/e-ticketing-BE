@@ -139,7 +139,17 @@ CREATE TABLE IF NOT EXISTS story_views (
     PRIMARY KEY (story_id, viewer_id)
 );
 
--- ── 4. Helper view: aktif stories saja ───────────────────────────────────────
+-- ── 4. Kolom avatar_url ──────────────────────────────────────────────────────
+-- HARUS mendahului view di bawah, yang menyebutnya.
+--
+-- Dulu urutannya terbalik: view dibuat lebih dulu, kolomnya menyusul. Pada
+-- database yang SUDAH punya kolom itu urutannya tak terasa, dan seluruh
+-- produksi memang begitu -- sehingga kekeliruannya tak pernah terlihat. Tetapi
+-- replay dari nol berhenti tepat di sini, dan replay dari nol persis yang
+-- dijanjikan `schema_migrations` bisa dipercaya.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(100) NOT NULL DEFAULT 'https://image.ulalaapi.store/ticketing/seulgi.jpg';
+
+-- ── 5. Helper view: aktif stories saja ───────────────────────────────────────
 CREATE OR REPLACE VIEW v_active_stories AS
     SELECT s.*,
            u.name        AS username,
@@ -147,6 +157,3 @@ CREATE OR REPLACE VIEW v_active_stories AS
     FROM   stories s
     JOIN   users u ON u.id = s.user_id
     WHERE  s.expires_at > NOW();
-
--- ── 5. Add avatar_url to users if it doesn't exist ───────────────────────────
-ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(100) NOT NULL DEFAULT 'https://image.ulalaapi.store/ticketing/seulgi.jpg';

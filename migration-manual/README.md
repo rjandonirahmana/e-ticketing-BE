@@ -5,6 +5,23 @@ Berkas di folder ini **TIDAK** dijalankan otomatis.
 `build.rs` hanya meng-embed `migration/*.sql` ke dalam binari, dan `AUTO_MIGRATE`
 hanya menjalankan yang ter-embed itu. Apa pun di sini harus dijalankan tangan.
 
+## Isi folder ini
+
+| Berkas | Kenapa manual |
+|---|---|
+| `029_chat_dua_tabel.sql` | Membuang tabel dan riwayat percakapan — tak bisa dibatalkan |
+| `007_seed_bulk.sql` | 1 juta produk + 3 juta varian. Data UJI |
+| `010_seed_stories.sql` | 500 ribu story. Data UJI |
+
+Dua seed itu dulu berada di `migration/` sehingga IKUT ter-embed — artinya
+deployment pertama ke database kosong mana pun, termasuk produksi baru, akan
+menanaminya dengan sejuta produk palsu. Baseline hanya melindungi database yang
+sudah berisi, bukan yang masih kosong.
+
+Bentuk chat dua-tabel untuk database BARU kini disediakan
+`migration/029a_chat_dua_tabel_baru.sql`, yang hanya MEMBUAT dan tak pernah
+membuang — jadi replay dari nol berjalan tanpa perlu menyentuh berkas di sini.
+
 ## Kenapa dipisah
 
 Isinya menghapus data dan tak bisa dibatalkan. Migrasi otomatis mengeksekusi

@@ -86,8 +86,26 @@ pub async fn ws_chat(
     headers: axum::http::HeaderMap,
     State(state): State<Arc<WsAppState>>,
 ) -> Response {
-    // Accept token via query param (explicit) atau Cookie header (otomatis same-origin).
-    let raw_token = q.token.or_else(|| token_from_cookie_header(&headers));
+    // ── COOKIE DULU, query hanya cadangan ─────────────────────────────────
+    // Urutannya dulu terbalik. Itu berarti jalur yang dicoba PERTAMA adalah
+    // jalur yang menaruh JWT di dalam alamat — dan alamat masuk ke log akses
+    // proxy, log server, dan riwayat peramban. Token yang bocor ke log adalah
+    // token yang bocor ke siapa pun yang kelak membaca log itu.
+    //
+    // Klien aplikasi ini seluruhnya memakai cookie (`pulse_token`, HttpOnly,
+    // dikirim otomatis saat upgrade same-origin), jadi mendahulukan cookie
+    // membuat lalu lintas kita sendiri tak pernah menempuh jalur itu lagi.
+    //
+    // Query BELUM dibuang sepenuhnya karena mungkin ada klien lain yang masih
+    // memakainya — tetapi setiap pemakaiannya kini tercatat, sehingga bisa
+    // dipastikan sudah kosong sebelum dihapus.
+    let dari_cookie = token_from_cookie_header(&headers);
+    if dari_cookie.is_none() && q.token.is_some() {
+        tracing::warn!(
+            "WS memakai token lewat query — jalur usang, JWT bocor ke log akses"
+        );
+    }
+    let raw_token = dari_cookie.or(q.token);
     let claims = match raw_token.as_deref().map(|t| state.jwt.verify(t)) {
         Some(Ok(c)) => c,
         _ => {

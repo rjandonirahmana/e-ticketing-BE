@@ -1,0 +1,46 @@
+-- ============================================================================
+-- 039_products_slug_unique.sql   --   JALANKAN MANUAL
+-- Slug produk harus unik. Periksa dulu, baru pasang.
+-- ============================================================================
+--
+-- ── KENAPA MANUAL ───────────────────────────────────────────────────────────
+-- `slug` adalah kunci URL publik (`/products/{slug}`). Kalau dua produk memakai
+-- slug yang sama, yang tampil adalah salah satu -- dan tak ada yang tahu yang
+-- mana. Itu alasan kuat untuk memaksanya unik.
+--
+-- Tetapi migrasi 030 sendiri mencatat bahwa `slug` lahir DI LUAR riwayat
+-- migrasi, jadi tak seorang pun tahu apakah ia sudah unik hari ini. Memasang
+-- index unik lewat migrasi otomatis akan menggagalkan deploy pada database yang
+-- punya duplikat -- dan memutuskan produk MANA yang berhak atas slug itu adalah
+-- keputusan manusia, bukan keputusan skrip.
+--
+-- ── LANGKAH 1: cari duplikatnya ─────────────────────────────────────────────
+--
+--   SELECT slug, COUNT(*) AS jumlah, array_agg(id) AS produk
+--     FROM products
+--    WHERE slug <> ''
+--    GROUP BY slug
+--   HAVING COUNT(*) > 1
+--    ORDER BY jumlah DESC;
+--
+-- Kalau kosong, lanjut ke langkah 2. Kalau tidak, perbaiki dulu -- misalnya
+-- dengan menambahkan akhiran pada yang lebih baru:
+--
+--   UPDATE products p SET slug = p.slug || `-` || encode(p.id, `hex`)
+--    WHERE EXISTS (
+--            SELECT 1 FROM products q
+--             WHERE q.slug = p.slug AND q.id <> p.id AND q.created_at < p.created_at
+--          );
+--
+-- ── LANGKAH 2: pasang indexnya ──────────────────────────────────────────────
+--
+-- `CONCURRENTLY` supaya tabel tidak terkunci terhadap penulisan selama
+-- pembuatannya -- pada tabel sebesar ini itu bukan kemewahan. Ia TIDAK boleh
+-- berada di dalam transaksi, jadi berkas ini sengaja tanpa BEGIN/COMMIT.
+--
+-- Slug kosong dikecualikan: produk draf boleh sama-sama kosong, dan memaksanya
+-- unik akan melarang draf kedua tanpa alasan.
+
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_products_slug
+    ON products (slug)
+    WHERE slug <> '';

@@ -220,10 +220,6 @@ pub fn ChatRoomPage() -> impl IntoView {
     #[cfg(target_arch = "wasm32")]
     let umur_umum: StoredValue<u32> = StoredValue::new(0);
 
-    // Toast global — untuk pesan dari room LAIN. Koneksi ini menerima pesan
-    // semua room milik pengguna, jadi pesan room lain tetap sampai ke sini.
-    #[cfg(target_arch = "wasm32")]
-    let toast = crate::web::components::use_toast();
 
     // Ambil hitungan belum-dibaca SEBELUM menandainya dibaca, lalu tandai.
     // Urutannya penting: kebalikannya selalu menghasilkan nol, dan pemisahnya
@@ -280,20 +276,18 @@ pub fn ChatRoomPage() -> impl IntoView {
                         return;
                     };
                     let my_id = current_user_id_untracked().unwrap_or_default();
-                    // Koneksi ini menerima pesan SELURUH room milik pengguna
-                    // (server mendaftarkan semuanya saat Hello), jadi yang dari
-                    // room lain harus disaring — tapi jangan dibuang diam-diam:
-                    // munculkan toast yang menuju ke sana.
+                    // Pesan dari room LAIN disaring di sini dan dibuang
+                    // diam-diam — SENGAJA.
+                    //
+                    // Dulu tempat ini memunculkan toast. Sejak `<KabarChat/>`
+                    // di root melakukannya untuk seluruh aplikasi, keduanya
+                    // menyala bersamaan: berada di room A saat pesan room B
+                    // tiba menghasilkan DUA pemberitahuan yang sama persis.
+                    //
+                    // Yang di root yang bertahan, karena ia bekerja di halaman
+                    // mana pun; yang di sini hanya bekerja bila kebetulan sedang
+                    // membuka sebuah percakapan.
                     if m.room_id.trim() != room_id_untracked().trim() {
-                        if m.sender_id != my_id {
-                            let preview: String = m.content.chars().take(60).collect();
-                            toast.notify(
-                                crate::web::components::ToastKind::Info,
-                                format!("Pesan dari {}", m.sender_name),
-                                Some(preview),
-                                Some(format!("/pulse/{}", m.room_id)),
-                            );
-                        }
                         return;
                     }
                     let m_sendiri = m.sender_id == my_id;

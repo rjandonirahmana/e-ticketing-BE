@@ -442,7 +442,11 @@ async fn run() -> Result<()> {
             state.clone(),
             e_ticketing::middleware::silent_refresh::silent_refresh,
         ))
-        .layer(tower_http::compression::CompressionLayer::new());
+        .layer(tower_http::compression::CompressionLayer::new())
+        // Header keamanan PALING LUAR: ia harus menyentuh setiap respons —
+        // termasuk galat, pengalihan, dan berkas statis. Dipasang di dalam,
+        // cabang yang menjawab lebih awal akan melewatinya tanpa jejak.
+        .layer(axum::middleware::from_fn(header_keamanan));
 
     // Galat `bind` DIBERI KONTEKS alamatnya.
     //
@@ -532,6 +536,57 @@ fn mount_fstype_for(dir: &Path) -> Option<String> {
     best.map(|(_, fs)| fs)
 }
 
+/// Header keamanan yang berlaku untuk SELURUH respons.
+///
+/// Tak satu pun dari ini pernah dipasang sebelumnya. Ketiganya murah, tak
+/// mengubah perilaku apa pun yang sah, dan menutup kelas serangan yang nyata
+/// pada aplikasi yang penuh konten buatan pengguna — story, chat, dan gambar
+/// yang diunggah siapa saja.
+async fn header_keamanan(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::http::{header, HeaderName, HeaderValue};
+
+    let mut res = next.run(req).await;
+    let h = res.headers_mut();
+
+    // Peramban berhenti menebak tipe berkas dari isinya. Tanpa ini, gambar yang
+    // diunggah seseorang bisa ditebak sebagai HTML dan dijalankan sebagai
+    // halaman — di aplikasi tempat siapa pun boleh mengunggah gambar, itu jalan
+    // masuk yang nyata.
+    h.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+
+    // Halaman ini tak boleh dibingkai situs lain. Tanpa ini, penyerang bisa
+    // menumpuk halaman transparan di atas antarmuka sungguhan dan menjebak
+    // orang menekan tombol yang tak mereka lihat.
+    h.insert(
+        header::X_FRAME_OPTIONS,
+        HeaderValue::from_static("SAMEORIGIN"),
+    );
+
+    // Alamat lengkap halaman kita tak ikut terkirim ke situs luar. Alamat di
+    // sini memuat slug produk dan id percakapan — bukan rahasia besar, tapi
+    // juga bukan sesuatu yang perlu diberikan cuma-cuma kepada tiap gambar
+    // pihak ketiga yang kebetulan dimuat.
+    h.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("strict-origin-when-cross-origin"),
+    );
+
+    // Kamera dan mikrofon dipakai live streaming dan meet, jadi TETAP diizinkan
+    // untuk asal kita sendiri — tetapi ditutup bagi bingkai dari mana pun.
+    h.insert(
+        HeaderName::from_static("permissions-policy"),
+        HeaderValue::from_static("camera=(self), microphone=(self), geolocation=(self)"),
+    );
+
+    res
+}
+
 fn build_cors(_cfg: &AppConfig) -> tower_http::cors::CorsLayer {
     use tower_http::cors::{Any, CorsLayer};
     if let Ok(origin) = std::env::var("CORS_ALLOW_ORIGIN") {
@@ -544,10 +599,18 @@ fn build_cors(_cfg: &AppConfig) -> tower_http::cors::CorsLayer {
                     .expect("invalid CORS_ALLOW_ORIGIN"),
             )
     } else {
+        // ── BAWAAN: TAK ADA lintas-asal ───────────────────────────────────
+        // Dulu di sini `allow_origin(Any)` — situs mana pun boleh memanggil
+        // API ini dari peramban pengunjungnya. Untuk jalur ber-Bearer bahayanya
+        // terbatas (peramban tak mengirim token itu sendiri), tapi `/api-fn`
+        // dan `/upload/*` memakai COOKIE, dan permukaan yang dibuka tanpa ada
+        // yang memintanya adalah permukaan yang tak seorang pun menjaganya.
+        //
+        // Aplikasi ini menyajikan frontend-nya sendiri dari asal yang sama,
+        // jadi bawaannya tak butuh lintas-asal sama sekali. Yang butuh
+        // menyalakannya lewat `CORS_ALLOW_ORIGIN` — dan dengan begitu ia jadi
+        // keputusan yang tercatat, bukan warisan.
         CorsLayer::new()
-            .allow_methods(Any)
-            .allow_headers(Any)
-            .allow_origin(Any)
     }
 }
 
