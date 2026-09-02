@@ -369,6 +369,26 @@ pub fn provide_chat_bus() {
     // Patokan awal dari server. Dijalankan ulang tiap status auth berubah:
     // masuk → ambil hitungannya, keluar → kosongkan supaya lencana milik akun
     // sebelumnya tidak tertinggal di layar.
+    // ── HANYA DI KLIEN ────────────────────────────────────────────────────
+    // Pagar ini bukan optimasi. Tanpa `#[cfg]`, Effect di bawah ikut berjalan
+    // saat SSR — pada SETIAP permintaan halaman — dan tiap kali ia melepas satu
+    // kueri basis data yang tak seorang pun tunggu hasilnya.
+    //
+    // Yang membuatnya fatal: `auth` memakai `Resource::new_blocking`, jadi
+    // render SSR MENUNGGU koneksi basis data sebelum satu bita pun header
+    // terkirim. Begitu kolam koneksi terkuras oleh kueri-kueri lepas itu,
+    // render berhenti di tempat — bukan galat, bukan panik, hanya diam. Di
+    // proxy gejalanya muncul sebagai `Upstream ReadTimedout while reading
+    // response headers`, dan di peramban sebagai halaman putih kosong,
+    // sementara aset statis dari proses yang sama tetap terlayani normal
+    // dalam puluhan milidetik — sehingga tampak seperti masalah jaringan.
+    //
+    // Seluruh Effect lain di `web/app/providers.rs` dipagari dengan cara yang
+    // sama, dan komentar di berkas itu menyatakan aturannya: TIDAK ADA
+    // `spawn_local` di provider. Lencana belum-dibaca memang tak ada gunanya
+    // di server — tak ada yang melihatnya sebelum hydration.
+    #[cfg(target_arch = "wasm32")]
+    {
     let auth = use_context::<crate::web::app::AuthResource>();
     Effect::new(move |_| {
         let masuk = auth
@@ -395,6 +415,7 @@ pub fn provide_chat_bus() {
             }
         });
     });
+    }
 }
 
 /// Ambil bus dari context. `None` bila dipanggil di luar pohon App.

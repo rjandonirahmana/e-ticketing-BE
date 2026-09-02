@@ -297,7 +297,7 @@ pub fn CheckoutPage() -> impl IntoView {
                         }
                         items.iter().map(|item| {
                             let img = if item.event_cover.is_empty() {
-                                "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=150&q=80".to_string()
+                                crate::web::utils::gambar_pengganti(150)
                             } else {
                                 item.event_cover.clone()
                             };

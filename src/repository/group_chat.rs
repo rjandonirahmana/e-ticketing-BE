@@ -50,17 +50,11 @@ pub trait GroupChatRepository: Send + Sync {
     ) -> Result<(Vec<GroupMessage>, bool)>;
 
     // Retensi
-    /// Satu angkatan `media_url` milik pesan yang sudah lewat masa simpan.
-    ///
-    /// Dipisah dari penghapusannya supaya berkasnya bisa dibuang dari
-    /// penyimpanan objek LEBIH DULU. Urutan sebaliknya kehilangan alamat
-    /// berkasnya begitu barisnya hilang, dan yang tertinggal adalah berkas
-    /// yatim yang tak ada lagi cara menemukannya.
-    async fn media_kadaluarsa(&self, hari: i64, batas: i64) -> Result<Vec<String>>;
-
     /// Hapus satu angkatan pesan yang sudah lewat masa simpan.
-    /// Mengembalikan jumlah baris yang terhapus — nol berarti sudah bersih.
-    async fn hapus_kadaluarsa(&self, hari: i64, batas: i64) -> Result<u64>;
+    ///
+    /// Mengembalikan `(jumlah baris terhapus, alamat berkas yang ikut hilang)`.
+    /// Jumlahnya lebih kecil dari `batas` berarti sudah tak ada sisa.
+    async fn hapus_kadaluarsa(&self, hari: i64, batas: i64) -> Result<(u64, Vec<String>)>;
 }
 
 /// Bentuk SELECT untuk satu percakapan yang dicari lewat pasangannya.
@@ -118,31 +112,41 @@ impl PgGroupChatRepository {
 /// Rust: jam proses aplikasi dan jam server basis data tak selalu sama, dan
 /// yang menentukan batasnya harus SATU jam saja — kalau tidak, "30 hari" berarti
 /// dua hal berbeda tergantung mesin mana yang bertanya.
-const SQL_MEDIA_KADALUARSA: &str = r#"
-    SELECT media_url
-    FROM chat_messages
-    WHERE sent_at < NOW() - ($1 || ' days')::INTERVAL
-      AND media_url IS NOT NULL
-    ORDER BY sent_at
-    LIMIT $2
-"#;
-
-/// Dihapus per angkatan lewat sub-kueri ber-LIMIT, bukan satu `DELETE` besar.
+/// Hapus satu angkatan pesan kedaluwarsa DAN kembalikan alamat berkasnya
+/// sekaligus, dalam SATU pernyataan.
 ///
-/// `DELETE` tanpa batas atas atas tabel yang sudah menahun akan mengunci ratusan
-/// ribu baris dalam satu transaksi: WAL membengkak, autovacuum tertinggal, dan
-/// pengiriman pesan yang sedang berlangsung ikut menunggu. Angkatan kecil
-/// berulang menyelesaikan pekerjaan yang sama tanpa satu pun jeda yang terasa.
+/// ── KENAPA BUKAN DUA KUERI ────────────────────────────────────────────────
+/// Versi sebelumnya bertanya dua kali per putaran: sekali mencari `media_url`,
+/// sekali menghapus. Keduanya memakai `ORDER BY sent_at`, dan indeks yang
+/// mendukungnya belum terpasang di produksi — sehingga tiap putaran menjadi DUA
+/// pemindaian penuh tabel berikut pengurutannya, berulang tiap 200 ms tanpa
+/// batas. Basis datanya jenuh, dan karena render SSR menunggu koneksi sebelum
+/// mengirim satu bita pun header, seluruh halaman berhenti terlayani sementara
+/// berkas statis tetap kencang — gejala yang tampak seperti masalah jaringan.
+///
+/// `RETURNING` menghapus separuh pekerjaan itu dan membuat keduanya atomik.
+///
+/// `ORDER BY` DIBUANG, bukan lupa: untuk pekerjaan ini tak ada bedanya baris
+/// kedaluwarsa mana yang pergi lebih dulu — semuanya akan pergi. Yang tersisa
+/// hanyalah biayanya.
+///
+/// ── HARGA YANG DIBAYAR ────────────────────────────────────────────────────
+/// Urutannya jadi terbalik dari niat semula: barisnya hilang sebelum berkasnya.
+/// Bila proses mati tepat di celah itu, berkasnya jadi yatim. Celahnya sempit
+/// dan akibatnya beberapa berkas tak terpakai — jauh lebih murah daripada
+/// menjenuhkan basis data setiap hari, yang sudah terbukti menjatuhkan seluruh
+/// situs.
 const SQL_HAPUS_KADALUARSA: &str = r#"
     DELETE FROM chat_messages
     WHERE ctid IN (
         SELECT ctid
         FROM chat_messages
         WHERE sent_at < NOW() - ($1 || ' days')::INTERVAL
-        ORDER BY sent_at
         LIMIT $2
     )
+    RETURNING media_url
 "#;
+
 
 #[async_trait]
 impl GroupChatRepository for PgGroupChatRepository {
@@ -487,30 +491,22 @@ impl GroupChatRepository for PgGroupChatRepository {
 
     // ── Retensi ───────────────────────────────────────────────────────────────
 
-    async fn media_kadaluarsa(&self, hari: i64, batas: i64) -> Result<Vec<String>> {
-        // `hari` dan `batas` dikirim sebagai teks/bigint parameter, TIDAK
-        // ditempel ke dalam string SQL — keduanya memang berasal dari
-        // konfigurasi kita sendiri, tapi kueri yang dirakit dengan format!
-        // adalah kebiasaan yang cepat menular ke tempat yang nilainya datang
-        // dari luar.
+    async fn hapus_kadaluarsa(&self, hari: i64, batas: i64) -> Result<(u64, Vec<String>)> {
         let rows = exec_rows(
             &self.pool,
-            SQL_MEDIA_KADALUARSA,
+            SQL_HAPUS_KADALUARSA,
             &[&hari.to_string(), &batas],
         )
         .await?;
-        Ok(rows
+        // Jumlah baris yang DIKEMBALIKAN adalah jumlah yang terhapus; sebagian
+        // besar di antaranya tak punya berkas sama sekali.
+        let jumlah = rows.len() as u64;
+        let media = rows
             .iter()
             .filter_map(|r| col_opt_str(r, "media_url").ok().flatten())
-            .collect())
-    }
-
-    async fn hapus_kadaluarsa(&self, hari: i64, batas: i64) -> Result<u64> {
-        let klien = self.pool.get().await?;
-        let n = klien
-            .execute(SQL_HAPUS_KADALUARSA, &[&hari.to_string(), &batas])
-            .await?;
-        Ok(n)
+            .filter(|u| !u.is_empty())
+            .collect();
+        Ok((jumlah, media))
     }
 
 }

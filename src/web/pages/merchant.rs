@@ -299,10 +299,8 @@ fn view_products(evs: Vec<Product>) -> impl IntoView {
                             .cover_url
                             .as_deref()
                             .filter(|s| !s.is_empty())
-                            .unwrap_or(
-                                "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=600&q=80",
-                            )
-                            .to_string();
+                            .map(str::to_string)
+                            .unwrap_or_else(|| crate::web::utils::gambar_pengganti(600));
                         let status = ProductStatus::from_product(&ev);
                         let title  = ev.name.clone();
                         let date   = format_date(&ev.event_date);

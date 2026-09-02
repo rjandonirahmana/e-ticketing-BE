@@ -505,7 +505,7 @@ fn cart_row(cart: CartContext, item: CartItemView, pertama: bool) -> impl IntoVi
     let warn = item.exceeds_stock;
 
     let img = if item.event_cover.is_empty() {
-        "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&q=80".to_string()
+        crate::web::utils::gambar_pengganti(200)
     } else {
         item.event_cover.clone()
     };

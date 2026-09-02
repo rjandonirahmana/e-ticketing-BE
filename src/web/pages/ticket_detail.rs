@@ -235,8 +235,7 @@ pub fn TicketDetailPage() -> impl IntoView {
                                         .cover_url
                                         .clone()
                                         .unwrap_or_else(|| {
-                                            "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=800&q=80"
-                                                .to_string()
+                                            crate::web::utils::gambar_pengganti(800)
                                         });
                                     let status_badge = t.status.to_uppercase();
                                     let qr_ref = format!("TICKET#{}", t.ticket_code);

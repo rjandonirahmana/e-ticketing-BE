@@ -48,31 +48,47 @@ impl GroupChatService {
     /// berikutnya akan menemukan baris itu lagi, gagal menghapus berkas yang
     /// memang sudah tiada (dicatat, tidak fatal), lalu membuang barisnya.
     /// Arah kegagalan yang bisa pulih sendiri.
+    /// Berapa angkatan paling banyak dalam SATU jalanan harian.
+    ///
+    /// Ada karena versi pertama tak punya batas sama sekali: ia mengulang sampai
+    /// habis, dan pada tabel yang sudah menahun itu berarti berjam-jam tekanan
+    /// tanpa henti ke basis data yang sama dengan yang melayani halaman. Situs
+    /// jatuh karenanya.
+    ///
+    /// 40 × 500 = 20.000 pesan per hari. Tunggakan yang lebih besar terkuras
+    /// dalam beberapa hari alih-alih satu badai — dan retensi memang tak pernah
+    /// mendesak. Yang mendesak adalah halaman yang sedang dibuka orang.
+    const MAKS_ANGKATAN_PER_JALAN: u32 = 40;
+
+    /// Buang pesan yang sudah lewat masa simpan, berikut berkasnya di RustFS.
+    ///
+    /// Mengembalikan `(pesan_dihapus, berkas_dihapus)`.
     pub async fn buang_kadaluarsa(&self, hari: i64, batas_angkatan: i64) -> Result<(u64, u64)> {
         let mut total_pesan = 0u64;
         let mut total_berkas = 0u64;
 
-        loop {
-            for url in self.repo.media_kadaluarsa(hari, batas_angkatan).await? {
+        for _ in 0..Self::MAKS_ANGKATAN_PER_JALAN {
+            let (n, media) = self.repo.hapus_kadaluarsa(hari, batas_angkatan).await?;
+            total_pesan += n;
+
+            for url in media {
                 match self.storage.delete_by_url(&url).await {
                     Ok(_) => total_berkas += 1,
                     // Berkas yang memang sudah tidak ada bukan alasan untuk
-                    // membatalkan pembersihan — barisnya tetap harus pergi.
+                    // membatalkan pembersihan — barisnya sudah pergi.
                     Err(e) => tracing::warn!(url = %url, galat = ?e, "berkas chat gagal dihapus"),
                 }
             }
 
-            let n = self.repo.hapus_kadaluarsa(hari, batas_angkatan).await?;
-            total_pesan += n;
             // Angkatan yang tak penuh berarti sudah habis. Berhenti di sini,
             // bukan menunggu nol, supaya tak ada satu putaran sia-sia di akhir.
             if (n as i64) < batas_angkatan {
                 break;
             }
-            // Beri napas ke basis data di antara angkatan. Pembersihan ini tak
-            // mendesak sama sekali; yang mendesak adalah pesan yang sedang
-            // dikirim orang saat ini juga.
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            // Satu detik penuh di antara angkatan, bukan 200 ms. Pembersihan ini
+            // tak mendesak sama sekali; yang mendesak adalah pesan yang sedang
+            // dikirim orang saat ini juga, lewat kolam koneksi yang sama.
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         }
 
         Ok((total_pesan, total_berkas))

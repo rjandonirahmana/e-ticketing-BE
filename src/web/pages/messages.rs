@@ -138,7 +138,7 @@ pub fn MessagesPage() -> impl IntoView {
                                                     filtered.into_iter().enumerate().map(|(i, room)| {
                                                         let href = format!("/pulse/{}", room.id);
                                                         let cover = room.cover_url.clone().unwrap_or_else(|| {
-                                                            "https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=100&q=80".into()
+                                                            crate::web::utils::gambar_pengganti(100)
                                                         });
                                                         let name = room.name.clone();
                                                         let preview = format!("{} anggota", room.member_count);

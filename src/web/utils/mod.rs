@@ -275,3 +275,20 @@ pub fn build_ws_url(path: &str) -> String {
     }
     format!("ws://localhost{path}")
 }
+
+/// Alamat gambar pengganti saat sebuah entitas belum punya sampul.
+///
+/// ── KENAPA SATU FUNGSI ────────────────────────────────────────────────────
+/// Alamat ini dulu tertanam langsung di TUJUH berkas, dengan tiga foto berbeda
+/// dan lima lebar berbeda — tak satu pun perbedaan itu disengaja. Akibatnya dua
+/// hal: layar yang "kosong" tampak berbeda-beda tanpa alasan, dan aplikasi ini
+/// diam-diam bergantung pada CDN pihak ketiga di tujuh tempat sekaligus tanpa
+/// ada satu tempat pun untuk menggantinya.
+///
+/// Yang kedua itu yang serius. Placeholder yang gagal dimuat meninggalkan kotak
+/// rusak persis di layar yang sudah kekurangan isi, dan ketergantungan yang
+/// tersebar tak bisa dicabut tanpa menyisir seluruh proyek. Sekarang bisa:
+/// mengganti baris di bawah ini dengan berkas lokal mengubah semuanya sekaligus.
+pub fn gambar_pengganti(lebar: u32) -> String {
+    format!("https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w={lebar}&q=80")
+}

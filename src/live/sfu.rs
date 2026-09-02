@@ -29,6 +29,42 @@ const IDLE_POLL_WAIT: Duration = Duration::from_millis(250);
 /// memutus koneksi yang sebenarnya masih hidup.
 const DISCONNECT_GRACE: Duration = Duration::from_secs(10);
 
+/// Batas waktu bagi peer yang BELUM PERNAH mengirim satu paket pun.
+///
+/// `DISCONNECT_GRACE` di atas hanya berlaku bagi peer yang PERNAH tersambung
+/// lalu putus — ia bergantung pada str0m melaporkan `Disconnected`. Peer yang
+/// menerima jawaban SDP lalu lenyap tanpa pernah menyelesaikan ICE tidak
+/// melewati keadaan itu sama sekali, sehingga tak satu pun tenggang di atas
+/// menjangkaunya.
+///
+/// Itu bukan kasus langka: pada jaringan seluler yang buruk, klien yang hilang
+/// tepat sesudah menerima jawaban adalah kejadian sehari-hari. Tiap peer
+/// menahan satu `Rtc` beserta buffernya, jadi yang menumpuk bukan sekadar entri
+/// peta — dan pada mesin 8 GB, tumpukan yang tak pernah dibuang itu berakhir
+/// sebagai OOM berjam-jam kemudian, jauh dari sebabnya.
+///
+/// 30 detik: jauh di atas waktu ICE yang wajar (biasanya di bawah 5 detik,
+/// termasuk lewat TURN), jadi ia tak akan pernah memutus sambungan yang sedang
+/// benar-benar berjuang.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Apakah peer ini menggantung sejak lahir dan tak akan pulih?
+///
+/// Dipisah dari lingkaran utamanya supaya bisa diuji: lingkaran itu menjalankan
+/// soket UDP sungguhan di utasnya sendiri, sedangkan pertanyaan yang menentukan
+/// pembuangannya hanyalah aritmetika waktu.
+///
+/// `remote_addr` adalah buktinya: ia baru terisi saat paket PERTAMA dari peer
+/// itu benar-benar tiba. Selama masih `None`, tak ada satu pun bita yang pernah
+/// datang — yang ada cuma jawaban SDP yang kita kirim ke ruang hampa.
+fn jabat_tangan_menggantung(
+    remote_addr: Option<SocketAddr>,
+    lahir: Instant,
+    sekarang: Instant,
+) -> bool {
+    remote_addr.is_none() && sekarang.duration_since(lahir) >= HANDSHAKE_TIMEOUT
+}
+
 #[derive(Debug)]
 pub enum SfuCommand {
     CreateRoom {
@@ -116,6 +152,9 @@ struct PeerState {
     // Disconnected melewati `DISCONNECT_GRACE`, bukan saat product pertama —
     // mencegah penonton "keluar-masuk" karena blip jaringan sesaat.
     disconnected_since: Option<Instant>,
+    // Kapan peer ini dibuat. Dipakai membuang jabat tangan yang menggantung —
+    // lihat `HANDSHAKE_TIMEOUT`.
+    lahir: Instant,
     // Alamat UDP remote yang terakhir kali dipetakan ke peer ini (lihat
     // `addr_to_peer`). Dipakai saat membuang peer untuk mengevakuasi entri cache
     // demux-nya, supaya cache tidak menumpuk entri mati = memory leak.
@@ -433,6 +472,7 @@ impl SfuEngine {
                 role: PeerRole::Publisher,
                 mids: Vec::new(),
                 disconnected_since: None,
+                lahir: Instant::now(),
                 remote_addr: None,
             },
         );
@@ -477,6 +517,7 @@ impl SfuEngine {
                 role: PeerRole::Subscriber,
                 mids: Vec::new(),
                 disconnected_since: None,
+                lahir: Instant::now(),
                 remote_addr: None,
             },
         );
@@ -620,6 +661,16 @@ impl SfuEngine {
                 if since.elapsed() >= DISCONNECT_GRACE {
                     to_remove.push(peer_id.clone());
                 }
+            }
+
+            // Jabat tangan yang tak pernah dimulai. Tanpa ini ia menetap
+            // selamanya — bukan lewat keadaan `Disconnected` mana pun.
+            if jabat_tangan_menggantung(peer.remote_addr, peer.lahir, Instant::now()) {
+                tracing::info!(
+                    peer_id,
+                    "Membuang peer yang tak pernah mengirim paket (jabat tangan menggantung)"
+                );
+                to_remove.push(peer_id.clone());
             }
         }
 
@@ -1092,5 +1143,57 @@ impl SfuEngine {
         let id = self.next_peer_id;
         self.next_peer_id += 1;
         id
+    }
+}
+
+#[cfg(test)]
+mod tests_pembuangan_peer {
+    use super::*;
+
+    fn alamat() -> SocketAddr {
+        "203.0.113.5:40000".parse().unwrap()
+    }
+
+    /// Peer yang PERNAH mengirim paket tak pernah dibuang lewat jalur ini —
+    /// betapapun lamanya ia hidup. Yang mengurusnya adalah `DISCONNECT_GRACE`,
+    /// dan itu bergantung pada laporan ICE, bukan pada umur.
+    #[test]
+    fn peer_yang_pernah_berkirim_tak_pernah_dianggap_menggantung() {
+        let lahir = Instant::now();
+        let jauh_kemudian = lahir + HANDSHAKE_TIMEOUT * 100;
+        assert!(!jabat_tangan_menggantung(Some(alamat()), lahir, jauh_kemudian));
+    }
+
+    /// Yang belum pernah berkirim tapi baru saja lahir masih diberi kesempatan —
+    /// ICE lewat TURN pada jaringan seluler yang buruk memang lambat.
+    #[test]
+    fn yang_baru_lahir_masih_diberi_waktu() {
+        let lahir = Instant::now();
+        assert!(!jabat_tangan_menggantung(None, lahir, lahir));
+        assert!(!jabat_tangan_menggantung(
+            None,
+            lahir,
+            lahir + HANDSHAKE_TIMEOUT - Duration::from_millis(1)
+        ));
+    }
+
+    /// Dan yang melewati tenggang tanpa satu pun paket dibuang.
+    #[test]
+    fn yang_tak_pernah_berkirim_dibuang_setelah_tenggang() {
+        let lahir = Instant::now();
+        assert!(jabat_tangan_menggantung(None, lahir, lahir + HANDSHAKE_TIMEOUT));
+        assert!(jabat_tangan_menggantung(
+            None,
+            lahir,
+            lahir + HANDSHAKE_TIMEOUT + Duration::from_secs(60)
+        ));
+    }
+
+    /// Tenggangnya harus jauh di atas waktu ICE yang wajar, supaya ia tak pernah
+    /// memutus sambungan yang sedang benar-benar berjuang tersambung.
+    #[test]
+    fn tenggang_cukup_longgar_untuk_ice_lewat_turn() {
+        assert!(HANDSHAKE_TIMEOUT >= Duration::from_secs(20));
+        assert!(HANDSHAKE_TIMEOUT > DISCONNECT_GRACE);
     }
 }
