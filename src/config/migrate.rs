@@ -60,6 +60,24 @@ fn checksum(s: &str) -> String {
 pub async fn run(pool: &Pool) -> Result<()> {
     let mut conn = pool.get().await.context("migrate: ambil koneksi")?;
 
+    // ── Migrasi DIKECUALIKAN dari `statement_timeout` ────────────────────────
+    //
+    // Pool memasang batas umur statement (lihat `config/database.rs`) supaya
+    // satu query yang menggantung tak menahan koneksi selamanya. Migrasi adalah
+    // satu-satunya tempat batas itu salah: `CREATE INDEX` di tabel `stories`
+    // yang sudah ratusan ribu baris memang butuh lebih lama dari batas request
+    // biasa, dan dipotong di tengah ia gagal — aplikasinya menolak start karena
+    // migrasi gagal, dengan pesan "canceling statement due to statement
+    // timeout" yang sama sekali tak menyebut migrasi.
+    //
+    // `RESET` di bawah mengembalikannya ke nilai bawaan sesi, yaitu yang
+    // dikirim lewat `options` saat koneksi dibuka. Itu penting: koneksi ini
+    // KEMBALI ke pool setelah selesai, dan tanpa dikembalikan ia akan melayani
+    // request biasa tanpa batas waktu selamanya.
+    conn.batch_execute("SET statement_timeout = 0")
+        .await
+        .context("migrate: mematikan statement_timeout")?;
+
     // Kunci lebih dulu, SEBELUM apa pun dibaca: dua instance yang start
     // bersamaan tak boleh sama-sama menyimpulkan "belum ada yang dijalankan".
     conn.execute("SELECT pg_advisory_lock($1)", &[&LOCK_KEY])
@@ -75,6 +93,13 @@ pub async fn run(pool: &Pool) -> Result<()> {
         .await
     {
         tracing::warn!(error = %e, "migrate: gagal melepas advisory lock");
+    }
+
+    // Kembalikan batas waktu SEBELUM koneksi ini dilepas ke pool — lihat
+    // catatan di atas. Gagal di sini berarti koneksinya sudah rusak; ia akan
+    // dibuang saat recycle, jadi cukup dicatat.
+    if let Err(e) = conn.batch_execute("RESET statement_timeout").await {
+        tracing::warn!(error = %e, "migrate: gagal mengembalikan statement_timeout");
     }
 
     hasil

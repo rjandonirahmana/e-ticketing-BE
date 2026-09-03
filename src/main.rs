@@ -100,6 +100,20 @@ async fn run() -> Result<()> {
 
     tracing::info!(host = %cfg.host, port = cfg.port, "Config loaded");
 
+    // ── Pengawas sendatan ────────────────────────────────────────────────────
+    //
+    // Dipasang SEDINI mungkin — sebelum pool, Redis, dan migrasi — supaya
+    // startup yang menggantung pun ikut terekam.
+    //
+    // Keduanya, bukan salah satu: yang satu task tokio, yang satu OS thread.
+    // Selisih di antara keduanyalah jawabannya saat proxy melaporkan "app tak
+    // menjawab". Kalau hanya task yang telat, ada worker tokio yang terblokir
+    // dan itu bug di kode kita. Kalau keduanya telat, kernel yang tak
+    // menjalankan proses ini dan yang kurang adalah CPU/memori mesin. Lihat
+    // catatan lengkap di `utils/watchdog.rs`.
+    e_ticketing::utils::watchdog::spawn_task();
+    e_ticketing::utils::watchdog::spawn_thread();
+
     // ── Telegram notifier ────────────────────────────────────────────────────
     if !cfg.telegram.bot_token.is_empty() && cfg.telegram.admin_chat_id != 0 {
         let tg = Arc::new(TelegramService::new(

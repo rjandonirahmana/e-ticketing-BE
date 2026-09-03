@@ -5,3 +5,4 @@ pub mod jwt;
 pub mod phone;
 pub mod rate_limit;
 pub mod ulid;
+pub mod watchdog;

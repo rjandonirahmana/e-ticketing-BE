@@ -45,14 +45,27 @@ use crate::ws::proto::{ErrorCode, WsEvent};
 
 const CHAN_BUF: usize = 32;
 pub const MAX_CONNECTIONS: usize = 10_000;
-const PING_INTERVAL: Duration = Duration::from_secs(30);
+/// Selang ping heartbeat WS chat.
+///
+/// Angkanya ditentukan perantara yang paling ketat, dan itu Pingora di depan:
+/// `pingora-core` memberi sesi downstream `read_timeout` bawaan **60 detik**,
+/// dan kinetic-proxy tak menimpanya. Socket yang tak mengirim satu frame pun
+/// selama 60 detik diputus proxy. Ping dari server memancing Pong otomatis dari
+/// browser, dan Pong itulah yang menahan hitungannya.
+///
+/// 30 detik hanya memberi dua kesempatan di dalam jendela 60 detik itu — satu
+/// tick yang telat sudah cukup untuk kehilangan socket, dan tick MEMANG telat
+/// saat runtime tersendat (insiden 3 Sep 2026: WS chat mati tepat 60 detik
+/// setelah upgrade karena tak ada satu pun ping yang sempat terkirim). 20 detik
+/// memberi tiga kesempatan, dengan biaya satu frame kosong tambahan per menit.
+const PING_INTERVAL: Duration = Duration::from_secs(20);
 const PONG_TIMEOUT: Duration = Duration::from_secs(10);
 const CH_USER: &str = "ws:u:";
 const CH_ROOM: &str = "ws:r:";
 const SHRINK_INTERVAL: Duration = Duration::from_secs(300);
 /// Tenggang bagi koneksi yang digantikan untuk menuliskan pesan `Replaced`-nya
 /// sebelum dihentikan paksa. Cukup untuk satu penulisan socket, jauh di bawah
-/// 40 detik yang harus ditunggu bila mengandalkan timeout heartbeat.
+/// 30 detik yang harus ditunggu bila mengandalkan timeout heartbeat.
 const REPLACED_GRACE: Duration = Duration::from_millis(500);
 
 const REDIS_PUBLISH_RETRIES: u8 = 3;
@@ -90,9 +103,9 @@ struct Session {
     /// Tanpa ini, koneksi yang DIGANTI reconnect tak punya cara diberi tahu
     /// untuk berhenti: `sessions.insert` mencabutnya dari peta, pesan
     /// `Replaced` dikirim, lalu task-nya tetap hidup sampai heartbeat-nya
-    /// sendiri kedaluwarsa — PING_INTERVAL + PONG_TIMEOUT = 40 detik.
+    /// sendiri kedaluwarsa — PING_INTERVAL + PONG_TIMEOUT = 30 detik.
     ///
-    /// Selama 40 detik itu koneksi mati tetap memegang: satu izin semaphore
+    /// Selama 30 detik itu koneksi mati tetap memegang: satu izin semaphore
     /// (dari plafon `max_conn`), dua task tokio, dan buffer channel 32 slot.
     /// Di jaringan seluler yang putus-nyambung, reconnect adalah kejadian
     /// paling lumrah — jadi pada beban puncak sebagian besar plafon koneksi

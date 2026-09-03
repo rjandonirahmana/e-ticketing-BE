@@ -204,9 +204,22 @@ impl LiveStreamService {
             .set_read_timeout(Some(super::sfu::MAX_POLL_WAIT))
             .expect("gagal menyetel read timeout socket SFU");
 
-        let sfu_handle = std::thread::spawn(move || {
-            SfuEngine::run(socket, candidate_addr, cmd_rx, product_tx);
-        });
+        // Thread DIBERI NAMA. Saat siaran jalan, utas ini adalah konsumen CPU
+        // terbesar di proses — ia mengurus tiap datagram RTP/RTCP/STUN dari
+        // publisher dan tiap penonton. Di box 2 vCPU ia berebut core dengan
+        // worker tokio, dan itulah dugaan pertama setiap kali SSR mendadak
+        // lambat saat ada yang siaran.
+        //
+        // Tanpa nama, `top -H` cuma menampilkan deretan "e-ticketing" yang tak
+        // bisa dibedakan satu sama lain, dan dugaan itu tak pernah bisa
+        // dibuktikan. Dengan nama, satu perintah `top -H -p <pid>` langsung
+        // menunjukkan apakah "sfu-udp" yang memakan core atau bukan.
+        let sfu_handle = std::thread::Builder::new()
+            .name("sfu-udp".into())
+            .spawn(move || {
+                SfuEngine::run(socket, candidate_addr, cmd_rx, product_tx);
+            })
+            .expect("gagal membuat thread SFU");
 
         let (changes_tx, _) = broadcast::channel::<Vec<RoomInfo>>(16);
 

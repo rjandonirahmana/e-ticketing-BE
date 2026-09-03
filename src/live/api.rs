@@ -185,10 +185,17 @@ async fn ice_servers() -> Response {
 /// `Downstream ReadError ... Connection reset by peer` pada `/ws/lives`, bukan
 /// sebagai galat apa pun di sisi aplikasi.
 ///
-/// 25 detik dipilih agar lebih pendek dari idle-timeout perantara yang lazim
-/// (30-60 dtk). `meet/api.rs` sudah melakukan ini sejak awal dan tidak
-/// mengalami masalah yang sama; ketiga loop di bawah tertinggal.
-const WS_PING_INTERVAL: std::time::Duration = std::time::Duration::from_secs(25);
+/// Angkanya ditentukan perantara yang paling ketat, dan itu Pingora di depan:
+/// `pingora-core` memberi sesi downstream `read_timeout` bawaan **60 detik**
+/// dan kinetic-proxy tak menimpanya, jadi socket yang tak mengirim satu frame
+/// pun selama 60 detik diputus proxy — bukan oleh jaringan, bukan oleh browser.
+///
+/// 25 detik memberi dua kesempatan di dalam jendela itu; kalau satu tick telat
+/// (runtime tersendat, dan itu pernah terjadi 3 Sep 2026), yang tersisa cuma
+/// satu, dan socket-nya mati. 20 detik memberi tiga. Selisih bebannya nol yang
+/// berarti — satu frame ping kosong per socket — sementara bedanya adalah
+/// apakah sendatan sesaat berakhir sebagai badai reconnect atau tidak.
+const WS_PING_INTERVAL: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// Pencacah ping yang tick pertamanya (yang instan) sudah dibuang.
 fn ping_interval() -> tokio::time::Interval {

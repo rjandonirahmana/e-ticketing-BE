@@ -254,7 +254,11 @@ async fn meet_ws_loop(
     // (mobile hilang sinyal tanpa TCP FIN). Tanpa ini, peer hantu menahan slot
     // room (cap 12) sampai TCP timeout OS (bisa berjam-jam). Kirim Ping gagal
     // → break → cleanup melepas peer. Browser membalas Pong otomatis.
-    let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(30));
+    // 20 detik, bukan 30: Pingora memutus sesi downstream yang tak mengirim
+    // frame apa pun selama 60 detik (`read_timeout` bawaan pingora-core). Ping
+    // 30 detik hanya punya dua kesempatan di dalam jendela itu — satu tick yang
+    // telat sudah cukup untuk kehilangan socket. Samakan dengan `live/api.rs`.
+    let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(20));
     ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     ping_interval.tick().await; // tick pertama instan — buang
 

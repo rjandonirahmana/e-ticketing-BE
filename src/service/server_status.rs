@@ -114,7 +114,7 @@ fn memori() -> Option<(u64, u64, String)> {
     ))
 }
 
-fn swap() -> (u64, u64) {
+pub(crate) fn swap() -> (u64, u64) {
     let Some(isi) = baca("/proc/meminfo") else {
         return (0, 0);
     };
@@ -123,13 +123,13 @@ fn swap() -> (u64, u64) {
     (total, total.saturating_sub(bebas.min(total)))
 }
 
-fn app_rss() -> u64 {
+pub(crate) fn app_rss() -> u64 {
     baca("/proc/self/status")
         .and_then(|isi| meminfo_kb(&isi, "VmRSS"))
         .unwrap_or(0)
 }
 
-fn loadavg() -> (f32, f32, f32) {
+pub(crate) fn loadavg() -> (f32, f32, f32) {
     let Some(isi) = baca("/proc/loadavg") else {
         return (0.0, 0.0, 0.0);
     };
