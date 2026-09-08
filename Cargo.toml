@@ -120,6 +120,10 @@ qrcodegen = "1.8"
 web-sys = { version = "0.3", features = [
      "RtcPeerConnectionIceEvent",
     "Window",
+    # Dipakai `web/app/router.rs` (modul `gulir`) untuk mematikan pemulihan
+    # gulir bawaan peramban — lihat catatannya di sana.
+    "History",
+    "ScrollRestoration",
     "Document",
     "Element",
     "HtmlElement",

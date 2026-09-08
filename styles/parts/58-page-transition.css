@@ -1,0 +1,252 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   TRANSISI ANTAR-HALAMAN — geser terarah lewat View Transitions API
+   ═══════════════════════════════════════════════════════════════════════════
+
+   ── KENAPA VIEW TRANSITIONS, BUKAN ANIMASI CSS BIASA ──────────────────────
+   Geser membutuhkan `transform`, dan `transform` pada `.page` TIDAK BOLEH
+   dipakai di aplikasi ini: elemen ber-`position: fixed` (bottom-nav, bilah
+   bayar) dirender DI DALAM `.page`, dan ancestor ber-transform menjadikan
+   dirinya containing block bagi mereka — bilah yang seharusnya menempel di
+   layar ikut menggulir bersama halaman. Catatan itu sudah tertulis di
+   `02-components.css` dan masih berlaku.
+
+   View Transitions menghindarinya sepenuhnya: yang dianimasikan adalah
+   pseudo-element hasil potretan (`::view-transition-*`), di luar pohon DOM
+   yang hidup. Tak satu pun elemen sungguhan menerima `transform`, jadi
+   `position: fixed` di dalam halaman tetap berperilaku normal.
+
+   ── SIAPA YANG MENJALANKAN ────────────────────────────────────────────────
+   `leptos_router` sendiri, lewat `<FlatRoutes transition=true>`. Ia memasang
+   kelas `.router-outlet-0` di `<html>` selama transisi berlangsung, dan
+   menambahkan `.router-back` bila arahnya MUNDUR. Arah itu ditentukan router
+   dari tumpukan path-nya sendiri — termasuk untuk `popstate`, jadi gesture
+   geser-kembali di ponsel ikut mendapat arah yang benar tanpa kode tambahan.
+
+   Berkas ini hanya menyediakan animasinya. Tanpa dukungan peramban, router
+   memanggil rebuild-nya langsung dan yang tersisa adalah fade `.page` yang
+   sudah ada — tak ada yang rusak.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: no-preference) {
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+        /* 220 ms: cukup untuk terbaca sebagai arah, masih di dalam rentang
+           150-300 ms yang terasa responsif alih-alih lamban. */
+        animation-duration: 220ms;
+        animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+        animation-fill-mode: both;
+
+        /* WAJIB. Gaya bawaan peramban memakai `plus-lighter` supaya silang-pudar
+           dua lapisan tidak menggelap di tengah. Begitu animasinya diganti
+           menjadi geser, dua lapisan itu tak lagi saling melengkapi — mereka
+           bertumpuk, dan `plus-lighter` membuat daerah tumpangnya MENYALA
+           terang seperti kilatan putih. `normal` mengembalikannya menjadi
+           halaman baru yang lewat di atas halaman lama. */
+        mix-blend-mode: normal;
+    }
+
+    /* MAJU — halaman baru datang dari kanan, yang lama mundur sedikit ke kiri.
+       Yang lama bergerak lebih pendek (14px lawan 28px): ia sedang ditinggalkan,
+       bukan sedang diperkenalkan, dan gerak yang sama besar membuat keduanya
+       tampak sama penting. */
+    ::view-transition-old(root) { animation-name: pt-keluar-kiri; }
+    ::view-transition-new(root) { animation-name: pt-masuk-kanan; }
+
+    /* MUNDUR — arahnya dibalik. Inilah yang membuat "kembali" terasa seperti
+       kembali, bukan seperti membuka halaman baru lagi. */
+    html.router-back::view-transition-old(root) { animation-name: pt-keluar-kanan; }
+    html.router-back::view-transition-new(root) { animation-name: pt-masuk-kiri; }
+}
+
+@keyframes pt-masuk-kanan {
+    from { opacity: 0; transform: translateX(28px); }
+    to   { opacity: 1; transform: none; }
+}
+@keyframes pt-keluar-kiri {
+    from { opacity: 1; transform: none; }
+    to   { opacity: 0; transform: translateX(-14px); }
+}
+@keyframes pt-masuk-kiri {
+    from { opacity: 0; transform: translateX(-28px); }
+    to   { opacity: 1; transform: none; }
+}
+@keyframes pt-keluar-kanan {
+    from { opacity: 1; transform: none; }
+    to   { opacity: 0; transform: translateX(14px); }
+}
+
+/* ── Yang TIDAK ikut bergeser ───────────────────────────────────────────────
+   Potretan `root` mencakup seluruh viewport, termasuk elemen yang sebenarnya
+   tak berganti. Memberi mereka nama sendiri mengeluarkannya dari potretan
+   `root` dan menjadikannya lapisan tersendiri yang dipasangkan lama↔baru —
+   karena isinya identik, hasilnya terlihat diam.
+
+   Latar grid harus diam karena ia memang milik seluruh aplikasi, bukan milik
+   satu halaman; melihatnya ikut menggeser langsung membocorkan bahwa yang
+   bergerak adalah "layar", bukan "halaman".
+
+   Bottom-nav diam karena ia adalah kerangka tetap: pada navigasi antar-tab
+   ia ada di kedua sisi dan dipasangkan, sedangkan saat menuju halaman yang
+   tak punya nav (misalnya detail produk) ia hanya ada di sisi lama dan
+   memudar sendiri — dua perilaku yang benar tanpa aturan tambahan. */
+.grid-bg { view-transition-name: pt-latar; }
+.bottom-nav { view-transition-name: pt-nav; }
+
+/* ── Jangan menganimasikan dua kali ────────────────────────────────────────
+   `.page` punya `page-enter` (fade 0.18s) dari sebelum transisi ini ada.
+   Selama transisi berjalan keduanya menumpuk dan hasilnya fade ganda yang
+   terlihat seperti kedipan.
+
+   Digate `@supports` DENGAN SENGAJA: `leptos_router` memasang
+   `.router-outlet-0` SEBELUM memeriksa dukungan peramban, dan pada peramban
+   yang tak mendukung ia tak pernah melepasnya lagi. Tanpa gate ini, kelas
+   yang tersangkut itu akan mematikan `page-enter` selamanya di peramban lama
+   — persis kebalikan dari yang dimaksud. */
+@supports (view-transition-name: none) {
+    html.router-outlet-0 .page { animation: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UMPAN BALIK KETUK
+   ═══════════════════════════════════════════════════════════════════════════
+   Di ponsel, jeda antara mengetuk kartu dan halaman berganti diisi oleh
+   permintaan jaringan. Tanpa tanda apa pun, ketukan itu terasa tidak
+   terdaftar dan orang mengetuk lagi. Satu penekanan kecil sudah cukup
+   menjawabnya, dan ia gratis: murni CSS, tak menunggu apa pun.
+
+   `transform` di sini aman — kartu tak memuat elemen `position: fixed`.
+
+   `-webkit-tap-highlight-color` dimatikan karena kotak biru bawaan iOS/Android
+   muncul BERSAMAAN dengan penekanan ini dan membatalkan kesan halusnya. */
+.explore-product-card-v2,
+.exp-mkt-card,
+.ticket-card,
+.notif-card,
+.menu-item {
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 120ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.explore-product-card-v2:active,
+.exp-mkt-card:active,
+.ticket-card:active,
+.notif-card:active,
+.menu-item:active {
+    /* 0.97, bukan 0.9. Kartu adalah permukaan besar; skala yang sama dengan
+       tombol kecil membuatnya tampak melompat, bukan tertekan. */
+    transform: scale(0.97);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HORMATI "KURANGI GERAK"
+   ═══════════════════════════════════════════════════════════════════════════
+   Setelan sistem ini bukan soal selera. Bagi sebagian orang gerak yang
+   meluncur memicu pusing dan mual, dan halaman yang mengabaikannya menjadi
+   tak terpakai — bukan sekadar kurang nyaman.
+
+   Blok ini berlaku untuk SELURUH aplikasi, bukan hanya transisi di atas:
+   sebelum ini baru sebagian komponen yang menghormatinya, dan `.page` sendiri
+   tidak. Yang dimatikan adalah PERPINDAHANNYA, bukan informasinya — halaman
+   tetap berganti, kartu tetap memberi umpan balik lewat warna bawaannya,
+   pemuat tetap berputar (satu-satunya animasi yang memang berarti "tunggu"). */
+@media (prefers-reduced-motion: reduce) {
+    /* Tanpa animasi pada kedua sisi, transisi selesai seketika: halaman
+       bertukar dalam satu bingkai, tanpa geseran. */
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+        animation: none;
+    }
+    .page { animation: none; }
+    .explore-product-card-v2,
+    .exp-mkt-card,
+    .ticket-card,
+    .notif-card,
+    .menu-item {
+        transition: none;
+    }
+    .explore-product-card-v2:active,
+    .exp-mkt-card:active,
+    .ticket-card:active,
+    .notif-card:active,
+    .menu-item:active {
+        transform: none;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GARIS PROGRES NAVIGASI
+   ═══════════════════════════════════════════════════════════════════════════
+   Lihat `components/nav_progress.rs` untuk alasan keberadaannya. */
+
+.nav-progress {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    /* Di atas isi halaman, tapi DI BAWAH story viewer/overlay layar penuh —
+       garis 2px tak pantas menembus lapisan yang menutupi seluruh layar. */
+    z-index: 60;
+    pointer-events: none;
+    overflow: hidden;
+
+    /* Ikut dikeluarkan dari potretan `root` supaya ia tidak ikut menggeser
+       bersama halaman kalau perpindahannya cukup lambat sampai keduanya
+       bertumpang. */
+    view-transition-name: pt-progres;
+}
+
+.nav-progress__bar {
+    display: block;
+    height: 100%;
+    width: 100%;
+    transform: scaleX(0);
+    transform-origin: left center;
+    background: linear-gradient(
+        90deg,
+        var(--accent-lime) 0%,
+        var(--accent-lime) 60%,
+        rgba(255, 255, 255, 0.65) 100%
+    );
+    opacity: 0;
+}
+
+/* Jeda 0.15s sebelum apa pun terlihat — perpindahan cepat tak pernah
+   menampilkan garis sama sekali. `both` penting: selama jeda, keadaan `from`
+   (tak terlihat) yang berlaku, bukan gaya normal elemennya.
+
+   Kurvanya melambat tajam dan berhenti di 90%. Ia TIDAK boleh mencapai 100%:
+   100% berarti "selesai", dan garis yang menyatakan selesai sementara
+   halamannya belum muncul adalah kebohongan kecil yang langsung terasa. Yang
+   dijanjikan hanya "masih jalan" — dan kepastian selesainya disampaikan oleh
+   halaman barunya sendiri, bukan oleh garis ini. */
+.nav-progress--aktif .nav-progress__bar {
+    animation: np-maju 8s cubic-bezier(0.12, 0.72, 0.24, 1) 0.15s both;
+}
+
+@keyframes np-maju {
+    from { transform: scaleX(0);    opacity: 1; }
+    to   { transform: scaleX(0.9);  opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* Garisnya tetap ada — ia informasi, bukan hiasan — tapi berhenti merayap.
+       Ia muncul utuh setelah jeda yang sama dan diam di sana. */
+    .nav-progress--aktif .nav-progress__bar {
+        animation: np-diam 0s linear 0.15s both;
+    }
+    @keyframes np-diam {
+        from { transform: scaleX(0.9); opacity: 1; }
+        to   { transform: scaleX(0.9); opacity: 1; }
+    }
+}
+
+/* ── Gulir programatik tidak boleh dianimasikan ─────────────────────────────
+   `01-base.css` menyetel `html { scroll-behavior: smooth }` untuk seluruh
+   dokumen. Itu tepat untuk tautan jangkar, tetapi ia juga berlaku pada tiap
+   `window.scrollTo` — dan gulir yang dipanggil saat berpindah halaman justru
+   harus SEKETIKA. Lihat catatan lengkapnya di `gulir::gulir_instan`
+   (`web/app/router.rs`), yang memasang kelas ini persis selama gulir itu
+   berlangsung dan melepasnya lagi setelah selesai. */
+html.gulir-instan {
+    scroll-behavior: auto;
+}
