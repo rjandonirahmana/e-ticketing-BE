@@ -34,8 +34,30 @@ pub async fn create_pool(database_url: &str, max_size: usize) -> anyhow::Result<
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(STATEMENT_TIMEOUT_MS_BAWAAN);
 
+    // ── JANGAN BUANG `options` MILIK OPERATOR ────────────────────────────────
+    //
+    // Kalimat di atas — deadpool menerapkan `options` SESUDAH URL di-parse —
+    // punya sisi lain yang mahal: menyetel `cfg.options` juga MENGHAPUS apa pun
+    // yang operator tulis sendiri di `DATABASE_URL`, tanpa satu pun pesan.
+    //
+    // Yang paling sering ada di sana adalah `?options=-csearch_path%3D...`. Dan
+    // search_path yang hilang tampak PERSIS seperti tabel yang tak pernah
+    // dibuat: `relation "refresh_tokens" does not exist`, padahal tabelnya ada
+    // — hanya di skema yang tak lagi dicari. Berjam-jam bisa habis mencari
+    // migrasi yang sebenarnya sudah jalan.
+    //
+    // Karena itu digabung, bukan ditimpa. Milik operator ditulis lebih dulu
+    // supaya batas waktu kita tetap jadi kata terakhir bila keduanya menyetel
+    // kunci yang sama.
+    let dari_url = options_dari_url(database_url);
+    if let Some(o) = &dari_url {
+        tracing::info!(options = %o, "options dari DATABASE_URL dipertahankan");
+    }
+
+    let mut bagian: Vec<String> = dari_url.into_iter().collect();
+
     if statement_timeout_ms > 0 {
-        cfg.options = Some(format!(
+        bagian.push(format!(
             "-c statement_timeout={statement_timeout_ms} \
              -c idle_in_transaction_session_timeout={IDLE_TX_TIMEOUT_MS}"
         ));
@@ -49,6 +71,10 @@ pub async fn create_pool(database_url: &str, max_size: usize) -> anyhow::Result<
             "DB_STATEMENT_TIMEOUT_MS=0 — query yang menggantung akan menahan \
              koneksi pool tanpa batas waktu"
         );
+    }
+
+    if !bagian.is_empty() {
+        cfg.options = Some(bagian.join(" "));
     }
 
     // ── Koneksi yang MATI TANPA PAMIT ────────────────────────────────────────
@@ -91,4 +117,46 @@ pub async fn create_pool(database_url: &str, max_size: usize) -> anyhow::Result<
     client.simple_query("SELECT 1").await?;
 
     Ok(pool)
+}
+
+/// Ambil parameter `options=` dari query string `DATABASE_URL`, sudah
+/// di-decode. `None` bila tak ada atau kosong.
+fn options_dari_url(url: &str) -> Option<String> {
+    let query = url.split_once('?')?.1;
+    query.split('&').find_map(|pasangan| {
+        let nilai = pasangan.strip_prefix("options=")?;
+        let decoded = urlencoding::decode(nilai).ok()?.into_owned();
+        (!decoded.trim().is_empty()).then_some(decoded)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_path_di_url_terbaca() {
+        let u = "postgres://a:b@h:5432/db?options=-csearch_path%3Dticketing";
+        assert_eq!(options_dari_url(u).as_deref(), Some("-csearch_path=ticketing"));
+    }
+
+    #[test]
+    fn options_di_antara_parameter_lain() {
+        let u = "postgres://a:b@h:5432/db?sslmode=disable&options=-csearch_path%3Dx&connect_timeout=5";
+        assert_eq!(options_dari_url(u).as_deref(), Some("-csearch_path=x"));
+    }
+
+    #[test]
+    fn tanpa_options_hasilnya_none() {
+        assert_eq!(options_dari_url("postgres://a:b@h:5432/db"), None);
+        assert_eq!(options_dari_url("postgres://a:b@h:5432/db?sslmode=disable"), None);
+        // Kosong sama dengan tidak ada — jangan kirim string kosong ke server.
+        assert_eq!(options_dari_url("postgres://a:b@h:5432/db?options="), None);
+    }
+
+    /// Parameter yang KEBETULAN berakhiran "options" bukan milik kita.
+    #[test]
+    fn nama_parameter_dicocokkan_utuh() {
+        assert_eq!(options_dari_url("postgres://a@h/db?my_options=-cx"), None);
+    }
 }

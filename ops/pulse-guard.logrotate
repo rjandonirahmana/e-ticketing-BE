@@ -1,0 +1,12 @@
+# /etc/logrotate.d/pulse-guard
+# Pengawas yang mengisi disknya sendiri adalah pengawas yang menyebabkan insiden.
+/var/log/pulse-guard/guard.log {
+    weekly
+    rotate 8
+    size 5M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}

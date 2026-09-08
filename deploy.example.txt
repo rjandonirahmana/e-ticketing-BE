@@ -106,6 +106,24 @@ docker run -d \
   -e UPLOAD_TMP_DIR=/var/tmp/e-ticketing-uploads \
   -v /srv/ticketing/tmp:/var/tmp/e-ticketing-uploads \
   `# ── Batas sumber daya di VPS kecil ─────────────────────────────────────` \
+  `# BATAS MEMORI CGROUP. Tanpa ini, app yang membengkak menyeret SELURUH` \
+  `# mesin: RAM habis -> semua proses swap-thrash -> app masih "hidup" tapi` \
+  `# tak menjawab apa pun (pingora: Upstream ReadTimedout beruntun), dan OOM` \
+  `# killer global akhirnya memilih korbannya sendiri -- 24 Agu 2026 korbannya` \
+  `# Postgres, dan seluruh cluster berhenti 42 menit.` \
+  `#` \
+  `# Dengan batas ini, yang mati cuma container ini, seketika, dan` \
+  `# --restart unless-stopped langsung menghidupkannya lagi. Mati 15 detik` \
+  `# jauh lebih murah daripada beku setengah jam.` \
+  `#` \
+  `# memory-swap = memory (BUKAN salah ketik): container sengaja TIDAK diberi` \
+  `# swap. Swap-lah yang mengubah "mati cepat" menjadi "beku lama".` \
+  `#` \
+  `# Ukur dulu sebelum mengubah angkanya: docker stats --no-stream ticketing` \
+  `# saat trafik normal, lalu beri ruang ~2x. 3g dipilih untuk box 7,8 GB yang` \
+  `# juga menjalankan Postgres, RustFS, dan container lain.` \
+  --memory=3g \
+  --memory-swap=3g \
   -e WORKER_THREADS=2 \
   -e DB_POOL_MAX_SIZE=16 \
   -e RUST_LOG='e_ticketing=info,tower_http=warn' \

@@ -1,0 +1,13 @@
+[Unit]
+Description=Jalankan pulse-guard tiap 30 detik
+
+[Timer]
+# Jangan mulai mengawasi tepat saat boot: app butuh waktu berdiri (migrasi,
+# smoke-test pool). Mengawasinya sebelum siap = restart pertama yang sia-sia.
+OnBootSec=3min
+OnUnitActiveSec=30s
+AccuracySec=5s
+Unit=pulse-guard.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,23 @@
+[Unit]
+Description=pulse-guard — pengawas container ticketing (:3100)
+# Docker harus sudah ada sebelum guard bisa me-restart apa pun.
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/pulse-guard.sh
+
+# Batas keras. Jalur terpanjang di skrip = kumpulkan bukti + docker restart +
+# verifikasi 120 dtk; 300 dtk memberi ruang tanpa membiarkannya menggantung
+# selamanya bila docker sendiri yang membeku.
+TimeoutStartSec=300
+
+# Guard harus tetap dijadwalkan justru saat mesin sedang tertekan — itu satu-
+# satunya saat ia berguna. OOM killer tak boleh memilihnya sebagai korban.
+OOMScoreAdjust=-500
+Nice=-5
+
+# Ia mengambil keputusan dari /proc dan menulis di dua direktorinya sendiri.
+ProtectHome=yes
+PrivateTmp=yes

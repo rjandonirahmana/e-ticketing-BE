@@ -143,14 +143,39 @@ async fn run() -> Result<()> {
     //
     // `AUTO_MIGRATE=false` mematikannya bagi deployment yang menjalankan
     // migrasi lewat langkah terpisah.
+    //
+    // MENYALA BILA TAK DISETEL, dan itu load-bearing. Sebelumnya bawaannya
+    // `false`: container yang dijalankan tanpa `-e AUTO_MIGRATE=true` melewati
+    // SELURUH migrasi dengan satu baris WARN, lalu berjalan di atas skema yang
+    // tertinggal. Itulah sebabnya `refresh_tokens` (migrasi 025) tak pernah
+    // lahir di produksi, dan yang akhirnya melaporkannya adalah pembersih token
+    // harian dengan `relation "refresh_tokens" does not exist` — persis bentuk
+    // kegagalan yang komentar di atas bilang ingin dicegah. Opt-out yang
+    // bawaannya mati bukan opt-out.
     let auto_migrate = std::env::var("AUTO_MIGRATE")
         .map(|v| !matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no"))
-        .unwrap_or(false);
+        .unwrap_or(true);
 
     if auto_migrate {
         e_ticketing::config::migrate::run(&pool).await?;
     } else {
-        tracing::warn!("AUTO_MIGRATE dimatikan — pastikan skema sudah dimigrasi terpisah");
+        // Dimatikan dengan sengaja tetap boleh, tetapi tidak boleh diam-diam
+        // menyembunyikan skema yang tertinggal.
+        match e_ticketing::config::migrate::tertinggal(&pool).await {
+            Ok(kurang) if kurang.is_empty() => {
+                tracing::warn!("AUTO_MIGRATE dimatikan — skema sudah mutakhir");
+            }
+            Ok(kurang) => tracing::error!(
+                jumlah = kurang.len(),
+                daftar = %kurang.join(", "),
+                "AUTO_MIGRATE dimatikan dan skema TERTINGGAL — tabel/kolom yang \
+                 dipakai kode ini belum ada; jalankan migrasinya atau nyalakan AUTO_MIGRATE"
+            ),
+            Err(e) => tracing::error!(
+                error = %e,
+                "AUTO_MIGRATE dimatikan dan pemeriksaan skema gagal — status migrasi TIDAK diketahui"
+            ),
+        }
     }
 
     let redis_url = format!("{}/1", cfg.redis_url.trim_end_matches('/'));
