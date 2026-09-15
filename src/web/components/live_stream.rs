@@ -217,15 +217,8 @@ pub fn LiveStreamViewer(
 
     let connect = Action::new_local(move |_: &()| {
         let room_id = room_id.get_value();
-        let is_playing = is_playing;
-        let viewer_count = viewer_count;
-        let merchant_name = merchant_name;
-        let error_msg = error_msg;
-        let pc = pc;
         // video_ref tidak dipakai di sini: srcObject + play() dipasang oleh
         // Effect reaktif level-komponen saat `remote_stream` berubah.
-        let sig_ws = sig_ws;
-        let rtc_closures = rtc_closures;
         let profile = auth.user.get_untracked();
 
         async move {
@@ -339,7 +332,7 @@ pub fn LiveStreamViewer(
                                 // koneksi, bersihkan video, tampilkan info.
                                 if v.get("type").and_then(|t| t.as_str()) == Some("stream_ended") {
                                     if let Some(conn) = pc.get_untracked() {
-                                        let _ = conn.close();
+                                        conn.close();
                                     }
                                     pc.set(None);
                                     remote_stream.set(None);
@@ -567,10 +560,6 @@ pub fn LiveStreamViewer(
     }
 
     let disconnect = Action::new_local(move |_: &()| {
-        let pc = pc;
-        let is_playing = is_playing;
-        let sig_ws = sig_ws;
-        let rtc_closures = rtc_closures;
 
         async move {
             if let Some(conn) = pc.get_untracked() {
@@ -578,7 +567,7 @@ pub fn LiveStreamViewer(
                 // after drop"); close() juga menghentikan product lanjutan.
                 conn.set_ontrack(None);
                 conn.set_onicecandidate(None);
-                let _ = conn.close();
+                conn.close();
             }
             pc.set(None);
             // Tutup WS → server memanggil remove_subscriber secara otomatis.
@@ -600,7 +589,7 @@ pub fn LiveStreamViewer(
         if let Some(conn) = pc.get_untracked() {
             conn.set_ontrack(None);
             conn.set_onicecandidate(None);
-            let _ = conn.close();
+            conn.close();
         }
         // Menutup WS secara otomatis memanggil remove_subscriber di server
         // (live_subscribe_ws_loop mendeteksi disconnect dan memanggil remove_subscriber).
@@ -631,7 +620,7 @@ pub fn LiveStreamViewer(
             Some(stream) => {
                 // set_src_object mungkin mengembalikan error jika element
                 // sedang di-garbage-collect — abaikan saja.
-                let _ = video.set_src_object(Some(&*stream));
+                video.set_src_object(Some(&*stream));
 
                 // Set property `muted` secara eksplisit (atribut `muted` tidak
                 // selalu ter-refleksi ke property). Tanpa ini, autoplay media

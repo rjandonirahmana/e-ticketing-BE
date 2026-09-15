@@ -21,7 +21,7 @@ pub async fn get_story_groups(
             .await
             .map_err(map_app_error)?,
     };
-    return Ok(srv_story_groups_to_web(groups));
+    Ok(srv_story_groups_to_web(groups))
 }
 
 /// Arsip story publik (halaman /stories): SATU grup per user — termasuk story
@@ -37,7 +37,7 @@ pub async fn get_story_archive_groups(
         .list_user_groups(page.unwrap_or(1), 24)
         .await
         .map_err(map_app_error)?;
-    return Ok(srv_story_groups_to_web(groups));
+    Ok(srv_story_groups_to_web(groups))
 }
 
 /// Story milik user yang login (aktif + arsip) sebagai satu grup — untuk section

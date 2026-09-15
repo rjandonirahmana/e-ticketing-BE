@@ -23,7 +23,7 @@ async fn list_notifications(
         .notification_store_svc
         .list(&claims.user_id, 1, 100)
         .await
-        .map_err(|e| app_err(e.into()))?;
+        .map_err(|e| app_err(e))?;
     Ok(Json(serde_json::json!({ "notifications": serde_json::to_value(notifs).unwrap_or_default() })))
 }
 
@@ -36,7 +36,7 @@ async fn mark_read(
         .notification_store_svc
         .mark_read(&id, &claims.user_id)
         .await
-        .map_err(|e| app_err(e.into()))?;
+        .map_err(|e| app_err(e))?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -48,7 +48,7 @@ async fn mark_all_read(
         .notification_store_svc
         .mark_all_read(&claims.user_id)
         .await
-        .map_err(|e| app_err(e.into()))?;
+        .map_err(|e| app_err(e))?;
     Ok(StatusCode::NO_CONTENT)
 }
 

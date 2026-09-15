@@ -277,7 +277,7 @@ pub fn ExplorePage() -> impl IntoView {
 
     let close_c = StoredValue::new(close_overlay);
 
-    let placeholders = vec!["search product, artists...", "cari sepatu lari", "kaos polos"];
+    let placeholders = ["search product, artists...", "cari sepatu lari", "kaos polos"];
     let _ph_idx = RwSignal::new(0usize);
     let ph_text = RwSignal::new(placeholders[0].to_string());
     let ph_show = RwSignal::new(true);

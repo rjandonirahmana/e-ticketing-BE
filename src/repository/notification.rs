@@ -203,7 +203,7 @@ impl NotificationRepository for PgNotificationRepository {
                 &input.kind,
                 &input.title,
                 &input.body,
-                &target_bytes.as_ref().map(|b| b.as_slice()),
+                &target_bytes.as_deref(),
             ],
         )
         .await?

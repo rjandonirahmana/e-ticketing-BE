@@ -105,7 +105,6 @@ pub(super) fn view_banners(
     // ── Unggah + buat banner baru ─────────────────────────────────────────────
     let on_create = move |_| {
         if busy.get_untracked() {
-            return;
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -184,7 +183,12 @@ pub(super) fn view_banners(
                 <h3 class="mhub-products-title">"Spanduk"</h3>
                 <span class="abn-count">
                     {jml}
-                    {if jml == 1 { " tayang" } else { " tayang" }}
+                    // Bahasa Indonesia tak menjamakkan kata benda, jadi
+                    // "1 tayang" dan "3 tayang" keduanya benar. Sebelum ini
+                    // di sini ada percabangan `jml == 1` yang KEDUA cabangnya
+                    // mengembalikan teks yang sama persis — sisa pola
+                    // pluralisasi Inggris yang tak punya pekerjaan di sini.
+                    " tayang"
                 </span>
             </div>
             <p class="abn-hint">

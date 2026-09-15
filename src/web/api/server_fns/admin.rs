@@ -43,12 +43,12 @@ pub async fn get_admin_stats() -> Result<AdminStats, ServerFnError> {
         .try_get("total_revenue")
         .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })?;
 
-    return Ok(AdminStats {
+    Ok(AdminStats {
         total_users: row.try_get("total_users").unwrap_or(0),
         total_products: row.try_get("total_products").unwrap_or(0),
         total_orders: row.try_get("total_orders").unwrap_or(0),
         total_revenue: revenue.to_f64().unwrap_or(0.0),
-    });
+    })
 }
 
 /// Buat banner baru (admin). `image_url` = hasil unggah via
@@ -143,7 +143,7 @@ pub async fn get_admin_products(
         .list(q, None)
         .await
         .map_err(map_app_error)?;
-    return Ok(srv_paginated_products_to_web(result));
+    Ok(srv_paginated_products_to_web(result))
 }
 
 #[server(UpdateProductStatusAdmin, "/api-fn")]
@@ -165,7 +165,7 @@ pub async fn update_product_status_admin(
         .pub_cache
         .invalidate_product(&result.slug, &result.merchant_id)
         .await;
-    return Ok(serde_json::json!({ "id": result.id, "status": result.status }));
+    Ok(serde_json::json!({ "id": result.id, "status": result.status }))
 }
 
 /// Hapus produk milik merchant mana pun (admin).

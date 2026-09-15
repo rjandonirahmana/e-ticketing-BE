@@ -134,14 +134,6 @@ pub fn MerchantLivePage() -> impl IntoView {
     > = StoredValue::new(None);
 
     let start_live = Action::new_local(move |_: &()| {
-        let is_live = is_live;
-        let room_id = room_id;
-        let status_text = status_text;
-        let error_msg = error_msg;
-        let pc = pc;
-        let local_stream = local_stream;
-        let sig_ws = sig_ws;
-        let ice_closure = ice_closure;
 
         async move {
             error_msg.set(None);
@@ -198,16 +190,6 @@ pub fn MerchantLivePage() -> impl IntoView {
     });
 
     let stop_live = Action::new_local(move |_: &()| {
-        let is_live = is_live;
-        let room_id = room_id;
-        let pc = pc;
-        let local_stream = local_stream;
-        let sig_ws = sig_ws;
-        let status_text = status_text;
-        let viewer_count = viewer_count;
-        let join_toast = join_toast;
-        let seen_ids = seen_ids;
-        let ice_closure = ice_closure;
 
         async move {
             // Hentikan track yang menempel di peer connection (track aktif kamera),
@@ -218,7 +200,7 @@ pub fn MerchantLivePage() -> impl IntoView {
                 // "closure invoked after drop" bila product ICE masih menyusul.
                 conn.set_onicecandidate(None);
                 stop_pc_senders(&conn);
-                let _ = conn.close();
+                conn.close();
             }
             pc.set(None);
             ice_closure.set_value(None); // drop closure onicecandidate → memori bebas
@@ -312,7 +294,7 @@ pub fn MerchantLivePage() -> impl IntoView {
         if let Some(conn) = pc.get_untracked() {
             conn.set_onicecandidate(None);
             stop_pc_senders(&conn);
-            let _ = conn.close();
+            conn.close();
         }
         ice_closure.set_value(None); // drop closure onicecandidate → memori bebas
         if let Some(stream) = local_stream.get_untracked() {
@@ -338,7 +320,7 @@ pub fn MerchantLivePage() -> impl IntoView {
             // elemen video tidak menahan referensi stream (mencegah kebocoran).
             match local_stream.get() {
                 Some(stream) => {
-                    let _ = video.set_src_object(Some(&stream));
+                    video.set_src_object(Some(&stream));
                 }
                 None => video.set_src_object(None),
             }
@@ -601,12 +583,6 @@ pub fn MerchantLivePage() -> impl IntoView {
         <BottomNav active="merchant" />
     }
 }
-
-/// Minta izin kamera/mic via sumber tunggal `rtc::request_camera_mic`. Error
-/// dikembalikan sebagai pesan siap-tampil + panduan izin (lihat `MediaError`).
-/// Pembungkus setipis ini tak menambah apa pun di atas `rtc::request_camera_mic`
-/// selain satu nama lagi untuk dicari orang. Dipanggil langsung sekarang.
-
 
 /// Buat RTCPeerConnection sebagai publisher via WS signaling.
 ///

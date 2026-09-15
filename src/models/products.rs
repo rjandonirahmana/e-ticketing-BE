@@ -45,7 +45,7 @@ pub fn fokus_tengah() -> String {
 /// Rentangnya dijepit 0–100: di luar itu foto justru tergeser keluar bingkai,
 /// dan tak ada gunanya menyimpan angka yang hasilnya pasti salah.
 pub fn normalisasi_fokus(raw: &str) -> String {
-    let mut bagian = raw.trim().split_whitespace();
+    let mut bagian = raw.split_whitespace();
     let (Some(x), Some(y), None) = (bagian.next(), bagian.next(), bagian.next()) else {
         return fokus_tengah();
     };

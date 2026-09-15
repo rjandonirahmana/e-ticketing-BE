@@ -396,8 +396,8 @@ pub fn MerchantPublicPage() -> impl IntoView {
         };
         let dx = ev.client_x() as f64 - sx;
         let dy = ev.client_y() as f64 - sy;
-        if drag_axis.get_untracked() == 0 {
-            if dx.abs() > 8.0 || dy.abs() > 8.0 {
+        if drag_axis.get_untracked() == 0
+            && (dx.abs() > 8.0 || dy.abs() > 8.0) {
                 if dx.abs() > dy.abs() {
                     drag_axis.set(1);
                     dragging.set(true);
@@ -408,7 +408,6 @@ pub fn MerchantPublicPage() -> impl IntoView {
                     drag_axis.set(2);
                 }
             }
-        }
         if drag_axis.get_untracked() == 1 {
             let t = tab.get_untracked();
             // Tahanan di tepi (tak ada panel sebelum 0 / sesudah terakhir).
@@ -669,7 +668,6 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                             // aktif; kalau tidak, avatar polos (tanpa cincin).
                                             let logo = logo.clone();
                                             let initial = initial.clone();
-                                            let open_story = open_story.clone();
                                             move || {
                                                 let logo = logo.clone();
                                                 let initial = initial.clone();
@@ -695,7 +693,6 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                     });
                                                 match list {
                                                     Some(list) => {
-                                                        let open_story = open_story.clone();
                                                         view! {
                                                             <button
                                                                 class="mp-avatar-ring"
@@ -1241,16 +1238,13 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                             style=move || panel_tf(3)
                                         >
                                             {
-                                                let open_story = open_story.clone();
                                                 view! {
                                                     <div class="mp-stories">
                                                                     <Suspense fallback=|| {
                                                                         view! { <StoryGridShimmer /> }
                                                                     }>
                                                                         {
-                                                                            let open_story = open_story.clone();
                                                                             move || {
-                                                                                let open_story = open_story.clone();
                                                                                 stories
                                                                                     .get()
                                                                                     .map(|r| match r {
@@ -1274,7 +1268,6 @@ pub fn MerchantPublicPage() -> impl IntoView {
                                                                                                                 let is_video = s.media_type == StoryMediaType::Video;
                                                                                                                 let media = s.media_url.clone();
                                                                                                                 let list_c = list.clone();
-                                                                                                                let open_story = open_story.clone();
                                                                                                                 view! {
                                                                                                                     <button
                                                                                                                         class="mp-story-cell"

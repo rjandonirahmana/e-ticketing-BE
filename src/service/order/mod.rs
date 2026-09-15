@@ -507,7 +507,7 @@ impl OrderService {
                 "Order sudah dibayar atau dibatalkan".into(),
             ));
         }
-        if order.expired_at.map_or(false, |e| chrono::Utc::now() > e) {
+        if order.expired_at.is_some_and(|e| chrono::Utc::now() > e) {
             return Err(AppError::BadRequest("Order sudah expired".into()));
         }
 

@@ -14,10 +14,10 @@ pub async fn scan_ticket(ticket_code: String) -> Result<ScanValidateResult, Serv
         .validate_as_merchant(&claims.user_id, req)
         .await
         .map_err(map_app_error)?;
-    return Ok(ScanValidateResult {
+    Ok(ScanValidateResult {
         event_title: resp.event_name,
         tier_name: resp.variant_name,
         status: resp.status,
         ticket_code,
-    });
+    })
 }

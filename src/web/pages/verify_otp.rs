@@ -252,6 +252,6 @@ fn mask_phone(p: &str) -> String {
     }
     let head: String = chars.iter().take(4).collect();
     let tail: String = chars.iter().rev().take(3).collect::<String>().chars().rev().collect();
-    let middle: String = std::iter::repeat('*').take(chars.len().saturating_sub(7).max(3)).collect();
+    let middle: String = "*".repeat(chars.len().saturating_sub(7).max(3));
     format!("{head}{middle}{tail}")
 }

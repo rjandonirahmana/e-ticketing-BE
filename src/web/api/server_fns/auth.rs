@@ -24,7 +24,7 @@ pub async fn login_action(phone: String, password: String) -> Result<UserRespons
     }
 
     set_auth_cookie(&auth.access_token);
-    return Ok(srv_user_to_web(auth.user));
+    Ok(srv_user_to_web(auth.user))
 }
 
 #[server(RegisterAction, "/api-fn")]
@@ -62,7 +62,7 @@ pub async fn verify_otp_action(phone: String, otp: String) -> Result<UserRespons
     }
 
     set_auth_cookie(&auth.access_token);
-    return Ok(srv_user_to_web(auth.user));
+    Ok(srv_user_to_web(auth.user))
 }
 
 /// Perbarui profil (nama). Nomor HP TIDAK lewat sini — lihat
@@ -139,7 +139,7 @@ pub async fn resend_otp_action(name: String, phone: String) -> Result<(), Server
     };
     // Ignore errors (rate limit etc.) — just fire off another OTP
     let _ = state.auth_svc.initiate_register(req).await;
-    return Ok(());
+    Ok(())
 }
 
 #[server(LogoutAction, "/api-fn")]
@@ -155,5 +155,5 @@ pub async fn logout_action() -> Result<(), ServerFnError> {
         }
     }
     clear_auth_cookie();
-    return Ok(());
+    Ok(())
 }

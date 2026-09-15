@@ -50,7 +50,7 @@ pub fn VenueLocationPage() -> impl IntoView {
     let params = use_params_map();
     let slug = move || params.read().get("slug").unwrap_or_default();
 
-    let product = Resource::new(slug, |s| get_product_detail(s));
+    let product = Resource::new(slug, get_product_detail);
 
     // Render peta OpenStreetMap begitu koordinat product tersedia.
     Effect::new(move |_| {

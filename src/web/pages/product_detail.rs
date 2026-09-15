@@ -42,7 +42,7 @@ pub fn ProductDetailPage() -> impl IntoView {
     // Blocking tetap dipakai karena SSR memang membutuhkannya: HTML pertama
     // harus sudah berisi isi halaman, untuk SEO dan agar kunjungan langsung tak
     // berkedip dari kerangka ke konten.
-    let product_res = Resource::new_blocking(move || slug.get(), |s| get_product_detail(s));
+    let product_res = Resource::new_blocking(move || slug.get(), get_product_detail);
     // Kategori product ini → dipakai untuk (a) mencari product BERKAITAN, dan
     // (b) mencatat minat user untuk rekomendasi "Untuk Kamu".
     let rel_cat = Memo::new(move |_| {

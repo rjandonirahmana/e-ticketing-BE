@@ -168,7 +168,7 @@ impl GroupChatRepository for PgGroupChatRepository {
         let buyer_b = id_to_vec(buyer_id)?;
         let merch_b = id_to_vec(merchant_id)?;
         let rows = exec_rows(&self.pool, SQL_PILIH_CHAT_PASANGAN, &[&buyer_b, &merch_b]).await?;
-        rows.first().map(|r| Self::row_to_room(r)).transpose()
+        rows.first().map(Self::row_to_room).transpose()
     }
 
     /// `ON CONFLICT ... DO UPDATE`, BUKAN `DO NOTHING`.
@@ -195,7 +195,7 @@ impl GroupChatRepository for PgGroupChatRepository {
         .await?;
         let rows = exec_rows(&self.pool, SQL_PILIH_CHAT_PASANGAN, &[&buyer_b, &merch_b]).await?;
         rows.first()
-            .map(|r| Self::row_to_room(r))
+            .map(Self::row_to_room)
             .transpose()?
             .ok_or_else(|| anyhow::anyhow!("Percakapan tak ditemukan sesudah dibuat"))
     }
@@ -216,7 +216,7 @@ impl GroupChatRepository for PgGroupChatRepository {
             &[&room_b],
         )
         .await?;
-        rows.first().map(|r| Self::row_to_room(r)).transpose()
+        rows.first().map(Self::row_to_room).transpose()
     }
 
     /// ── NAMA YANG TAMPIL ADALAH LAWAN BICARA ────────────────────────────────
@@ -272,7 +272,7 @@ impl GroupChatRepository for PgGroupChatRepository {
             &[&user_b],
         )
         .await?;
-        rows.iter().map(|r| Self::row_to_room(r)).collect()
+        rows.iter().map(Self::row_to_room).collect()
     }
 
     // ── Peserta ───────────────────────────────────────────────────────────────
@@ -347,7 +347,7 @@ impl GroupChatRepository for PgGroupChatRepository {
         let ticket_json: Option<serde_json::Value> = msg
             .ticket_card
             .as_ref()
-            .map(|t| serde_json::to_value(t))
+            .map(serde_json::to_value)
             .transpose()?;
         // Id pesan yang dibalas → biner, atau NULL. Id yang tak sah
         // diperlakukan sebagai "tanpa balasan" alih-alih menggagalkan

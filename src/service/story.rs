@@ -181,7 +181,7 @@ impl<R: StoryRepository> StoryService<R> {
                 event_title.as_deref(),
             )
             .await
-            .map_err(|e| AppError::Internal(e))?;
+            .map_err(AppError::Internal)?;
 
         // ── 7. Background: notifikasi in-app (fire-and-forget) ────────────────
         // Clone semua data yang dibutuhkan SEBELUM spawn agar future 'static.
@@ -232,7 +232,7 @@ impl<R: StoryRepository> StoryService<R> {
         self.repo
             .list_groups(viewer_id)
             .await
-            .map_err(|e| AppError::Internal(e))
+            .map_err(AppError::Internal)
     }
 
     /// Daftar story untuk pengunjung anonim (belum login): semua story aktif
@@ -241,7 +241,7 @@ impl<R: StoryRepository> StoryService<R> {
         self.repo
             .list_groups_public()
             .await
-            .map_err(|e| AppError::Internal(e))
+            .map_err(AppError::Internal)
     }
 
     /// Arsip story publik untuk halaman /stories: satu grup per user (termasuk
@@ -257,7 +257,7 @@ impl<R: StoryRepository> StoryService<R> {
         self.repo
             .list_user_groups_paged(per_page, offset)
             .await
-            .map_err(|e| AppError::Internal(e))
+            .map_err(AppError::Internal)
     }
 
     /// Story milik user sendiri sebagai satu grup (aktif + arsip), terbaru dulu —
@@ -266,7 +266,7 @@ impl<R: StoryRepository> StoryService<R> {
         self.repo
             .list_my_group(user_id)
             .await
-            .map_err(|e| AppError::Internal(e))
+            .map_err(AppError::Internal)
     }
 
     // ── Mark viewed ───────────────────────────────────────────────────────────
@@ -275,7 +275,7 @@ impl<R: StoryRepository> StoryService<R> {
         self.repo
             .mark_viewed(story_id, viewer_id)
             .await
-            .map_err(|e| AppError::Internal(e))
+            .map_err(AppError::Internal)
     }
 
     // ── Delete story ──────────────────────────────────────────────────────────
@@ -287,7 +287,7 @@ impl<R: StoryRepository> StoryService<R> {
             .repo
             .delete(story_id, user_id)
             .await
-            .map_err(|e| AppError::Internal(e))?;
+            .map_err(AppError::Internal)?;
         let Some(media_url) = media_url else {
             return Err(AppError::NotFound(format!(
                 "Story {story_id} tidak ditemukan atau bukan milikmu"
@@ -309,13 +309,13 @@ impl<R: StoryRepository> StoryService<R> {
         self.repo
             .is_premium(user_id)
             .await
-            .map_err(|e| AppError::Internal(e))
+            .map_err(AppError::Internal)
     }
 
     // ── Activate premium ──────────────────────────────────────────────────────
 
     pub async fn activate_premium(&self, user_id: &str, plan: &str, days: i64) -> AppResult<SubscriptionActivation> {
-        if days < 1 || days > 3650 {
+        if !(1..=3650).contains(&days) {
             return Err(AppError::BadRequest(
                 "Durasi premium harus antara 1–3650 hari".into(),
             ));

@@ -45,7 +45,7 @@ pub fn MerchantPage() -> impl IntoView {
     let is_logged_in = move || auth.get().and_then(|r| r.ok()).flatten().is_some();
 
     let products = Resource::new(
-        move || is_logged_in(),
+        is_logged_in,
         |logged_in| async move {
             if logged_in {
                 get_merchant_products(Some(1)).await

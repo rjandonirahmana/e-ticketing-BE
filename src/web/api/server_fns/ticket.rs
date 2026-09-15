@@ -12,7 +12,7 @@ pub async fn get_my_tickets() -> Result<Vec<TicketResponse>, ServerFnError> {
         .list_for_customer(&claims.user_id, 1, 100)
         .await
         .map_err(map_app_error)?;
-    return Ok(tickets.into_iter().map(srv_ticket_to_web).collect());
+    Ok(tickets.into_iter().map(srv_ticket_to_web).collect())
 }
 
 #[server(GetTicketDetail, "/api-fn")]
@@ -24,5 +24,5 @@ pub async fn get_ticket_detail(id: String) -> Result<TicketResponse, ServerFnErr
         .detail_for_customer(&id, &claims.user_id)
         .await
         .map_err(map_app_error)?;
-    return Ok(srv_ticket_to_web(ticket));
+    Ok(srv_ticket_to_web(ticket))
 }

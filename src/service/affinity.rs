@@ -121,7 +121,7 @@ impl AffinityService {
         // Satu user_id non-hex akan menggagalkan decode() SELURUH batch UNNEST —
         // tolak di sini agar satu input rusak tak menghanguskan sinyal user lain.
         if user_id_hex.is_empty()
-            || user_id_hex.len() % 2 != 0
+            || !user_id_hex.len().is_multiple_of(2)
             || !user_id_hex.bytes().all(|b| b.is_ascii_hexdigit())
         {
             return;

@@ -12,7 +12,7 @@ pub async fn get_chat_rooms() -> Result<Vec<ChatRoom>, ServerFnError> {
         .get_user_rooms(&claims.user_id)
         .await
         .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })?;
-    return Ok(rooms.into_iter().map(srv_group_room_to_web).collect());
+    Ok(rooms.into_iter().map(srv_group_room_to_web).collect())
 }
 
 /// Percakapan yang SUDAH ADA dengan satu toko, berikut pesan terakhirnya.
@@ -64,7 +64,7 @@ pub async fn get_chat_history(room_id: String) -> Result<Vec<ChatMessage>, Serve
         .get_history(&room_id, &claims.user_id, 100, None)
         .await
         .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })?;
-    return Ok(messages.into_iter().map(srv_group_message_to_web).collect());
+    Ok(messages.into_iter().map(srv_group_message_to_web).collect())
 }
 
 /// Tandai satu percakapan sudah dibaca sampai sekarang.
@@ -91,13 +91,13 @@ pub async fn get_chat_room_detail(room_id: String) -> Result<ChatRoom, ServerFnE
         .get_user_rooms(&claims.user_id)
         .await
         .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })?;
-    return rooms
+    rooms
         .into_iter()
         .find(|r| r.id == room_id)
         .map(srv_group_room_to_web)
         .ok_or_else(|| -> ServerFnError {
             ServerFnError::ServerError("Room not found".into())
-        });
+        })
 }
 
 // `join_chat_room` DIBUANG bersama grup produk (migrasi 029). Percakapan berdua
@@ -165,5 +165,5 @@ pub async fn send_first_chat_message(
         .await
         .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })?;
 
-    return Ok(room.id);
+    Ok(room.id)
 }

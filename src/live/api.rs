@@ -108,7 +108,7 @@ async fn create_room(
 
     match state
         .live_svc
-        .create_room(&auth.id(), &auth.name(), body.event_slug.as_deref())
+        .create_room(auth.id(), auth.name(), body.event_slug.as_deref())
         .await
     {
         Ok(info) => ok(info),

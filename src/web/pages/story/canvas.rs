@@ -440,8 +440,8 @@ pub(super) fn round_rect_path(
 ) {
     let r = r.min(w / 2.0).min(h / 2.0).max(0.0);
     ctx.begin_path();
-    let _ = ctx.move_to(x + r, y);
-    let _ = ctx.line_to(x + w - r, y);
+    ctx.move_to(x + r, y);
+    ctx.line_to(x + w - r, y);
     let _ = ctx.arc_to(x + w, y,     x + w, y + r,     r);
     let _ = ctx.arc_to(x + w, y + h, x + w - r, y + h, r);
     let _ = ctx.arc_to(x,     y + h, x,     y + h - r, r);
@@ -543,7 +543,7 @@ pub(super) async fn render_product_card_to_canvas(
                 {
                     let _ = g.add_color_stop(0.0, cs);
                     let _ = g.add_color_stop(1.0, ce);
-                    let _ = ctx.set_fill_style_canvas_gradient(&g);
+                    ctx.set_fill_style_canvas_gradient(&g);
                     ctx.fill_rect(0.0, 0.0, cw, ch);
                 }
             } else {
@@ -636,7 +636,7 @@ pub(super) async fn render_product_card_to_canvas(
     {
         let _ = g.add_color_stop(0.0, "rgba(13,13,24,0.0)");
         let _ = g.add_color_stop(1.0, "rgba(13,13,24,0.95)");
-        let _ = ctx.set_fill_style_canvas_gradient(&g);
+        ctx.set_fill_style_canvas_gradient(&g);
         ctx.fill_rect(card_x, fade_start, card_w, fade_end - fade_start);
     }
 
@@ -780,7 +780,7 @@ pub(super) fn export_story_canvas(
                     if let Ok(g) = ctx.create_linear_gradient(0.0,0.0,0.0,ch).dyn_into::<web_sys::CanvasGradient>() {
                         let _ = g.add_color_stop(0.0, color_start);
                         let _ = g.add_color_stop(1.0, color_end);
-                        let _ = ctx.set_fill_style_canvas_gradient(&g);
+                        ctx.set_fill_style_canvas_gradient(&g);
                         ctx.fill_rect(0.0,0.0,cw,ch);
                     }
                 }
@@ -873,7 +873,7 @@ pub(super) async fn render_merchant_card_to_canvas(
                 {
                     let _ = g.add_color_stop(0.0, cs);
                     let _ = g.add_color_stop(1.0, ce);
-                    let _ = ctx.set_fill_style_canvas_gradient(&g);
+                    ctx.set_fill_style_canvas_gradient(&g);
                     ctx.fill_rect(0.0, 0.0, cw, ch);
                 }
             } else {
@@ -966,7 +966,7 @@ pub(super) async fn render_merchant_card_to_canvas(
     {
         let _ = g.add_color_stop(0.0, "#1c2340");
         let _ = g.add_color_stop(1.0, "#3b2a63");
-        let _ = ctx.set_fill_style_canvas_gradient(&g);
+        ctx.set_fill_style_canvas_gradient(&g);
         ctx.fill_rect(card_x, card_y, card_w, hero_h);
     }
     // Fade bawah hero → menyatu dengan body gelap (seperti halaman profil).
@@ -976,7 +976,7 @@ pub(super) async fn render_merchant_card_to_canvas(
     {
         let _ = g.add_color_stop(0.0, "rgba(13,13,24,0)");
         let _ = g.add_color_stop(1.0, "rgba(13,13,24,1)");
-        let _ = ctx.set_fill_style_canvas_gradient(&g);
+        ctx.set_fill_style_canvas_gradient(&g);
         ctx.fill_rect(card_x, card_y + hero_h * 0.5, card_w, hero_h * 0.5 + 2.0);
     }
     ctx.restore();
@@ -1011,7 +1011,7 @@ pub(super) async fn render_merchant_card_to_canvas(
         {
             let _ = g.add_color_stop(0.0, "#4f7cff");
             let _ = g.add_color_stop(1.0, "#8b5cf6");
-            let _ = ctx.set_fill_style_canvas_gradient(&g);
+            ctx.set_fill_style_canvas_gradient(&g);
             ctx.fill_rect(av_cx - avatar_r, av_cy - avatar_r, avatar_r * 2.0, avatar_r * 2.0);
         }
         ctx.set_fill_style_str("#ffffff");

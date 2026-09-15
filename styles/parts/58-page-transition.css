@@ -27,13 +27,48 @@
    sudah ada — tak ada yang rusak.
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/* ── URUTAN LAPISAN — hal PERTAMA yang harus benar ─────────────────────────
+   Tiap elemen yang diberi `view-transition-name` DIANGKAT keluar dari potretan
+   `root` dan, secara bawaan, digambar DI ATASNYA. Urutannya mengikuti urutan
+   penggambaran, dan `root` selalu yang pertama — jadi apa pun yang dinamai
+   berakhir di lapisan yang lebih tinggi daripada seluruh halaman.
+
+   Untuk `.bottom-nav` dan `.nav-progress` itu memang yang diinginkan: keduanya
+   elemen kecil yang sudah melayang di atas isi halaman. Untuk `.grid-bg` itu
+   BENCANA, dan inilah yang membuat perpindahan halaman sebelumnya terlihat
+   rusak: ia `position: fixed; inset: 0` dengan latar OPAQUE (`--bg-base`), jadi
+   begitu terangkat ia menutupi SELURUH viewport selama transisi berlangsung.
+   Yang tampak bukan halaman yang bergeser, melainkan halaman yang hilang di
+   belakang bidang warna rata lalu muncul lagi.
+
+   `z-index` bekerja di sini karena tiap `::view-transition-group` adalah elemen
+   ber-`position: absolute` di dalam `::view-transition`. Menyatakan keempatnya
+   secara eksplisit, bukan hanya yang negatif: urutan ini adalah satu keputusan
+   utuh, dan membacanya dari satu tempat jauh lebih mudah daripada
+   menyimpulkannya dari satu nilai menyimpang. */
+::view-transition-group(pt-latar)   { z-index: -1; } /* latar grid: DI BAWAH halaman */
+::view-transition-group(root)       { z-index: 0; }  /* halamannya sendiri */
+::view-transition-group(pt-nav)     { z-index: 1; }  /* bilah nav bawah */
+::view-transition-group(pt-progres) { z-index: 2; }  /* garis progres */
+
 @media (prefers-reduced-motion: no-preference) {
     ::view-transition-old(root),
     ::view-transition-new(root) {
-        /* 220 ms: cukup untuk terbaca sebagai arah, masih di dalam rentang
-           150-300 ms yang terasa responsif alih-alih lamban. */
-        animation-duration: 220ms;
-        animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+        /* 300 ms — dua tekanan yang saling melawan, dan ini titik temunya.
+           Ke ATAS: geseran sejauh SELEBAR LAYAR yang dipaksa selesai secepat
+           geseran 28px milik versi sebelumnya tidak terbaca sebagai gerak,
+           hanya sebagai kedipan. Ke BAWAH: selama transisi berlangsung yang
+           terlihat adalah POTRET BEKU halaman baru, sementara DOM aslinya di
+           belakangnya masih memuat data dan memulihkan posisi gulir. Makin
+           panjang animasinya, makin lama potret itu menyimpang dari halaman
+           yang sebenarnya — dan simpangan itu muncul sebagai isi yang
+           melompat begitu animasinya usai.
+
+           Kurvanya sangat cepat di awal lalu melandai panjang, pola dorongan
+           halaman di iOS: yang membuat perpindahan terasa RESPONSIF adalah
+           100 ms pertamanya, bukan durasi totalnya. */
+        animation-duration: 300ms;
+        animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
         animation-fill-mode: both;
 
         /* WAJIB. Gaya bawaan peramban memakai `plus-lighter` supaya silang-pudar
@@ -45,41 +80,66 @@
         mix-blend-mode: normal;
     }
 
-    /* MAJU — halaman baru datang dari kanan, yang lama mundur sedikit ke kiri.
-       Yang lama bergerak lebih pendek (14px lawan 28px): ia sedang ditinggalkan,
-       bukan sedang diperkenalkan, dan gerak yang sama besar membuat keduanya
-       tampak sama penting. */
-    ::view-transition-old(root) { animation-name: pt-keluar-kiri; }
-    ::view-transition-new(root) { animation-name: pt-masuk-kanan; }
+    /* ── MAJU — halaman baru MENDORONG yang lama ───────────────────────────
+       Halaman baru masuk penuh dari kanan; yang lama mundur 24% ke kiri dan
+       digelapkan, jadi ia terbaca sebagai lapisan yang tertinggal di belakang
+       alih-alih lapisan yang ikut pergi. Itulah seluruh isi kesan "menumpuk"
+       yang membuat tombol kembali nanti terasa masuk akal.
 
-    /* MUNDUR — arahnya dibalik. Inilah yang membuat "kembali" terasa seperti
-       kembali, bukan seperti membuka halaman baru lagi. */
-    html.router-back::view-transition-old(root) { animation-name: pt-keluar-kanan; }
-    html.router-back::view-transition-new(root) { animation-name: pt-masuk-kiri; }
+       Dua angkanya tidak boleh dipilih bebas: selama yang lama bergerak LEBIH
+       PENDEK daripada yang baru, tepi kanan yang lama selalu masih tertutup
+       tepi kiri yang baru, dan tak pernah ada celah kosong di antara keduanya
+       pada bingkai mana pun.
+
+       Yang meredup dipakai `brightness`, BUKAN `opacity`. Menurunkan opacity
+       membuat lapisan di bawahnya — latar grid yang justru sengaja dibuat diam
+       — menembus halaman yang sedang ditinggalkan. `brightness` menggelapkan
+       tanpa membuatnya tembus. */
+    ::view-transition-old(root) { animation-name: pt-dorong-keluar; }
+    ::view-transition-new(root) { animation-name: pt-dorong-masuk; }
+
+    /* ── MUNDUR — yang lama DITARIK pergi, membuka yang di bawahnya ────────
+       Bukan sekadar arah yang dibalik. Saat kembali, yang harus bergerak adalah
+       halaman yang DITINGGALKAN: ia meluncur ke kanan keluar layar dan
+       memperlihatkan halaman sebelumnya yang selama ini "ada di bawahnya",
+       kembali terang dari 24% di kiri.
+
+       Karena itu `z-index`-nya dibalik. Secara bawaan potretan BARU selalu
+       digambar di atas yang LAMA; dibiarkan begitu, gerakan kembali akan tampak
+       seperti membuka halaman baru dari arah kiri — bukan seperti kembali. */
+    html.router-back::view-transition-old(root) {
+        animation-name: pt-tarik-keluar;
+        z-index: 1;
+    }
+    html.router-back::view-transition-new(root) {
+        animation-name: pt-tarik-masuk;
+        z-index: 0;
+    }
 }
 
-@keyframes pt-masuk-kanan {
-    from { opacity: 0; transform: translateX(28px); }
-    to   { opacity: 1; transform: none; }
+@keyframes pt-dorong-masuk {
+    from { transform: translateX(100%); }
+    to   { transform: translateX(0); }
 }
-@keyframes pt-keluar-kiri {
-    from { opacity: 1; transform: none; }
-    to   { opacity: 0; transform: translateX(-14px); }
+@keyframes pt-dorong-keluar {
+    from { transform: translateX(0);    filter: brightness(1); }
+    to   { transform: translateX(-24%); filter: brightness(0.7); }
 }
-@keyframes pt-masuk-kiri {
-    from { opacity: 0; transform: translateX(-28px); }
-    to   { opacity: 1; transform: none; }
+@keyframes pt-tarik-masuk {
+    from { transform: translateX(-24%); filter: brightness(0.7); }
+    to   { transform: translateX(0);    filter: brightness(1); }
 }
-@keyframes pt-keluar-kanan {
-    from { opacity: 1; transform: none; }
-    to   { opacity: 0; transform: translateX(14px); }
+@keyframes pt-tarik-keluar {
+    from { transform: translateX(0); }
+    to   { transform: translateX(100%); }
 }
 
 /* ── Yang TIDAK ikut bergeser ───────────────────────────────────────────────
    Potretan `root` mencakup seluruh viewport, termasuk elemen yang sebenarnya
    tak berganti. Memberi mereka nama sendiri mengeluarkannya dari potretan
    `root` dan menjadikannya lapisan tersendiri yang dipasangkan lama↔baru —
-   karena isinya identik, hasilnya terlihat diam.
+   karena isinya identik, hasilnya terlihat diam. Lapisannya diatur oleh blok
+   `z-index` di atas.
 
    Latar grid harus diam karena ia memang milik seluruh aplikasi, bukan milik
    satu halaman; melihatnya ikut menggeser langsung membocorkan bahwa yang

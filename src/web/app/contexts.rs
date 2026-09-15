@@ -299,7 +299,7 @@ impl CartContext {
         }
         self.items.update(|v| {
             for it in v.iter_mut() {
-                if tier_ids.iter().any(|t| *t == it.tier_id) {
+                if tier_ids.contains(&it.tier_id) {
                     it.selected = selected;
                 }
             }

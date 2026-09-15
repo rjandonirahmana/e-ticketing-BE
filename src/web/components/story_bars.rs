@@ -108,7 +108,10 @@ pub fn StoryBar() -> impl IntoView {
                 move || {
                 let groups = ctx.groups.get();
                 if groups.is_empty() {
-                    return view! { <></> }.into_any();
+                    return {
+                        let _: () = view! { <></> };
+                        ().into_any()
+                    };
                 }
                 groups
                     .into_iter()

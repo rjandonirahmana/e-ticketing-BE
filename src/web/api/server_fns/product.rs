@@ -106,11 +106,11 @@ pub async fn get_product_location(slug: String) -> Result<serde_json::Value, Ser
         .get_public(&slug)
         .await
         .map_err(map_app_error)?;
-    return Ok(serde_json::json!({
+    Ok(serde_json::json!({
         "venue": product.venue,
         "city": product.city,
         "slug": product.slug,
         "latitude": product.latitude,
         "longitude": product.longitude,
-    }));
+    }))
 }

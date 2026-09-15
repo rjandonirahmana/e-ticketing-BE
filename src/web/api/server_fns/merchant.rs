@@ -22,7 +22,7 @@ pub async fn get_merchant_products(page: Option<i64>) -> Result<PaginatedProduct
         .list(q, Some(&claims.user_id))
         .await
         .map_err(map_app_error)?;
-    return Ok(srv_paginated_products_to_web(result));
+    Ok(srv_paginated_products_to_web(result))
 }
 
 #[server(GetMerchantProductDetail, "/api-fn")]
@@ -36,7 +36,7 @@ pub async fn get_merchant_product_detail(slug: String) -> Result<ProductWithVari
         .get_for_merchant(&slug, &claims.user_id, claims.role == "admin")
         .await
         .map_err(map_app_error)?;
-    return Ok(srv_product_with_variants_to_web(result));
+    Ok(srv_product_with_variants_to_web(result))
 }
 
 /// Batas jumlah varian per product (samakan dengan `MAX_VARIANTS` di
@@ -234,7 +234,7 @@ pub async fn create_merchant_product(
         .pub_cache
         .invalidate_product(&result.slug, &claims.user_id)
         .await;
-    return Ok(result.slug);
+    Ok(result.slug)
 }
 
 #[server(UpdateMerchantProduct, "/api-fn")]
@@ -451,7 +451,7 @@ pub async fn update_merchant_product(
     // halaman padahal tak ada yang berubah. Hasil akhirnya sama (tak ada objek
     // yatim), tanpa jendela kehilangan foto.
     hapus_objek(&state, yatim).await;
-    return Ok(());
+    Ok(())
 }
 
 /// Perbarui profil merchant (nama, deskripsi, logo, header) — sisi merchant hub.

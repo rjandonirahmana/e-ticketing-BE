@@ -309,6 +309,8 @@ pub async fn potret(pool: &Pool, upload_tmp: &std::path::Path) -> StatusServer {
             .load(std::sync::atomic::Ordering::Relaxed),
         pool_max: st.max_size,
         pool_size: st.size,
-        pool_idle: st.available.max(0) as usize,
+        // `.max(0)` DIHAPUS: `Status::available` milik deadpool bertipe tak
+        // bertanda, jadi penjagaan itu tak pernah bisa memilih cabang lain.
+        pool_idle: st.available,
     }
 }

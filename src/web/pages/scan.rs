@@ -87,7 +87,6 @@ pub fn ScanPage() -> impl IntoView {
     };
 
     let do_validate_manual = {
-        let do_validate = do_validate.clone();
         move || { do_validate(manual_input.get_untracked()); }
     };
 

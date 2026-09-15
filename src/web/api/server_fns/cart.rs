@@ -83,7 +83,7 @@ pub async fn get_cart() -> Result<CartView, ServerFnError> {
         .view(&claims.user_id, premium)
         .await
         .map_err(map_app_error)?;
-    return Ok(srv_cart_to_web(cart));
+    Ok(srv_cart_to_web(cart))
 }
 
 // ── Tulis ────────────────────────────────────────────────────────────────────
@@ -98,7 +98,7 @@ pub async fn add_to_cart(tier_id: String, quantity: i32) -> Result<CartView, Ser
         .add(&claims.user_id, &tier_id, quantity, premium)
         .await
         .map_err(map_app_error)?;
-    return Ok(srv_cart_to_web(cart));
+    Ok(srv_cart_to_web(cart))
 }
 
 /// Tetapkan jumlah sebuah baris; `quantity = 0` menghapusnya.
@@ -124,7 +124,7 @@ pub async fn update_cart_quantity(
         )
         .await
         .map_err(map_app_error)?;
-    return Ok(srv_cart_to_web(cart));
+    Ok(srv_cart_to_web(cart))
 }
 
 /// Centang / lepas centang satu baris. `tier_id` kosong berarti seluruh isi
@@ -147,7 +147,7 @@ pub async fn select_cart_item(
         )
         .await
         .map_err(map_app_error)?;
-    return Ok(srv_cart_to_web(cart));
+    Ok(srv_cart_to_web(cart))
 }
 
 /// Centang/lepas seluruh barang milik satu toko dalam SATU permintaan.
@@ -164,7 +164,7 @@ pub async fn select_cart_items(
         .set_selected_many(&claims.user_id, &tier_ids, selected, premium)
         .await
         .map_err(map_app_error)?;
-    return Ok(srv_cart_to_web(cart));
+    Ok(srv_cart_to_web(cart))
 }
 
 #[server(ClearCart, "/api-fn")]
@@ -177,7 +177,7 @@ pub async fn clear_cart() -> Result<CartView, ServerFnError> {
         .clear(&claims.user_id, premium)
         .await
         .map_err(map_app_error)?;
-    return Ok(srv_cart_to_web(cart));
+    Ok(srv_cart_to_web(cart))
 }
 
 /// Tuang keranjang tamu (localStorage) ke keranjang milik user setelah login.
@@ -227,7 +227,7 @@ pub async fn sync_guest_cart(items_json: String) -> Result<CartView, ServerFnErr
         )
         .await
         .map_err(map_app_error)?;
-    return Ok(srv_cart_to_web(cart));
+    Ok(srv_cart_to_web(cart))
 }
 
 /// Pasang kode promo; `code = None` melepasnya.
@@ -241,7 +241,7 @@ pub async fn apply_cart_promo(code: Option<String>) -> Result<CartView, ServerFn
         .set_promo(&claims.user_id, code.as_deref(), premium)
         .await
         .map_err(map_app_error)?;
-    return Ok(srv_cart_to_web(cart));
+    Ok(srv_cart_to_web(cart))
 }
 
 /// Simpan kanal pembayaran pilihan user pada keranjangnya.
@@ -255,7 +255,7 @@ pub async fn select_payment_method(code: String) -> Result<CartView, ServerFnErr
         .set_payment(&claims.user_id, Some(&code), premium)
         .await
         .map_err(map_app_error)?;
-    return Ok(srv_cart_to_web(cart));
+    Ok(srv_cart_to_web(cart))
 }
 
 // ── Kanal pembayaran ─────────────────────────────────────────────────────────
@@ -287,7 +287,7 @@ pub async fn get_payment_options() -> Result<PaymentOptions, ServerFnError> {
         .await
         .map_err(map_app_error)?;
 
-    return Ok(PaymentOptions {
+    Ok(PaymentOptions {
         methods: methods
             .into_iter()
             .map(|m| {
@@ -308,5 +308,5 @@ pub async fn get_payment_options() -> Result<PaymentOptions, ServerFnError> {
             .collect(),
         amount: amount.to_i64().unwrap_or(0),
         selected: cart.payment_code,
-    });
+    })
 }

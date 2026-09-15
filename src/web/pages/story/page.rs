@@ -586,7 +586,7 @@ pub fn StoryPage() -> impl IntoView {
                     } else if let Some((cs, ce)) = gradient_colors(&bg_mode_val) {
                         if let Ok(g) = render_ctx.create_linear_gradient(0.0,0.0,0.0,ch).dyn_into::<web_sys::CanvasGradient>() {
                             let _ = g.add_color_stop(0.0, cs); let _ = g.add_color_stop(1.0, ce);
-                            let _ = render_ctx.set_fill_style_canvas_gradient(&g); render_ctx.fill_rect(0.0,0.0,cw,ch);
+                            render_ctx.set_fill_style_canvas_gradient(&g); render_ctx.fill_rect(0.0,0.0,cw,ch);
                         }
                     }
                 }

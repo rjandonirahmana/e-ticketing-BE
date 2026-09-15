@@ -114,11 +114,11 @@ pub async fn get_session() -> Result<Option<UserResponse>, ServerFnError> {
     };
     // JWT sudah diverifikasi secara kriptografis — tidak perlu hit DB.
     // Reconstruct UserResponse langsung dari claims (zero network round-trip).
-    return Ok(Some(UserResponse {
+    Ok(Some(UserResponse {
         id: claims.user_id,
         name: claims.name,
         phone: claims.phone,
         role: claims.role,
         email: None,
-    }));
+    }))
 }

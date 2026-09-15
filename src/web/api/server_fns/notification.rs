@@ -12,7 +12,7 @@ pub async fn get_notifications() -> Result<Vec<NotificationItem>, ServerFnError>
         .list(&claims.user_id, 1, 100)
         .await
         .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })?;
-    return Ok(notifs.into_iter().map(srv_notification_to_web).collect());
+    Ok(notifs.into_iter().map(srv_notification_to_web).collect())
 }
 
 #[server(GetNotificationDetail, "/api-fn")]
@@ -39,7 +39,7 @@ pub async fn get_notification_detail(id: String) -> Result<NotificationItem, Ser
         .mark_read(&id, &claims.user_id)
         .await;
 
-    return Ok(srv_notification_to_web(notif));
+    Ok(srv_notification_to_web(notif))
 }
 
 #[server(MarkNotificationRead, "/api-fn")]

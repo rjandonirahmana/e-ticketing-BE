@@ -38,12 +38,6 @@ impl AuthUser {
     }
 }
 
-/// Extracts the JWT from the `pulse_token` cookie. Same-origin browser
-/// requests (Leptos WASM) can't read the HttpOnly cookie to build an
-/// `Authorization` header, but the cookie *is* sent automatically — so we
-/// read it server-side as a fallback to the Bearer header.
-
-
 /// Axum middleware that validates the JWT and attaches the Claims to the
 /// request extensions. Accepts either an `Authorization: Bearer <token>`
 /// header (the separate Next.js frontend / REST API) or the `pulse_token`

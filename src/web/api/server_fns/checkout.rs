@@ -94,7 +94,7 @@ pub async fn checkout_cart(
         .affinity_svc
         .record_purchase(claims.user_id.clone(), order.id.clone());
 
-    return Ok(srv_order_detail_to_ref(order));
+    Ok(srv_order_detail_to_ref(order))
 }
 
 /// Tandai order pending sebagai lunas.
@@ -138,7 +138,7 @@ pub async fn confirm_order_payment(order_id: String) -> Result<OrderRef, ServerF
         .map_err(map_app_error)?;
 
     let paid = state.order_svc.enrich_payment(paid).await;
-    return Ok(srv_order_detail_to_ref(paid));
+    Ok(srv_order_detail_to_ref(paid))
 }
 
 /// Batalkan order yang belum dibayar; stoknya kembali ke kuota varian.
@@ -151,5 +151,5 @@ pub async fn cancel_order(order_id: String) -> Result<(), ServerFnError> {
         .cancel(&order_id, &claims.user_id)
         .await
         .map_err(map_app_error)?;
-    return Ok(());
+    Ok(())
 }

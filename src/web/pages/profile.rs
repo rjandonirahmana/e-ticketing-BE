@@ -35,7 +35,7 @@ pub fn ProfilePage() -> impl IntoView {
     // Premium status — hanya fetch bila sudah login. Banner upgrade muncul
     // ketika user BUKAN premium (sama seperti `Show when !is_premium` di CSR).
     let premium = Resource::new(
-        move || is_logged_in(),
+        is_logged_in,
         |logged_in| async move {
             if logged_in {
                 get_premium_status().await.unwrap_or(false)
@@ -48,7 +48,7 @@ pub fn ProfilePage() -> impl IntoView {
     // Tiket aktif → jumlah & daftar "Active Experiences" (data nyata,
     // menggantikan kartu mock di CSR).
     let tickets = Resource::new(
-        move || is_logged_in(),
+        is_logged_in,
         |logged_in| async move {
             if logged_in { get_my_tickets().await.unwrap_or_default() } else { vec![] }
         },
@@ -59,7 +59,7 @@ pub fn ProfilePage() -> impl IntoView {
 
     // Story milik user sendiri sebagai satu grup (untuk thumbnail + viewer).
     let my_group = Resource::new(
-        move || is_logged_in(),
+        is_logged_in,
         |logged_in| async move {
             if logged_in { get_my_story_group().await.ok().flatten() } else { None }
         },

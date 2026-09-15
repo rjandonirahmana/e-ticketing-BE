@@ -460,10 +460,10 @@ pub fn DraggableOverlay(
                 let nx = s.ox + (cx - s.sx) / s.cw * 100.0;
                 let ny = s.oy + (cy - s.sy) / s.ch * 100.0;
 
-                if nx < BOUNDARY_MIN || nx > BOUNDARY_MAX {
+                if !(BOUNDARY_MIN..=BOUNDARY_MAX).contains(&nx) {
                     s.vx *= 0.5; // damping saat mentok
                 }
-                if ny < BOUNDARY_MIN || ny > BOUNDARY_MAX {
+                if !(BOUNDARY_MIN..=BOUNDARY_MAX).contains(&ny) {
                     s.vy *= 0.5;
                 }
 
@@ -502,7 +502,7 @@ pub fn DraggableOverlay(
         let p = ph.get_value();
 
         if !p.actually_dragging {
-            let sel = on_select.clone();
+            let sel = on_select;
             let id = this_id.get_value();
             if let Some(old) = tap_timer.get_value() {
                 if let Some(win) = web_sys::window() {

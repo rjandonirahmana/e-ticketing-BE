@@ -76,8 +76,8 @@ pub fn UserPublicPage() -> impl IntoView {
         };
         let dx = ev.client_x() as f64 - sx;
         let dy = ev.client_y() as f64 - sy;
-        if drag_axis.get_untracked() == 0 {
-            if dx.abs() > 8.0 || dy.abs() > 8.0 {
+        if drag_axis.get_untracked() == 0
+            && (dx.abs() > 8.0 || dy.abs() > 8.0) {
                 if dx.abs() > dy.abs() {
                     drag_axis.set(1);
                     dragging.set(true);
@@ -88,7 +88,6 @@ pub fn UserPublicPage() -> impl IntoView {
                     drag_axis.set(2);
                 }
             }
-        }
         if drag_axis.get_untracked() == 1 {
             let t = tab.get_untracked();
             // Tahanan di tepi (tak ada panel sebelum 0 / sesudah terakhir).
@@ -198,7 +197,6 @@ pub fn UserPublicPage() -> impl IntoView {
                                 .unwrap_or('P')
                                 .to_uppercase()
                                 .to_string();
-                            let open_story = open_story.clone();
                             view! {
                                 // ── Kepala profil (terpusat) ──────────────────
                                 <div class="up-head">
@@ -263,9 +261,7 @@ pub fn UserPublicPage() -> impl IntoView {
                                                         view! { <StoryGridShimmer /> }
                                                     }>
                                                         {
-                                                            let open_story = open_story.clone();
                                                             move || {
-                                                                let open_story = open_story.clone();
                                                                 stories
                                                                     .get()
                                                                     .map(|r| match r {
@@ -287,7 +283,6 @@ pub fn UserPublicPage() -> impl IntoView {
                                                                                                 let is_video = s.media_type == StoryMediaType::Video;
                                                                                                 let media = s.media_url.clone();
                                                                                                 let list_c = list.clone();
-                                                                                                let open_story = open_story.clone();
                                                                                                 view! {
                                                                                                     <button
                                                                                                         class="mp-story-cell"

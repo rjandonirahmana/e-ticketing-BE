@@ -71,12 +71,6 @@ fn origin() -> String {
     String::new()
 }
 
-/// Minta izin kamera/mic via sumber tunggal `rtc::request_camera_mic`. Error
-/// dikembalikan sebagai pesan actionable + panduan izin (lihat `MediaError`).
-/// Pembungkus setipis ini tak menambah apa pun di atas `rtc::request_camera_mic`
-/// selain satu nama lagi untuk dicari orang. Dipanggil langsung sekarang.
-
-
 async fn get_display_media() -> Result<web_sys::MediaStream, String> {
     let window = web_sys::window().ok_or("No window")?;
     let promise = window
@@ -188,6 +182,16 @@ struct Ctx {
     /// sama sekali — meninggalkan meet saat sedang berbagi layar membuat
     /// peramban terus menampilkan "Anda sedang membagikan layar".
     screen: Rc<RefCell<Option<web_sys::MediaStream>>>,
+    /// Preview lokal: sinyalnya BESERTA elemen `<video>` tempat ia dipasang.
+    ///
+    /// Keduanya ada DI DALAM `Ctx` supaya `teardown` bisa melepas `srcObject`
+    /// dan membuang rujukan terakhir ke stream-nya. Menghentikan track saja
+    /// tidak cukup bagi orang yang sedang menatap layar: bingkai terakhir tetap
+    /// membeku di tempatnya, dan gambar wajah yang masih terpampang sesudah
+    /// menekan "keluar" terbaca sebagai kamera yang belum mati — persis keluhan
+    /// yang ingin dijawab di sini, terlepas dari apakah lampunya sudah padam.
+    local_sig: RwSignal<Option<send_wrapper::SendWrapper<web_sys::MediaStream>>>,
+    local_ref: NodeRef<leptos::html::Video>,
     /// Sudah dibubarkan. Permintaan kamera yang masih berjalan saat orangnya
     /// keluar akan selesai SESUDAH `teardown` — tanpa penanda ini, stream yang
     /// baru tiba itu disimpan ke `local` yang tak akan pernah dibersihkan lagi,
@@ -285,6 +289,8 @@ pub fn MeetPage() -> impl IntoView {
         remote_ready: Rc::new(RefCell::new(HashSet::new())),
         local: Rc::new(RefCell::new(None)),
         screen: Rc::new(RefCell::new(None)),
+        local_sig,
+        local_ref,
         bubar: Rc::new(std::cell::Cell::new(false)),
         ice: Rc::new(RefCell::new(None)),
         tiles: tiles_ref,
@@ -327,7 +333,7 @@ pub fn MeetPage() -> impl IntoView {
     // Mount: minta izin kamera/mic → tampilkan green room.
     let preview = Action::new_local(move |_: &()| {
         let ctx = ctx.get_value();
-        async move { setup_preview(ctx, local_sig).await }
+        async move { setup_preview(ctx).await }
     });
     Effect::new(move |prev: Option<()>| {
         if prev.is_none() {
@@ -430,6 +436,30 @@ pub fn MeetPage() -> impl IntoView {
         teardown(&ctx.get_value());
         phase.set(Phase::Ended);
     };
+
+    // Batal dari green room. Tautannya memang menavigasi sendiri, tapi kamera
+    // TIDAK boleh menunggu navigasi itu selesai: `on_cleanup` baru berjalan saat
+    // komponennya benar-benar dibuang, dan dengan transisi rute yang menunggu
+    // data halaman tujuan, jeda itu bisa terasa berdetik-detik. Selama jeda itu
+    // lampu kamera masih menyala di halaman yang sudah ditinggalkan.
+    let batal = move |_| teardown(&ctx.get_value());
+
+    // ── SATU TITIK PEMBUBARAN UNTUK SEMUA AKHIR ───────────────────────────
+    // Sebelumnya tiap jalur keluar membersihkan sendiri, dan dua di antaranya
+    // terlewat: `Denied` hanya menutup WebSocket, `Error` tak menutup apa pun.
+    // Tamu yang ditolak host, dan siapa pun yang koneksinya gagal, tetap
+    // mengarahkan kamera ke layar penjelasan tanpa ada yang mematikannya.
+    //
+    // Efek ini tidak peduli SIAPA yang menyetel fasenya — tombol keluar, pesan
+    // `meeting_ended` dari server, penolakan host, atau kegagalan mana pun.
+    // Begitu fasenya terminal, media dilepas. Jalur-jalur di atas tetap
+    // memanggil `teardown` langsung supaya tak menunggu putaran reaktif; ia
+    // idempoten, jadi dijalankan dua kali sama sekali tidak masalah.
+    Effect::new(move |_| {
+        if matches!(phase.get(), Phase::Ended | Phase::Denied | Phase::Error) {
+            teardown(&ctx.get_value());
+        }
+    });
 
     // Keluar / meet dibubarkan → langsung ke halaman utama (tanpa layar "Ended").
     Effect::new(move |_| {
@@ -626,7 +656,9 @@ pub fn MeetPage() -> impl IntoView {
                             "Minta masuk".to_string()
                         }}
                     </button>
-                    <A href="/merchant" attr:class="meet-prejoin-back">"Batal"</A>
+                    <A href="/merchant" attr:class="meet-prejoin-back" on:click=batal>
+                        "Batal"
+                    </A>
                 </div>
             })}
 
@@ -820,7 +852,10 @@ pub fn MeetPage() -> impl IntoView {
                         </div>
                     </div>
                 }.into_any(),
-                _ => view! {}.into_any(),
+                _ => {
+                    let _: () = view! {};
+                    ().into_any()
+                },
             }}
         </div>
     }

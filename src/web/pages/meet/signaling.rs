@@ -61,10 +61,11 @@ pub(super) async fn handle_msg(ctx: &Ctx, raw: &str) {
             ctx.phase.set(Phase::Waiting);
         }
         "denied" => {
+            // Dulu di sini hanya WebSocket-nya yang ditutup. Tamu yang ditolak
+            // host lalu menatap layar "ditolak" dengan kamera masih menyala —
+            // kesalahan yang sama seperti pada `meeting_ended`, di jalur lain.
             ctx.phase.set(Phase::Denied);
-            if let Some(ws) = ctx.ws.borrow().as_ref() {
-                let _ = ws.close();
-            }
+            teardown(ctx);
         }
         "join_request" => {
             if let (Some(id), Some(name)) = (
@@ -178,16 +179,22 @@ pub(super) async fn handle_msg(ctx: &Ctx, raw: &str) {
                 v.get("message").and_then(|m| m.as_str()).unwrap_or("Error").to_string(),
             ));
             ctx.phase.set(Phase::Error);
+            // Galat bukan alasan untuk tetap merekam. Tombol "Coba Lagi" pada
+            // layar galat meminta kamera dari nol, jadi tak ada yang hilang.
+            teardown(ctx);
         }
         _ => {}
     }
 }
 
 /// Siapkan preview kamera (green room). Dipanggil saat mount untuk host & tamu.
-pub(super) async fn setup_preview(
-    ctx: Ctx,
-    local_sig: RwSignal<Option<send_wrapper::SendWrapper<web_sys::MediaStream>>>,
-) {
+pub(super) async fn setup_preview(ctx: Ctx) {
+    // Meminta kamera lagi berarti sesi media BARU — termasuk saat tombol "Coba
+    // Lagi" dipakai sesudah sebuah kegagalan membubarkan sesi sebelumnya.
+    // Tanpa reset ini, penanda `bubar` yang tertinggal dari pembubaran itu akan
+    // langsung menghentikan stream yang baru saja diizinkan, dan layarnya
+    // tinggal hitam tanpa satu pun galat.
+    ctx.bubar.set(false);
     let stream = match crate::web::rtc::request_camera_mic()
         .await
         .map_err(|e| e.user_message())
@@ -213,7 +220,7 @@ pub(super) async fn setup_preview(
         return;
     }
     *ctx.local.borrow_mut() = Some(stream.clone());
-    local_sig.set(Some(send_wrapper::SendWrapper::new(stream)));
+    ctx.local_sig.set(Some(send_wrapper::SendWrapper::new(stream)));
     ctx.phase.set(Phase::Prejoin);
 }
 
@@ -314,6 +321,17 @@ pub(super) fn teardown(ctx: &Ctx) {
     }
     *ctx.local.borrow_mut() = None;
     *ctx.screen.borrow_mut() = None;
+
+    // Lepas stream dari elemen `<video>`-nya, lalu buang sinyal yang memegangnya.
+    //
+    // `srcObject` dilepas LANGSUNG, tidak lewat efek yang mengamati sinyalnya:
+    // pembubaran sering terjadi tepat saat komponennya dibuang, dan efek yang
+    // dijadwalkan pada saat itu tak pernah berjalan lagi. Tanpa baris ini
+    // bingkai terakhir membeku di layar sampai halamannya benar-benar hilang.
+    if let Some(video) = ctx.local_ref.get_untracked() {
+        video.set_src_object(None);
+    }
+    ctx.local_sig.set(None);
 
     for (_, pc) in ctx.pcs.borrow_mut().drain() {
         pc.set_onicecandidate(None);

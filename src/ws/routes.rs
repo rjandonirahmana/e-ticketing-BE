@@ -44,7 +44,7 @@ async fn list_rooms(
         .group_svc
         .get_user_rooms(auth.id())
         .await
-        .map_err(|e| AppError::Internal(e))?;
+        .map_err(AppError::Internal)?;
     Ok(ok(rooms))
 }
 
@@ -81,7 +81,7 @@ async fn sent_count(
         .group_svc
         .sent_count(&room_id, auth.id())
         .await
-        .map_err(|e| AppError::Internal(e))?;
+        .map_err(AppError::Internal)?;
 
     Ok(ok(
         json!({ "count": count, "limit": 1, "is_merchant": false }),

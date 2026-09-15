@@ -301,7 +301,7 @@ impl PgProductRepository {
         let detail_images_json: Option<serde_json::Value> = req
             .detail_images
             .as_ref()
-            .map(|di| serde_json::to_value(di))
+            .map(serde_json::to_value)
             .transpose()?;
 
         // Jumlah baris DIPERIKSA, tak lagi dibuang.

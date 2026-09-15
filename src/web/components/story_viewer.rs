@@ -288,10 +288,8 @@ pub fn StoryViewer() -> impl IntoView {
 
     // ── Keyboard handler factory ───────────────────────────────────────
     let create_kb_handler = {
-        let ctx = ctx.clone();
         move || {
             Closure::<dyn Fn(web_sys::KeyboardEvent)>::new({
-                let ctx = ctx.clone();
                 move |ev: web_sys::KeyboardEvent| match ev.key().as_str() {
                     "ArrowRight" | " " => {
                         ev.prevent_default();
@@ -1158,7 +1156,7 @@ pub fn StoryViewer() -> impl IntoView {
 
         let html_el: &web_sys::HtmlElement = el.unchecked_ref();
         let svg = r##"<svg width="80" height="80" viewBox="0 0 24 24" fill="#ff3040" stroke="white" stroke-width="1"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>"##;
-        let _ = html_el.set_inner_html(svg);
+        html_el.set_inner_html(svg);
         let s = html_el.style();
         let _ = s.set_property("position", "absolute");
         let _ = s.set_property("left", &format!("{}px", x - 40.0));
@@ -1248,7 +1246,7 @@ pub fn StoryViewer() -> impl IntoView {
                             // Simpan ke StoredValue agar RAF bisa mengaksesnya
                             seg_fill_refs.set_value(fresh.clone());
 
-                            fresh.into_iter().enumerate().map(|(_, node_ref)| {
+                            fresh.into_iter().map(|node_ref| {
                                 view! {
                                     <div class="sv-seg">
                                         <div class="sv-seg-fill" node_ref=node_ref></div>
@@ -1378,9 +1376,9 @@ pub fn StoryViewer() -> impl IntoView {
                                                              st.cancelled = false;
                                                          }
                                                      });
-                                                     let rc = raf_closure.clone();
-                                                     let ri = raf_id.clone();
-                                                     let rs = raf_state.clone();
+                                                     let rc = raf_closure;
+                                                     let ri = raf_id;
+                                                     let rs = raf_state;
                                                      // Closure::once → FnOnce: captures freed after first RAF tick,
                                                      // not leaked permanently like Closure::new(Fn) would be.
                                                      let setup = Closure::once_into_js(move || {

@@ -46,7 +46,7 @@ pub fn AdminPage() -> impl IntoView {
     };
 
     let all_products_res = Resource::new(
-        move || is_admin(),
+        is_admin,
         |ok| async move {
             if ok {
                 get_admin_products(Some(1), None).await
@@ -59,7 +59,7 @@ pub fn AdminPage() -> impl IntoView {
     );
 
     let pending_res = Resource::new(
-        move || is_admin(),
+        is_admin,
         |ok| async move {
             if ok {
                 get_admin_products(Some(1), Some("edited".to_string())).await
@@ -72,7 +72,7 @@ pub fn AdminPage() -> impl IntoView {
     );
 
     let stats_res = Resource::new(
-        move || is_admin(),
+        is_admin,
         |ok| async move {
             if ok {
                 get_admin_stats().await
@@ -83,7 +83,7 @@ pub fn AdminPage() -> impl IntoView {
     );
 
     let banners_res = Resource::new(
-        move || is_admin(),
+        is_admin,
         |ok| async move { if ok { get_banners().await } else { Ok(vec![]) } },
     );
 

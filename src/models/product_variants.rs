@@ -31,8 +31,8 @@ impl ProductVariant {
     pub fn effective_price(&self) -> f64 {
         let now = Utc::now();
         if let Some(sp) = self.sale_price {
-            let start_ok = self.sale_price_start_date.map_or(true, |d| now >= d);
-            let end_ok = self.sale_price_end_date.map_or(true, |d| now <= d);
+            let start_ok = self.sale_price_start_date.is_none_or(|d| now >= d);
+            let end_ok = self.sale_price_end_date.is_none_or(|d| now <= d);
             if start_ok && end_ok {
                 return sp;
             }
@@ -44,8 +44,8 @@ impl ProductVariant {
     pub fn is_sale_active(&self) -> bool {
         let now = Utc::now();
         self.sale_price.is_some()
-            && self.sale_price_start_date.map_or(true, |d| now >= d)
-            && self.sale_price_end_date.map_or(true, |d| now <= d)
+            && self.sale_price_start_date.is_none_or(|d| now >= d)
+            && self.sale_price_end_date.is_none_or(|d| now <= d)
     }
 }
 

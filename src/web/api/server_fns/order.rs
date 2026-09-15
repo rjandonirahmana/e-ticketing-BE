@@ -12,7 +12,7 @@ pub async fn get_my_orders() -> Result<Vec<OrderListItem>, ServerFnError> {
         .list_mine(&claims.user_id, 1, 100)
         .await
         .map_err(map_app_error)?;
-    return Ok(orders.into_iter().map(srv_order_list_item_to_web).collect());
+    Ok(orders.into_iter().map(srv_order_list_item_to_web).collect())
 }
 
 #[server(GetOrderDetail, "/api-fn")]
@@ -27,7 +27,7 @@ pub async fn get_order_detail(id: String) -> Result<OrderDetail, ServerFnError> 
     // Nama & instruksi kanal tinggal di `payment_methods`; dilekatkan di sini
     // supaya halaman detail order tak perlu memetakan kode kanal sendiri.
     let order = state.order_svc.enrich_payment(order).await;
-    return Ok(srv_order_detail_to_web(order));
+    Ok(srv_order_detail_to_web(order))
 }
 
 #[server(GetOrderTickets, "/api-fn")]
@@ -39,7 +39,7 @@ pub async fn get_order_tickets(order_id: String) -> Result<Vec<TicketResponse>, 
         .list_for_order(&order_id, &claims.user_id, 1, 100)
         .await
         .map_err(map_app_error)?;
-    return Ok(tickets.into_iter().map(srv_ticket_to_web).collect());
+    Ok(tickets.into_iter().map(srv_ticket_to_web).collect())
 }
 
 #[server(CreateOrder, "/api-fn")]
@@ -60,6 +60,6 @@ pub async fn create_order(variant_id: String, quantity: i32) -> Result<String, S
         .create(&claims.user_id, req, is_premium)
         .await
         .map_err(map_app_error)?;
-    return Ok(order.id);
+    Ok(order.id)
 }
 

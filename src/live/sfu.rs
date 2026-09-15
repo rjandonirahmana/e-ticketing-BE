@@ -629,11 +629,10 @@ impl SfuEngine {
                                     peer.disconnected_since = None;
                                 }
                                 // Transien: catat waktunya, jangan langsung buang.
-                                IceConnectionState::Disconnected => {
-                                    if peer.disconnected_since.is_none() {
+                                IceConnectionState::Disconnected
+                                    if peer.disconnected_since.is_none() => {
                                         peer.disconnected_since = Some(Instant::now());
                                     }
-                                }
                                 _ => {}
                             }
                         }
