@@ -28,13 +28,12 @@ use std::sync::Arc;
 use axum::{
     extract::{
         ws::{Message, WebSocket},
-        Query, State, WebSocketUpgrade,
+        State, WebSocketUpgrade,
     },
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use futures::{SinkExt, StreamExt};
-use serde::Deserialize;
 use tokio::sync::Semaphore;
 
 use crate::{
@@ -57,11 +56,6 @@ pub struct WsAppState {
     pub group_svc: Arc<GroupChatService>,
 }
 
-#[derive(Deserialize)]
-pub struct WsQuery {
-    pub token: Option<String>,
-}
-
 /// Extract `pulse_token` dari Cookie header (browser kirim otomatis pada WS upgrade
 /// same-origin — tidak perlu JS membaca/mengirim token secara eksplisit).
 fn token_from_cookie_header(headers: &axum::http::HeaderMap) -> Option<String> {
@@ -82,34 +76,38 @@ fn token_from_cookie_header(headers: &axum::http::HeaderMap) -> Option<String> {
 
 pub async fn ws_chat(
     ws: WebSocketUpgrade,
-    Query(q): Query<WsQuery>,
     headers: axum::http::HeaderMap,
     State(state): State<Arc<WsAppState>>,
 ) -> Response {
-    // ── COOKIE DULU, query hanya cadangan ─────────────────────────────────
-    // Urutannya dulu terbalik. Itu berarti jalur yang dicoba PERTAMA adalah
-    // jalur yang menaruh JWT di dalam alamat — dan alamat masuk ke log akses
-    // proxy, log server, dan riwayat peramban. Token yang bocor ke log adalah
-    // token yang bocor ke siapa pun yang kelak membaca log itu.
+    // ── COOKIE SAJA ───────────────────────────────────────────────────────
+    // Dukungan `?token=` DIBUANG.
     //
-    // Klien aplikasi ini seluruhnya memakai cookie (`pulse_token`, HttpOnly,
-    // dikirim otomatis saat upgrade same-origin), jadi mendahulukan cookie
-    // membuat lalu lintas kita sendiri tak pernah menempuh jalur itu lagi.
+    // JWT di dalam alamat berakhir di tempat yang tak seorang pun berniat
+    // menaruhnya: log akses proxy, log server, header `Referer`, dan riwayat
+    // peramban. Tak ada satu pun dari tempat itu yang dilindungi seketat
+    // token yang dititipkan padanya, dan tak satu pun bisa ditarik kembali
+    // setelah tertulis — token yang bocor ke log adalah token yang bocor ke
+    // siapa pun yang kelak membaca log itu, berbulan-bulan sesudahnya.
     //
-    // Query BELUM dibuang sepenuhnya karena mungkin ada klien lain yang masih
-    // memakainya — tetapi setiap pemakaiannya kini tercatat, sehingga bisa
-    // dipastikan sudah kosong sebelum dihapus.
-    let dari_cookie = token_from_cookie_header(&headers);
-    if dari_cookie.is_none() && q.token.is_some() {
-        tracing::warn!(
-            "WS memakai token lewat query — jalur usang, JWT bocor ke log akses"
-        );
-    }
-    let raw_token = dari_cookie.or(q.token);
-    let claims = match raw_token.as_deref().map(|t| state.jwt.verify(t)) {
+    // Jalur itu sebelumnya dipertahankan sebagai cadangan "kalau-kalau ada
+    // klien lain", dengan `warn!` terpasang untuk membuktikan ia sudah kosong.
+    // Pembuktiannya ada di kode: satu-satunya klien WS chat aplikasi ini
+    // (`web/components/ws_chat.rs`) menyusun alamatnya sebagai
+    // `{proto}://{host}/api/ws/chat` — tanpa query sama sekali. Cookie
+    // `pulse_token` (HttpOnly) dikirim peramban otomatis pada upgrade
+    // same-origin, jadi tak ada yang perlu diganti di sisi klien.
+    //
+    // Konsekuensi yang disengaja: klien non-peramban yang tak bisa menyimpan
+    // cookie kini harus mengirim header `Cookie: pulse_token=…` sendiri.
+    // Itu memang lebih merepotkan, dan justru itu gunanya — yang merepotkan
+    // tidak berakhir di log.
+    let claims = match token_from_cookie_header(&headers)
+        .as_deref()
+        .map(|t| state.jwt.verify(t))
+    {
         Some(Ok(c)) => c,
         _ => {
-            tracing::warn!("WS rejected: no valid token in query param or cookie");
+            tracing::warn!("WS ditolak: cookie pulse_token tak ada atau tak sah");
             return (StatusCode::UNAUTHORIZED, "Invalid token").into_response();
         }
     };

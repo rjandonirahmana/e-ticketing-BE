@@ -1,6 +1,6 @@
 //! ws/routes.rs — REST routes untuk group room management
 //!
-//! GET  /api/ws/chat?token=...               WebSocket upgrade (auth via token)
+//! GET  /api/ws/chat                       WebSocket upgrade (auth via cookie `pulse_token` SAJA)
 //! GET  /api/chat/rooms                      List rooms user yang sudah join
 //! GET  /api/chat/products/{event_id}/room     Get/buat room untuk product
 //! POST /api/chat/rooms/{room_id}/join       Join room
