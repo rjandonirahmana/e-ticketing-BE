@@ -481,7 +481,46 @@ async fn run() -> Result<()> {
             state.clone(),
             e_ticketing::middleware::silent_refresh::silent_refresh,
         ))
-        .layer(tower_http::compression::CompressionLayer::new())
+        // ── KOMPRESI: kualitas DINYATAKAN, jangan pakai bawaan ───────────
+        //
+        // `CompressionLayer::new()` memakai `CompressionLevel::Default`, dan
+        // untuk brotli "default" itu BUKAN nilai tengah yang masuk akal:
+        // async-compression meneruskannya ke `BrotliEncoderParams::default()`,
+        // yang ber-`quality: 11` — setelan PALING LAMBAT yang dipunyai brotli,
+        // dirancang untuk aset yang dimampatkan SEKALI saat build lalu
+        // disajikan sejuta kali.
+        //
+        // Di sini ia berjalan pada tiap respons dinamis: tiap halaman SSR
+        // Leptos, tiap `/api-fn/*`, tiap `/api/*`. Brotli q11 bergerak di
+        // kisaran satu-dua MB/detik per core, jadi satu halaman HTML 150 KB
+        // menghabiskan ratusan milidetik CPU MURNI — dikerjakan inline di
+        // worker tokio, menahan permintaan lain di antrean yang sama. Di kotak
+        // 4 vCPU itu memasang plafon throughput yang tak ada hubungannya dengan
+        // query, render, maupun jaringan.
+        //
+        // q4 memampatkan HTML hampir sebaik q11 (selisih beberapa persen pada
+        // teks) dengan biaya CPU sekitar dua orde besaran lebih murah. Untuk
+        // aset statis yang memang pantas q11, jalurnya sudah lain: `/pkg/*`
+        // menyajikan berkas `.br` pra-kompresi dari `cargo leptos build
+        // --precompress` dan tak pernah menyentuh lapisan ini.
+        //
+        // Ambang ukuran dinaikkan 32 B → 1 KiB. Respons JSON dua ratus byte
+        // tak pernah menyusut cukup untuk membayar ongkos bingkai brotli,
+        // header, dan dekompresi di sisi klien. `DefaultPredicate` tetap
+        // dipertahankan (ia yang melewatkan gRPC, gambar, dan SSE) — `and`
+        // hanya memperketatnya. Catatan: respons TANPA panjang pasti — HTML SSR
+        // Leptos yang dialirkan — tetap dimampatkan; ambang ini hanya menyaring
+        // yang ukurannya diketahui dan kecil.
+        .layer(
+            tower_http::compression::CompressionLayer::new()
+                .quality(tower_http::compression::CompressionLevel::Precise(4))
+                .compress_when(
+                    tower_http::compression::predicate::Predicate::and(
+                        tower_http::compression::predicate::DefaultPredicate::new(),
+                        tower_http::compression::predicate::SizeAbove::new(1024),
+                    ),
+                ),
+        )
         // Header keamanan PALING LUAR: ia harus menyentuh setiap respons —
         // termasuk galat, pengalihan, dan berkas statis. Dipasang di dalam,
         // cabang yang menjawab lebih awal akan melewatinya tanpa jejak.

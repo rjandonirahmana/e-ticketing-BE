@@ -27,8 +27,65 @@ pub struct Capacity {
     pub recommended_upload_concurrency: usize,
 }
 
-/// ~15 KB per koneksi WS (channel buffer + entri DashMap + overhead task).
-const PER_WS_BYTES: u64 = 15 * 1024;
+// ── BATAS BUFFER PER SOCKET — angka yang MENENTUKAN biaya satu koneksi ─────
+//
+// Bawaan `tungstenite` (lewat `axum::extract::ws`) adalah `read_buffer_size:
+// 128 KiB`, dan buffer itu DIALOKASIKAN PENUH saat socket lahir —
+// `BytesMut::with_capacity(read_buffer_size)` di `FrameCodec::new`, bukan
+// tumbuh sesuai pemakaian. Artinya tiap koneksi WS menagih 128 KiB sebelum satu
+// byte pun dikirim: 5.000 koneksi = 640 MB, 10.000 koneksi (plafon
+// `WsManager::MAX_CONNECTIONS`) = 1,25 GB. Itu 9× lipat dari `PER_WS_BYTES`
+// yang dipakai perencana di bawah — perencana meramal 150 MB untuk beban yang
+// sebenarnya memakan 1,25 GB, dan selisih sebesar itu adalah selisih antara
+// "muat" dan OOM.
+//
+// Pesan aplikasi ini tak pernah mendekati 128 KiB. Chat = JSON beberapa ratus
+// byte; sinyal WebRTC = SDP belasan KB. Buffer sebesar itu murni cadangan yang
+// tak pernah terpakai.
+//
+// Angkanya ditaruh DI SINI, bersama perencana yang memakainya, karena keduanya
+// harus bergerak bersama. Selama batas buffer hidup di `ws/handler.rs` dan
+// ramalan biayanya di sini, tak ada satu pun yang memaksa keduanya cocok —
+// dan ketidakcocokan itulah keadaan yang baru saja diperbaiki.
+
+/// Kapasitas awal buffer baca per socket WS. Bingkai yang lebih besar tetap
+/// diterima: `in_buffer.reserve(len)` menumbuhkannya sesuai panjang bingkai
+/// yang benar-benar datang (dibatasi `WS_MAX_MESSAGE_*` di bawah). Yang
+/// dihapus hanyalah cadangan 128 KiB yang dibayar di muka oleh SETIAP koneksi.
+pub const WS_READ_BUFFER: usize = 8 * 1024;
+
+/// Ambang penyiraman buffer tulis. Tak dialokasikan di muka (`out_buffer`
+/// tumbuh dari kosong), tapi dinyatakan supaya tak ada jalur yang diam-diam
+/// menimbun 128 KiB per socket saat peramban lambat membaca.
+pub const WS_WRITE_BUFFER: usize = 8 * 1024;
+
+/// Plafon satu pesan pada socket CHAT.
+///
+/// Ini bukan sekadar penghematan: ia menutup jalur OOM yang bisa dipicu satu
+/// klien. `FrameCodec::read_frame` memanggil `in_buffer.reserve(len)` dengan
+/// `len` = panjang yang DIUMUMKAN header bingkai, segera setelah header
+/// terbaca dan hanya dibatasi `max_frame_size`. Dengan bawaan 16 MiB, satu
+/// klien jahat cukup mengumumkan bingkai 16 MiB untuk membuat server
+/// mengalokasikan 16 MiB — seratus klien begitu = 1,6 GB, tanpa pernah
+/// mengirim isinya.
+pub const WS_MAX_MESSAGE_CHAT: usize = 64 * 1024;
+
+/// Plafon satu pesan pada socket SINYAL (live publish/subscribe, meet).
+/// Lebih longgar daripada chat karena muatannya SDP — beberapa belas KB untuk
+/// tawaran dengan banyak kandidat ICE — tetapi tetap jauh di bawah 16 MiB.
+pub const WS_MAX_MESSAGE_SIGNAL: usize = 256 * 1024;
+
+/// Biaya RAM satu koneksi WS, dipakai perencana di bawah.
+///
+/// = buffer baca (dialokasikan di muka) + ~8 KB sisanya: future tiga task
+/// (baca/tulis/heartbeat), tiga channel mpsc bounded, entri sesi di DashMap,
+/// indeks keanggotaan room, dan ember rate-limit.
+///
+/// Angka ini BENAR hanya selama `WS_READ_BUFFER` benar-benar dipasang di tiap
+/// `on_upgrade`. Kalau kelak ada endpoint WS baru yang lupa memasangnya, ia
+/// menagih 128 KiB dan ramalan ini kembali berbohong — pasang
+/// `crate::ws::konfigurasi_socket()` di setiap upgrade, jangan menyalin angka.
+const PER_WS_BYTES: u64 = WS_READ_BUFFER as u64 + 8 * 1024;
 
 pub fn detect() -> Capacity {
     let (cpu_cores, ram_bytes, source) = detect_raw();

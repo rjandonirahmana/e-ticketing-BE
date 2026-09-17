@@ -118,7 +118,7 @@ pub async fn ws_chat(
         return (StatusCode::SERVICE_UNAVAILABLE, "Server at capacity").into_response();
     }
 
-    ws.on_upgrade(move |socket| handle_socket(socket, state, claims))
+    crate::ws::siapkan_chat(ws).on_upgrade(move |socket| handle_socket(socket, state, claims))
 }
 
 // ── Socket handler ────────────────────────────────────────────────────────────

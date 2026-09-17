@@ -93,7 +93,7 @@ async fn meet_ws(
     let claims = crate::utils::cookie::nilai(&headers, "pulse_token")
         .and_then(|t| state.jwt.verify(&t).ok())
         .map(|c| (c.user_id, c.name, c.role));
-    ws.on_upgrade(move |socket| meet_ws_loop(socket, room_id, state, claims))
+    crate::ws::siapkan_sinyal(ws).on_upgrade(move |socket| meet_ws_loop(socket, room_id, state, claims))
 }
 
 /// Apakah pesan keluar bersifat terminal (klien harus menutup koneksi sesudahnya)?

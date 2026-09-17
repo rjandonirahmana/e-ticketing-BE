@@ -20,6 +20,66 @@ use std::time::Duration;
 use tracing::info;
 use validator::Validate;
 
+// ── PLAFON CPU UNTUK BCRYPT ───────────────────────────────────────────────
+//
+// bcrypt SENGAJA mahal: cost 10 berarti sekitar 60-100 ms CPU MURNI per
+// panggilan, dan tak ada satu pun bagiannya yang menunggu I/O. Memindahkannya
+// ke `spawn_blocking` sudah benar — itu menjauhkannya dari worker tokio — tapi
+// `spawn_blocking` hanya memindahkan pekerjaannya, tidak membatasinya.
+//
+// Kolam blocking di `main.rs` dibatasi `cpus × 8` (32 thread pada kotak 4
+// vCPU). Pada serbuan login, ke-32 thread itu menjalankan bcrypt SEKALIGUS di
+// atas 4 core — dan penjadwal kernel membagi CPU antar SEMUA thread runnable,
+// termasuk worker tokio. Hasilnya: worker mendapat sekitar seperdelapan CPU,
+// task yang tak ada hubungannya dengan login ikut tersendat, dan tick timer
+// telat berdetik-detik. Itu persis bentuk insiden "app tak menjawab" yang
+// sudah pernah tercatat.
+//
+// Plafon ini membuat kelebihan login MENGANTRE alih-alih berebut. Antreannya
+// murah: satu task tokio menunggu izin berbiaya sekitar satu kilobyte,
+// sementara satu thread yang berebut CPU berbiaya seluruh jadwal proses.
+//
+// Sebesar jumlah core, bukan lebih: bcrypt tak punya fase menunggu, jadi
+// menjalankan lebih banyak daripada core tak menambah satu pun login selesai
+// per detik — hanya menambah yang rebutan.
+static SANDI_CPU: std::sync::LazyLock<Arc<tokio::sync::Semaphore>> =
+    std::sync::LazyLock::new(|| {
+        let n = std::env::var("BCRYPT_CONCURRENCY")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or_else(|| {
+                std::thread::available_parallelism().map(|c| c.get()).unwrap_or(2)
+            })
+            .max(1);
+        tracing::info!(plafon = n, "Plafon bcrypt serentak");
+        Arc::new(tokio::sync::Semaphore::new(n))
+    });
+
+/// Jalankan kerja bcrypt di kolam blocking, di bawah plafon `SANDI_CPU`.
+///
+/// Mengembalikan `Result<_, JoinError>` yang sama persis dengan
+/// `spawn_blocking`, supaya setiap pemanggil tetap menangani galatnya seperti
+/// semula — yang berubah hanya berapa banyak yang boleh berjalan bersamaan.
+///
+/// Izinnya dipindahkan KE DALAM closure blocking, bukan ditahan di sisi async:
+/// yang perlu dibatasi adalah thread yang sedang membakar CPU, dan thread itu
+/// hidup lebih lama daripada `.await` di sini kalau pemanggilnya dibatalkan.
+async fn sandi_cpu<F, T>(f: F) -> Result<T, tokio::task::JoinError>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    // `acquire_owned` hanya gagal bila semaphore ditutup, dan yang ini tak
+    // pernah ditutup. Bila toh terjadi, jalan terus tanpa plafon lebih baik
+    // daripada menolak login.
+    let izin = SANDI_CPU.clone().acquire_owned().await.ok();
+    tokio::task::spawn_blocking(move || {
+        let _izin = izin;
+        f()
+    })
+    .await
+}
+
 /// Berapa kali kode OTP boleh salah sebelum sesi registrasinya dihanguskan.
 ///
 /// OTP di sini enam digit — satu juta kemungkinan — dan berlaku sepuluh menit.
@@ -364,7 +424,7 @@ impl AuthService {
         // tidak nge-stuck tokio worker thread.
         let password = pending.password.clone();
         let cost = self.bcrypt_cost;
-        let hashed = tokio::task::spawn_blocking(move || hash(&password, cost))
+        let hashed = sandi_cpu(move || hash(&password, cost))
             .await
             .map_err(|e| {
                 tracing::error!("spawn_blocking join gagal: {e}");
@@ -610,7 +670,7 @@ impl AuthService {
 
         let pw = password.to_string();
         let h = hash.clone();
-        let cocok = tokio::task::spawn_blocking(move || verify(&pw, &h))
+        let cocok = sandi_cpu(move || verify(&pw, &h))
             .await
             .map(|r| r.unwrap_or(false))
             .unwrap_or(false);
@@ -674,7 +734,7 @@ impl AuthService {
         let sandi_baru = generate_random_password();
         let pw = sandi_baru.clone();
         let cost = self.bcrypt_cost;
-        let hash_baru = tokio::task::spawn_blocking(move || hash(&pw, cost))
+        let hash_baru = sandi_cpu(move || hash(&pw, cost))
             .await
             .map_err(|e| AppError::Internal(anyhow!(e)))?
             .map_err(|e| AppError::Internal(anyhow!(e)))?;
@@ -761,7 +821,7 @@ impl AuthService {
                     // ditambah satu permintaan yang menggantung belasan detik.
                     // Batas atas 12 menjaganya tetap sekelas verifikasi nyata.
                     let cost = self.bcrypt_cost.clamp(4, 12);
-                    let dibuat = tokio::task::spawn_blocking(move || {
+                    let dibuat = sandi_cpu(move || {
                         hash("kata-sandi-umpan-tak-terpakai", cost)
                     })
                     .await
@@ -773,7 +833,7 @@ impl AuthService {
                 }
             };
             let password = req.password.clone();
-            let _ = tokio::task::spawn_blocking(move || verify(&password, &umpan)).await;
+            let _ = sandi_cpu(move || verify(&password, &umpan)).await;
             return Err(AppError::Unauthorized("Invalid email or password".into()));
         };
 
@@ -794,7 +854,7 @@ impl AuthService {
         let password = req.password.clone();
         let hash_for_verify = hash.clone();
         let verify_start = std::time::Instant::now();
-        let ok = tokio::task::spawn_blocking(move || verify(&password, &hash_for_verify))
+        let ok = sandi_cpu(move || verify(&password, &hash_for_verify))
             .await
             .map_err(|e| AppError::Internal(anyhow!(e)))?
             .map_err(|e| AppError::Internal(anyhow!(e)))?;

@@ -231,7 +231,7 @@ async fn lives_ws(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> R
         tracing::warn!("WS /ws/lives ditolak: plafon pendengar tercapai");
         return (axum::http::StatusCode::SERVICE_UNAVAILABLE, "Terlalu banyak pendengar").into_response();
     };
-    ws.on_upgrade(move |socket| async move {
+    crate::ws::siapkan_sinyal(ws).on_upgrade(move |socket| async move {
         // Izin dipegang selama sambungan hidup, dilepas saat ia berakhir.
         let _izin = izin;
         lives_ws_loop(socket, state).await;
@@ -468,7 +468,7 @@ async fn live_publish_ws(
     if !owns_room(&auth, &room_id) {
         return err(StatusCode::FORBIDDEN, "Bukan pemilik siaran ini");
     }
-    ws.on_upgrade(move |socket| live_publish_ws_loop(socket, room_id, state))
+    crate::ws::siapkan_sinyal(ws).on_upgrade(move |socket| live_publish_ws_loop(socket, room_id, state))
 }
 
 async fn live_publish_ws_loop(mut socket: WebSocket, room_id: String, state: Arc<AppState>) {
@@ -571,7 +571,7 @@ async fn live_subscribe_ws(
     Path(room_id): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> Response {
-    ws.on_upgrade(move |socket| live_subscribe_ws_loop(socket, room_id, state))
+    crate::ws::siapkan_sinyal(ws).on_upgrade(move |socket| live_subscribe_ws_loop(socket, room_id, state))
 }
 
 async fn live_subscribe_ws_loop(mut socket: WebSocket, room_id: String, state: Arc<AppState>) {
