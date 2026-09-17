@@ -88,6 +88,85 @@ pub fn LoginPage() -> impl IntoView {
             </section>
 
             <div class="auth-card animate-fade-up animate-fade-up-delay-2">
+                // ── Orang sandi ─────────────────────────────────────────────
+                // Tangannya menutup mata selama sandi tersembunyi dan turun ke
+                // dada saat sandinya ditampilkan — satu-satunya penanda keadaan
+                // itu yang terlihat tanpa harus dicari. Digerakkan oleh sinyal
+                // yang SAMA dengan tombol mata di dalam kolom sandi, jadi
+                // keduanya mustahil bercerita hal yang berbeda.
+                //
+                // `aria-hidden`: ia mengulang apa yang sudah dinyatakan
+                // `aria-pressed` pada tombol mata. Dibacakan pembaca layar, ia
+                // hanya menambah satu benda tak bernama untuk dilewati.
+                <div
+                    class="pw-orang"
+                    class:pw-orang--lihat=move || lihat_sandi.get()
+                    aria-hidden="true"
+                >
+                    <svg class="pw-orang__svg" viewBox="0 0 120 120">
+                        // Badan digambar PALING DULU supaya kepala dan tangan
+                        // menimpanya. Bahunya menyentuh tepi bawah viewBox: yang
+                        // membuat sosok ini terbaca sebagai orang — bukan kepala
+                        // melayang — adalah pundak yang terpotong bingkai,
+                        // persis seperti foto profil.
+                        <path class="pw-orang__badan"
+                              d="M20 120 Q22 97 44 91 L76 91 Q98 97 100 120 Z"/>
+                        <path class="pw-orang__leher" d="M52 76 h16 v18 h-16 Z"/>
+
+                        // Telinga LEBIH DULU daripada kepala supaya pangkalnya
+                        // tertimpa — itu yang membuatnya menempel, bukan
+                        // tertempel-tempel di sampingnya.
+                        <ellipse class="pw-orang__telinga" cx="31" cy="58" rx="6" ry="8"/>
+                        <ellipse class="pw-orang__telinga" cx="89" cy="58" rx="6" ry="8"/>
+
+                        <ellipse class="pw-orang__kepala" cx="60" cy="54" rx="29" ry="32"/>
+
+                        // Rambut digambar SESUDAH kepala dan hanya menutupi
+                        // dahi. Tanpa ini yang tersisa hanyalah bulatan dengan
+                        // wajah — bentuk yang sama persis dipakai emoji, hewan,
+                        // dan bola; rambutlah yang menjadikannya manusia.
+                        <path class="pw-orang__rambut"
+                              d="M31 52 Q30 22 60 22 Q90 22 89 52 Q84 36 60 34 Q36 34 31 52 Z"/>
+
+                        <path class="pw-orang__alis" d="M43 44 Q50 40 57 44"/>
+                        <path class="pw-orang__alis" d="M63 44 Q70 40 77 44"/>
+
+                        <circle class="pw-orang__mata" cx="50" cy="54" r="3.6"/>
+                        <circle class="pw-orang__mata" cx="70" cy="54" r="3.6"/>
+                        <path class="pw-orang__mata-pejam" d="M45 55 Q50 59 55 55"/>
+                        <path class="pw-orang__mata-pejam" d="M65 55 Q70 59 75 55"/>
+
+                        // Hidung sebagai SATU guratan, bukan dua titik. Dua
+                        // titik berdampingan di tengah wajah terbaca sebagai
+                        // sepasang mata begitu mata yang asli tertutup tangan —
+                        // orangnya tampak punya empat mata.
+                        <path class="pw-orang__hidung" d="M59 60 Q57 68 61.5 68"/>
+                        <path class="pw-orang__mulut" d="M53 74 Q60 80 67 74"/>
+
+                        // Tangan digambar TERAKHIR: di SVG tak ada `z-index`,
+                        // urutan dokumen itulah urutan tumpukannya.
+                        // EMPAT guratan jari, bukan tiga, dan tak satu pun
+                        // menyentuh tepi telapaknya. Tiga guratan sepanjang
+                        // penuh membelah telapak menjadi pita-pita sama lebar —
+                        // yang terbaca bukan tangan, melainkan permukaan
+                        // bergaris.
+                        <g class="pw-orang__tangan pw-orang__tangan--kiri">
+                            <ellipse cx="46" cy="54" rx="15" ry="12"/>
+                            <path class="pw-orang__jari" d="M37 50 L38 60"/>
+                            <path class="pw-orang__jari" d="M43 48 L43 61"/>
+                            <path class="pw-orang__jari" d="M49 48 L49 61"/>
+                            <path class="pw-orang__jari" d="M55 50 L54 60"/>
+                        </g>
+                        <g class="pw-orang__tangan pw-orang__tangan--kanan">
+                            <ellipse cx="74" cy="54" rx="15" ry="12"/>
+                            <path class="pw-orang__jari" d="M65 50 L66 60"/>
+                            <path class="pw-orang__jari" d="M71 48 L71 61"/>
+                            <path class="pw-orang__jari" d="M77 48 L77 61"/>
+                            <path class="pw-orang__jari" d="M83 50 L82 60"/>
+                        </g>
+                    </svg>
+                </div>
+
                 <form on:submit=on_submit class="auth-form" novalidate=true>
                     {move || error.get().map(|e| view! {
                         <div class="error-banner" role="alert">

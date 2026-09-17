@@ -27,6 +27,12 @@
    sudah ada — tak ada yang rusak.
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/* Lebar kolom aplikasi. HARUS sama dengan `max-w-[480px]` pada `<main>` di
+   `web/app/router.rs` — dua tempat karena yang satu kelas Tailwind literal dan
+   tak bisa membaca variabel CSS. Kalau kolomnya kelak berubah, ubah keduanya:
+   klip di bawah akan memotong halaman di tempat yang salah kalau tidak. */
+:root { --pt-kolom: 480px; }
+
 /* ── URUTAN LAPISAN — hal PERTAMA yang harus benar ─────────────────────────
    Tiap elemen yang diberi `view-transition-name` DIANGKAT keluar dari potretan
    `root` dan, secara bawaan, digambar DI ATASNYA. Urutannya mengikuti urutan
@@ -50,6 +56,30 @@
 ::view-transition-group(root)       { z-index: 0; }  /* halamannya sendiri */
 ::view-transition-group(pt-nav)     { z-index: 1; }  /* bilah nav bawah */
 ::view-transition-group(pt-progres) { z-index: 2; }  /* garis progres */
+
+/* ── KLIP KE LEBAR KOLOM — perbaikan latar grid yang BERKEDIP ──────────────
+   Menamai `.grid-bg` saja ternyata belum cukup, dan alasannya tak terlihat dari
+   berkas mana pun: `body` memasang `background-color: var(--bg-page)`, dan
+   latar `body` MERAMBAT ke kanvas dokumen. Kanvas itu ikut terpotret ke dalam
+   `root`. Jadi potretan `root` bukan "halaman di atas latar tembus pandang",
+   melainkan SATU LEMBAR BURAM SELEBAR VIEWPORT — dan lapisan grid yang sudah
+   susah payah dibuat diam di z-index -1 berada tepat DI BAWAHNYA, tertutup
+   rapat selama transisi berlangsung. Yang terlihat: grid dan orb di gutter
+   lenyap saat halaman berpindah lalu muncul lagi.
+
+   Latar kanvas itu tak bisa dibuang (tanpa latar, peramban memakai putih/hitam
+   bawaannya — sama buramnya), jadi yang dipotong adalah POTRETANNYA: grup
+   `root` diklip ke kolom 480px di tengah. Di dalam klip, halaman bergeser
+   seperti biasa; di luarnya tak ada apa pun dari `root`, sehingga lapisan
+   `pt-latar` yang diam itulah yang terlihat di gutter — persis seperti saat
+   tidak ada transisi.
+
+   Konsekuensi yang diterima: `box-shadow` kolom (60px ke kiri-kanan) ikut
+   terpotong selama 300 ms. Itu bayangan lembut ber-alpha 0.35; kehilangannya
+   sesaat jauh lebih tenang daripada seluruh grid yang berkedip. */
+::view-transition-group(root) {
+    clip-path: inset(0 max(0px, calc((100% - var(--pt-kolom)) / 2)));
+}
 
 @media (prefers-reduced-motion: no-preference) {
     ::view-transition-old(root),
@@ -115,23 +145,99 @@
         animation-name: pt-tarik-masuk;
         z-index: 0;
     }
+
+    /* ── DUA KEADAAN YANG TIDAK BOLEH BERGESER ─────────────────────────────
+       Ditulis PALING AKHIR dengan sengaja: kekhususannya sama dengan aturan
+       `.router-back` di atas, jadi urutan berkas inilah yang memenangkannya.
+       Keduanya harus menang — arah maju/mundur tak relevan begitu jawabannya
+       "jangan bergeser sama sekali".
+
+       ── `pt-tab` — pindah antar-tab bilah bawah ───────────────────────────
+       Geser ke samping menyatakan hubungan BERTINGKAT: yang baru menumpuk di
+       atas yang lama, dan tombol kembali akan membongkarnya lagi. Antar-tab
+       tidak begitu — EXPLORE dan PROFILE sejajar, tak ada yang "di dalam" yang
+       lain, dan kembali dari PROFILE tidak membawa siapa pun ke EXPLORE.
+       Mendorongnya ke samping menjanjikan struktur yang tak ada, dan arah
+       dorongannya pun sewenang-wenang: router menentukan maju/mundur dari
+       tumpukan path, bukan dari urutan tab, jadi tab yang sama bisa masuk dari
+       kiri sekali dan dari kanan di lain waktu.
+
+       Kelasnya dipasang oleh `BottomNav` pada `click` — SEBELUM router
+       memotret keadaan lama. Lihat catatannya di `components/nav.rs`.
+
+       ── `gulir-pulih` — kembali ke halaman yang tadi sudah digulir jauh ────
+       Ini penyebab "isi melompat setelah animasi". Saat mundur ke halaman
+       panjang, `gulir::pulihkan` tak bisa menyetel posisinya sekali jalan:
+       halaman tujuan masih kerangka shimmer setinggi satu layar, jadi ia
+       mencoba ulang tiap bingkai sampai isinya cukup tinggi. Sepanjang itu
+       posisi gulirnya masih merayap — sementara di layar ada lapisan yang
+       meluncur seolah halamannya sudah pada tempatnya. Begitu animasinya
+       usai, layar mendarat di posisi yang sama sekali lain.
+
+       Geseran itulah yang berbohong, jadi geseran itu yang dibuang. Pudar
+       150 ms tak menyatakan posisi apa pun, sehingga gulir yang mendarat di
+       tempat lain tak lagi terbaca sebagai lompatan — dan ia selesai lebih
+       cepat dari kejar-kejaran gulirnya. */
+    html.pt-tab::view-transition-old(root),
+    html.gulir-pulih::view-transition-old(root) {
+        animation-name: pt-pudar-keluar;
+        animation-duration: 150ms;
+        animation-timing-function: ease-out;
+        /* Kembali ke bawaan: pada `.router-back` di atas yang lama diangkat ke
+           z-index 1. Untuk silang-pudar, yang BARU harus di atas — kalau tidak,
+           yang tampak adalah halaman lama memudar memperlihatkan latar, bukan
+           halaman baru yang muncul. */
+        z-index: 0;
+    }
+    html.pt-tab::view-transition-new(root),
+    html.gulir-pulih::view-transition-new(root) {
+        animation-name: pt-pudar-masuk;
+        animation-duration: 150ms;
+        animation-timing-function: ease-out;
+        z-index: 1;
+    }
 }
 
+/* ── JARAK GESER = SELEBAR KOLOM, BUKAN SELEBAR VIEWPORT ───────────────────
+   `translateX(100%)` pada potretan `root` berarti SELEBAR VIEWPORT, karena
+   potretan `root` memang seluas viewport. Di ponsel keduanya kebetulan sama
+   dan tak ada yang janggal. Di laptop 1440px tidak: kolom 480px dipaksa
+   menempuh 1440px dalam 300 ms, dan halaman lama mundur 346px — jauh di luar
+   kolomnya sendiri. Yang terbaca bukan halaman yang didorong, melainkan
+   seluruh JENDELA yang meluncur.
+
+   `min(100%, var(--pt-kolom))` menjadikannya selebar kolom di layar lebar dan
+   tetap selebar layar di ponsel sempit (di mana kolomnya memang selebar itu) —
+   satu rumus, tanpa media query, tanpa dua angka yang bisa berselisih. */
 @keyframes pt-dorong-masuk {
-    from { transform: translateX(100%); }
+    from { transform: translateX(min(100%, var(--pt-kolom))); }
     to   { transform: translateX(0); }
 }
 @keyframes pt-dorong-keluar {
-    from { transform: translateX(0);    filter: brightness(1); }
-    to   { transform: translateX(-24%); filter: brightness(0.7); }
+    from { transform: translateX(0); filter: brightness(1); }
+    to   { transform: translateX(calc(min(100%, var(--pt-kolom)) * -0.24));
+           filter: brightness(0.7); }
 }
 @keyframes pt-tarik-masuk {
-    from { transform: translateX(-24%); filter: brightness(0.7); }
-    to   { transform: translateX(0);    filter: brightness(1); }
+    from { transform: translateX(calc(min(100%, var(--pt-kolom)) * -0.24));
+           filter: brightness(0.7); }
+    to   { transform: translateX(0); filter: brightness(1); }
 }
 @keyframes pt-tarik-keluar {
     from { transform: translateX(0); }
-    to   { transform: translateX(100%); }
+    to   { transform: translateX(min(100%, var(--pt-kolom))); }
+}
+
+/* Silang-pudar — dipakai dua keadaan di bawah yang sama-sama TIDAK boleh
+   bergeser. Pudar tak menyatakan arah dan tak menyatakan posisi; itulah
+   gunanya di sini. */
+@keyframes pt-pudar-masuk {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+@keyframes pt-pudar-keluar {
+    from { opacity: 1; }
+    to   { opacity: 0; }
 }
 
 /* ── Yang TIDAK ikut bergeser ───────────────────────────────────────────────

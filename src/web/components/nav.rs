@@ -117,6 +117,54 @@ pub fn CartButton() -> impl IntoView {
     }
 }
 
+/// Tandai bahwa perpindahan yang SEDANG dimulai adalah pindah antar-tab.
+///
+/// Dibaca oleh `58-page-transition.css`, yang menukar geseran ke samping
+/// menjadi silang-pudar selama kelas ini terpasang. Alasan lengkapnya ada di
+/// sana; ringkasnya: geser menyatakan hubungan bertingkat, dan antar-tab tidak
+/// punya hubungan itu.
+///
+/// ── KENAPA `pointerdown`, BUKAN `click` ───────────────────────────────────
+/// Kelasnya harus sudah terpasang SEBELUM router memotret keadaan lama, dan
+/// potret itu diambil di dalam penanganan `click`. Memasang pendengar `click`
+/// sendiri berarti bertaruh pada urutan pendengar — milik router ada di elemen
+/// lain dan urutannya bukan sesuatu yang dijanjikan siapa pun. `pointerdown`
+/// tidak perlu bertaruh: ia selalu terjadi lebih dulu daripada `click` yang
+/// dihasilkannya.
+///
+/// Akibatnya kelas ini kadang terpasang tanpa perpindahan apa pun — menekan
+/// tab yang sedang aktif, atau menekan lalu menggeser jari keluar. Itu tak
+/// berakibat apa-apa: tanpa transisi, tak ada yang membacanya, dan pewaktu di
+/// bawah melepasnya lagi.
+///
+/// ── KENAPA DILEPAS LEWAT PEWAKTU ──────────────────────────────────────────
+/// Akhir transisi punya peristiwanya sendiri, tapi hanya pada peramban yang
+/// mendukung View Transitions — dan justru pada yang TIDAK mendukung, kelas
+/// yang menunggu peristiwa itu akan menempel selamanya. Pewaktu selalu
+/// berdentang. 700 ms: lebih panjang dari transisi mana pun di berkas CSS itu,
+/// jauh lebih pendek dari jarak dua ketukan yang disengaja.
+#[cfg(target_arch = "wasm32")]
+fn tandai_pindah_tab() {
+    use leptos::wasm_bindgen::prelude::*;
+    use leptos::wasm_bindgen::JsCast;
+
+    let Some(win) = web_sys::window() else { return };
+    let Some(el) = win.document().and_then(|d| d.document_element()) else {
+        return;
+    };
+    let _ = el.class_list().add_1("pt-tab");
+
+    let cb = Closure::once_into_js(move || {
+        if let Some(el) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.document_element())
+        {
+            let _ = el.class_list().remove_1("pt-tab");
+        }
+    });
+    let _ = win.set_timeout_with_callback_and_timeout_and_arguments_0(cb.unchecked_ref(), 700);
+}
+
 /// Bottom navigation bar.
 /// Tabs: EXPLORE | LIVES | PULSE | ORDERS | PROFILE | (MERCHANT) | (ADMIN)
 #[component]
@@ -134,8 +182,26 @@ pub fn BottomNav(#[prop(default = "")] active: &'static str) -> impl IntoView {
             "bottom-item"
         }
     };
+    // Satu pendengar di bilahnya, bukan satu per tab: peristiwanya menggelembung
+    // dari tab mana pun, dan tab merchant/admin yang muncul belakangan ikut
+    // tercakup tanpa harus diingat.
+    // Dua closure karena tipe peristiwanya memang berbeda; isinya sama dan tak
+    // satu pun membaca peristiwanya.
+    let tandai_tunjuk = move |_: leptos::ev::PointerEvent| {
+        #[cfg(target_arch = "wasm32")]
+        tandai_pindah_tab();
+    };
+    let tandai_tombol = move |_: leptos::ev::KeyboardEvent| {
+        #[cfg(target_arch = "wasm32")]
+        tandai_pindah_tab();
+    };
+
     view! {
-        <nav class="bottom-nav">
+        // `keydown` melengkapi `pointerdown`: menekan Enter pada tab yang
+        // sedang difokus papan ketik tak pernah menghasilkan `pointerdown`,
+        // dan tanpa ini navigasi lewat papan ketik jatuh ke geseran samping
+        // yang justru sedang dihindari di sini.
+        <nav class="bottom-nav" on:pointerdown=tandai_tunjuk on:keydown=tandai_tombol>
 
             // 1. EXPLORE
             <A href="/explore" attr:class=cls("explore")>

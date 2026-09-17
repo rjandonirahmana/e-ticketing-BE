@@ -125,7 +125,7 @@ mod gulir {
     ///
     /// Kelasnya dipasang tepat selama gulir programatik berlangsung, jadi
     /// tautan jangkar di dalam halaman tetap halus seperti semula.
-    fn gulir_instan(aktif: bool) {
+    fn kelas_html(nama: &str, aktif: bool) {
         let Some(el) = web_sys::window()
             .and_then(|w| w.document())
             .and_then(|d| d.document_element())
@@ -134,10 +134,26 @@ mod gulir {
         };
         let daftar = el.class_list();
         let _ = if aktif {
-            daftar.add_1("gulir-instan")
+            daftar.add_1(nama)
         } else {
-            daftar.remove_1("gulir-instan")
+            daftar.remove_1(nama)
         };
+    }
+
+    fn gulir_instan(aktif: bool) {
+        kelas_html("gulir-instan", aktif);
+    }
+
+    /// Tandai bahwa posisi gulir halaman ini MASIH DIKEJAR.
+    ///
+    /// Dibaca oleh `58-page-transition.css`, yang menukar geseran antar-halaman
+    /// menjadi silang-pudar selama kelas ini terpasang. Alasannya ada di sana;
+    /// ringkasnya: selama `pulihkan` masih memanggil `scrollTo` tiap bingkai,
+    /// lapisan yang meluncur di layar menjanjikan posisi akhir yang belum tentu
+    /// jadi posisi akhir — dan selisihnya muncul sebagai lompatan tepat setelah
+    /// animasinya usai.
+    fn sedang_memulihkan(aktif: bool) {
+        kelas_html("gulir-pulih", aktif);
     }
 
     pub fn ke_atas() {
@@ -169,6 +185,7 @@ mod gulir {
         fn coba(target: f64, sisa: u32) {
             let Some(win) = web_sys::window() else {
                 gulir_instan(false);
+                sedang_memulihkan(false);
                 return;
             };
             let tinggi_isi = win
@@ -188,9 +205,11 @@ mod gulir {
                 // isinya memang tak akan setinggi itu. Kembalikan gulir halus
                 // supaya tautan jangkar di dalam halaman berperilaku normal.
                 gulir_instan(false);
+                sedang_memulihkan(false);
             }
         }
         gulir_instan(true);
+        sedang_memulihkan(true);
         coba(target, 40);
     }
 }

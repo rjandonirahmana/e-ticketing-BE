@@ -1,0 +1,192 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   ORANG SANDI — penanda keadaan "sandi terlihat / tersembunyi" di /login
+   ═══════════════════════════════════════════════════════════════════════════
+
+   Tangannya menutup mata selama sandi tersembunyi, lalu TURUN ke dada saat
+   sandinya ditampilkan. Ia bukan hiasan: ia menjawab pertanyaan yang muncul
+   tepat sebelum orang menekan tombol mata — "kalau kuketuk ini, sandinya
+   kelihatan siapa saja yang lewat?" — dan menjawabnya dari jarak yang bisa
+   dilihat sekilas, tidak seperti ikon mata 18px di dalam kolomnya.
+
+   ── KENAPA ORANG, BUKAN MONYET ────────────────────────────────────────────
+   Versi sebelumnya memakai monyet yang menutup mata (kiasan 🙈). Kiasannya
+   terbaca, tapi yang sedang dibicarakan halaman ini adalah SANDI ORANG YANG
+   SEDANG MASUK — dan satu-satunya sosok yang menempatkan pembacanya sebagai
+   dirinya sendiri adalah sosok manusia. Monyet menjadikannya lelucon; orang
+   menjadikannya cermin.
+
+   ── KENAPA DIGAMBAR, BUKAN EMOJI ──────────────────────────────────────────
+   Emoji 🙈 / 🫣 hanya punya satu keadaan: tertutup. Tak ada emoji "mengintip",
+   jadi memakai emoji berarti bertukar dua gambar berbeda yang saling
+   menggantikan, dan yang terlihat adalah kedipan, bukan tangan yang bergerak.
+   Gerakan tangannya justru seluruh isi pesannya.
+
+   Selain itu bentuk emoji ditentukan sistem operasi: yang sama di macOS,
+   Windows, dan Android bukan gambar yang sama, dan di sebagian platform
+   tangannya bahkan tak terbaca sebagai tangan pada ukuran 76px.
+
+   ── SATU SUMBER WARNA ─────────────────────────────────────────────────────
+   Warnanya literal dan TIDAK menarik token tema. Ini ilustrasi, bukan
+   kerangka antarmuka: warna kulit dan rambut tak punya padanan di tema
+   terang/gelap, dan memaksanya mengikuti token akan membuatnya berubah jadi
+   abu-abu pada salah satu tema. Yang dijaga justru kontrasnya terhadap KEDUA
+   latar — itu sebabnya ada garis tepi tipis, bukan karena gayanya.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pw-orang {
+    /* Semua ukuran turunan mengacu ke satu angka ini.
+       76px dulu terlalu kecil: pada ukuran itu jari, alis, dan hidungnya
+       mengecil sampai di bawah satu piksel perangkat, dan yang tersisa hanya
+       siluet — tangannya yang turun pun nyaris tak terbaca sebagai gerakan,
+       padahal gerakan itulah seluruh isi pesannya. Kartu ini lebar dalam
+       (480px dikurangi padding 24px) sekitar 400px, jadi 120px masih jauh dari
+       mendominasi. */
+    --orang-ukuran: 120px;
+
+    --orang-kulit: #e8b08a;
+    --orang-kulit-tepi: #c98d67;
+    --orang-rambut: #3c2f2b;
+    /* Tangan SENGAJA lebih terang dari wajah. Itu satu-satunya hal yang
+       memisahkan keduanya saat tangan menutup mata: tanpa selisih terang,
+       yang terlihat hanyalah satu bidang kulit tanpa bentuk. */
+    --orang-tangan: #f3c6a4;
+    --orang-baju: #4d5f74;
+    --orang-gelap: #3a2b25;
+
+    display: flex;
+    justify-content: center;
+    margin: 0 0 18px;
+}
+
+.pw-orang__svg {
+    width: var(--orang-ukuran);
+    height: var(--orang-ukuran);
+    /* Pengaman, bukan bagian rancangan: pada keadaan terbuka tangannya
+       berhenti di sekitar y=116 dari viewBox 120, jadi hari ini tak ada yang
+       terpotong. Yang dijaga adalah kalau kelak jaraknya diperbesar — tangan
+       yang lolos keluar viewBox akan menumpuki kolom "Nomor HP" di bawahnya,
+       dan penyebabnya tidak akan terlihat dari berkas ini. */
+    overflow: hidden;
+    display: block;
+}
+
+.pw-orang__badan {
+    fill: var(--orang-baju);
+    stroke: none;
+}
+.pw-orang__leher { fill: var(--orang-kulit-tepi); }
+.pw-orang__telinga { fill: var(--orang-kulit-tepi); }
+.pw-orang__kepala { fill: var(--orang-kulit); }
+.pw-orang__rambut { fill: var(--orang-rambut); }
+
+.pw-orang__hidung,
+.pw-orang__mulut {
+    fill: none;
+    stroke: var(--orang-gelap);
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* Alis lebih tipis daripada mulut. Disamakan tebalnya, ia berhenti terbaca
+   sebagai alis dan mulai terbaca sebagai kerutan marah. */
+.pw-orang__alis {
+    fill: none;
+    stroke: var(--orang-rambut);
+    stroke-width: 2.4;
+    stroke-linecap: round;
+}
+
+/* ── Mata ──────────────────────────────────────────────────────────────────
+   Dua keadaan yang dipertukarkan, bukan satu bentuk yang dianimasikan:
+   `scaleY` pada bulatan menghasilkan lonjong, bukan mata yang memicing. Yang
+   terbaca sebagai "terpejam" adalah GARIS, jadi garisnya digambar sendiri. */
+.pw-orang__mata { fill: var(--orang-gelap); }
+
+.pw-orang__mata-pejam {
+    fill: none;
+    stroke: var(--orang-gelap);
+    stroke-width: 2.4;
+    stroke-linecap: round;
+}
+
+/* Saat tangan masih menutup, mata TERPEJAM yang tampil. Ini penting untuk
+   bingkai-bingkai di tengah gerakan: tangan sudah mulai turun sementara
+   matanya belum sempat membuka, dan mata bulat yang muncul dari balik tangan
+   yang baru bergeser 3px terlihat seperti kaget, bukan seperti mengintip. */
+.pw-orang__mata { opacity: 0; }
+.pw-orang__mata-pejam { opacity: 1; }
+
+.pw-orang--lihat .pw-orang__mata { opacity: 1; }
+.pw-orang--lihat .pw-orang__mata-pejam { opacity: 0; }
+
+/* ── Tangan ────────────────────────────────────────────────────────────────
+   Keduanya turun, tapi TIDAK sama jauh dan tidak serentak. Gerakan yang
+   simetris sempurna terbaca sebagai satu benda yang dipindahkan; selisih
+   kecil inilah yang membuatnya terbaca sebagai dua tangan milik seseorang
+   yang sedang mengintip.
+
+   `transform-origin` ada di pangkal masing-masing tangan (sisi luar wajah,
+   setinggi bahu), jadi tangannya BERPUTAR turun seperti berporos di siku —
+   bukan melorot lurus ke bawah. */
+.pw-orang__tangan {
+    fill: var(--orang-tangan);
+    stroke: var(--orang-kulit-tepi);
+    stroke-width: 1.5;
+    transition: transform 320ms cubic-bezier(0.34, 1.2, 0.64, 1);
+}
+
+.pw-orang__tangan--kiri,
+.pw-orang__tangan--kanan {
+    /* Dinyatakan walau ini memang bawaan untuk elemen SVG: tanpa `view-box`,
+       koordinat di bawah diukur dari kotak isi masing-masing tangan, bukan
+       dari `viewBox` — dan porosnya pindah ke tempat yang tak dimaksud. */
+    transform-box: view-box;
+}
+.pw-orang__tangan--kiri { transform-origin: 30px 74px; }
+.pw-orang__tangan--kanan { transform-origin: 90px 74px; }
+
+/* Jari — hanya guratan, tak perlu bentuk sendiri. Ikut bergerak bersama
+   grup tangannya karena berada DI DALAM grup itu. */
+.pw-orang__jari {
+    fill: none;
+    stroke: var(--orang-kulit-tepi);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+}
+
+/* Keadaan TERBUKA: tangan kiri turun lebih jauh dan memutar lebih banyak,
+   tangan kanan tertinggal sedikit — sisi itulah yang "mengintip" lebih dulu. */
+.pw-orang--lihat .pw-orang__tangan--kiri {
+    /* Turunnya sampai DADA, bukan berhenti setinggi leher. Dua alasan, dan
+       yang kedua baru terlihat setelah badannya digambar:
+
+       1. Berhenti di tengah, tangannya mendarat tepat di depan mulut — yang
+          tampak adalah orang yang menutup MULUTNYA, pesan yang sama sekali
+          lain.
+       2. Di ketinggian leher tangannya berada di luar siluet badan, dan tanpa
+          lengan yang menghubungkannya ia terbaca sebagai dua benda yang
+          melayang di sebelah kepala. Begitu ia MENUMPANG di atas bidang baju,
+          pertanyaan "ini menempel di mana" tak lagi muncul — persis cara
+          ilustrasi datar lain menyembunyikan lengan yang tak digambar. */
+    transform: translate(3px, 54px) rotate(-22deg);
+}
+.pw-orang--lihat .pw-orang__tangan--kanan {
+    transform: translate(-2px, 52px) rotate(20deg);
+    /* Jeda 40 ms. Cukup untuk terbaca sebagai dua gerakan, terlalu singkat
+       untuk terbaca sebagai antrean. */
+    transition-delay: 40ms;
+}
+
+/* ── Hormati "kurangi gerak" ───────────────────────────────────────────────
+   Yang dimatikan hanya PERPINDAHANNYA. Keadaan akhirnya tetap berbeda —
+   tangan tetap turun, mata tetap terbuka — karena di situlah informasinya,
+   dan informasi itu justru soal keamanan. */
+@media (prefers-reduced-motion: reduce) {
+    .pw-orang__tangan {
+        transition: none;
+    }
+    .pw-orang--lihat .pw-orang__tangan--kanan {
+        transition-delay: 0s;
+    }
+}
