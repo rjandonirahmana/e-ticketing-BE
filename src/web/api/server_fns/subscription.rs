@@ -35,6 +35,20 @@ pub async fn confirm_subscription_payment(
 ) -> Result<String, ServerFnError> {
     let claims = auth_claims().await?;
     let state = app_state().await?;
+
+    // Lihat catatan panjang di `confirm_order_payment`: jalur ini memberi
+    // premium tanpa bukti bayar apa pun, dan bawaannya kini MATI.
+    if !crate::payment::mock_diizinkan() {
+        tracing::warn!(
+            user_id = %claims.user_id,
+            order_id,
+            "confirm_subscription_payment DITOLAK — PAYMENT_MOCK mati"
+        );
+        return Err(ServerFnError::ServerError(
+            "Pembayaran langganan harus diselesaikan lewat kanal pembayaran.".into(),
+        ));
+    }
+
     let days: i64 = match plan.as_str() {
         "weekly"   => 7,
         "monthly"  => 30,

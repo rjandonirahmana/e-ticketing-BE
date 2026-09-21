@@ -6,6 +6,21 @@
 
 /* ── DESIGN TOKENS ──────────────────────────────────────────────────────────── */
 :root {
+    /* ── LEBAR KOLOM APLIKASI ──────────────────────────────────────────────
+       Satu angka yang sebelumnya DISALIN ke 40 tempat di 24 berkas: kolom
+       utama, dan setiap bilah `position: fixed` yang harus sejajar dengannya
+       (bottom-nav, pay-bar, sticky-footer, chat-input-bar, toast-host, …).
+
+       Selama ia tersebar, "melebarkan tampilan di desktop" berarti menemukan
+       keempat puluh tempat itu tanpa melewatkan satu pun — dan yang terlewat
+       tidak gagal keras, ia hanya menjadi bilah yang lebarnya tak lagi sama
+       dengan kolom di atasnya. Satu token membuat perubahan itu jadi satu
+       baris, dan membuat ketidaksesuaian mustahil.
+
+       `58-page-transition.css` MENURUNKAN `--pt-kolom` dari token ini, jadi
+       jarak geser dan klip transisi ikut benar dengan sendirinya. */
+    --lebar-kolom: 480px;
+
     /* Dark theme — base defaults */
     /* --bg-base disamakan dengan --bg-page agar SEMUA halaman punya latar yang
        sama seperti /lives (canvas explore/home/messages & ring avatar ikut). */

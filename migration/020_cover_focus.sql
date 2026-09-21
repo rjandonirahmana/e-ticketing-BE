@@ -38,32 +38,50 @@
 --   psql "$DATABASE_URL" -f migration/020_cover_focus.sql
 --   (di GUI: cukup tekan Run Statement — seluruh berkas ini satu perintah)
 
+-- Nama tabelnya DICARI, bukan ditulis langsung: `023_products_rename.sql`
+-- me-rename `events` menjadi `products`, dan memutar ulang berkas ini di
+-- database yang sudah melewatinya mati dengan `relation "events" does not
+-- exist`. Kolom & constraint ikut terbawa rename, jadi hasilnya sama persis
+-- di era mana pun. Nama constraint-nya sengaja TETAP `chk_events_cover_focus`
+-- supaya `DROP CONSTRAINT IF EXISTS` di bawah tetap menemukan yang lama.
 DO $$
+DECLARE
+    produk TEXT := COALESCE(to_regclass('public.products')::text,
+                            to_regclass('public.events')::text);
 BEGIN
+    IF produk IS NULL THEN
+        RAISE EXCEPTION 'tabel events/products tak ada — 001.sql belum jalan';
+    END IF;
+
     -- 1. Kolomnya. `IF NOT EXISTS` → menjalankan ulang tak melakukan apa-apa,
     --    termasuk bila percobaan sebelumnya sudah sempat menambahkannya.
-    ALTER TABLE events
-        ADD COLUMN IF NOT EXISTS cover_focus TEXT NOT NULL DEFAULT '50% 50%';
+    EXECUTE format(
+        'ALTER TABLE %I ADD COLUMN IF NOT EXISTS cover_focus TEXT NOT NULL DEFAULT ''50%% 50%%''',
+        produk);
 
     -- 2. Baris lama yang entah bagaimana kosong/tak berbentuk dirapikan DULU —
     --    kalau tidak, CHECK di bawah akan menolak seluruh migrasi karena data
     --    yang sudah telanjur ada, dan itu menggagalkan pemasangan pagarnya
     --    justru pada database yang paling membutuhkannya.
-    UPDATE events
-       SET cover_focus = '50% 50%'
-     WHERE cover_focus IS NULL
-        OR cover_focus !~ '^[0-9]{1,3}% [0-9]{1,3}%$';
+    EXECUTE format(
+        'UPDATE %I SET cover_focus = ''50%% 50%%''
+          WHERE cover_focus IS NULL
+             OR cover_focus !~ ''^[0-9]{1,3}%% [0-9]{1,3}%%$''',
+        produk);
 
     -- 3. Pagar terakhir bila suatu saat ada jalur tulis yang melewatkan
     --    validasi Rust. Sengaja hanya memeriksa BENTUK, bukan rentang: rentang
     --    0–100 dijaga di Rust, dan CHECK yang terlalu rinci di sini hanya akan
     --    menolak baris pada saat yang paling tak berguna — ketika merchant
     --    menekan simpan.
-    ALTER TABLE events DROP CONSTRAINT IF EXISTS chk_events_cover_focus;
-    ALTER TABLE events ADD CONSTRAINT chk_events_cover_focus
-        CHECK (cover_focus ~ '^[0-9]{1,3}% [0-9]{1,3}%$');
+    EXECUTE format(
+        'ALTER TABLE %I DROP CONSTRAINT IF EXISTS chk_events_cover_focus', produk);
+    EXECUTE format(
+        'ALTER TABLE %I ADD CONSTRAINT chk_events_cover_focus
+             CHECK (cover_focus ~ ''^[0-9]{1,3}%% [0-9]{1,3}%%$'')',
+        produk);
 
-    RAISE NOTICE 'events.cover_focus siap.';
+    RAISE NOTICE '%.cover_focus siap.', produk;
 END $$;
 
 -- =============================================================================

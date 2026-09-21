@@ -20,5 +20,23 @@
 --   psql "$DATABASE_URL" -f migration/014_merchant_public_perf.sql
 -- ============================================================================
 
-CREATE INDEX IF NOT EXISTS idx_events_merchant_status_date
-    ON events (merchant_id, status, event_date);
+-- Nama tabelnya DICARI, bukan ditulis langsung: berkas ini lahir sebelum
+-- `023_products_rename.sql` me-rename `events` menjadi `products`, jadi menulis
+-- `events` di sini membuatnya hanya benar di satu titik sejarah — dan mati
+-- dengan `relation "events" does not exist` setiap kali ia diputar ulang di
+-- database yang sudah melewati 023. Isinya cuma satu index, jadi tak ada
+-- keputusan data yang bisa salah karena dijalankan di era lain.
+DO $$
+DECLARE
+    produk TEXT := COALESCE(to_regclass('public.products')::text,
+                            to_regclass('public.events')::text);
+BEGIN
+    IF produk IS NULL THEN
+        RAISE NOTICE 'tabel events/products tak ada — index dilewati.';
+        RETURN;
+    END IF;
+
+    EXECUTE format(
+        'CREATE INDEX IF NOT EXISTS idx_events_merchant_status_date ON %I (merchant_id, status, event_date)',
+        produk);
+END $$;

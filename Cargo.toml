@@ -257,7 +257,9 @@ bcrypt = "0.19.1"
 uuid = { version = "1", features = ["v4", "serde"] }
 
 # HTTP client (server functions → API internal)
-reqwest = { version = "0.13", features = ["json"] }
+# `form` dipakai gateway yang memakai badan x-www-form-urlencoded
+# (Stripe Checkout Session, Flip bill).
+reqwest = { version = "0.13", features = ["json", "form"] }
 
 # Storage & TLS
 aws-sdk-s3 = "1.132.0"
@@ -297,6 +299,28 @@ hex = "0.4"
 # Yang dibutuhkan di sini justru hash CEPAT dan deterministik supaya bisa
 # dicari lewat index.
 sha2 = "0.10"
+
+# ── Kripto untuk verifikasi webhook gateway pembayaran ─────────────────────
+# Ketiganya SUDAH ada di pohon dependency lewat crate lain (lihat Cargo.lock),
+# jadi menaikkannya jadi dependency langsung tidak menambah waktu build sama
+# sekali — ia hanya membuat pemakaiannya sah.
+#
+# Tiap gateway memilih algoritmanya sendiri dan kita tak bisa memilihkan:
+#   • Midtrans → SHA-512 (sudah tercakup `sha2`)
+#   • Stripe   → HMAC-SHA256
+#   • Faspay   → SHA-1(MD5(...))  — warisan, tapi itulah yang mereka kirim
+#   • Flip     → tak ada tanda tangan; hanya token tetap yang dibandingkan
+#
+# `subtle` dipakai untuk SEMUA pembandingan tanda tangan. Pembandingan `==`
+# biasa berhenti pada byte pertama yang berbeda, dan selisih waktunya cukup
+# untuk menebak tanda tangan yang sah byte demi byte dari jarak jauh.
+sha1 = "0.10"
+# Callback Flip datang sebagai form, bukan JSON. Crate ini sudah ada di pohon
+# lewat `url`, jadi ia tak menambah waktu build.
+form_urlencoded = "1"
+md-5 = "0.10"   # WAJIB sebaris dengan sha2/sha1 0.10 (digest 0.10)
+hmac = "0.12"
+subtle = "2.6"
 async-trait = "0.1"
 bytes = "1.12.0"
 ahash = "0.8.12"

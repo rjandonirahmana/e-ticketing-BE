@@ -44,6 +44,27 @@
     animation: orbFloat 10s ease-in-out infinite reverse;
 }
 
+/* ── ORB DIMATIKAN SAAT TAK ADA GUTTER ────────────────────────────────────
+   Latar grid hanya terlihat di gutter kiri-kanan, dan gutter hanya ada ketika
+   layarnya LEBIH LEBAR daripada kolom var(--lebar-kolom). Di bawah itu kolom yang opaque
+   menutupi seluruh viewport — orbnya tetap ada, tetap berputar 8 dan 10 detik
+   tanpa henti, tetap dicat dengan `blur(80px)`, dan tak seorang pun pernah
+   melihatnya.
+
+   Itu bukan biaya kecil: blur radius 80px pada bidang 400px adalah salah satu
+   hal termahal yang bisa diminta dari compositor, dan ia berjalan SELAMANYA di
+   tiap halaman — di ponsel, yaitu perangkat yang paling tak sanggup
+   membayarnya. Ia juga ikut dirasterisasi tiap kali potretan transisi diambil,
+   karena `.grid-bg` punya `view-transition-name` sendiri.
+
+   Ambangnya 520px, bukan var(--lebar-kolom): di bawah itu gutternya tinggal beberapa piksel
+   di tiap sisi dan orb yang terpusat di sudut tak menyumbang apa pun. */
+@media (max-width: 520px) {
+    .orb {
+        display: none;
+    }
+}
+
 /* ── INPUTS ─────────────────────────────────────────────────────────────────── */
 .field-wrap {
     display: flex;
@@ -582,7 +603,7 @@
     left: 50%;
     transform: translateX(-50%);
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
 }
 
 /* Input "last chance" highlight */
@@ -595,18 +616,21 @@
 
 /* Read-only bar — user sudah habis jatah */
 .chat-readonly-bar {
+    /* `backdrop-filter` dibuang: latarnya ≥ 95% buram, jadi yang diburamkan
+       di belakangnya tak pernah terlihat — yang tersisa hanya biaya baca-balik
+       + blur + komposit ulang, pada bilah yang menempel di layar sepanjang
+       waktu dan ikut dirasterisasi tiap potretan transisi. */
     position: fixed;
     bottom: 0;
     left: 50%;
     transform: translateX(-50%);
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
     display: flex;
     align-items: center;
     gap: 10px;
     padding: 14px 20px 28px;
     background: var(--overlay-blur);
-    backdrop-filter: blur(20px);
     border-top: 1px solid var(--border);
     font-family: var(--font-body);
     font-size: 12px;
@@ -1453,7 +1477,7 @@ textarea:focus {
     left: 50%;
     transform: translateX(-50%);
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
     background: var(--overlay-blur, rgba(13, 13, 26, 0.92));
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);

@@ -8,7 +8,7 @@
 .page {
     position: relative;
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
     margin: 0 auto;
     background: var(--bg-page);
     min-height: 100dvh;
@@ -971,7 +971,7 @@
 /* Grid event beranda (2 kolom, gaya marketplace) */
 .products-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
     padding: 0 20px 24px;
 }
@@ -1108,7 +1108,7 @@
 .exp-page {
     background: var(--bg-base);
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
     margin: 0 auto;
     min-height: 100dvh;
     position: relative;

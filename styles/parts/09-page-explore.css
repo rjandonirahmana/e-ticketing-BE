@@ -394,7 +394,20 @@
 /* ── Marketplace grid (Shopee-style) ─────────────────────────────── */
 .exp-mkt-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    /* `minmax(0, 1fr)`, BUKAN `1fr`.
+
+       `1fr` sesungguhnya adalah `minmax(auto, 1fr)`, dan batas bawah `auto`
+       berarti "jangan pernah lebih sempit daripada isi terpendek yang tak bisa
+       dipatahkan". Nama produk panjang tanpa spasi, atau harga seperti
+       `Rp1.250.000`, karena itu bisa MELEBARKAN lajurnya melewati jatahnya —
+       gridnya lalu lebih lebar daripada kolom, dan kartu kanan terpotong tepi
+       layar. Kegagalannya senyap: ia hanya muncul untuk produk tertentu, di
+       lebar layar tertentu.
+
+       `minmax(0, …)` mengembalikan batas bawahnya ke nol, jadi lajurnya
+       benar-benar membagi rata dan isi yang kepanjangan dipotong/dilipat di
+       dalam kartunya sendiri. */
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
     width: 100%;
 }
@@ -947,7 +960,7 @@
     bottom: 0;
     left: 50%;
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
     z-index: 300;
     transform: translateX(-50%) translateY(100%);
     transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1);

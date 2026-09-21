@@ -180,10 +180,32 @@ impl RefreshService {
             // Dicabut BARU SAJA = hampir pasti permintaan saudara dari halaman
             // yang sama, bukan penyerang. Layani ia dengan access token baru,
             // tanpa merotasi ulang dan tanpa menyentuh keluarganya.
-            let baru_saja = row
-                .revoked_at
-                .map(|t| Utc::now().signed_duration_since(t) < Duration::seconds(GRACE_ROTASI))
-                .unwrap_or(false);
+            // `replaced_by` WAJIB ikut diperiksa, bukan hanya umur pencabutan.
+            //
+            // `revoked_at` terisi oleh EMPAT sebab yang sangat berbeda:
+            // rotasi biasa (token ini digantikan penerusnya), logout,
+            // `revoke_all` saat ganti sandi, dan pencabutan keluarga karena
+            // pemakaian ulang terdeteksi. Hanya yang PERTAMA yang pantas
+            // mendapat toleransi — ia memang permintaan saudara dari halaman
+            // yang sama, dan pemiliknya tak melakukan apa pun yang salah.
+            //
+            // Tiga sisanya adalah pernyataan tegas bahwa token ini tak boleh
+            // dipakai lagi. Memberi mereka jendela yang sama berarti: siapa
+            // pun yang memegang salinan refresh token masih bisa menukarnya
+            // dengan access token baru sampai 30 detik SESUDAH pemiliknya
+            // menekan logout, sesudah sandinya diganti, atau sesudah sistem
+            // sendiri menyimpulkan tokennya dicuri. Access token yang terbit
+            // di situ membawa role terbaru dari database dan berlaku penuh.
+            //
+            // Hanya rotasi yang mengisi `replaced_by` (lihat `REVOKE_ONE`:
+            // `SET revoked_at = NOW(), replaced_by = $2`); logout dan
+            // pencabutan keluarga meninggalkannya NULL. Jadi medan itulah
+            // pembedanya, dan satu-satunya yang tersedia.
+            let baru_saja = row.replaced_by.is_some()
+                && row
+                    .revoked_at
+                    .map(|t| Utc::now().signed_duration_since(t) < Duration::seconds(GRACE_ROTASI))
+                    .unwrap_or(false);
             if baru_saja {
                 tracing::debug!(
                     user_id = %row.user_id,
@@ -356,6 +378,7 @@ mod tests {
             family_id: new_ulid(),
             expires_at: Utc::now() + Duration::days(1),
             revoked_at: None,
+            replaced_by: None,
         };
         assert!(!hidup.is_revoked());
         assert!(!hidup.is_expired());
@@ -405,7 +428,23 @@ mod tests_rotasi {
     }
 
     impl RepoRefreshPalsu {
+        /// Baris yang dicabut oleh ROTASI — `replaced_by` terisi, seperti
+        /// yang dilakukan `REVOKE_ONE` sungguhan.
         fn seed(&self, hash: &str, id: &str, family: &str, revoked_at: Option<DateTime<Utc>>) {
+            let replaced_by = revoked_at.map(|_| "penerus".to_string());
+            self.seed_dengan_pengganti(hash, id, family, revoked_at, replaced_by);
+        }
+
+        /// Baris yang dicabut TANPA pengganti — logout, ganti sandi, atau
+        /// pencabutan keluarga. Inilah yang tak boleh mendapat toleransi.
+        fn seed_dengan_pengganti(
+            &self,
+            hash: &str,
+            id: &str,
+            family: &str,
+            revoked_at: Option<DateTime<Utc>>,
+            replaced_by: Option<String>,
+        ) {
             self.baris.lock().unwrap().push((
                 hash.to_string(),
                 RefreshTokenRow {
@@ -414,6 +453,7 @@ mod tests_rotasi {
                     family_id: family.into(),
                     expires_at: Utc::now() + Duration::days(30),
                     revoked_at,
+                    replaced_by,
                 },
             ));
         }
@@ -441,6 +481,7 @@ mod tests_rotasi {
                     family_id: family_id.into(),
                     expires_at,
                     revoked_at: None,
+                    replaced_by: None,
                 },
             ));
             Ok(())
@@ -459,11 +500,15 @@ mod tests_rotasi {
         /// Meniru `UPDATE ... WHERE id = $1 AND revoked_at IS NULL`: hanya satu
         /// pemanggil yang bisa menang. Semantik itulah yang membuat balapan
         /// rotasi punya pemenang tunggal, jadi tiruannya harus setia.
-        async fn revoke(&self, id: &str, _replaced_by: Option<&str>) -> anyhow::Result<bool> {
+        async fn revoke(&self, id: &str, replaced_by: Option<&str>) -> anyhow::Result<bool> {
             let mut b = self.baris.lock().unwrap();
             for (_, r) in b.iter_mut() {
                 if r.id == id && r.revoked_at.is_none() {
                     r.revoked_at = Some(Utc::now());
+                    // Ikut dicatat: `rotate` membedakan sebab pencabutan dari
+                    // medan ini, jadi tiruan yang membuangnya akan meluluskan
+                    // justru bug yang sedang dijaga.
+                    r.replaced_by = replaced_by.map(str::to_string);
                     return Ok(true);
                 }
             }
@@ -641,6 +686,49 @@ mod tests_rotasi {
             2,
             "seluruh keluarga dicabut, termasuk token yang masih hidup"
         );
+    }
+
+    /// Token yang dicabut oleh LOGOUT tak mendapat toleransi, walau baru
+    /// saja dicabut.
+    ///
+    /// Bedanya dengan `rotasi_bersamaan_dilayani_tanpa_mencabut_keluarga`
+    /// hanya satu medan: di sana `replaced_by` terisi karena pencabutnya
+    /// adalah rotasi; di sini kosong karena pencabutnya logout. Umur
+    /// pencabutannya sama-sama nol detik, jadi penjaga yang hanya melihat
+    /// `revoked_at` akan meluluskan KEDUANYA — dan itulah persis celahnya:
+    /// siapa pun yang memegang salinan refresh token masih bisa menukarnya
+    /// dengan access token baru sampai 30 detik sesudah pemiliknya menekan
+    /// logout.
+    #[tokio::test]
+    async fn token_dicabut_logout_tak_dapat_toleransi() {
+        let repo = Arc::new(RepoRefreshPalsu::default());
+        repo.seed_dengan_pengganti(
+            &RefreshService::hash("token-logout"),
+            "id-a",
+            "fam-1",
+            Some(Utc::now()), // BARU SAJA dicabut
+            None,             // tapi TANPA pengganti → bukan rotasi
+        );
+        let svc = layanan(repo.clone());
+
+        assert!(
+            svc.rotate("token-logout", "penyerang").await.is_err(),
+            "token yang dicabut logout tak boleh ditukar access token baru"
+        );
+    }
+
+    /// Ganti sandi mencabut seluruh keluarga tanpa pengganti — dan tak satu
+    /// pun anggotanya boleh lolos lewat jendela toleransi.
+    #[tokio::test]
+    async fn pencabutan_keluarga_tak_dapat_toleransi() {
+        let repo = Arc::new(RepoRefreshPalsu::default());
+        let sekarang = Some(Utc::now());
+        repo.seed_dengan_pengganti(&RefreshService::hash("token-a"), "id-a", "fam-1", sekarang, None);
+        repo.seed_dengan_pengganti(&RefreshService::hash("token-b"), "id-b", "fam-1", sekarang, None);
+        let svc = layanan(repo.clone());
+
+        assert!(svc.rotate("token-a", "penyerang").await.is_err());
+        assert!(svc.rotate("token-b", "penyerang").await.is_err());
     }
 
     /// Token yang tak dikenal ditolak tanpa menyentuh keluarga mana pun.

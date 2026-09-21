@@ -97,10 +97,25 @@ pub async fn checkout_cart(
     Ok(srv_order_detail_to_ref(order))
 }
 
-/// Tandai order pending sebagai lunas.
+/// Tandai order pending sebagai lunas — JALUR TIRUAN, dipagari env.
 ///
-/// Berdiri di tempat callback gateway: begitu integrasi pembayaran nyata
-/// terpasang, jalur inilah yang diganti dan sisa aplikasi tak perlu berubah.
+/// ── KENAPA INI HARUS DIPAGARI ─────────────────────────────────────────────
+/// Fungsi ini menerbitkan tiket dan memotong stok permanen tanpa bukti
+/// pembayaran apa pun. Yang memanggilnya adalah browser PEMBELI sendiri, dan
+/// satu-satunya yang diperiksa adalah bahwa ordernya miliknya. Artinya siapa
+/// pun yang login bisa membuat order lalu menyatakannya lunas — tiketnya
+/// terbit, stoknya berkurang, notifikasi "PAID" keluar, dan tak ada satu pun
+/// baris log yang tampak salah.
+///
+/// Ia dipertahankan karena berguna: mengembangkan alur checkout tanpa harus
+/// menunggu callback gateway sungguhan jauh lebih cepat. Yang berubah hanyalah
+/// ia tak lagi menyala dengan sendirinya.
+///
+/// **Bawaannya MATI.** Menyalakannya menuntut `PAYMENT_MOCK=1` dituliskan
+/// dengan sengaja — dan satu-satunya tempat yang pantas menuliskannya adalah
+/// mesin pengembangan. Jalur yang sah ada di `payment::webhook`: gateway yang
+/// memberi tahu, tanda tangan yang diperiksa, baru order dilunaskan.
+///
 /// Kanal yang dipakai diambil dari order itu sendiri — sebelumnya selalu
 /// dituliskan "qris" apa pun yang sebenarnya dipilih pembeli, sehingga laporan
 /// per-kanal tak pernah bisa dipercaya.
@@ -110,6 +125,17 @@ pub async fn confirm_order_payment(order_id: String) -> Result<OrderRef, ServerF
 
     let claims = auth_claims().await?;
     let state = app_state().await?;
+
+    if !crate::payment::mock_diizinkan() {
+        tracing::warn!(
+            user_id = %claims.user_id,
+            order_id,
+            "confirm_order_payment DITOLAK — PAYMENT_MOCK mati; pelunasan hanya lewat webhook"
+        );
+        return Err(ServerFnError::ServerError(
+            "Pembayaran harus diselesaikan lewat kanal pembayaran.".into(),
+        ));
+    }
 
     let current = state
         .order_svc
@@ -152,4 +178,74 @@ pub async fn cancel_order(order_id: String) -> Result<(), ServerFnError> {
         .await
         .map_err(map_app_error)?;
     Ok(())
+}
+
+/// Mulai pembayaran sungguhan: minta gateway membuat tagihan, lalu kembalikan
+/// cara membayarnya.
+///
+/// ── INI JALUR YANG SAH; `confirm_order_payment` BUKAN ─────────────────────
+/// Fungsi ini TIDAK mengubah status order sama sekali. Ia hanya membuat
+/// tagihan di sisi gateway dan mencatat transaksinya, supaya callback nanti
+/// punya jalan pulang ke order ini. Yang melunaskan order hanyalah webhook
+/// yang tanda tangannya terverifikasi (`payment::webhook`).
+///
+/// Pemisahan itu yang membuat jalur ini aman dipanggil browser: seberapa pun
+/// sering seseorang memanggilnya, tak ada tiket yang terbit. Yang paling buruk
+/// terjadi adalah tagihan yang sama dibuat ulang — dan `ON CONFLICT` pada
+/// `(provider, provider_ref)` membuat pengulangan itu menghasilkan baris yang
+/// sama, bukan baris kedua.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct CaraBayar {
+    pub provider: String,
+    /// Nomor VA / kode yang disalin pembeli.
+    pub reference: Option<String>,
+    /// Halaman bayar yang dibuka pembeli.
+    pub url: Option<String>,
+}
+
+#[server(MulaiPembayaran, "/api-fn")]
+pub async fn mulai_pembayaran(
+    order_id: String,
+    provider: String,
+) -> Result<CaraBayar, ServerFnError> {
+    let claims = auth_claims().await?;
+    let state = app_state().await?;
+
+    // Kepemilikan diperiksa lewat `detail`, yang sudah menolak order milik
+    // orang lain. Tanpa ini, siapa pun bisa membuat tagihan atas order siapa
+    // pun — tak berbahaya secara uang, tapi ia membocorkan kode order dan
+    // nominalnya lewat jawaban gateway.
+    let order = state
+        .order_svc
+        .detail(&order_id, &claims.user_id)
+        .await
+        .map_err(map_app_error)?;
+
+    if order.status != "pending" {
+        return Err(ServerFnError::ServerError(
+            "Order ini sudah tidak menunggu pembayaran.".into(),
+        ));
+    }
+
+    let tagihan = crate::payment::buat_tagihan_untuk_order(
+        &state,
+        &provider,
+        &order,
+        &claims.name,
+        None,
+        Some(claims.phone.clone()),
+    )
+    .await
+    .map_err(|e| -> ServerFnError {
+        // Sebab aslinya masuk LOG, bukan ke pembeli: jawaban gateway kerap
+        // memuat kunci, id internal, dan potongan permintaan kita sendiri.
+        tracing::error!(provider, order_id, error = %e, "gagal membuat tagihan gateway");
+        ServerFnError::ServerError("Gagal menghubungi kanal pembayaran.".into())
+    })?;
+
+    Ok(CaraBayar {
+        provider,
+        reference: tagihan.pay_reference,
+        url: tagihan.pay_url,
+    })
 }

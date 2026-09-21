@@ -269,7 +269,7 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   PHONE FRAME — di layar >480px tampilkan mockup perangkat
+   PHONE FRAME — di layar >var(--lebar-kolom) tampilkan mockup perangkat
    ══════════════════════════════════════════════════════════════════════════════ */
 @media (min-width: 481px) {
     body {

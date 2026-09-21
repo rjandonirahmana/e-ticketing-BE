@@ -34,9 +34,10 @@ const LOCK_KEY: i64 = 0x5055_4C53_4531_0001;
 
 /// Batas garis dasar untuk database yang sudah berisi data.
 ///
-/// Migrasi 001–038 sudah dijalankan dengan tangan di database berjalan,
-/// dan sebagian di antaranya TIDAK aman diulang — `007_seed_bulk.sql`, misalnya,
-/// akan menyuntikkan data contoh untuk kedua kalinya. Karena itu, pada database
+/// Migrasi 001–038 sudah dijalankan dengan tangan di database berjalan, dan
+/// sebagian di antaranya TIDAK aman diulang — `022_cart_payment.sql`, misalnya,
+/// menyebut `event_variants` yang sudah di-rename oleh `023`, jadi memutarnya
+/// ulang di database yang sudah melewati 023 GAGAL. Karena itu, pada database
 /// yang jelas sudah terpakai (tabel `users` ada) tetapi belum punya
 /// `schema_migrations`, berkas sampai batas ini hanya DICATAT, tidak dijalankan.
 ///
@@ -472,8 +473,7 @@ mod tests {
 
     /// Garis dasar memisahkan "sudah pernah dijalankan dengan tangan" dari
     /// "harus dijalankan sekarang". Perbandingan string itu load-bearing:
-    /// salah arah, dan `007_seed_bulk.sql` akan menyuntik data contoh untuk
-    /// kedua kalinya ke database produksi.
+    /// salah arah, dan berkas yang sudah usang diputar ulang di produksi.
     #[test]
     fn baseline_memisahkan_lama_dan_baru() {
         let daftar: Vec<&str> = MIGRATIONS.iter().map(|(n, _)| *n).collect();
@@ -487,8 +487,14 @@ mod tests {
 
         // Berkas yang tak aman diulang harus berada DI BAWAH garis dasar,
         // supaya ia dicatat, bukan dijalankan ulang.
-        assert!("007_seed_bulk.sql" <= BASELINE);
         assert!("021_paid_at_semantics.sql" <= BASELINE);
+
+        // Perbaikan drift 001a/001b HARUS ikut di bawah garis dasar: keduanya
+        // menuliskan kolom & tabel yang di produksi SUDAH ada sejak lama.
+        // Di atas garis dasar, keduanya akan dijalankan di sana — tak merusak
+        // (semuanya `IF NOT EXISTS`), tapi menyembunyikan artinya.
+        assert!("001a_events_content_columns.sql" <= BASELINE);
+        assert!("001b_notifications.sql" <= BASELINE);
 
         // 022 menyebut `event_variants`, yang sudah di-rename oleh 023. Selama
         // produksi sudah melewati 023 dengan tangan, 022 TIDAK boleh diputar

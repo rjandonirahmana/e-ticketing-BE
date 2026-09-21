@@ -39,7 +39,7 @@
        mengecil sampai di bawah satu piksel perangkat, dan yang tersisa hanya
        siluet — tangannya yang turun pun nyaris tak terbaca sebagai gerakan,
        padahal gerakan itulah seluruh isi pesannya. Kartu ini lebar dalam
-       (480px dikurangi padding 24px) sekitar 400px, jadi 120px masih jauh dari
+       (var(--lebar-kolom) dikurangi padding 24px) sekitar 400px, jadi 120px masih jauh dari
        mendominasi. */
     --orang-ukuran: 120px;
 

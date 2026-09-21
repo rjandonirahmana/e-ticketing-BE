@@ -21,6 +21,14 @@ pub struct RefreshTokenRow {
     pub family_id: String,
     pub expires_at: DateTime<Utc>,
     pub revoked_at: Option<DateTime<Utc>>,
+    /// Token pengganti, bila baris ini dicabut oleh ROTASI.
+    ///
+    /// Inilah satu-satunya hal yang membedakan "dicabut karena digantikan
+    /// penerusnya" dari "dicabut karena logout, ganti sandi, atau pemakaian
+    /// ulang terdeteksi" — ketiganya sama-sama mengisi `revoked_at` dan tanpa
+    /// medan ini tak bisa dibedakan satu sama lain. `RefreshService::rotate`
+    /// memakainya untuk memutuskan siapa yang berhak atas jendela toleransi.
+    pub replaced_by: Option<String>,
 }
 
 impl RefreshTokenRow {
@@ -34,7 +42,7 @@ impl RefreshTokenRow {
 }
 
 static FIND_BY_HASH: &str = r#"
-    SELECT id, user_id, family_id, expires_at, revoked_at
+    SELECT id, user_id, family_id, expires_at, revoked_at, replaced_by
       FROM refresh_tokens
      WHERE token_hash = $1
 "#;
@@ -120,6 +128,11 @@ fn row_to_token(row: &Row) -> Result<RefreshTokenRow> {
         )?,
         expires_at: row.try_get("expires_at").context("refresh_tokens.expires_at")?,
         revoked_at: row.try_get("revoked_at").unwrap_or(None),
+        replaced_by: row
+            .try_get::<_, Option<Vec<u8>>>("replaced_by")
+            .unwrap_or(None)
+            .map(bin_to_ulid)
+            .transpose()?,
     })
 }
 

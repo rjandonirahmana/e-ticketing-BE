@@ -6,12 +6,21 @@
 -- ATURAN PENULISAN BERKAS INI (jangan dilanggar saat menyunting)
 --   1. TIDAK ADA titik-koma di dalam komentar.
 --   2. TIDAK ADA apostrof di dalam komentar. Pakai backtick.
---   3. TIDAK ADA blok dollar-quote.
+--   3. TIDAK ADA blok dollar-quote -- KECUALI satu, lihat catatan di bawah.
 --   4. TIDAK ADA foreign key di dalam CREATE TABLE. Semua FK ditambahkan
 --      terpisah di BAGIAN 5, paling akhir.
 --
 -- Aturan 1-3 melindungi dari klien SQL yang memecah berkas dengan memotong
 -- pada setiap titik-koma tanpa memahami komentar maupun string.
+--
+-- PENGECUALIAN aturan 3: satu blok `DO` di BAGIAN 5 memilih nama tabel varian
+-- yang berlaku (`event_variants` sebelum 023, `product_variants` sesudahnya).
+-- Tanpa itu berkas ini mati di database yang sudah melewati 023, dan tak ada
+-- cara menulis DDL bersyarat di SQL polos. Sejak `config/migrate.rs` yang
+-- mengirim berkas ini -- utuh, lewat `batch_execute`, dan PostgreSQL sendiri
+-- yang memisah pernyataannya -- pemecah titik-koma yang dikhawatirkan aturan
+-- 1-3 sudah tak ada di jalur otomatis. Aturannya tetap berlaku untuk sisa
+-- berkas ini karena berkas ini juga masih dibuka orang di klien GUI.
 --
 -- Aturan 4 melindungi dari hal yang lebih berbahaya. FOREIGN KEY di dalam
 -- CREATE TABLE membuat tabelnya GAGAL LAHIR bila salah satu acuannya
@@ -313,9 +322,27 @@ ALTER TABLE cart_items DROP CONSTRAINT IF EXISTS fk_cart_items_cart;
 ALTER TABLE cart_items ADD CONSTRAINT fk_cart_items_cart
     FOREIGN KEY (cart_id) REFERENCES carts(id) ON DELETE CASCADE;
 
-ALTER TABLE cart_items DROP CONSTRAINT IF EXISTS fk_cart_items_variant;
-ALTER TABLE cart_items ADD CONSTRAINT fk_cart_items_variant
-    FOREIGN KEY (ticket_variant_id) REFERENCES event_variants(id) ON DELETE CASCADE;
+-- Nama tabel varian DICARI, bukan ditulis langsung: `023_products_rename.sql`
+-- me-rename `event_variants` menjadi `product_variants` dan memasang ulang FK
+-- ini dengan RESTRICT. Memutar ulang 022 di database yang sudah melewati 023
+-- mati dengan `relation "event_variants" does not exist` -- dan itu persis
+-- kegagalan 8 Sep 2026. Bila 023 menyusul sesudah ini, ia menimpa aturannya
+-- kembali ke RESTRICT, jadi urutannya tetap menghasilkan keadaan yang benar.
+DO $$
+DECLARE
+    varian TEXT := COALESCE(to_regclass('public.product_variants')::text,
+                            to_regclass('public.event_variants')::text);
+BEGIN
+    IF varian IS NULL THEN
+        RAISE EXCEPTION 'tabel event_variants/product_variants tak ada';
+    END IF;
+
+    ALTER TABLE cart_items DROP CONSTRAINT IF EXISTS fk_cart_items_variant;
+    EXECUTE format(
+        'ALTER TABLE cart_items ADD CONSTRAINT fk_cart_items_variant
+             FOREIGN KEY (ticket_variant_id) REFERENCES %I(id) ON DELETE CASCADE',
+        varian);
+END $$;
 
 ALTER TABLE promo_redemptions DROP CONSTRAINT IF EXISTS fk_promo_red_promo;
 ALTER TABLE promo_redemptions ADD CONSTRAINT fk_promo_red_promo

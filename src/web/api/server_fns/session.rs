@@ -73,16 +73,18 @@ fn set_cookie(value: String) {
 /// Sesi tetap panjang karena cookie refresh yang memperpanjangnya diam-diam.
 #[cfg(feature = "ssr")]
 pub fn set_auth_cookie(token: &str) {
+    let aman = crate::utils::cookie::atribut_aman();
     set_cookie(format!(
-        "{ACCESS_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}",
+        "{ACCESS_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax{aman}; Max-Age={}",
         crate::utils::jwt::access_cookie_max_age()
     ));
 }
 
 #[cfg(feature = "ssr")]
 pub fn set_refresh_cookie(token: &str) {
+    let aman = crate::utils::cookie::atribut_aman();
     set_cookie(format!(
-        "{REFRESH_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={REFRESH_COOKIE_MAX_AGE}"
+        "{REFRESH_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax{aman}; Max-Age={REFRESH_COOKIE_MAX_AGE}"
     ));
 }
 
@@ -91,9 +93,13 @@ pub fn set_refresh_cookie(token: &str) {
 /// menekan logout dan tetap masuk.
 #[cfg(feature = "ssr")]
 pub fn clear_auth_cookie() {
+    // `Secure` harus SAMA PERSIS dengan saat cookie dipasang. Atribut yang
+    // berbeda menghasilkan cookie yang berbeda bagi peramban, dan yang lama
+    // tak pernah terhapus — pengguna menekan logout dan tetap masuk.
+    let aman = crate::utils::cookie::atribut_aman();
     for nama in [ACCESS_COOKIE, REFRESH_COOKIE] {
         set_cookie(format!(
-            "{nama}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; \
+            "{nama}=; Path=/; HttpOnly; SameSite=Lax{aman}; Max-Age=0; \
              Expires=Thu, 01 Jan 1970 00:00:00 GMT"
         ));
     }

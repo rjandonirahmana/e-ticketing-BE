@@ -19,7 +19,7 @@
     display: flex;
     flex-direction: column;
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
     margin: 0 auto;
     position: relative;
     overflow-x: hidden;
@@ -597,7 +597,7 @@
     right: 0;
     margin: 0 auto;
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
     z-index: 50;
     padding: 12px 16px max(20px, env(safe-area-inset-bottom, 20px));
     background: var(--bg-page);
@@ -719,7 +719,7 @@
     gap: 7px; 
     width: 100%;
 }
-.detail-img-grid--3 { grid-template-columns: repeat(3, 1fr); }
+.detail-img-grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .detail-img-grid--4 {
     display: flex; 
     flex-wrap: nowrap; 
@@ -856,7 +856,7 @@
 }
 .medit-shimmer-grid-3 {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 7px;
     width: 100%;
 }

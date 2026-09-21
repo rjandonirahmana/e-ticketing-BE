@@ -702,7 +702,29 @@ impl StoryRepository for PgStoryRepository {
         let order_id_bytes = ulid_to_vec(order_id)?;
         let sub_id_bytes = ulid_to_vec(&new_ulid())?;
 
-        let conn = get_conn(&self.pool).await?;
+        let mut conn = get_conn(&self.pool).await?;
+        // ── SATU TRANSAKSI, DAN `UPDATE` SEBAGAI GERBANGNYA ─────────────────
+        //
+        // Empat pernyataan di bawah dulu berjalan telanjang di luar transaksi,
+        // dan urutannya membaca-lalu-menulis: `SELECT … WHERE status =
+        // 'pending'` lalu `UPDATE … SET status = 'paid'`. Dua konfirmasi yang
+        // tiba bersamaan sama-sama melihat 'pending' pada `SELECT`, sama-sama
+        // lolos, dan keduanya menyisipkan `user_subscriptions` — satu pengguna
+        // berakhir dengan DUA langganan aktif sekaligus.
+        //
+        // Celah keduanya lebih senyap: bila proses mati di antara `UPDATE
+        // status='paid'` dan `INSERT` langganan, ordernya tercatat lunas
+        // sementara premiumnya tak pernah lahir. Pembeli membayar dan tak
+        // mendapat apa-apa, dan tak ada satu pun baris yang tampak salah.
+        //
+        // Transaksi menutup yang kedua. Yang pertama ditutup dengan memindahkan
+        // keputusan "siapa yang berhak" dari `SELECT` ke `UPDATE … WHERE status
+        // = 'pending'` yang mengembalikan jumlah baris: hanya SATU pemanggil
+        // yang bisa mengubah baris itu dari pending, dan yang kalah mendapat
+        // nol. Pola yang sama dengan `REVOKE_ONE` di refresh token dan penjaga
+        // anti-oversell di `repository/order.rs`.
+        let tx = conn.transaction().await.context("mulai transaksi konfirmasi langganan")?;
+        let conn = &tx;
 
         // Fetch order_code AND plan from the existing order.
         // SECURITY: the granted plan/duration MUST come from the stored order
@@ -728,13 +750,20 @@ impl StoryRepository for PgStoryRepository {
             _ => 30, // monthly / default
         };
 
-        // Mark as paid
-        conn.execute(
-            "UPDATE subscription_orders SET status = 'paid', paid_at = NOW() WHERE id = $1",
-            &[&order_id_bytes],
-        )
-        .await
-        .context("confirm subscription payment")?;
+        // Gerbangnya. `WHERE status = 'pending'` membuat hanya satu pemanggil
+        // yang bisa memenangkannya; yang kalah mendapat nol baris dan berhenti
+        // di sini, sebelum sempat menyisipkan langganan kedua.
+        let diubah = conn
+            .execute(
+                "UPDATE subscription_orders SET status = 'paid', paid_at = NOW() \
+                  WHERE id = $1 AND status = 'pending'",
+                &[&order_id_bytes],
+            )
+            .await
+            .context("confirm subscription payment")?;
+        if diubah != 1 {
+            anyhow::bail!("Order langganan sudah dikonfirmasi");
+        }
 
         // Deactivate old subscriptions
         conn.execute(
@@ -768,6 +797,7 @@ impl StoryRepository for PgStoryRepository {
         };
 
         let subscription = row_to_subscription(&row)?;
+        tx.commit().await.context("commit konfirmasi langganan")?;
         Ok(SubscriptionActivation { subscription, order_code })
     }
 }

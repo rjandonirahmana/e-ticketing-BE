@@ -60,3 +60,30 @@ mod tests {
         assert_eq!(nilai(&HeaderMap::new(), "a"), None);
     }
 }
+
+/// Atribut `; Secure` untuk cookie sesi — atau kosong bila sengaja dimatikan.
+///
+/// ── KENAPA INI PERLU ──────────────────────────────────────────────────────
+/// Tanpa `Secure`, peramban bersedia mengirim cookie sesi lewat HTTP polos.
+/// `SameSite=Lax` tidak menutup itu: ia mengatur dari SITUS MANA permintaan
+/// boleh membawa cookie, bukan lewat SALURAN apa. Satu permintaan yang lolos
+/// ke http:// — tautan lama, pengalihan yang belum dipasang, atau jaringan
+/// yang menyisipkannya — membawa token sesi dalam keadaan terbaca siapa pun
+/// di jalur itu.
+///
+/// ── KENAPA MENYALA SEBAGAI BAWAAN ─────────────────────────────────────────
+/// Bawaan yang aman harus yang benar untuk PRODUKSI, karena di situlah
+/// akibatnya nyata; lingkungan pengembangan adalah tempat yang tepat untuk
+/// menuliskan pengecualian, bukan sebaliknya.
+///
+/// Ini tidak merepotkan pengembangan: peramban memperlakukan `localhost` dan
+/// `127.0.0.1` sebagai asal tepercaya, jadi cookie ber-`Secure` tetap diterima
+/// di sana walau lewat http. `COOKIE_SECURE=0` disediakan untuk keadaan yang
+/// tak tercakup itu — misalnya diakses lewat IP LAN dari ponsel saat menguji.
+pub fn atribut_aman() -> &'static str {
+    if std::env::var("COOKIE_SECURE").ok().as_deref() == Some("0") {
+        ""
+    } else {
+        "; Secure"
+    }
+}

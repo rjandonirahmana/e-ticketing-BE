@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════════════
    TOAST — notifikasi UI global (checkout/order, pesan masuk, dll)
-   Host fixed di atas-tengah, di dalam lebar kolom app (≤480px) agar sejajar
+   Host fixed di atas-tengah, di dalam lebar kolom app (≤var(--lebar-kolom)) agar sejajar
    dengan konten. Warna dari token → otomatis ikut tema terang/gelap.
    ═══════════════════════════════════════════════════════════════════════ */
 .toast-host {
@@ -10,7 +10,7 @@
     transform: translateX(-50%);
     z-index: var(--z-toast);
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
     padding: 0 12px;
     display: flex;
     flex-direction: column;

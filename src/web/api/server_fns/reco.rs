@@ -64,17 +64,26 @@ pub async fn get_recommended_products() -> Result<PaginatedProducts, ServerFnErr
         Err(_) => return Ok(empty()),
     };
 
+    // ID dari JWT adalah ULID 26 karakter, bukan heksadesimal — `decode(…,
+    // 'hex')` di sini dulu selalu gagal, dan galatnya ditelan `Err(_) =>
+    // return Ok(empty())` di bawah. Hasilnya rekomendasi server SELALU kosong
+    // tanpa satu pun tanda bahwa ada yang salah. Lihat catatan lengkapnya di
+    // `service/affinity.rs::record`.
+    let Ok(user_bin) = crate::utils::ulid::id_to_vec(&claims.user_id) else {
+        return Ok(empty());
+    };
+
     // Kategori favorit user, diurutkan skor TER-DECAY (minat lama memudar —
     // konsisten dengan decay saat tulis di AffinityService).
     // Graceful: kalau tabel belum dimigrasi → kosong.
     let row = match client
         .query_opt(
-            "SELECT category FROM user_affinity WHERE user_id = decode($1,'hex') \
+            "SELECT category FROM user_affinity WHERE user_id = $1::bytea \
              ORDER BY score * POWER(0.977, \
                  GREATEST(EXTRACT(EPOCH FROM (NOW() - updated_at)), 0) / 86400.0) DESC, \
                updated_at DESC \
              LIMIT 1",
-            &[&claims.user_id],
+            &[&user_bin],
         )
         .await
     {

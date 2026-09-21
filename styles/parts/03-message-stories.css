@@ -18,13 +18,17 @@
     background: var(--bg-base);
     min-height: 100dvh;
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
     margin: 0 auto;
     position: relative;
 }
 
 /* Header */
 .msg-list-header {
+    /* `backdrop-filter` dibuang: latarnya ≥ 95% buram, jadi yang diburamkan
+       di belakangnya tak pernah terlihat — yang tersisa hanya biaya baca-balik
+       + blur + komposit ulang, pada bilah yang menempel di layar sepanjang
+       waktu dan ikut dirasterisasi tiap potretan transisi. */
     position: sticky;
     top: 0;
     z-index: 10;
@@ -33,7 +37,6 @@
     justify-content: space-between;
     padding: 12px 16px;
     background: var(--overlay-blur);
-    backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--border);
     /* relative so absolute title can center itself */
     position: sticky;
@@ -237,13 +240,17 @@
     padding-bottom: 72px;
     background: var(--bg-page);
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
     margin: 0 auto;
     position: relative;
 }
 
 /* Header */
 .chat-header {
+    /* `backdrop-filter` dibuang: latarnya ≥ 95% buram, jadi yang diburamkan
+       di belakangnya tak pernah terlihat — yang tersisa hanya biaya baca-balik
+       + blur + komposit ulang, pada bilah yang menempel di layar sepanjang
+       waktu dan ikut dirasterisasi tiap potretan transisi. */
     position: sticky;
     top: 0;
     z-index: 20;
@@ -252,7 +259,6 @@
     gap: 10px;
     padding: 10px 14px;
     background: var(--overlay-blur);
-    backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--border);
 }
 .chat-back-btn {
@@ -595,7 +601,7 @@
     bottom: 76px;
     left: 50%;
     transform: translateX(-50%);
-    width: calc(min(100%, 480px) - 32px);
+    width: calc(min(100%, var(--lebar-kolom)) - 32px);
     max-width: 448px;
     background: var(--danger);
     color: #fff;
@@ -621,18 +627,21 @@
 
 /* Input bar */
 .chat-input-bar {
+    /* `backdrop-filter` dibuang: latarnya ≥ 95% buram, jadi yang diburamkan
+       di belakangnya tak pernah terlihat — yang tersisa hanya biaya baca-balik
+       + blur + komposit ulang, pada bilah yang menempel di layar sepanjang
+       waktu dan ikut dirasterisasi tiap potretan transisi. */
     position: fixed;
     bottom: 0;
     left: 50%;
     transform: translateX(-50%);
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
     background: var(--overlay-blur);
-    backdrop-filter: blur(20px);
     border-top: 1px solid var(--border);
     z-index: 20;
 }
@@ -708,7 +717,7 @@
     background: var(--bg-base);
     padding-bottom: 80px;
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
     margin: 0 auto;
     position: relative;
 }
@@ -1449,7 +1458,7 @@
 }
 .sarc-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
     padding: 14px 16px 20px;
 }

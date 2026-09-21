@@ -1,5 +1,5 @@
 -- ============================================================================
--- Migration: 010_seed_stories.sql  —  SEED USER + STORY MASSAL (uji performa)
+-- Migration: 042_seed_stories.sql  —  SEED USER + STORY MASSAL (uji performa)
 -- ============================================================================
 -- Tujuan: mengukur apakah halaman story tetap cepat saat ada RATUSAN RIBU baris
 -- story tersebar di banyak user. Query penentu:
@@ -12,13 +12,13 @@
 -- yang "aktif" (~1/30 dari total) — realistis untuk menguji kedua jalur.
 --
 -- ── CARA PAKAI ──────────────────────────────────────────────────────────────
---   psql "$DATABASE_URL" -f migration/010_seed_stories.sql
+--   psql "$DATABASE_URL" -f migration-manual/042_seed_stories.sql
 --
 --   Ubah dua angka di bawah untuk skala berbeda. Default: 50.000 user, 500.000
 --   story (≈10 story/user, ≈16.000 aktif). Idempoten (ON CONFLICT DO NOTHING).
 --
 -- ── PENANDA (untuk cleanup) ─────────────────────────────────────────────────
---   Seed user  : id diawali byte 0x02  (0x01 sudah dipakai seed merchant di 007)
+--   Seed user  : id diawali byte 0x02  (0x01 sudah dipakai seed merchant di 041)
 --   Seed story : id diawali byte 0x03
 --   Blok DELETE ada di bagian paling bawah (di-comment).
 -- ============================================================================

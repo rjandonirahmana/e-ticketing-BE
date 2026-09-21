@@ -6,16 +6,16 @@
    `.lives-feed` sendiri TETAP menutupi seluruh viewport dan tetap hitam — ia
    yang menjadi latar gelap di kiri-kanan. Yang disempitkan adalah SLIDE-nya.
    Menyempitkan pembungkusnya justru salah: ia kontainer gulir dan pemilik
-   scroll-snap, dan menguncinya ke 480px membuat area gulir berhenti di tengah
+   scroll-snap, dan menguncinya ke var(--lebar-kolom) membuat area gulir berhenti di tengah
    layar — roda mouse di sisi kiri/kanan tak lagi menggerakkan feed. */
 .lives-slide {
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
     margin-inline: auto;
 }
 
 /* Tombol tutup melayang (`position: fixed`) jadi ia tak tahu apa-apa soal
-   kolom 480px di tengah. Tanpa perhitungan ini, di desktop ia mendarat di
+   kolom var(--lebar-kolom) di tengah. Tanpa perhitungan ini, di desktop ia mendarat di
    pojok kiri layar — jauh terpisah dari video yang ditutupinya.
    `min(240px, 50vw)`: di layar sempit hasilnya kembali ke 14px apa adanya. */
 .lives-feed-close {

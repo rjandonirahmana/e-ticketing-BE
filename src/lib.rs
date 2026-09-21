@@ -31,6 +31,8 @@ pub mod proto;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod repository;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod payment;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod service;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod state;

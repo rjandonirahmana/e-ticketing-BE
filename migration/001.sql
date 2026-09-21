@@ -2,6 +2,37 @@
 -- Migration: 001_initial_schema.sql
 -- E-Ticketing Schema
 -- ============================================================
+--
+-- ── KENAPA SELURUH ISINYA DIBUNGKUS PENJAGA ─────────────────────────────────
+-- Berkas ini melukiskan dunia SEBELUM `023_products_rename.sql`: tabelnya
+-- bernama `events`, `ticket_variants`, dan `order_items`, dan `tickets` masih
+-- menunjuk `order_items`. Ketiganya sudah tak ada lagi di database yang
+-- melewati 023.
+--
+-- Dijalankan lagi di database seperti itu, berkas ini tidak sekadar gagal --
+-- ia MEMBANGKITKAN dunia lama. `CREATE TABLE IF NOT EXISTS events` di sana
+-- tidak menemukan `events` (yang ada `products`), jadi ia MEMBUAT tabel
+-- `events` baru yang kosong, berdampingan dengan `products` yang asli. Sejak
+-- itu setiap berkas yang mencari "tabel produk" bisa menemukan yang salah, dan
+-- indexnya dipasang pada tabel kosong sementara tabel yang sebenarnya dipakai
+-- tak mendapat apa-apa. Tak ada satu pun galat yang muncul.
+--
+-- Itu bisa terjadi bukan lewat penjalan otomatis -- di sana tiap berkas
+-- dibungkus transaksi, jadi kegagalan di baris index membatalkan seluruhnya --
+-- melainkan lewat `psql -f migration/001.sql` yang dijalankan TANGAN, karena
+-- psql mengirim tiap pernyataan sebagai transaksinya sendiri: tabelnya sudah
+-- terlanjur commit ketika baris yang gagal tercapai.
+--
+-- Karena itu penjaga di bawah: kalau `products` sudah ada, 023 sudah lewat,
+-- dan berkas ini TIDAK punya urusan apa pun lagi di database ini.
+
+DO $mig001$
+BEGIN
+
+IF to_regclass('public.products') IS NOT NULL THEN
+    RAISE NOTICE '001 dilewati: `products` sudah ada, artinya 023 sudah lewat.';
+    RETURN;
+END IF;
 
 -- ============================================================
 -- Table: users
@@ -142,20 +173,29 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS update_users_updated_at ON users;
 CREATE TRIGGER update_users_updated_at
     BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_merchant_details_updated_at ON merchant_details;
 CREATE TRIGGER update_merchant_details_updated_at
     BEFORE UPDATE ON merchant_details FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_events_updated_at ON events;
 CREATE TRIGGER update_events_updated_at
     BEFORE UPDATE ON events FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_ticket_variants_updated_at ON ticket_variants;
 CREATE TRIGGER update_ticket_variants_updated_at
     BEFORE UPDATE ON ticket_variants FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_orders_updated_at ON orders;
 CREATE TRIGGER update_orders_updated_at
     BEFORE UPDATE ON orders FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_tickets_updated_at ON tickets;
 CREATE TRIGGER update_tickets_updated_at
     BEFORE UPDATE ON tickets FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+END
+$mig001$;

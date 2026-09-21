@@ -79,13 +79,17 @@
 
 /* ── Pratinjau di atas kolom ketik ─────────────────────────────────────── */
 .chat-balas-pratinjau {
+    /* `backdrop-filter` dibuang: latarnya ≥ 95% buram, jadi yang diburamkan
+       di belakangnya tak pernah terlihat — yang tersisa hanya biaya baca-balik
+       + blur + komposit ulang, pada bilah yang menempel di layar sepanjang
+       waktu dan ikut dirasterisasi tiap potretan transisi. */
     position: fixed;
     bottom: 62px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 19;
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
 
     display: flex;
     align-items: center;
@@ -95,7 +99,6 @@
     border-top: 1px solid var(--border);
     border-left: 3px solid var(--accent, var(--danger));
     background: var(--overlay-blur);
-    backdrop-filter: blur(20px);
 }
 
 .chat-balas-teks {

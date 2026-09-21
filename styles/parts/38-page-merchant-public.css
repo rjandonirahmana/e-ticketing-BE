@@ -2,12 +2,12 @@
    Prefix: mp-* (profil), mrv-* (reviews). Entry: tombol penyelenggara di
    event detail (ed-organizer) & chip penyelenggara kartu explore (exp-mkt-org). */
 
-/* Page: kolom 480px konsisten dengan halaman lain (home/explore/detail).
+/* Page: kolom var(--lebar-kolom) konsisten dengan halaman lain (home/explore/detail).
    Hero full-bleed di dalam kolom → dibatasi 480 via .mp-page max-width. */
-/* Kolom OPAQUE + terpusat ≤480px → grid global hanya tampak di gutter (spt /lives).
+/* Kolom OPAQUE + terpusat ≤var(--lebar-kolom) → grid global hanya tampak di gutter (spt /lives).
    border-inline = pembatas tegas antara lebar kolom & area di luar (gutter). */
-.mp-page { min-height: 100vh; width: 100%; max-width: 480px; margin: 0 auto; background: var(--bg-page); border-inline: 1px solid var(--border-soft); position: relative; padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px)); }
-.mp-container { padding: 0 16px; max-width: 480px; margin: 0 auto; }
+.mp-page { min-height: 100vh; width: 100%; max-width: var(--lebar-kolom); margin: 0 auto; background: var(--bg-page); border-inline: 1px solid var(--border-soft); position: relative; padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px)); }
+.mp-container { padding: 0 16px; max-width: var(--lebar-kolom); margin: 0 auto; }
 
 /* Hero */
 .mp-hero { position: relative; height: 200px; overflow: hidden; background: var(--bg-elevated); }
@@ -40,7 +40,7 @@
 .mp-loc svg { color: var(--accent-lime); flex: none; }
 
 /* Statistik */
-.mp-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 18px 0 6px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 16px; padding: 14px 6px; }
+.mp-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 18px 0 6px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 16px; padding: 14px 6px; }
 .mp-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; text-decoration: none; color: inherit; }
 .mp-stat + .mp-stat { border-left: 1px solid var(--border); }
 .mp-stat-num { font-size: 18px; font-weight: 800; }
@@ -55,7 +55,7 @@
 .mp-tab--on { color: var(--text-primary); border-bottom-color: var(--accent-lime); }
 
 /* Grid event + tentang */
-.mp-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.mp-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .mp-about-text { color: var(--text-primary); line-height: 1.65; white-space: pre-line; }
 .mp-empty { color: var(--text-muted); font-size: 14px; padding: 18px 0; }
 
@@ -114,7 +114,7 @@
 
 /* Panel STORY: grid thumbnail 3 kolom, tap → StoryViewer */
 .mp-stories { padding-top: 8px; }
-.mp-story-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.mp-story-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .mp-story-cell { position: relative; aspect-ratio: 9 / 16; border: none; padding: 0; border-radius: 12px; overflow: hidden; cursor: pointer; background: var(--bg-elevated); }
 .mp-story-media { width: 100%; height: 100%; object-fit: cover; display: block; }
 .mp-story-play { position: absolute; right: 6px; bottom: 6px; width: 22px; height: 22px; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; display: flex; align-items: center; justify-content: center; }

@@ -358,14 +358,17 @@
     margin-top: 14px;
 }
 .pay-bar {
+    /* `backdrop-filter` dibuang: latarnya ≥ 95% buram, jadi yang diburamkan
+       di belakangnya tak pernah terlihat — yang tersisa hanya biaya baca-balik
+       + blur + komposit ulang, pada bilah yang menempel di layar sepanjang
+       waktu dan ikut dirasterisasi tiap potretan transisi. */
     position: fixed;
     bottom: 0;
     left: 50%;
     transform: translateX(-50%);
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
     background: var(--overlay-blur);
-    backdrop-filter: blur(20px);
     border-top: 1px solid var(--border);
     padding: 14px 20px 28px;
     z-index: 50;

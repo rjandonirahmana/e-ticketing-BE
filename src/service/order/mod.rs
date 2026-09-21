@@ -483,6 +483,43 @@ impl OrderService {
 
     // ── Pay ───────────────────────────────────────────────────────────────────
 
+    /// Lunaskan order atas perintah WEBHOOK gateway yang sudah terverifikasi.
+    ///
+    /// ── KENAPA TIDAK ADA PEMERIKSAAN KEPEMILIKAN DI SINI ──────────────────
+    /// `pay()` menolak siapa pun yang bukan pemilik order, dan itu benar untuk
+    /// jalur yang dipicu orang. Webhook tak dipicu orang: yang memanggil
+    /// adalah gateway, dan ia tak punya sesi. Yang menggantikan pemeriksaan
+    /// itu adalah verifikasi tanda tangan di `payment::webhook` — dan itulah
+    /// satu-satunya hal yang boleh membuka jalur ini.
+    ///
+    /// Alih-alih melonggarkan `pay()`, pemiliknya DIBACA dari ordernya sendiri
+    /// lalu diteruskan sebagai `viewer_id`. Hasilnya: seluruh jalur pelunasan
+    /// — penguncian varian, penerbitan tiket, metrik, notifikasi — tetap yang
+    /// SATU itu, tanpa satu pun cabang khusus yang bisa menyimpang dari
+    /// perilaku jalur utama.
+    pub async fn pay_dari_gateway(
+        &self,
+        order_id: &str,
+        payment_code: &str,
+    ) -> AppResult<OrderDetailResponse> {
+        let order = self
+            .repo
+            .find_by_id(order_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Order not found".into()))?;
+        let pemilik = order.customer_id.clone();
+
+        self.pay(
+            order_id,
+            &pemilik,
+            "",
+            PayOrderRequest {
+                payment_method: payment_code.to_string(),
+            },
+        )
+        .await
+    }
+
     pub async fn pay(
         &self,
         order_id: &str,

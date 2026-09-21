@@ -35,13 +35,13 @@
    ── KENAPA TIDAK ADA `min-width` ─────────────────────────────────────────
    Versi pertama memakai `min-width: 88px`. Untuk empat tab Merchant Hub itu
    tak pernah terlihat, tapi Pusat Admin punya ENAM: 6 x 88px = 528px di dalam
-   kolom yang lebarnya dikunci 480px. Bilahnya jadi menggulir mendatar, dan
+   kolom yang lebarnya dikunci var(--lebar-kolom). Bilahnya jadi menggulir mendatar, dan
    "Pengaturan" terpotong di tepi — bilah tab yang harus digeser dulu untuk
    melihat tab yang ada, padahal seluruh gunanya adalah menampilkan pilihan
    sekaligus.
    
    Tanpa `min-width`, keenamnya berbagi rata lebar yang tersedia (~74px pada
-   kolom 480px) dan muat tanpa menggulir. Ukuran huruf & jarak antarhuruf
+   kolom var(--lebar-kolom)) dan muat tanpa menggulir. Ukuran huruf & jarak antarhuruf
    diturunkan seperlunya agar label terpanjang ("Pengaturan", 10 huruf) tetap
    utuh di lebar itu. `text-overflow: ellipsis` dipasang sebagai jaring
    pengaman untuk layar yang lebih sempit lagi — memotong dengan elipsis masih

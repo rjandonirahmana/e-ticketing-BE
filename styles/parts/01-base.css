@@ -136,12 +136,37 @@ h5 {
 .bottom-nav {
     position: fixed;
     bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
+    /* ── DIPUSATKAN TANPA `transform` ─────────────────────────────────────
+       Dulu `left: 50%` + `translateX(-50%)`. Hasil visualnya sama, tapi
+       `transform`-nya bukan tanpa akibat: `58-page-transition.css` memberi
+       bilah ini `view-transition-name` sendiri, dan elemen bertransform yang
+       diangkat menjadi potretan tersendiri dipetakan ulang posisinya oleh
+       peramban. Yang terlihat adalah bilah nav BERGESER sekejap di awal dan
+       akhir SETIAP perpindahan halaman — persis jenis gangguan yang terbaca
+       sebagai "transisinya kurang halus" tanpa pernah jelas apa penyebabnya.
+
+       `left/right: 0` + `margin-inline: auto` memusatkan kotak berlebar
+       terbatas tanpa satu pun transform, jadi tak ada yang perlu dipetakan
+       ulang. */
+    left: 0;
+    right: 0;
+    margin-inline: auto;
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
     background: var(--overlay-blur);
-    backdrop-filter: blur(20px);
+    /* `backdrop-filter` DIBUANG, bukan lupa.
+
+       `--overlay-blur` bernilai `rgba(22,21,29,0.97)` di tema gelap dan
+       `rgba(243,243,251,0.96)` di terang — 96-97% buram. Apa pun yang diburamkan
+       di belakangnya tertutup lapisan itu dan tak pernah terlihat. Yang tersisa
+       hanyalah biayanya: `backdrop-filter` memaksa peramban membaca kembali
+       latar, memburamkannya, lalu mengomposit ulang — pada elemen yang ADA DI
+       SETIAP HALAMAN, dan yang ikut dirasterisasi tiap kali potretan transisi
+       diambil.
+
+       Kalau kelak bilahnya memang ingin tembus pandang, turunkan dulu alfa
+       `--overlay-blur` ke sekitar 0.6 — barulah buramnya punya sesuatu untuk
+       dikerjakan. */
     border-top: 1px solid var(--border-strong);
     display: grid;
     grid-auto-flow: column;
@@ -162,6 +187,16 @@ h5 {
 .bottom-item--active {
     color: var(--accent-lime);
 }
+
+/* Nama aplikasi di atas nav — HANYA dipakai sidebar desktop (≥1200px, lihat
+   `60-desktop.css`). Disembunyikan di sini, bukan di sana, supaya default
+   elemennya hidup bersama elemen nav lain dan `60-desktop.css` tetap berisi
+   media query saja: apa pun yang ada di berkas itu mustahil menyentuh ponsel.
+   Di ponsel bilah nav tak punya ruang untuk nama aplikasi, dan header tiap
+   halaman sudah memuatnya (`.page-logo`). */
+.nav-brand {
+    display: none;
+}
 .bottom-label {
     font-family: var(--font-body);
     font-size: 9px;
@@ -169,7 +204,7 @@ h5 {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   KONSISTENSI UKURAN — semua halaman gunakan base .page (480px, padding-bottom 100px)
+   KONSISTENSI UKURAN — semua halaman gunakan base .page (var(--lebar-kolom), padding-bottom 100px)
    Override per-halaman hanya jika benar-benar diperlukan
    ══════════════════════════════════════════════════════════════════════════════ */
 
@@ -209,7 +244,10 @@ h5 {
     padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
     /* Ensure it's never obscured by transforms on parent */
     will-change: unset;
-    transform: translateX(-50%); /* re-assert, no translateY */
+    /* `transform: translateX(-50%)` yang dulu ditegaskan ulang di sini SUDAH
+       DIBUANG bersama pasangannya di atas — pemusatannya kini lewat
+       `margin-inline: auto`, yang tak perlu ditegaskan ulang karena tak ada
+       aturan lain yang menimpanya. */
 }
 
 /* Ensure <main> always takes full viewport width — prevents shimmer width collapse */
@@ -224,10 +262,10 @@ main {
     padding-bottom: calc(72px + env(safe-area-inset-bottom, 12px));
 }
 
-/* Generic content container — same 480px width as .page */
+/* Generic content container — same var(--lebar-kolom) width as .page */
 .container {
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
     margin: 0 auto;
 }
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -580,3 +618,12 @@ button,
     color: black;
 }
 
+
+/* ── Kolom aplikasi ────────────────────────────────────────────────────────
+   Dipakai `<main>` di `web/app/router.rs`. Lebarnya satu token, supaya kolom
+   dan setiap bilah melayang yang harus sejajar dengannya tak pernah bisa
+   berselisih. */
+.kolom-app {
+    max-width: var(--lebar-kolom);
+    margin-inline: auto;
+}

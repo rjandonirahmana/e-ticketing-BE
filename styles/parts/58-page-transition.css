@@ -27,11 +27,14 @@
    sudah ada — tak ada yang rusak.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* Lebar kolom aplikasi. HARUS sama dengan `max-w-[480px]` pada `<main>` di
-   `web/app/router.rs` — dua tempat karena yang satu kelas Tailwind literal dan
-   tak bisa membaca variabel CSS. Kalau kolomnya kelak berubah, ubah keduanya:
-   klip di bawah akan memotong halaman di tempat yang salah kalau tidak. */
-:root { --pt-kolom: 480px; }
+/* Lebar kolom aplikasi, DITURUNKAN dari `--lebar-kolom` (`00-tokens.css`).
+   Angkanya dulu ditulis ulang di sini dan harus dijaga tetap sama dengan
+   `max-w-[480px]` di `web/app/router.rs` — dua tempat yang bisa berselisih
+   diam-diam, dan selisihnya muncul sebagai klip yang memotong halaman di
+   tempat yang salah. Kini `<main>` memakai kelas `.kolom-app` yang membaca
+   token yang sama, jadi melebarkan kolom di desktop otomatis ikut membetulkan
+   jarak geser dan klip di bawah. */
+:root { --pt-kolom: var(--lebar-kolom); }
 
 /* ── URUTAN LAPISAN — hal PERTAMA yang harus benar ─────────────────────────
    Tiap elemen yang diberi `view-transition-name` DIANGKAT keluar dari potretan
@@ -69,7 +72,7 @@
 
    Latar kanvas itu tak bisa dibuang (tanpa latar, peramban memakai putih/hitam
    bawaannya — sama buramnya), jadi yang dipotong adalah POTRETANNYA: grup
-   `root` diklip ke kolom 480px di tengah. Di dalam klip, halaman bergeser
+   `root` diklip ke kolom var(--lebar-kolom) di tengah. Di dalam klip, halaman bergeser
    seperti biasa; di luarnya tak ada apa pun dari `root`, sehingga lapisan
    `pt-latar` yang diam itulah yang terlihat di gutter — persis seperti saat
    tidak ada transisi.
@@ -201,7 +204,7 @@
 /* ── JARAK GESER = SELEBAR KOLOM, BUKAN SELEBAR VIEWPORT ───────────────────
    `translateX(100%)` pada potretan `root` berarti SELEBAR VIEWPORT, karena
    potretan `root` memang seluas viewport. Di ponsel keduanya kebetulan sama
-   dan tak ada yang janggal. Di laptop 1440px tidak: kolom 480px dipaksa
+   dan tak ada yang janggal. Di laptop 1440px tidak: kolom var(--lebar-kolom) dipaksa
    menempuh 1440px dalam 300 ms, dan halaman lama mundur 346px — jauh di luar
    kolomnya sendiri. Yang terbaca bukan halaman yang didorong, melainkan
    seluruh JENDELA yang meluncur.
@@ -213,15 +216,26 @@
     from { transform: translateX(min(100%, var(--pt-kolom))); }
     to   { transform: translateX(0); }
 }
+/* ── `filter: brightness()` DIBUANG dari dua bingkai di bawah ──────────────
+   Peredupan halaman yang ditinggalkan memang memperkuat kesan menumpuk, tapi
+   harganya tak sebanding. `transform` bisa dikerjakan seluruhnya oleh
+   compositor: lapisannya dirasterisasi SEKALI lalu digeser tiap bingkai.
+   `filter` tidak — nilainya berubah tiap bingkai, jadi lapisannya harus
+   DICAT ULANG tiap bingkai. Di sini lapisan itu seluas kolom penuh setinggi
+   layar, dan ia dicat ulang enam puluh kali per detik selama 300 ms, tepat
+   saat CPU juga sedang sibuk membangun halaman baru dan Leptos menghidrasi
+   komponennya. Di situlah bingkai-bingkai yang hilang itu berasal.
+
+   Yang hilang hanya peredupannya. Arah dan hierarkinya tetap terbaca dari
+   geseran 24% yang lebih pendek daripada halaman yang masuk — itu memang
+   selalu jadi pembawa pesan utamanya. */
 @keyframes pt-dorong-keluar {
-    from { transform: translateX(0); filter: brightness(1); }
-    to   { transform: translateX(calc(min(100%, var(--pt-kolom)) * -0.24));
-           filter: brightness(0.7); }
+    from { transform: translateX(0); }
+    to   { transform: translateX(calc(min(100%, var(--pt-kolom)) * -0.24)); }
 }
 @keyframes pt-tarik-masuk {
-    from { transform: translateX(calc(min(100%, var(--pt-kolom)) * -0.24));
-           filter: brightness(0.7); }
-    to   { transform: translateX(0); filter: brightness(1); }
+    from { transform: translateX(calc(min(100%, var(--pt-kolom)) * -0.24)); }
+    to   { transform: translateX(0); }
 }
 @keyframes pt-tarik-keluar {
     from { transform: translateX(0); }

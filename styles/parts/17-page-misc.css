@@ -11,7 +11,7 @@
 .oc-page {
     padding-bottom: 120px;
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
     margin: 0 auto;
     min-height: 100dvh;
     position: relative;
@@ -404,7 +404,7 @@
 .ps-page {
     padding-bottom: 60px;
     width: 100%;
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
     margin: 0 auto;
     min-height: 100dvh;
     position: relative;

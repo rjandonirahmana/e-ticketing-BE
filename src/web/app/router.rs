@@ -307,7 +307,13 @@ pub fn App() -> impl IntoView {
             // Elemen `position: fixed` di dalam halaman TIDAK terpengaruh
             // pembatas ini — mereka mengacu ke viewport, dan masing-masing
             // sudah memusatkan diri dengan lebar maksimum yang sama.
-            <main class="relative z-10 w-full max-w-[480px] mx-auto min-h-screen bg-page \
+            // `kolom-app` (styles/parts/01-base.css) menggantikan
+            // `max-w-[480px]`: lebarnya kini dibaca dari `--lebar-kolom`,
+            // token yang sama yang dipakai tiap bilah `position: fixed` dan
+            // oleh klip transisi halaman. Kelas Tailwind literal tak bisa
+            // membaca variabel CSS, dan selama ia di sini lebar kolom punya
+            // dua sumber yang bisa berselisih.
+            <main class="kolom-app relative z-10 w-full min-h-screen bg-page \
                          shadow-[0_0_60px_rgba(0,0,0,0.35)]">
                 // ── ERRORBOUNDARY DICABUT DARI SEKELILING <FlatRoutes> ──────
                 //
@@ -686,4 +692,23 @@ pub fn App() -> impl IntoView {
             </main>
         </Router>
     }
+    // ── `.into_any()` BUKAN kosmetik — ia yang membuat binari ini bisa DI-LINK
+    // di macOS (Xcode 26 / ld-prime).
+    //
+    // Tanpa ini, tipe view hasil `view!` adalah satu tipe bersarang raksasa yang
+    // memuat SELURUH tabel rute beserta tipe tiap halaman di dalamnya. Nama
+    // simbol `drop_in_place` untuk tipe itu ikut memuat seluruh ejaannya, dan
+    // pada codebase sebesar ini panjangnya menembus batas yang dipegang linker
+    // Apple — yang menjawabnya bukan dengan galat yang menyebutkan sebabnya,
+    // melainkan dengan `ld: Assertion failed: (name.size() <= maxLength)`.
+    //
+    // Yang TIDAK menolong, dan sudah dicoba: `-ld_classic`, lld,
+    // `MACOSX_DEPLOYMENT_TARGET`. Satu-satunya jalan adalah memendekkan nama
+    // simbolnya, dan `.into_any()` melakukannya dengan menghapus tipe itu
+    // menjadi satu `AnyView`.
+    //
+    // Biayanya satu boxing per render halaman — tak terukur dibandingkan kerja
+    // SSR di sekitarnya, dan `FlatRoutes` memang sudah menyimpan tiap rute
+    // sebagai view yang dibangun terpisah.
+    .into_any()
 }

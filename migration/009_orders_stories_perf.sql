@@ -23,8 +23,18 @@ CREATE INDEX IF NOT EXISTS idx_orders_customer_date
 
 -- LATERAL "ambil item pertama per order" (ORDER BY oi.created_at LIMIT 1):
 -- composite ini membuatnya murni index-walk tanpa sort per order.
-CREATE INDEX IF NOT EXISTS idx_order_items_order_created
-    ON order_items (order_id, created_at);
+--
+-- DIBUNGKUS penjaga karena `023_products_rename.sql` MEMBUANG `order_items` —
+-- perannya diambil `cart_items`, yang punya indexnya sendiri di 022. Tanpa
+-- penjaga ini, memutar ulang 009 di database yang sudah melewati 023 mati
+-- dengan `relation "order_items" does not exist`, dan aplikasinya tak start.
+DO $$
+BEGIN
+    IF to_regclass('public.order_items') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS idx_order_items_order_created
+            ON order_items (order_id, created_at);
+    END IF;
+END $$;
 
 -- ── /stories (arsip per user) ────────────────────────────────────────────────
 -- Grouping "story terbaru per user" + fetch semua story milik satu user.
@@ -36,5 +46,11 @@ CREATE INDEX IF NOT EXISTS idx_stories_created_desc
     ON stories (created_at DESC);
 
 ANALYZE orders;
-ANALYZE order_items;
 ANALYZE stories;
+
+DO $$
+BEGIN
+    IF to_regclass('public.order_items') IS NOT NULL THEN
+        ANALYZE order_items;
+    END IF;
+END $$;

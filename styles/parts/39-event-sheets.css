@@ -24,7 +24,7 @@
     
     /* WIDTH: 100% tapi di-clamp ke max-width page */
     width: 100%;
-    max-width: 480px;      /* ← SAMA DENGAN .page */
+    max-width: var(--lebar-kolom);      /* ← SAMA DENGAN .page */
     
     /* CLOSED: translateX(-50%) center + translateY(100%) hidden */
     transform: translateX(-50%) translateY(100%);

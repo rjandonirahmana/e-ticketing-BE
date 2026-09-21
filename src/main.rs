@@ -453,6 +453,12 @@ async fn run() -> Result<()> {
         .merge(e_ticketing::web::assets::router())
         .merge(upload_router)
         .merge(rest_api)
+        // ── Webhook gateway pembayaran ───────────────────────────────────
+        // Satu-satunya jalur yang boleh melunaskan order. Sengaja dipasang
+        // SEBELUM lapisan `silent_refresh` di bawah tak jadi soal — ia tak
+        // memakai sesi sama sekali; yang mengotorisasinya adalah tanda tangan
+        // di badan permintaan, bukan cookie.
+        .merge(e_ticketing::payment::webhook::router().with_state(state.clone()))
         .merge(live_api)
         .merge(meet_api)
         .merge(leptos_router)

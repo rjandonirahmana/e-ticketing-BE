@@ -436,4 +436,9 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
             </body>
         </html>
     }
+    // Lihat catatan panjang di `App()` (web/app/router.rs). Keduanya harus
+    // dihapus-tipe: `generate_route_list` ikut merender App saat menyusun tabel
+    // rute, jadi tipe raksasa itu muncul lewat DUA jalur, dan memendekkan salah
+    // satunya saja tak membuat linker berhenti mengeluh.
+    .into_any()
 }

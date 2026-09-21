@@ -396,15 +396,17 @@
 
 /* ── Sticky CTA ──────────────────────────────────────────────────────────────── */
 .sub-cta-sticky {
+    /* `backdrop-filter` dibuang: latarnya ≥ 95% buram, jadi yang diburamkan
+       di belakangnya tak pernah terlihat — yang tersisa hanya biaya baca-balik
+       + blur + komposit ulang, pada bilah yang menempel di layar sepanjang
+       waktu dan ikut dirasterisasi tiap potretan transisi. */
   position: fixed;
   bottom: 0; left: 50%; right: auto;
   transform: translateX(-50%);
   width: 100%;
-  max-width: 480px;       /* ikut lebar page */
+  max-width: var(--lebar-kolom);       /* ikut lebar page */
   padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
   background: rgba(13, 13, 24, 0.95);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   border-top: 1px solid rgba(255,255,255,0.07);
   display: flex;
   flex-direction: column;
@@ -509,7 +511,7 @@
 /* ── Responsive (tablet ke atas) ─────────────────────────────────────────────── */
 @media (min-width: 480px) {
   .sub-plan-cards {
-    max-width: 480px;
+    max-width: var(--lebar-kolom);
     margin: 0 auto;
   }
 }
@@ -650,14 +652,16 @@
 }
 
 .sub-pay-sticky {
+    /* `backdrop-filter` dibuang: latarnya ≥ 95% buram, jadi yang diburamkan
+       di belakangnya tak pernah terlihat — yang tersisa hanya biaya baca-balik
+       + blur + komposit ulang, pada bilah yang menempel di layar sepanjang
+       waktu dan ikut dirasterisasi tiap potretan transisi. */
   position: fixed;
   bottom: 0; left: 50%; right: auto;
   transform: translateX(-50%);
-  width: 100%; max-width: 480px;
+  width: 100%; max-width: var(--lebar-kolom);
   padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
   background: rgba(13,13,24,0.95);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   border-top: 1px solid rgba(255,255,255,0.07);
   display: flex; flex-direction: column; gap: 8px;
   z-index: 30;

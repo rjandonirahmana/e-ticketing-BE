@@ -127,13 +127,14 @@ pub async fn silent_refresh(
     // pemakaian ulang, yang mencabut seluruh sesi. Pengguna akan terlempar
     // keluar justru oleh mekanisme yang seharusnya menjaganya tetap masuk.
     let max_age_access = crate::utils::jwt::access_cookie_max_age();
+    let aman = crate::utils::cookie::atribut_aman();
     let mut pasang = vec![format!(
-        "{ACCESS_COOKIE}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age_access}",
+        "{ACCESS_COOKIE}={}; Path=/; HttpOnly; SameSite=Lax{aman}; Max-Age={max_age_access}",
         hasil.access_token
     )];
     if rotasi_penuh {
         pasang.push(format!(
-            "{REFRESH_COOKIE}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}",
+            "{REFRESH_COOKIE}={}; Path=/; HttpOnly; SameSite=Lax{aman}; Max-Age={}",
             hasil.refresh_token,
             30 * 24 * 3600
         ));

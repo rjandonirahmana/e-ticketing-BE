@@ -181,6 +181,14 @@ pub struct AppState {
     pub meet_svc: Arc<MeetService>,
     /// Behavior tracking (afinitas kategori): buffer in-memory + batch flush.
     pub affinity_svc: Arc<AffinityService>,
+
+    /// Gateway pembayaran yang AKTIF, berkunci nama providernya.
+    ///
+    /// Isinya ditentukan env saat start: gateway yang kuncinya tak diset tidak
+    /// masuk peta ini sama sekali. Itu disengaja — endpoint webhook mencari
+    /// providernya di sini, jadi gateway yang tak dikonfigurasi otomatis
+    /// membalas 404 alih-alih memproses callback dengan kunci kosong.
+    pub gateway_bayar: std::collections::HashMap<&'static str, Arc<dyn crate::payment::GatewayBayar>>,
     /// Plafon upload media serentak (auto-skala dari kapasitas VPS). Permit
     /// diambil di handler upload; penuh → 503 (fail-fast).
     pub upload_limit: Arc<Semaphore>,
@@ -319,6 +327,7 @@ impl AppState {
             live_svc,
             meet_svc,
             affinity_svc,
+            gateway_bayar: crate::payment::dari_env(),
             upload_limit,
             upload_tmp_dir,
             capacity,

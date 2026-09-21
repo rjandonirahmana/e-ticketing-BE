@@ -24,6 +24,8 @@ use std::time::Duration;
 
 use deadpool_postgres::Pool;
 
+use crate::utils::ulid::id_to_vec;
+
 /// Interval flush buffer → Postgres. 5 dtk cukup real-time untuk rekomendasi
 /// (dibaca dengan cache 30–60 dtk) tanpa membebani DB.
 const FLUSH_INTERVAL: Duration = Duration::from_secs(5);
@@ -90,8 +92,13 @@ fn upsert_decay_sql() -> String {
 
 pub struct AffinityService {
     pool: Pool,
-    /// (user_id_hex, category) → akumulasi bobot sejak flush terakhir.
-    buf: Mutex<HashMap<(String, String), f64>>,
+    /// (user_id biner 16 byte, category) → akumulasi bobot sejak flush terakhir.
+    ///
+    /// Disimpan sebagai BINER, bukan teks, karena itulah bentuk yang masuk ke
+    /// kolom `user_affinity.user_id` (`bytea`). Mengubahnya di sini — sekali,
+    /// saat sinyal dicatat — berarti jalur flush tak perlu lagi menebak format
+    /// apa yang sedang dipegangnya.
+    buf: Mutex<HashMap<(Vec<u8>, String), f64>>,
 }
 
 impl AffinityService {
@@ -117,15 +124,32 @@ impl AffinityService {
 
     /// Catat sinyal minat. Murni operasi memori — aman dipanggil di jalur
     /// request sepanas apa pun.
-    pub fn record(&self, user_id_hex: &str, categories: &[String], signal: AffinitySignal) {
-        // Satu user_id non-hex akan menggagalkan decode() SELURUH batch UNNEST —
-        // tolak di sini agar satu input rusak tak menghanguskan sinyal user lain.
-        if user_id_hex.is_empty()
-            || !user_id_hex.len().is_multiple_of(2)
-            || !user_id_hex.bytes().all(|b| b.is_ascii_hexdigit())
-        {
+    pub fn record(&self, user_id: &str, categories: &[String], signal: AffinitySignal) {
+        // ── ID DIUBAH DI RUST, BUKAN DENGAN decode(…,'hex') DI SQL ───────────
+        //
+        // Penjaga sebelumnya menuntut `user_id` berupa heksadesimal. Yang
+        // benar-benar sampai ke sini adalah ULID 26 karakter Crockford base32
+        // dari `Claims.user_id` (`repository/user.rs` memetakan kolom `bytea`
+        // lewat `bin_to_ulid`) — dan ULID memuat huruf seperti J, K, N, R, S,
+        // T, V, W, X, Y, Z yang bukan digit heksadesimal.
+        //
+        // Akibatnya penjaga ini menolak HAMPIR SETIAP pemanggilan, dan
+        // menolaknya dengan `return` tanpa sepatah kata pun di log. Seluruh
+        // pipeline afinitas karena itu tak pernah menulis satu baris pun sejak
+        // ada: rekomendasi yang tampil di UI seluruhnya berasal dari fallback
+        // localStorage di klien. Tak ada yang gagal keras, jadi tak ada yang
+        // pernah melihatnya.
+        //
+        // `id_to_vec` menerima ULID 26 karakter MAUPUN heksadesimal 32
+        // karakter, jadi ia benar untuk kedua bentuk yang beredar di codebase
+        // ini — dan menghasilkan biner yang memang diminta kolomnya.
+        let Ok(user_bin) = id_to_vec(user_id) else {
+            // `debug` sudah cukup di sini: satu id tak sah adalah kejadian
+            // per-permintaan, dan jalur ini memang best-effort. Yang berbeda
+            // dari sebelumnya, ia kini TERCATAT.
+            tracing::debug!(user_id, "afinitas: id tak sah — sinyal dilewati");
             return;
-        }
+        };
         let w = signal.weight();
         let mut buf = self.buf.lock().unwrap();
         for c in categories.iter().take(MAX_CATS_PER_SIGNAL) {
@@ -133,7 +157,7 @@ impl AffinityService {
             if c.is_empty() {
                 continue;
             }
-            let key = (user_id_hex.to_string(), c.to_string());
+            let key = (user_bin.clone(), c.to_string());
             if buf.len() >= MAX_BUFFERED && !buf.contains_key(&key) {
                 return; // buffer penuh (DB macet lama) → buang sinyal baru
             }
@@ -144,18 +168,26 @@ impl AffinityService {
     /// Sinyal purchase dari order yang baru dibuat: kategori product diambil lewat
     /// satu query join (cart_items → product_variants → products) dan langsung
     /// di-upsert. Dijalankan background — checkout tidak menunggu.
-    pub fn record_purchase(self: &Arc<Self>, user_id_hex: String, order_id_hex: String) {
+    pub fn record_purchase(self: &Arc<Self>, user_id: String, order_id: String) {
         let svc = self.clone();
         tokio::spawn(async move {
+            // Lihat catatan di `record()`: keduanya ULID, bukan heksadesimal,
+            // jadi `decode(…,'hex')` di SQL selalu gagal — dan gagalnya hanya
+            // sampai ke `tracing::debug!`, tak pernah ke mana-mana lagi.
+            let (Ok(user_bin), Ok(order_bin)) = (id_to_vec(&user_id), id_to_vec(&order_id))
+            else {
+                tracing::debug!(user_id, order_id, "afinitas beli: id tak sah — dilewati");
+                return;
+            };
             let sql = format!(
                 "INSERT INTO user_affinity (user_id, category, score, updated_at) \
-                 SELECT decode($1,'hex'), cat.value, $3::float8, NOW() \
+                 SELECT $1::bytea, cat.value, $3::float8, NOW() \
                  FROM orders o \
                  JOIN cart_items ci ON ci.cart_id = o.cart_id \
                  JOIN product_variants tv ON tv.id = ci.ticket_variant_id \
                  JOIN products e ON e.id = tv.event_id \
                  CROSS JOIN LATERAL jsonb_array_elements_text(e.category) AS cat(value) \
-                 WHERE o.id = decode($2,'hex') \
+                 WHERE o.id = $2::bytea \
                    AND jsonb_typeof(e.category) = 'array' \
                  GROUP BY cat.value \
                  {}",
@@ -169,7 +201,7 @@ impl AffinityService {
                 }
             };
             if let Err(e) = client
-                .execute(&sql, &[&user_id_hex, &order_id_hex, &AffinitySignal::Purchase.weight()])
+                .execute(&sql, &[&user_bin, &order_bin, &AffinitySignal::Purchase.weight()])
                 .await
             {
                 tracing::debug!(error = %e, "affinity purchase: upsert gagal (best-effort)");
@@ -180,7 +212,7 @@ impl AffinityService {
     /// Kuras buffer → satu statement UNNEST. Gagal = data hangus (best-effort);
     /// jangan retry/menahan buffer agar memori tak membengkak saat DB bermasalah.
     async fn flush(&self) {
-        let drained: Vec<((String, String), f64)> = {
+        let drained: Vec<((Vec<u8>, String), f64)> = {
             let mut buf = self.buf.lock().unwrap();
             if buf.is_empty() {
                 return;
@@ -192,7 +224,7 @@ impl AffinityService {
         let mut cats = Vec::with_capacity(drained.len());
         let mut scores = Vec::with_capacity(drained.len());
         for ((u, c), s) in &drained {
-            users.push(u.as_str());
+            users.push(u.as_slice());
             cats.push(c.as_str());
             scores.push(*s);
         }
@@ -207,8 +239,8 @@ impl AffinityService {
 
         let sql = format!(
             "INSERT INTO user_affinity (user_id, category, score, updated_at) \
-             SELECT decode(t.u,'hex'), t.c, t.s, NOW() \
-             FROM UNNEST($1::text[], $2::text[], $3::float8[]) AS t(u, c, s) \
+             SELECT t.u, t.c, t.s, NOW() \
+             FROM UNNEST($1::bytea[], $2::text[], $3::float8[]) AS t(u, c, s) \
              {}",
             upsert_decay_sql()
         );

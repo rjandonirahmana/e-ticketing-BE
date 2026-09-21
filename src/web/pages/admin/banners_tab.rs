@@ -104,7 +104,18 @@ pub(super) fn view_banners(
 
     // ── Unggah + buat banner baru ─────────────────────────────────────────────
     let on_create = move |_| {
+        // `return` WAJIB. Tanpa itu penjaganya membaca `busy`, menyimpulkan
+        // bahwa unggahan sedang berjalan, lalu tetap meneruskan — dobel-klik
+        // menghasilkan dua unggahan dan dua spanduk. Bandingkan dengan
+        // penjaga di `on_swap` beberapa baris di bawah, yang sudah benar.
+        // `allow` DENGAN ALASAN: pada target SSR blok `#[cfg(wasm32)]` di bawah
+        // menghilang, sehingga `return` ini jadi pernyataan terakhir dan
+        // clippy menganggapnya mubazir. Di wasm — satu-satunya target yang
+        // benar-benar menjalankan penangan ini — ia justru yang menghentikan
+        // unggahan kedua.
+        #[allow(clippy::needless_return)]
         if busy.get_untracked() {
+            return;
         }
         #[cfg(target_arch = "wasm32")]
         {
