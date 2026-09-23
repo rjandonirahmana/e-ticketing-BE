@@ -31,6 +31,8 @@ lama dari `migration/029a_chat_dua_tabel_baru.sql`.
 | `040_products_slug_unique.sql` | `CREATE INDEX CONCURRENTLY` tak boleh berada di dalam transaksi, dan bisa GAGAL bila ada slug kembar |
 | `041_seed_bulk.sql` | 1 juta produk + 3 juta varian. Data UJI |
 | `042_seed_stories.sql` | 500 ribu story. Data UJI |
+| `043_seed_fake_users.sql` | 2 juta user palsu, password sama (`123456789`). Data UJI |
+| `044_seed_fake_orders.sql` | 500 ribu order palsu (paid) + cart/tiket. Data UJI — butuh 041 & 043 lebih dulu |
 
 Dua seed itu dulu berada di `migration/` sehingga IKUT ter-embed — artinya
 deployment pertama ke database kosong mana pun, termasuk produksi baru, akan
@@ -53,9 +55,11 @@ Alasannya berbeda per berkas, dan hanya satu di antaranya soal data hilang:
   transaksi (`config/migrate.rs`), dan `CREATE INDEX CONCURRENTLY` menolak hidup
   di dalam transaksi. Selain itu ia gagal bila ada slug kembar, dan memilih
   produk mana yang berhak atas sebuah slug adalah keputusan manusia.
-- **041/042** adalah data UJI. Database kosong menjalankan SEMUA berkas
-  `migration/` dari nol — kalau seed ikut di sana, produksi baru lahir berisi
-  sejuta produk palsu.
+- **041/042/043/044** adalah data UJI. Database kosong menjalankan SEMUA
+  berkas `migration/` dari nol — kalau seed ikut di sana, produksi baru lahir
+  berisi sejuta produk palsu. `043` juga punya alasan tambahan: SATU password
+  (`123456789`) dipakai ulang untuk jutaan akun — lubang keamanan raksasa kalau
+  sampai berjalan di database yang sungguhan dipakai orang.
 
 ## Cara menjalankan
 
@@ -75,18 +79,23 @@ Kosong → pasang indexnya. **Tanpa `-1`/`--single-transaction`**, karena
 psql "$DATABASE_URL" -f migration-manual/040_products_slug_unique.sql
 ```
 
-### 041 / 042 — seed data uji
+### 041 / 042 / 043 / 044 — seed data uji
 
-Jangan pernah di produksi. Ubah dulu angka `generate_series(...)` (041) atau
-`\set n_users` / `\set n_stories` (042) sesuai skala yang ingin diukur:
+Jangan pernah di produksi. Ubah dulu angka `generate_series(...)` (041, 043,
+044) atau `\set n_users` / `\set n_stories` (042) sesuai skala yang ingin
+diukur:
 
 ```bash
 psql "$DATABASE_URL" -f migration-manual/041_seed_bulk.sql
 psql "$DATABASE_URL" -f migration-manual/042_seed_stories.sql
+psql "$DATABASE_URL" -f migration-manual/043_seed_fake_users.sql
+psql "$DATABASE_URL" -f migration-manual/044_seed_fake_orders.sql   # butuh 041 & 043 dulu
 ```
 
-Keduanya idempoten (`ON CONFLICT DO NOTHING`) dan punya blok rollback
-ter-comment di bagian bawah berkas.
+Semua idempoten (`ON CONFLICT DO NOTHING`) dan punya blok rollback ter-comment
+di bagian bawah berkas. `044` merangkai empat INSERT (cart → order → cart_item
+→ ticket) dalam satu statement lewat `RETURNING`, jadi urutannya terjamin
+walau dijalankan sebagai satu file `-f`.
 
 ### 029 — chat dua tabel (database LAMA saja)
 

@@ -62,6 +62,16 @@ pub fn SeoMeta(
     } else {
         "summary"
     };
+    // Tag `og:image`/`twitter:image` SELALU dirender, isi kosong bila tak ada
+    // gambar — BUKAN `has_image.then(|| view!{...})` (dulu begitu). Jumlah
+    // elemen `<Meta>` yang dihasilkan komponen ini harus SAMA setiap kali,
+    // karena `<MetaTags/>` (leptos_meta) mencocokkan hasil hidrasi klien
+    // dengan HTML yang dikirim server elemen demi elemen; cabang kondisional
+    // yang menambah/mengurangi JUMLAH elemen adalah sumber ketidakcocokan
+    // hidrasi yang menghentikan WASM (lihat crash yang sama pada resource
+    // `Suspense` di `explore/mod.rs` — akar masalahnya berbeda tapi gejalanya
+    // sama: bentuk render pertama klien tak boleh menyimpang dari server).
+    // Scraper mengabaikan `content=""` dengan aman.
     view! {
         <Title text=title.clone() />
         <Meta name="description" content=description.clone() />
@@ -72,11 +82,11 @@ pub fn SeoMeta(
         <Meta property="og:title" content=title.clone() />
         <Meta property="og:description" content=description.clone() />
         <Meta property="og:url" content=url />
-        {has_image.then(|| view! { <Meta property="og:image" content=image.clone() /> })}
+        <Meta property="og:image" content=image.clone() />
 
         <Meta name="twitter:card" content=tw_card />
         <Meta name="twitter:title" content=title />
         <Meta name="twitter:description" content=description />
-        {has_image.then(|| view! { <Meta name="twitter:image" content=image /> })}
+        <Meta name="twitter:image" content=image />
     }
 }

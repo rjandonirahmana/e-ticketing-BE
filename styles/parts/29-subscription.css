@@ -401,8 +401,9 @@
        + blur + komposit ulang, pada bilah yang menempel di layar sepanjang
        waktu dan ikut dirasterisasi tiap potretan transisi. */
   position: fixed;
-  bottom: 0; left: 50%; right: auto;
-  transform: translateX(-50%);
+  /* BUKAN `left:50%; transform:translateX(-50%)` — lihat `.pay-bar` di
+     `07-page-cart.css`. */
+  bottom: 0; left: 0; right: 0; margin-inline: auto;
   width: 100%;
   max-width: var(--lebar-kolom);       /* ikut lebar page */
   padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
@@ -657,8 +658,9 @@
        + blur + komposit ulang, pada bilah yang menempel di layar sepanjang
        waktu dan ikut dirasterisasi tiap potretan transisi. */
   position: fixed;
-  bottom: 0; left: 50%; right: auto;
-  transform: translateX(-50%);
+  /* BUKAN `left:50%; transform:translateX(-50%)` — lihat `.pay-bar` di
+     `07-page-cart.css`. */
+  bottom: 0; left: 0; right: 0; margin-inline: auto;
   width: 100%; max-width: var(--lebar-kolom);
   padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
   background: rgba(13,13,24,0.95);

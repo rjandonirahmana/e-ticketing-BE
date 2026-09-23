@@ -188,15 +188,6 @@ h5 {
     color: var(--accent-lime);
 }
 
-/* Nama aplikasi di atas nav — HANYA dipakai sidebar desktop (≥1200px, lihat
-   `60-desktop.css`). Disembunyikan di sini, bukan di sana, supaya default
-   elemennya hidup bersama elemen nav lain dan `60-desktop.css` tetap berisi
-   media query saja: apa pun yang ada di berkas itu mustahil menyentuh ponsel.
-   Di ponsel bilah nav tak punya ruang untuk nama aplikasi, dan header tiap
-   halaman sudah memuatnya (`.page-logo`). */
-.nav-brand {
-    display: none;
-}
 .bottom-label {
     font-family: var(--font-body);
     font-size: 9px;

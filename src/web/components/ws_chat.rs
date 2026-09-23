@@ -111,12 +111,27 @@ where
     // melakukannya bersamaan adalah yang membuatnya penuh sejak awal.
     let tenang_sampai: StoredValue<f64> = StoredValue::new(0.0);
 
+    // Status masuk, disalin dari `auth` ke sinyal biasa lewat Effect di bawah.
+    //
+    // `connect` BUKAN cuma dipanggil dari dalam Effect (baris aman) — watchdog
+    // sambung-ulang (`Interval`) dan pendengar `visibilitychange` juga
+    // memanggilnya dari closure JS mentah, di LUAR pelacakan reaktif Leptos.
+    // Membaca `auth` (sebuah `Resource`) langsung dari situ memicu galat
+    // "reading a resource ... outside Suspense/effect" tiap kali watchdog
+    // menyala — sinyal biasa (`RwSignal`) tak punya batasan itu, jadi
+    // `connect` membaca salinannya, bukan resource-nya sendiri.
+    let masuk = RwSignal::new(false);
+    Effect::new(move |_| {
+        masuk.set(
+            auth.and_then(|a| a.get())
+                .and_then(|r| r.ok())
+                .flatten()
+                .is_some(),
+        );
+    });
+
     let connect = move || {
-        let masuk = auth
-            .and_then(|a| a.get_untracked())
-            .and_then(|r| r.ok())
-            .flatten()
-            .is_some();
+        let masuk = masuk.get_untracked();
         if !masuk {
             return;
         }

@@ -571,6 +571,31 @@ pub fn ExplorePage() -> impl IntoView {
                 }}
             </div>
 
+            // `.exp-results-bar` (hitungan total) dan `.exp-feed` (grid) DULU
+            // dibungkus dua `<Suspense>` terpisah, keduanya membaca resource
+            // BLOCKING yang sama (`ssr_first`, lewat `feed_total`/`feed_loading`).
+            // Dua Suspense yang berebut satu resource membuat render pertama
+            // klien tak selalu berbentuk sama dengan HTML server — tachys
+            // menolak hydrate elemen yang bentuknya tak cocok dan seluruh WASM
+            // panik. Satu Suspense yang membungkus KEDUANYA menghapus rebutan
+            // itu; resource blocking sudah pasti selesai sebelum SSR mengirim
+            // byte pertama, jadi fallback grid shimmer di bawah pada praktiknya
+            // tak pernah benar-benar terlihat.
+            <Suspense fallback=move || {
+                let shims = (0..6)
+                    .map(|i| {
+                        view! {
+                            <div
+                                class="exp-shimmer-wrap"
+                                style=format!("animation-delay:{}ms", i * 60)
+                            >
+                                <ProductCardShimmer />
+                            </div>
+                        }
+                    })
+                    .collect_view();
+                view! { <div class="exp-mkt-grid">{shims}</div> }
+            }>
             <div class="exp-results-bar">
                 <div class="exp-results-left">
                     <span class="exp-results-eyebrow">"Product Tersedia"</span>
@@ -578,18 +603,13 @@ pub fn ExplorePage() -> impl IntoView {
                         // TOTAL dari COUNT server (semua halaman), bukan jumlah
                         // item yang baru termuat. Saat user mengetik pencarian
                         // (filter lokal), tampilkan jumlah hasil filter itu.
-                        // Suspense: feed_total membaca resource SSR (ssr_first) —
-                        // pembacaan resource WAJIB di dalam Suspense agar tak ada
-                        // hydration mismatch (sama seperti grid feed di bawah).
-                        <Suspense fallback=|| ()>
-                            {move || {
-                                if query.get().trim().is_empty() {
-                                    feed_total.get().max(0)
-                                } else {
-                                    filtered.with(|f| f.len()) as i64
-                                }
-                            }}
-                        </Suspense>
+                        {move || {
+                            if query.get().trim().is_empty() {
+                                feed_total.get().max(0)
+                            } else {
+                                filtered.with(|f| f.len()) as i64
+                            }
+                        }}
                         " product tersedia"
                     </span>
                 </div>
@@ -622,21 +642,6 @@ pub fn ExplorePage() -> impl IntoView {
             </div>
 
             <div class="exp-feed">
-                <Suspense fallback=move || {
-                    let shims = (0..6)
-                        .map(|i| {
-                            view! {
-                                <div
-                                    class="exp-shimmer-wrap"
-                                    style=format!("animation-delay:{}ms", i * 60)
-                                >
-                                    <ProductCardShimmer />
-                                </div>
-                            }
-                        })
-                        .collect_view();
-                    view! { <div class="exp-mkt-grid">{shims}</div> }
-                }>
                 {move || {
                     if feed_loading.get() {
                         let shims = (0..6)
@@ -729,8 +734,8 @@ pub fn ExplorePage() -> impl IntoView {
                         }
                     }
                 }}
-                </Suspense>
             </div>
+            </Suspense>
 
             <div class="exp-genre-section">
                 <span class="exp-section-eyebrow">"EXPLORE BY GENRE"</span>

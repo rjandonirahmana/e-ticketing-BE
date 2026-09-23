@@ -203,19 +203,6 @@ pub fn BottomNav(#[prop(default = "")] active: &'static str) -> impl IntoView {
         // yang justru sedang dihindari di sini.
         <nav class="bottom-nav" on:pointerdown=tandai_tunjuk on:keydown=tandai_tombol>
 
-            // 0. BRAND — hanya terlihat di sidebar desktop (≥1200px).
-            //
-            // `display: none` bawaannya ada di `styles/parts/01-base.css`; yang
-            // menyalakannya `styles/parts/60-desktop.css`. Ditaruh di dalam
-            // <nav> yang sama, bukan sebagai elemen terpisah di router, karena
-            // ia bagian dari sidebar: apa pun yang menggeser atau
-            // menyembunyikan nav harus ikut membawanya.
-            //
-            // `aria-hidden` karena ini pengulangan visual dari logo yang sudah
-            // ada di header tiap halaman — pembaca layar tak perlu mendengar
-            // nama aplikasi dua kali sebelum tiap daftar navigasi.
-            <span class="nav-brand" aria-hidden="true">"PULSE"</span>
-
             // 1. EXPLORE
             <A href="/explore" attr:class=cls("explore")>
                 <svg

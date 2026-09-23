@@ -429,7 +429,11 @@ pub fn CartPage() -> impl IntoView {
                         </div>
 
                         // ── Bilah bayar ─────────────────────────────────────
-                        <div class="fixed bottom-0 left-1/2 -translate-x-1/2 z-50 \
+                        // `left-0 right-0 mx-auto` (bukan `left-1/2
+                        // -translate-x-1/2`): teknik KOTAK, bukan transform —
+                        // kokoh di lebar berapa pun tanpa perlu menghitung
+                        // ulang saat `max-w` ikut berubah antar breakpoint.
+                        <div class="fixed bottom-0 left-0 right-0 mx-auto z-50 \
                                     w-full max-w-[480px] flex items-center justify-between gap-4 \
                                     px-5 pt-3.5 pb-[calc(18px+env(safe-area-inset-bottom,8px))] \
                                     bg-overlay backdrop-blur-xl border-t border-solid border-line">

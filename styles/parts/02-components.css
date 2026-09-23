@@ -600,8 +600,11 @@
     background: var(--overlay-blur);
     position: fixed;
     bottom: 72px;
-    left: 50%;
-    transform: translateX(-50%);
+    /* BUKAN `left:50%; transform:translateX(-50%)` — lihat `.pay-bar` di
+       `07-page-cart.css`. */
+    left: 0;
+    right: 0;
+    margin-inline: auto;
     width: 100%;
     max-width: var(--lebar-kolom);
 }
@@ -622,8 +625,11 @@
        waktu dan ikut dirasterisasi tiap potretan transisi. */
     position: fixed;
     bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
+    /* BUKAN `left:50%; transform:translateX(-50%)` — lihat `.pay-bar` di
+       `07-page-cart.css`. */
+    left: 0;
+    right: 0;
+    margin-inline: auto;
     width: 100%;
     max-width: var(--lebar-kolom);
     display: flex;
@@ -1474,8 +1480,14 @@ textarea:focus {
 .ed-buy-footer {
     position: fixed;
     bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
+    /* BUKAN `left:50%; transform:translateX(-50%)` — sama seperti `.pay-bar`
+       (`07-page-cart.css`) dan `.sticky-footer` (`08-page-event-detail.css`):
+       itu memusatkan bilah ke VIEWPORT, dan override `left` di
+       `60-desktop.css` (untuk menggeser ke sebelah rail desktop) tak berefek
+       pada elemen yang posisinya ditentukan `transform`. */
+    left: 0;
+    right: 0;
+    margin-inline: auto;
     width: 100%;
     max-width: var(--lebar-kolom);
     background: var(--overlay-blur, rgba(13, 13, 26, 0.92));

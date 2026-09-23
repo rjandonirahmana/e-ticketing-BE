@@ -533,8 +533,14 @@
        waktu dan ikut dirasterisasi tiap potretan transisi. */
     position: fixed;
     bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
+    /* BUKAN `left:50%; transform:translateX(-50%)` — sama seperti `.pay-bar`
+       di `07-page-cart.css`, itu memusatkan bilah ke VIEWPORT, dan override
+       `left` di `60-desktop.css` (untuk menggeser ke sebelah rail desktop)
+       tak berefek pada elemen yang posisinya ditentukan `transform`. Lihat
+       catatan lengkap di `.pay-bar`. */
+    left: 0;
+    right: 0;
+    margin-inline: auto;
     width: 100%;
     max-width: var(--lebar-kolom);
     background: var(--overlay-blur);

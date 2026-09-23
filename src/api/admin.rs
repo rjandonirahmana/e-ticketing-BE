@@ -82,3 +82,4 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/admin/products", get(list_admin_products))
         .route("/admin/products/{id}", put(update_product_status))
 }
+

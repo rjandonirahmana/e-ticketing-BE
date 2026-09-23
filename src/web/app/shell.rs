@@ -65,7 +65,7 @@ pub fn shell(options: leptos::config::LeptosOptions) -> impl IntoView {
                 :root{--bg-page:#0d0d1a;--bg-elevated:#1e1e30;--bg-card-hover:#1a1a2e;--border-soft:rgba(255,255,255,.06);--text-primary:#f0f0f8;--font-body:"Space Mono",monospace}
                 [data-theme="light"]{--bg-page:#f3f3fb;--bg-elevated:#e2e2f0;--bg-card-hover:#ebebf5;--border-soft:rgba(0,0,20,.06);--text-primary:#0c0c1a}
                 *{box-sizing:border-box}
-                html,body{margin:0;padding:0;background:var(--bg-page);color:var(--text-primary);font-family:var(--font-body),monospace;min-height:100vh}
+                html,body{margin:0;background:var(--bg-page);color:var(--text-primary);font-family:var(--font-body),monospace;min-height:100vh}
                 @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
                 .shimmer-bg{background:linear-gradient(90deg,var(--bg-elevated) 25%,var(--bg-card-hover) 50%,var(--bg-elevated) 75%);background-size:200% 100%;animation:shimmer 1.6s ease-in-out infinite;border-radius:8px}
                 "# />

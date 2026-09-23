@@ -599,8 +599,11 @@
 .chat-error-toast {
     position: fixed;
     bottom: 76px;
-    left: 50%;
-    transform: translateX(-50%);
+    /* BUKAN `left:50%; transform:translateX(-50%)` — lihat `.pay-bar` di
+       `07-page-cart.css`. */
+    left: 0;
+    right: 0;
+    margin-inline: auto;
     width: calc(min(100%, var(--lebar-kolom)) - 32px);
     max-width: 448px;
     background: var(--danger);
@@ -633,8 +636,12 @@
        waktu dan ikut dirasterisasi tiap potretan transisi. */
     position: fixed;
     bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
+    /* BUKAN `left:50%; transform:translateX(-50%)` — sama seperti `.pay-bar`
+       (`07-page-cart.css`): override `left` di `60-desktop.css` (rail
+       desktop) tak berefek pada elemen yang posisinya ditentukan `transform`. */
+    left: 0;
+    right: 0;
+    margin-inline: auto;
     width: 100%;
     max-width: var(--lebar-kolom);
     display: flex;

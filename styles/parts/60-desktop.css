@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   TAMPILAN DESKTOP — rail samping + kolom lebar
+   TAMPILAN DESKTOP — kolom lebar, nav TETAP di bawah
    ═══════════════════════════════════════════════════════════════════════════
 
    Aplikasi ini lahir sebagai satu kolom ponsel dan itu tetap dasarnya. Berkas
@@ -13,154 +13,44 @@
    lebih besar menang. Penyesuaian desktop HARUS bisa menimpa aturan halaman
    (05–39) tanpa perlu `!important`, dan 60 menaruhnya sesudah semuanya.
 
-   ── TIGA BREAKPOINT, DAN ALASANNYA ────────────────────────────────────────
-   • 1024px — rail nav ikon muncul, kolom melebar ke 720px.
-     Bukan angka sembarang: pada 1024px kolom 720px menyisakan gutter 152px di
-     tiap sisi, dan rail selebar 88px muat seluruhnya di dalam gutter kiri
-     TANPA menyentuh kolom. Menurunkan breakpoint tanpa menurunkan lebar kolom
-     akan membuat rail menimpa isi halaman.
-   • 1200px — rail menjadi SIDEBAR BERLABEL selebar 248px, kolom 760px.
+   ── NAV BAWAH TETAP DI BAWAH ───────────────────────────────────────────────
+   Versi sebelumnya memindahkan `.bottom-nav` menjadi rail/sidebar di kiri
+   layar pada layar lebar. Itu DIBUANG SENGAJA: elemen DOM-nya
+   (`.bottom-nav`, `01-base.css`) sudah `position: fixed; left: 0; right: 0;
+   margin-inline: auto; max-width: var(--lebar-kolom)` — teknik pemusatan
+   yang sama dipakai bilah lain di berkas ini — jadi begitu `--lebar-kolom`
+   melebar lewat breakpoint di bawah, nav ikut melebar dan tetap terpusat
+   TANPA satu baris kode tambahan. Sengaja tak disentuh di sini.
+
+   Konsekuensi yang mengikuti dari keputusan itu, dan itu justru intinya:
+   tak ada lagi rail yang memakan ruang di kiri, jadi TIDAK ADA halaman yang
+   perlu digeser untuk memberinya tempat. Setiap halaman — dengan nav atau
+   tanpa nav (cart, checkout, detail product, dst.) — cukup terpusat ke
+   VIEWPORT apa adanya, sama seperti di ponsel. Itu sebabnya berkas ini
+   TIDAK PUNYA `--rail-lebar`, `body { padding-left: … }`, atau daftar bilah
+   yang digeser `left` — semua itu hanya perlu ada kalau ada rail yang harus
+   diberi ruang, dan sekarang tidak ada.
+
+   ── BREAKPOINT KOLOM ───────────────────────────────────────────────────────
+   • 1024px — kolom melebar ke 720px.
    • 1440px — kolom 800px. Sekadar bernapas; bukan tata letak baru.
-
-   Breakpoint 1200 ditambahkan belakangan dan MELANGGAR aturan "sesedikit
-   mungkin breakpoint" yang ditulis di sini sebelumnya. Alasannya cukup: rail
-   88px hanya memuat ikon dengan label 10px di bawahnya — bentuk navigasi
-   PONSEL yang dipindah menyamping, bukan navigasi desktop. Sidebar berlabel
-   butuh ~248px, dan 248 + kolom 720 baru menyisakan gutter yang wajar mulai
-   sekitar 1200px. Di bawah itu rail ikon tetap bentuk yang benar, jadi
-   keduanya memang dua keadaan yang berbeda, bukan satu yang dipaksa melar.
-
-   Bentuk sidebar-nya mengikuti `ppm` (`DesktopSidebar` di
-   `src/web/components.rs` + `style/tailwind.css`): panel kiri berisi brand,
-   lalu daftar nav ikon+label sebaris, item aktif sebagai pill.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 @media (min-width: 1024px) {
-    /* Satu baris ini yang melebarkan SELURUH aplikasi: kolom utama, tiap bilah
-       `position: fixed` yang sejajar dengannya, dan jarak geser + klip transisi
-       halaman (`--pt-kolom` diturunkan dari token yang sama). Itulah gunanya
-       tokenisasi sebelum ini dikerjakan. */
     :root {
         --lebar-kolom: 720px;
-        --rail-lebar: 88px;
     }
 
-    /* ── NAV BAWAH → RAIL KIRI ─────────────────────────────────────────────
-       Elemen DOM-nya sama persis (`BottomNav`), hanya tata letaknya yang
-       berubah. Tak ada komponen baru, tak ada cabang di Rust, dan tak ada
-       kemungkinan kedua versi nav berselisih isi — karena memang cuma ada
-       satu.
-
-       `view-transition-name: pt-nav` dari `58-page-transition.css` tetap
-       berlaku dan justru makin tepat di sini: rail memang kerangka tetap yang
-       tak boleh ikut bergeser saat halaman berpindah. */
-    .bottom-nav {
-        top: 0;
-        bottom: 0;
-        left: 0;
-        right: auto;
-        margin-inline: 0;
-
-        width: var(--rail-lebar);
-        max-width: var(--rail-lebar);
-
-        /* Dari kolom mendatar menjadi tumpukan tegak. `align-content: center`
-           memusatkan seluruh tumpukan secara vertikal, jadi jumlah tab yang
-           berubah (merchant/admin muncul untuk sebagian orang) tak pernah
-           membuatnya menempel di tepi atas. */
-        grid-auto-flow: row;
-        grid-auto-columns: auto;
-        grid-auto-rows: max-content;
-        align-content: center;
-        gap: 4px;
-
-        border-top: none;
-        border-right: 1px solid var(--border-strong);
-        /* Padding bawah untuk home indicator iOS tak berlaku di sini. */
-        padding: 16px 8px;
-    }
-
-    .bottom-item {
-        padding: 10px 0;
-        gap: 6px;
-        border-radius: 12px;
-        transition: color 0.2s, background 0.2s;
-    }
     /* Desktop punya penunjuk tetikus, dan penunjuk menuntut umpan balik hover
-       yang di ponsel tak pernah dibutuhkan. */
+       yang di ponsel tak pernah dibutuhkan (`:hover` tak pernah menyala lewat
+       sentuhan). Elemen & posisinya tetap sama seperti ponsel — hanya warna
+       saat disorot yang ditambahkan. */
     .bottom-item:hover {
         background: var(--bg-elevated);
         color: var(--text-primary);
     }
     .bottom-item--active:hover {
         color: var(--accent-lime);
-    }
-
-    .bottom-label {
-        font-size: 10px;
-        letter-spacing: 0.08em;
-    }
-
-    /* Lencana pesan belum dibaca: di bilah mendatar ia digeser dari tengah
-       tombol; di rail, tombolnya jauh lebih lebar daripada ikonnya, jadi
-       offset yang sama menaruhnya melayang di ruang kosong. */
-    .bottom-badge {
-        margin-left: 8px;
-    }
-
-    /* ── PUSATKAN TERHADAP RUANG YANG TERSISA, BUKAN VIEWPORT ─────────────
-       Rail memakan 88px di kiri. Kolom yang tetap dipusatkan ke VIEWPORT
-       karena itu berakhir 44px ke kiri dari pusat ruang yang sebenarnya bisa
-       dipakai — cukup untuk terbaca sebagai "agak melenceng" tanpa pernah
-       jelas kenapa.
-
-       `padding-left` pada `body` menggeser seluruh isi yang mengalir sekaligus,
-       jadi kolomnya terpusat dengan sendirinya tanpa satu pun perhitungan.
-       Latar grid tak ikut bergeser karena ia `position: fixed` — dan memang
-       harus begitu, ia milik seluruh layar. */
-    body {
-        padding-left: var(--rail-lebar);
-    }
-
-    /* Bilah melayang TIDAK terkena padding `body` (mereka mengacu ke viewport),
-       jadi titik awalnya digeser sendiri. `right: 0` + `margin-inline: auto`
-       yang sudah ada lalu memusatkannya di ruang yang sama dengan kolom.
-
-       Disebut satu per satu, bukan disapu dengan pemilih umum: `.sv-scene`
-       (penampil story) memang harus menutupi SELURUH layar termasuk rail, dan
-       satu sapuan yang kelewat luas akan menggesernya juga. */
-    .pay-bar,
-    .sticky-footer,
-    .ed-buy-footer,
-    .medit-sticky-footer,
-    .chat-input-bar,
-    .chat-send-hint,
-    .chat-readonly-bar,
-    .chat-error-toast,
-    .chat-balas-pratinjau,
-    .sub-cta-sticky,
-    .sub-pay-sticky,
-    .exp-sovl-wrap,
-    .toast-host {
-        left: var(--rail-lebar);
-    }
-
-    /* ── RUANG UNTUK BILAH YANG SUDAH TAK ADA DI BAWAH ─────────────────────
-       Tiap halaman menyisakan 80–100px di bawah supaya isinya tak tertutup nav.
-       Begitu nav pindah ke samping, ruang itu berubah menjadi lubang kosong di
-       ujung tiap halaman. Dikembalikan ke jarak nafas biasa.
-
-       Yang TIDAK ikut direset: halaman yang punya bilah melayangnya SENDIRI
-       (detail produk, keranjang, checkout) — bilah itu tetap di bawah, dan
-       ruangnya masih dibutuhkan. Karena itu daftar di bawah menyebut halaman
-       satu per satu alih-alih menyapu `.page`. */
-    .exp-page,
-    .lives-page,
-    .merchant-page,
-    .mp-page,
-    .pl-page,
-    .oc-page {
-        padding-bottom: 32px;
     }
 
     /* ── KARTU: 3 KOLOM ───────────────────────────────────────────────────
@@ -174,7 +64,7 @@
     }
 
     /* ═══════════════════════════════════════════════════════════════════
-       ENAM HALAMAN UTAMA
+       HALAMAN-HALAMAN LAIN
        ═══════════════════════════════════════════════════════════════════
        Sisanya sengaja TIDAK diberi aturan khusus. Kerangka di atas sudah
        membuat semuanya melebar dengan rapi, dan aturan per-halaman yang
@@ -205,21 +95,7 @@
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
-    /* ── 3. KERANJANG & 4. CHECKOUT — BELUM DIKERJAKAN, DAN ITU DISENGAJA ──
-       Keduanya tak punya satu pun kelas struktural: seluruh tata letaknya
-       disusun dari utilitas Tailwind langsung di `web/pages/cart.rs` dan
-       `checkout.rs` (`flex flex-col gap-4 px-5`, dan seterusnya). Tak ada
-       sasaran yang bisa dipegang dari berkas ini.
-
-       Melebarkannya dengan benar berarti menyentuh markup kedua halaman itu —
-       memberi pembungkusnya kelas, lalu membatasi lebar baca isinya di sini.
-       Itu pekerjaan di berkas Rust, bukan CSS, dan tak pantas diselundupkan ke
-       dalam ronde yang seharusnya hanya menambah lapisan desktop.
-
-       Untuk sementara keduanya ikut melebar apa adanya bersama kolom, yang
-       masih terbaca — hanya belum rapi. */
-
-    /* ── 5. PESANAN ───────────────────────────────────────────────────────
+    /* ── 3. PESANAN ───────────────────────────────────────────────────────
        Kartu pesanan tinggi dan padat. Dua lajur mengubah "menggulir mencari
        satu pesanan" menjadi "memindai" — dan itulah yang sebenarnya dilakukan
        orang di halaman ini. */
@@ -230,7 +106,7 @@
         align-items: start;
     }
 
-    /* ── 6. PROFIL ────────────────────────────────────────────────────────
+    /* ── 4. PROFIL ────────────────────────────────────────────────────────
        Daftar menu satu lajur yang membentang 800px adalah baris teks pendek
        dengan ruang kosong sepanjang layar di kanannya. Dua lajur mengisinya
        tanpa mengubah apa pun tentang tiap barisnya. */
@@ -261,98 +137,6 @@
     }
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   ≥1200px — RAIL IKON MENJADI SIDEBAR BERLABEL
-   ═══════════════════════════════════════════════════════════════════════════
-   Elemen DOM-nya TETAP `BottomNav` yang sama, sama seperti pada 1024px. Yang
-   berubah hanya arah tata letak tiap itemnya: dari ikon-di-atas-label menjadi
-   ikon-di-samping-label. Tak ada komponen kedua, jadi tak ada kemungkinan isi
-   nav ponsel dan nav desktop berselisih.
-   ═══════════════════════════════════════════════════════════════════════════ */
-@media (min-width: 1200px) {
-    :root {
-        --rail-lebar: 248px;
-        /* 1200 - 248 = 952 ruang tersisa; kolom 760 menyisakan gutter 96px di
-           tiap sisi. Kolom sengaja TIDAK ikut melebar sebanyak sidebarnya:
-           yang dicari di desktop bukan baris teks yang makin panjang. */
-        --lebar-kolom: 760px;
-    }
-
-    /* Brand di atas, nav mengalir dari atas — bukan lagi dipusatkan tegak.
-       Pada rail ikon, memusatkan tumpukan masuk akal karena isinya pendek.
-       Pada sidebar berlabel, isinya mengisi sebagian besar tinggi layar, dan
-       tumpukan yang "mengambang di tengah" justru terbaca seperti salah
-       posisi. */
-    .bottom-nav {
-        align-content: start;
-        gap: 2px;
-        padding: 20px 12px;
-    }
-
-    /* ── BRAND ────────────────────────────────────────────────────────────
-       Hanya ada di sini. Di ponsel bilah nav tak punya ruang untuk nama
-       aplikasi, dan header tiap halaman sudah memuatnya (`.page-logo`).
-
-       Perlakuannya sengaja menyalin `.page-logo` di header halaman (weight 900,
-       tracking lebar, huruf besar) dan BUKAN memilih gaya sendiri: keduanya
-       adalah nama yang sama di layar yang sama, dan dua gaya berbeda untuk satu
-       nama terbaca sebagai dua merek. Ukurannya saja yang naik sedikit, karena
-       di sini ia berdiri sendiri alih-alih berdampingan dengan tombol header. */
-    .nav-brand {
-        display: block;
-        padding: 6px 14px 18px;
-        font-size: 16px;
-        font-weight: 900;
-        letter-spacing: 0.22em;
-        text-transform: uppercase;
-        color: var(--text-primary);
-    }
-
-    /* ── ITEM: IKON DI SAMPING LABEL ──────────────────────────────────────
-       `.bottom-item` di `01-base.css` adalah `flex-direction: column`. Satu
-       baris membalikkannya; sisanya hanya jarak. */
-    .bottom-item {
-        flex-direction: row;
-        justify-content: flex-start;
-        align-items: center;
-        gap: 12px;
-        padding: 11px 14px;
-        border-radius: 12px;
-    }
-
-    .bottom-label {
-        font-size: 12px;
-        letter-spacing: 0.06em;
-    }
-
-    /* Item aktif sebagai pill, seperti sidebar ppm. Warna tulisannya tetap
-       `--accent-lime` dari `01-base.css` — yang ditambahkan hanya alasnya,
-       supaya "halaman yang sedang dibuka" terbaca dari sekali lihat dan bukan
-       dari membedakan dua warna teks. */
-    .bottom-item--active {
-        background: var(--bg-elevated);
-    }
-
-    /* ── LENCANA KE UJUNG KANAN BARIS ─────────────────────────────────────
-       Pada rail ikon, lencana bergantung di sudut kanan-atas ikon. Pada baris
-       selebar 224px, tempat itu berada di tengah-tengah ruang kosong.
-
-       Dipusatkan tegak dengan `margin-top` negatif, BUKAN
-       `transform: translateY(-50%)`: lencananya punya animasi kemunculan yang
-       memakai `transform: scale()` dan tanpa `animation-fill-mode`. Transform
-       dari aturan ini akan tertimpa selama 240 ms animasi itu lalu berlaku
-       kembali sesudahnya — yang terlihat sebagai lencana yang melompat. Tinggi
-       lencananya pasti 17px, jadi -8.5px tepat dan tak memakai transform sama
-       sekali. */
-    .bottom-badge {
-        top: 50%;
-        margin-top: -8.5px;
-        left: auto;
-        right: 12px;
-        margin-left: 0;
-    }
-}
-
 @media (min-width: 1440px) {
     :root {
         --lebar-kolom: 800px;
@@ -360,7 +144,7 @@
 }
 
 /* ── HORMATI "KURANGI GERAK" ───────────────────────────────────────────────
-   Hover pada rail memakai transisi warna. Kecil, tapi aturannya sama di
+   Hover pada nav memakai transisi warna. Kecil, tapi aturannya sama di
    seluruh berkas gaya ini: yang dimatikan adalah PERPINDAHANNYA, keadaan
    akhirnya tetap berbeda. */
 @media (min-width: 1024px) and (prefers-reduced-motion: reduce) {

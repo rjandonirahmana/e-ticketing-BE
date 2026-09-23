@@ -2711,17 +2711,24 @@
     position: fixed;
     top: 0;
     bottom: 0;
-    left: 50%;
+    /* BUKAN `left:50%` + `translateX(-50%)` di transform — lihat `.pay-bar`
+       di `07-page-cart.css`. `transform` tetap dipakai untuk animasi
+       buka/tutup (`translateY`) saja; pemusatan horizontal dipindah ke
+       `left/right/margin-inline` supaya override `left` di `60-desktop.css`
+       (rail desktop) berefek. */
+    left: 0;
+    right: 0;
+    margin-inline: auto;
     width: 100%;
     max-width: var(--lebar-kolom);
     z-index: 300;
-    transform: translateX(-50%) translateY(100%);
+    transform: translateY(100%);
     transition: transform 0.38s cubic-bezier(0.22,1,0.36,1);
     will-change: transform;
     box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 32px 80px rgba(0,0,0,0.9);
 }
 
-.exp-sovl-wrap--open { transform: translateX(-50%) translateY(0); }
+.exp-sovl-wrap--open { transform: translateY(0); }
 
 .exp-sovl {
     position: absolute;

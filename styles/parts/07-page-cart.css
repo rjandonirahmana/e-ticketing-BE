@@ -364,8 +364,16 @@
        waktu dan ikut dirasterisasi tiap potretan transisi. */
     position: fixed;
     bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
+    /* BUKAN `left:50%; transform:translateX(-50%)` (versi lama): teknik itu
+       memusatkan lewat TRANSFORM, dan transform butuh lebar elemen sudah
+       diketahui sebelum posisinya bisa dihitung ulang — rapuh begitu
+       `max-width` ikut berubah antar breakpoint (lihat riwayat masalah yang
+       sama di `.bottom-nav`, `01-base.css`). `left:0; right:0;
+       margin-inline:auto` memusatkan lewat KOTAK: kokoh di lebar berapa pun,
+       tanpa transform sama sekali. */
+    left: 0;
+    right: 0;
+    margin-inline: auto;
     width: 100%;
     max-width: var(--lebar-kolom);
     background: var(--overlay-blur);
