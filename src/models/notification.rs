@@ -18,6 +18,8 @@ pub mod kind {
     pub const ORDER: &str = "order";
     pub const TICKET: &str = "ticket";
     pub const STORY: &str = "story";
+    pub const POST_LIKE: &str = "post_like";
+    pub const POST_COMMENT: &str = "post_comment";
 }
 
 /// Data target yang di-embed ke notifikasi untuk keperluan UI.
@@ -51,6 +53,17 @@ pub enum NotificationTarget {
         event_date: Option<DateTime<Utc>>,
         venue: Option<String>,
         event_slug: Option<String>,
+    },
+    /// Satu bentuk untuk KEDUA kind `post_like`/`post_comment` — resolusinya
+    /// (lihat repository/notification.rs FIND_DETAIL) sama persis untuk
+    /// keduanya, cuma diskriminator `kind` di JSON yang beda; `title` cukup
+    /// untuk kartu notifikasi (tak perlu menduplikasi `target_id`, sudah ada
+    /// di `Notification.target_id`).
+    PostLike {
+        title: String,
+    },
+    PostComment {
+        title: String,
     },
 }
 
@@ -134,6 +147,38 @@ impl CreateNotificationInput {
             title: title.into(),
             body: body.into(),
             target_id: story_id,
+        }
+    }
+
+    /// POST_LIKE (postingan marketplace disukai orang lain). `target_id` → posts.id
+    pub fn post_like(
+        user_id: impl Into<String>,
+        post_id: impl Into<String>,
+        title: impl Into<String>,
+        body: impl Into<String>,
+    ) -> Self {
+        Self {
+            user_id: user_id.into(),
+            kind: kind::POST_LIKE.into(),
+            title: title.into(),
+            body: body.into(),
+            target_id: Some(post_id.into()),
+        }
+    }
+
+    /// POST_COMMENT (postingan marketplace dikomentari orang lain). `target_id` → posts.id
+    pub fn post_comment(
+        user_id: impl Into<String>,
+        post_id: impl Into<String>,
+        title: impl Into<String>,
+        body: impl Into<String>,
+    ) -> Self {
+        Self {
+            user_id: user_id.into(),
+            kind: kind::POST_COMMENT.into(),
+            title: title.into(),
+            body: body.into(),
+            target_id: Some(post_id.into()),
         }
     }
 }

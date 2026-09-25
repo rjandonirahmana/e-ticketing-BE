@@ -8,6 +8,7 @@ pub mod merchant;
 pub mod notification;
 pub mod orders;
 pub mod payment;
+pub mod post;   // ← NEW: marketplace C2C
 pub mod stories;  // ← NEW
 pub mod tickets;
 pub mod users;

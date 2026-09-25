@@ -273,6 +273,70 @@ pub(super) fn srv_order_detail_to_web(
 }
 
 #[cfg(feature = "ssr")]
+pub(super) fn srv_post_to_web(p: crate::models::post::Post) -> crate::web::models::Post {
+    let images = p
+        .images
+        .into_iter()
+        .filter_map(|v| v.get("url").and_then(|u| u.as_str()).map(str::to_string))
+        .collect();
+    crate::web::models::Post {
+        id: p.id,
+        user_id: p.user_id,
+        user_name: p.user_name,
+        user_avatar: p.user_avatar,
+        kind: p.kind,
+        title: p.title,
+        description: p.description,
+        price: p.price,
+        condition: p.condition,
+        category: p.category,
+        city: p.city,
+        images,
+        status: p.status,
+        like_count: p.like_count,
+        comment_count: p.comment_count,
+        liked_by_viewer: p.liked_by_viewer,
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+    }
+}
+
+#[cfg(feature = "ssr")]
+pub(super) fn srv_post_comment_to_web(c: crate::models::post::PostComment) -> crate::web::models::PostComment {
+    crate::web::models::PostComment {
+        id: c.id,
+        post_id: c.post_id,
+        user_id: c.user_id,
+        user_name: c.user_name,
+        user_avatar: c.user_avatar,
+        body: c.body,
+        created_at: c.created_at,
+    }
+}
+
+#[cfg(feature = "ssr")]
+pub(super) fn srv_paginated_posts_to_web(p: crate::models::post::PaginatedPosts) -> crate::web::models::PaginatedPosts {
+    crate::web::models::PaginatedPosts {
+        data: p.data.into_iter().map(srv_post_to_web).collect(),
+        total: p.total,
+        page: p.page,
+        per_page: p.per_page,
+        total_pages: p.total_pages,
+    }
+}
+
+#[cfg(feature = "ssr")]
+pub(super) fn srv_paginated_comments_to_web(p: crate::models::post::PaginatedComments) -> crate::web::models::PaginatedComments {
+    crate::web::models::PaginatedComments {
+        data: p.data.into_iter().map(srv_post_comment_to_web).collect(),
+        total: p.total,
+        page: p.page,
+        per_page: p.per_page,
+        total_pages: p.total_pages,
+    }
+}
+
+#[cfg(feature = "ssr")]
 pub(super) fn srv_notification_to_web(n: crate::models::notification::Notification) -> crate::web::models::NotificationItem {
     crate::web::models::NotificationItem {
         id: n.id,

@@ -58,7 +58,8 @@
        terlalu besar untuk kartu produk, dan gambarnya jadi meregang. Tiga
        lajur mengembalikannya ke ~230px, dekat dengan proporsi di ponsel. */
     .exp-mkt-grid,
-    .explore-product-grid-v2 {
+    .explore-product-grid-v2,
+    .pk-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 18px;
     }

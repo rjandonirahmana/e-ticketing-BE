@@ -420,3 +420,112 @@ pub fn MessageRowShimmer() -> impl IntoView {
         </div>
     }
 }
+
+// ── Marketplace C2C (Hub) ────────────────────────────────────────────────────
+
+/// Kartu posting marketplace — bentuk visual meniru `ProductCardPub` (foto,
+/// judul, meta, harga, footer) tapi field-nya milik `Post`, bukan event/tiket:
+/// lencana Jual/Cari, lencana kondisi Baru/Bekas (hanya untuk Jual), harga
+/// atau "Nego" bila kosong, jumlah suka+komentar sebagai footer.
+#[component]
+pub fn PostCard(post: crate::web::models::Post, #[prop(default = 0)] index: usize) -> impl IntoView {
+    let href = format!("/marketplace/{}", post.id);
+    let cover = post.images.first().cloned().unwrap_or_default();
+    let kind_label = if post.kind == "jual" { "JUAL" } else { "CARI" };
+    let kind_cls = if post.kind == "jual" {
+        "pk-badge pk-badge--jual"
+    } else {
+        "pk-badge pk-badge--cari"
+    };
+    let condition_label = post.condition.as_deref().map(|c| {
+        if c == "baru" { "Baru" } else { "Bekas" }
+    });
+    let price_disp = match post.price {
+        Some(p) if p > 0 => crate::web::models::format_price(p as f64),
+        _ => "Nego".to_string(),
+    };
+    view! {
+        <a
+            href=href
+            class="pk-card exp-cascade"
+            style=format!("--i:{}", (index % 20).min(5))
+        >
+            <div class="pk-img-wrap">
+                {if cover.is_empty() {
+                    view! { <div class="pk-img pk-img--kosong"></div> }.into_any()
+                } else {
+                    view! {
+                        <img
+                            src=cover
+                            alt=post.title.clone()
+                            class="pk-img"
+                            loading="lazy"
+                            on:error=gambar_cadangan
+                        />
+                    }.into_any()
+                }}
+                <span class=kind_cls><span class="pk-badge-dot"></span>{kind_label}</span>
+                {condition_label.map(|c| view! { <span class="pk-badge pk-badge--kondisi">{c}</span> })}
+            </div>
+            <div class="pk-body">
+                <h3 class="pk-title">{post.title.clone()}</h3>
+                {(!post.city.clone().unwrap_or_default().is_empty()).then(|| {
+                    let city = post.city.clone().unwrap_or_default();
+                    view! {
+                        <span class="pk-meta-row">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+                                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0118 0z" />
+                                <circle cx="12" cy="10" r="3" />
+                            </svg>
+                            {city}
+                        </span>
+                    }
+                })}
+                <div class="pk-price-block">
+                    <span class="pk-price">{price_disp}</span>
+                </div>
+                <div class="pk-foot">
+                    <span class="pk-foot-item">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20.8 4.6a5.5 5.5 0 00-7.8 0L12 5.6l-1-1a5.5 5.5 0 00-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 000-7.8z" />
+                        </svg>
+                        {post.like_count.max(0)}
+                    </span>
+                    <span class="pk-foot-item">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" />
+                        </svg>
+                        {post.comment_count.max(0)}
+                    </span>
+                </div>
+            </div>
+        </a>
+    }
+}
+
+/// Skeleton `PostCard` — kelas `pk-*` yang SAMA (bukan pohon skeleton
+/// terpisah), sama alasannya dengan `ProductCardShimmer`: ukuran identik
+/// karena tak ada dua ukuran yang bisa berselisih.
+#[component]
+pub fn PostCardShimmer() -> impl IntoView {
+    view! {
+        <div class="pk-card pk-card--shim" aria-hidden="true">
+            <div class="pk-img-wrap">
+                <div class="shim pk-img"></div>
+            </div>
+            <div class="pk-body">
+                <h3 class="pk-title">
+                    <span class="shim shim-line"></span>
+                    <span class="shim shim-line shim-line--pendek"></span>
+                </h3>
+                <span class="pk-meta-row shim shim-line"></span>
+                <div class="pk-price-block">
+                    <span class="pk-price shim shim-line shim-line--pendek"></span>
+                </div>
+            </div>
+        </div>
+    }
+}

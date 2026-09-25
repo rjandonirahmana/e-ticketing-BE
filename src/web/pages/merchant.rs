@@ -625,7 +625,7 @@ fn view_settings() -> impl IntoView {
 /// pada tangkapan layar PNG beraut tajam, dan menukarnya tetap akan membuat
 /// berkasnya lebih besar.
 #[cfg(target_arch = "wasm32")]
-async fn kompres_gambar(file: &web_sys::File) -> Option<web_sys::Blob> {
+pub(crate) async fn kompres_gambar(file: &web_sys::File) -> Option<web_sys::Blob> {
     use std::cell::RefCell;
     use std::rc::Rc;
     use wasm_bindgen::closure::Closure;

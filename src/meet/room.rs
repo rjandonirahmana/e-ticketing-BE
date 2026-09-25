@@ -54,6 +54,17 @@ pub struct MeetRoom {
     pub host_name: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub peers: DashMap<String, Peer>,
+    /// Pernah dimasuki SATU peer pun (biasanya host via `register_peer`).
+    /// Dibaca sweeper yatim (`service.rs`) untuk membedakan dua keadaan
+    /// "kosong" yang beda arti: room yang BELUM PERNAH kemasukan siapa pun
+    /// (host masih di dialog izin kamera/mic browser — bisa makan >120 dtk di
+    /// perangkat lambat) vs room yang SUDAH PERNAH ramai lalu ditinggal
+    /// (memang basi, layak disapu cepat). Tanpa pembeda ini keduanya
+    /// mendapat ambang sama, dan host yang lambat mengizinkan kamera bisa
+    /// kehilangan room-nya SEBELUM WS-nya sempat konek — `register_peer`
+    /// lalu gagal (room sudah hilang) dan host tak bisa masuk meeting-nya
+    /// sendiri sama sekali.
+    pub ever_had_peer: std::sync::atomic::AtomicBool,
 }
 
 impl MeetRoom {
@@ -64,6 +75,7 @@ impl MeetRoom {
             host_name,
             created_at: chrono::Utc::now(),
             peers: DashMap::new(),
+            ever_had_peer: std::sync::atomic::AtomicBool::new(false),
         }
     }
 

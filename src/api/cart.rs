@@ -289,12 +289,31 @@ async fn checkout(
     ok(order)
 }
 
+/// PENTING: jalur ini dulu melunaskan order TANPA verifikasi gateway sama
+/// sekali — user login mana pun bisa POST langsung ke sini dan mendapat
+/// tiket gratis. Jalur SAH pelunasan adalah `payment::webhook` (tanda tangan
+/// gateway diperiksa). Digerbangi `PAYMENT_MOCK` sama seperti
+/// `confirm_order_payment` (server fn web) — lihat `payment::mod::mock_diizinkan`.
 async fn pay_order(
     AuthUser(claims): AuthUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(body): Json<PayOrderRequest>,
 ) -> ApiResult {
+    if !crate::payment::mock_diizinkan() {
+        tracing::warn!(
+            user_id = %claims.user_id,
+            order_id = %id,
+            "REST pay_order DITOLAK — PAYMENT_MOCK mati; pelunasan hanya lewat webhook"
+        );
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "message": "Pembayaran harus diselesaikan lewat kanal pembayaran."
+            })),
+        ));
+    }
+
     let order = state
         .order_svc
         .pay(&id, &claims.user_id, &claims.name, body)

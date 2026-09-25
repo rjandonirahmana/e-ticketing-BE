@@ -1030,6 +1030,53 @@ fn pisah_rujukan_produk(teks: &str) -> Option<(String, String, String)> {
     Some((judul, slug, alamat[batas..].trim().to_string()))
 }
 
+/// Sama persis dengan `pisah_rujukan_produk`, tapi untuk rujukan posting
+/// Pasar (`/marketplace/{id}`, bukan `/products/{slug}`). Dua parser terpisah
+/// dengan sengaja — menyatukannya berarti mengeja "produk ATAU pasar" di satu
+/// fungsi untuk dua konsep yang tak berbagi apa pun selain bentuk pesannya.
+fn pisah_rujukan_pasar(teks: &str) -> Option<(String, String, String)> {
+    let sisa = teks.strip_prefix('[')?;
+    let mulai_alamat = sisa.find("/marketplace/")?;
+    let tutup = sisa[..mulai_alamat].rfind(']')?;
+
+    let judul = sisa[..tutup].trim().to_string();
+    if judul.is_empty() {
+        return None;
+    }
+    if !sisa[tutup + 1..mulai_alamat].trim().is_empty() {
+        return None;
+    }
+
+    let alamat = &sisa[mulai_alamat + "/marketplace/".len()..];
+    let batas = alamat.find(char::is_whitespace).unwrap_or(alamat.len());
+    let id = alamat[..batas].to_string();
+    if id.is_empty() {
+        return None;
+    }
+
+    Some((judul, id, alamat[batas..].trim().to_string()))
+}
+
+#[cfg(test)]
+mod tests_rujukan_pasar {
+    use super::pisah_rujukan_pasar;
+
+    #[test]
+    fn kartu_pasar_terurai() {
+        let (judul, id, sisa) =
+            pisah_rujukan_pasar("[Sepeda Gunung] /marketplace/01ARZ3NDEKTSV4RRFFQ69G5FAV\nmasih ada?").unwrap();
+        assert_eq!(judul, "Sepeda Gunung");
+        assert_eq!(id, "01ARZ3NDEKTSV4RRFFQ69G5FAV");
+        assert_eq!(sisa, "masih ada?");
+    }
+
+    #[test]
+    fn bukan_rujukan_pasar_diabaikan() {
+        assert!(pisah_rujukan_pasar("halo kak").is_none());
+        assert!(pisah_rujukan_pasar("[Sepeda] lihat /marketplace/abc ya").is_none());
+    }
+}
+
 #[cfg(test)]
 mod tests_rujukan {
     use super::pisah_rujukan_produk;
@@ -1129,6 +1176,50 @@ fn KartuProduk(judul: String, slug: String) -> impl IntoView {
                 {move || rinci.get().flatten().map(|p| view! {
                     <span class="chat-produk-harga">
                         {crate::web::utils::rupiah_atau_gratis(p.display_price as i64)}
+                    </span>
+                })}
+            </div>
+            <svg class="chat-produk-panah" width="16" height="16" viewBox="0 0 24 24"
+                 fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                <polyline points="9 18 15 12 9 6"/>
+            </svg>
+        </A>
+    }
+}
+
+/// Kartu posting Pasar dalam gelembung chat — sama bentuk & alasan dengan
+/// `KartuProduk` (judul dulu dari pesan, gambar+harga menyusul dari fetch).
+#[component]
+fn KartuPasar(judul: String, id: String) -> impl IntoView {
+    let post_id = id.clone();
+    let rinci = Resource::new(
+        move || post_id.clone(),
+        |id| async move {
+            if id.is_empty() {
+                return None;
+            }
+            crate::web::api::get_post_detail(id).await.ok()
+        },
+    );
+
+    let href = format!("/marketplace/{id}");
+    let judul_awal = judul.clone();
+
+    view! {
+        <A href=href attr:class="chat-produk">
+            <div class="chat-produk-gambar">
+                {move || rinci.get().flatten().and_then(|p| p.images.first().cloned()).map(|url| view! {
+                    <img src=url alt="" loading="lazy" decoding="async"
+                         on:error=crate::web::components::gambar_cadangan />
+                })}
+            </div>
+            <div class="chat-produk-teks">
+                <span class="chat-produk-nama">
+                    {move || rinci.get().flatten().map(|p| p.title).unwrap_or_else(|| judul_awal.clone())}
+                </span>
+                {move || rinci.get().flatten().and_then(|p| p.price).map(|price| view! {
+                    <span class="chat-produk-harga">
+                        {crate::web::utils::rupiah_atau_gratis(price)}
                     </span>
                 })}
             </div>
@@ -1246,7 +1337,17 @@ fn message_bubble(
                                 })}
                             </div>
                         }.into_any(),
-                        None => view! { <div class=bubble_cls>{text}</div> }.into_any(),
+                        None => match pisah_rujukan_pasar(&text) {
+                            Some((judul, id, sisa)) => view! {
+                                <div class=bubble_cls>
+                                    <KartuPasar judul=judul id=id />
+                                    {(!sisa.is_empty()).then(|| view! {
+                                        <span class="chat-produk-tanya">{sisa}</span>
+                                    })}
+                                </div>
+                            }.into_any(),
+                            None => view! { <div class=bubble_cls>{text}</div> }.into_any(),
+                        },
                     },
                 }}
                 <div class="chat-msg-meta">

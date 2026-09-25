@@ -356,7 +356,10 @@ pub fn App() -> impl IntoView {
                     <FlatRoutes transition=true fallback=|| view! { <NotFoundPage /> }>
 
                         // ── PUBLIC — SSR full content (SEO) ──────────────────────
-                        <Route path=path!("/") view=ExplorePage />
+                        // "/" = beranda bertab (Event/Pasar). "/explore" TETAP
+                        // ExplorePage polos tanpa tab — dipakai link lain
+                        // (kartu produk, share, dll), jangan disatukan dengan "/".
+                        <Route path=path!("/") view=HomePage />
                         <Route path=path!("/explore") view=ExplorePage />
                         <Route path=path!("/lives") view=LivesPage />
                         <Route path=path!("/meet/:id") view=MeetPage />
@@ -369,6 +372,17 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/stories") view=StoriesArchivePage />
                         <Route path=path!("/pulse-landing") view=PulseLandingPage />
                         <Route path=path!("/pulse-apply") view=PulseApplyPage />
+
+                        // ── PASAR (marketplace C2C, semua user) ────────────────────
+                        // WAJIB di ATAS "/marketplace/:id" — sama alasannya dengan
+                        // "/pulse/toko/:merchant_id" vs "/pulse/:id": FlatRoutes
+                        // mencocokkan berurutan, ":id" akan menelan "new".
+                        <Route path=path!("/marketplace") view=MarketplaceFeed />
+                        <Route
+                            path=path!("/marketplace/new")
+                            view=|| view! { <AuthGuard><CreatePostPage /></AuthGuard> }
+                        />
+                        <Route path=path!("/marketplace/:id") view=PostDetailPage />
 
                         // ── AUTH ─────────────────────────────────────────────────
                         <Route path=path!("/login") view=LoginPage />
@@ -572,6 +586,17 @@ pub fn App() -> impl IntoView {
                                 view! {
                                     <AuthGuard>
                                         <ChatNewPage />
+                                    </AuthGuard>
+                                }
+                            }
+                        />
+                        // Sama alasannya: WAJIB di atas "/pulse/:id" juga.
+                        <Route
+                            path=path!("/pulse/pengguna/:user_id")
+                            view=|| {
+                                view! {
+                                    <AuthGuard>
+                                        <ChatNewUserPage />
                                     </AuthGuard>
                                 }
                             }

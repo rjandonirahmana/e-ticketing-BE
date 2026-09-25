@@ -13,6 +13,7 @@
 
 use std::sync::Arc;
 
+use deadpool_postgres::Pool;
 use rust_decimal::Decimal;
 use validator::Validate;
 
@@ -26,11 +27,12 @@ use crate::utils::error::{AppError, AppResult};
 pub struct CartService {
     repo: Arc<dyn CartRepository>,
     payment: Arc<PaymentService>,
+    pool: Pool,
 }
 
 impl CartService {
-    pub fn new(repo: Arc<dyn CartRepository>, payment: Arc<PaymentService>) -> Self {
-        Self { repo, payment }
+    pub fn new(repo: Arc<dyn CartRepository>, payment: Arc<PaymentService>, pool: Pool) -> Self {
+        Self { repo, payment, pool }
     }
 
     // ── Baca ─────────────────────────────────────────────────────────────────
@@ -195,6 +197,30 @@ impl CartService {
         req.validate()
             .map_err(|e| AppError::UnprocessableEntity(format!("{e}")))?;
 
+        // Kunci per-user untuk seluruh urutan baca-ubah-tulis di bawah — dua
+        // tab yang sama-sama menyimpan `replace=true` bersamaan bisa saling
+        // menimpa isi keranjang tanpa ini (clear tab A, clear tab B, insert
+        // tab A, insert tab B → hasil akhir campuran acak, tergantung urutan
+        // kebetulan). `clear_items`/`upsert_item` di bawah TETAP lewat
+        // koneksi pool masing-masing seperti sebelumnya — yang menyerialisasi
+        // bukan satu transaksi bersama, melainkan advisory lock Postgres yang
+        // berlaku LINTAS SESI: panggilan `save()` kedua untuk user yang sama
+        // menunggu di `pg_advisory_xact_lock` sampai panggilan pertama commit
+        // (dilepas eksplisit sebelum `self.view()` di bawah) dan kuncinya lepas.
+        let mut lock_conn = self
+            .pool
+            .get()
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("pool: {e}")))?;
+        let lock_tx = lock_conn
+            .transaction()
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("begin lock tx: {e}")))?;
+        lock_tx
+            .execute("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)", &[&user_id])
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("advisory lock: {e}")))?;
+
         let cart = self.repo.get_or_create(user_id).await?;
 
         if req.replace {
@@ -258,6 +284,13 @@ impl CartService {
                 req.position.as_deref(),
             )
             .await?;
+
+        // Lepas kunci sebelum `view()` — itu query terpisah, tak perlu ikut
+        // menahan sesi lain yang sedang menunggu.
+        lock_tx
+            .commit()
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("commit lock tx: {e}")))?;
 
         self.view(user_id, is_premium).await
     }

@@ -1,5 +1,6 @@
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::sync::Arc;
+use std::time::Duration;
 
 use dashmap::DashMap;
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -8,14 +9,27 @@ use tokio::task::JoinHandle;
 use super::room::{LiveRoom, RoomInfo, ViewerInfo};
 use super::sfu::{SfuCommand, SfuEngine, SfuEvent};
 
-/// Batas keras jumlah room live serentak — jaring pengaman RAM/CPU. Id room
-/// deterministik per merchant (`live_{id}`), jadi praktis sudah dibatasi jumlah
-/// merchant; ini menutup skenario ekstrem.
+/// Batas keras jumlah room live serentak — jaring pengaman RAM/CPU absolut,
+/// tak pernah dilewati di box mana pun. Id room deterministik per merchant
+/// (`live_{id}`), jadi praktis sudah dibatasi jumlah merchant; ini menutup
+/// skenario ekstrem. Batas OPERASIONAL sehari-hari ada di
+/// `max_concurrent_broadcasts` (lihat di bawah) — jauh lebih kecil di box
+/// kecil, karena batas itulah yang benar-benar tercapai duluan.
 const MAX_LIVE_ROOMS: usize = 200;
 /// Batas keras penonton unik per room live — plafon RAM/CPU (tiap subscriber =
 /// satu peer SFU). Bukan target, hanya pelindung; SFU single-thread realistis
 /// jauh di bawah ini.
 const MAX_VIEWERS_PER_ROOM: usize = 500;
+
+/// Jeda sapuan room yatim (lihat `has_publisher` di `room.rs` untuk alasan
+/// mekanisme ini perlu ada — sebelumnya TIDAK ADA sama sekali).
+const ROOM_SWEEP_INTERVAL: Duration = Duration::from_secs(30);
+/// Room dari `create_room` yang publisher-nya TAK PERNAH `publish_sdp` lebih
+/// lama dari ini dianggap yatim. Lebih longgar dari `HANDSHAKE_TIMEOUT` milik
+/// peer SFU individual (`sfu.rs`, 30 dtk) — di sini yang ditunggu bukan cuma
+/// selesainya ICE, tapi seluruh perjalanan merchant: klik "Live" → browser
+/// minta izin kamera → WS publish terbuka → SDP offer pertama terkirim.
+const ROOM_HANDSHAKE_GRACE: Duration = Duration::from_secs(90);
 
 pub struct LiveStreamService {
     rooms: Arc<DashMap<String, Arc<LiveRoom>>>,
@@ -26,6 +40,18 @@ pub struct LiveStreamService {
     // SFU berjalan di OS thread sendiri (loop blocking UDP), product loop di tokio task.
     _sfu_handle: std::thread::JoinHandle<()>,
     _product_handle: JoinHandle<()>,
+    _sweep_handle: JoinHandle<()>,
+    /// Plafon siaran AKTIF serentak — bukan jaring pengaman ekstrem seperti
+    /// `MAX_LIVE_ROOMS`, tapi batas yang MEMANG akan tersentuh sehari-hari di
+    /// box kecil. SFU jalan di satu OS thread blocking dan makan ~1 core penuh
+    /// per siaran (lihat komentar `sfu-udp` di `new`); di box 2 vCPU, DUA
+    /// siaran serentak sudah cukup merebut kedua core dari worker Tokio yang
+    /// melayani SSR/chat/checkout — pola persis insiden "app tak menjawab"
+    /// (lihat catatan `watchdog.rs`). Rumus: sisakan 1 core untuk app,
+    /// sisanya untuk siaran (min 1, tak pernah nol — mematikan live sama
+    /// sekali bukan keputusan kode ini). Override manual: env
+    /// `LIVE_MAX_CONCURRENT_ROOMS`.
+    max_concurrent_broadcasts: usize,
 }
 
 fn snapshot(rooms: &DashMap<String, Arc<LiveRoom>>) -> Vec<RoomInfo> {
@@ -174,7 +200,17 @@ fn detect_candidate_ip() -> Option<IpAddr> {
 }
 
 impl LiveStreamService {
-    pub fn new(sfu_bind_addr: SocketAddr) -> Arc<Self> {
+    pub fn new(sfu_bind_addr: SocketAddr, cpu_cores: f64) -> Arc<Self> {
+        let max_concurrent_broadcasts = std::env::var("LIVE_MAX_CONCURRENT_ROOMS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or_else(|| ((cpu_cores.floor() as i64 - 1).max(1)) as usize);
+        tracing::info!(
+            cpu_cores,
+            max_concurrent_broadcasts,
+            "Plafon siaran live serentak (SFU ~1 core/siaran)"
+        );
+
         let (cmd_tx, cmd_rx) = mpsc::channel::<SfuCommand>(256);
         let (product_tx, product_rx) = mpsc::channel::<SfuEvent>(256);
 
@@ -253,12 +289,75 @@ impl LiveStreamService {
             }
         });
 
+        // ── Sapuan room yatim ────────────────────────────────────────────────
+        // `create_room` (REST, dipanggil saat merchant menekan "Live") menaruh
+        // room di `rooms` SEGERA — bukan saat publisher-nya benar-benar konek.
+        // Kalau publisher itu tak pernah datang (izin kamera ditolak, koneksi
+        // putus sebelum WS publish, tab ditutup terburu-buru), tak ada
+        // `SfuEvent` apa pun yang akan pernah terbit untuk room itu — jalur
+        // pembersihan di `product_handle` di atas hanya bereaksi atas
+        // peristiwa, dan room yang tak pernah punya publisher tak pernah
+        // menghasilkan satu peristiwa pun. SEBELUM perbaikan ini, TAK ADA
+        // mekanisme lain yang membuangnya — beda dari `meet` yang sudah punya
+        // sweeper sendiri. Di box kecil (`max_concurrent_broadcasts` bisa
+        // serendah 1), satu room hantu seperti ini mengunci SATU-SATUNYA slot
+        // siaran sampai proses di-restart.
+        let rooms_sweep = rooms.clone();
+        let changes_sweep = changes_tx.clone();
+        let cmd_sweep = cmd_tx.clone();
+        let sweep_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(ROOM_SWEEP_INTERVAL);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                let yatim: Vec<String> = rooms_sweep
+                    .iter()
+                    .filter(|r| {
+                        !r.has_publisher.load(std::sync::atomic::Ordering::Relaxed)
+                            && chrono::Utc::now()
+                                .signed_duration_since(r.started_at)
+                                .to_std()
+                                .map(|age| age > ROOM_HANDSHAKE_GRACE)
+                                .unwrap_or(false)
+                    })
+                    .map(|r| r.room_id.clone())
+                    .collect();
+                if yatim.is_empty() {
+                    continue;
+                }
+                for room_id in &yatim {
+                    tracing::warn!(
+                        room_id,
+                        "live: room yatim disapu (publisher tak pernah konek)"
+                    );
+                    let (tx, rx) = oneshot::channel();
+                    if cmd_sweep
+                        .send(SfuCommand::StopRoom {
+                            room_id: room_id.clone(),
+                            respond_to: tx,
+                        })
+                        .await
+                        .is_ok()
+                    {
+                        // Best-effort — room sudah dibuang dari bookkeeping
+                        // di sini terlepas dari jawaban SFU-nya; yang penting
+                        // slot siaran kembali bebas SEKARANG.
+                        let _ = tokio::time::timeout(Duration::from_secs(5), rx).await;
+                    }
+                    rooms_sweep.remove(room_id);
+                }
+                let _ = changes_sweep.send(snapshot(&rooms_sweep));
+            }
+        });
+
         Arc::new(Self {
             rooms,
             cmd_tx,
             changes_tx,
             _sfu_handle: sfu_handle,
             _product_handle: product_handle,
+            _sweep_handle: sweep_handle,
+            max_concurrent_broadcasts,
         })
     }
 
@@ -279,7 +378,17 @@ impl LiveStreamService {
         event_slug: Option<&str>,
     ) -> Result<RoomInfo, String> {
         let room_id = format!("live_{}", merchant_id);
-        // Hard cap: tolak room baru bila penuh (re-create room sendiri tetap boleh).
+        // Plafon OPERASIONAL (CPU-aware) — ini yang akan tersentuh duluan di
+        // box kecil. Re-create room sendiri tetap boleh (bukan siaran baru).
+        if !self.rooms.contains_key(&room_id) && self.rooms.len() >= self.max_concurrent_broadcasts
+        {
+            return Err(format!(
+                "Ada {} siaran lain sedang berlangsung, coba lagi nanti",
+                self.rooms.len()
+            ));
+        }
+        // Jaring pengaman absolut (lihat komentar `MAX_LIVE_ROOMS`) — praktis
+        // tak akan tersentuh karena plafon di atas jauh lebih kecil.
         if !self.rooms.contains_key(&room_id) && self.rooms.len() >= MAX_LIVE_ROOMS {
             return Err("Kapasitas live server penuh, coba lagi nanti".into());
         }
@@ -320,7 +429,15 @@ impl LiveStreamService {
             })
             .await
             .map_err(|e| e.to_string())?;
-        rx.await.map_err(|e| e.to_string())?
+        let result = rx.await.map_err(|e| e.to_string())?;
+        if result.is_ok() {
+            // Tandai room ini PUNYA publisher — sweeper yatim (lihat `new`)
+            // tak lagi boleh menganggapnya belum tersentuh siapa pun.
+            if let Some(room) = self.rooms.get(room_id) {
+                room.has_publisher.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        result
     }
 
     pub async fn publish_ice(
@@ -479,7 +596,7 @@ mod tests_siklus_siaran {
     /// jalur yang diuji di sini adalah jalur produksi yang sebenarnya, bukan
     /// tiruan.
     fn layanan() -> Arc<LiveStreamService> {
-        LiveStreamService::new("127.0.0.1:0".parse().unwrap())
+        LiveStreamService::new("127.0.0.1:0".parse().unwrap(), 2.0)
     }
 
     fn penonton(id: &str) -> ViewerInfo {
@@ -629,7 +746,7 @@ mod tests_siklus_siaran {
         // Rebut satu port ephemeral, lalu minta SFU mengikat port yang sama.
         let penghalang = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         let terpakai = penghalang.local_addr().unwrap();
-        let _ = LiveStreamService::new(terpakai);
+        let _ = LiveStreamService::new(terpakai, 2.0);
     }
 
     /// Menghentikan room yang tak ada tidak boleh panik atau menyiarkan room

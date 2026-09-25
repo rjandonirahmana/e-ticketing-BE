@@ -256,11 +256,11 @@ impl OrderService {
             items,
         };
 
-        let created = match self
+        let (created, order_is_new) = match self
             .create_inner(customer_id, create_req, is_premium, Some(&pricing))
             .await
         {
-            Ok(o) => o,
+            Ok(v) => v,
             Err(e) => {
                 if let (Some(id), Some(p)) = (reserved_promo, promo_model.as_ref()) {
                     if p.quota_total > 0 {
@@ -273,14 +273,39 @@ impl OrderService {
             }
         };
 
+        // 7b) Retry idempoten menemukan order LAMA yang sudah ada — kuota promo
+        // yang barusan direservasi di langkah 6 adalah dobel (order aslinya
+        // sudah punya reservasinya sendiri dari percobaan pertama) dan WAJIB
+        // dikembalikan sekarang, sebelum langkah 8. Tanpa ini, tiap retry
+        // (jaringan lambat, dobel-klik yang lolos guard FE) menaikkan
+        // `quota_used` satu per satu tanpa order baru mana pun yang benar-benar
+        // memakainya — kuota promo habis lebih cepat dari jumlah order sungguhan.
+        if !order_is_new {
+            if let (Some(id), Some(p)) = (reserved_promo, promo_model.as_ref()) {
+                if p.quota_total > 0 {
+                    if let Err(re) = self.payment.release_quota(id).await {
+                        tracing::warn!(
+                            error = %re, promo_id = id, order_id = %created.id,
+                            "gagal mengembalikan kuota promo dobel-reserve (retry idempoten)"
+                        );
+                    }
+                }
+            }
+        }
+
         // 8) Catat pemakaian promo (penegak `per_user_limit` untuk order berikutnya).
-        if let (Some(id), true) = (reserved_promo, created.discount_amount > Decimal::ZERO) {
-            if let Err(e) = self
-                .payment
-                .record_redemption(id, customer_id, &created.id, created.discount_amount)
-                .await
-            {
-                tracing::warn!(error = %e, order_id = %created.id, "gagal mencatat pemakaian promo");
+        // HANYA untuk order yang benar-benar baru — order lama (retry) sudah
+        // dicatat redemption-nya pada percobaan pertama; mencatat lagi di sini
+        // akan mendobelkan hitungan `per_user_limit` untuk satu order yang sama.
+        if order_is_new {
+            if let (Some(id), true) = (reserved_promo, created.discount_amount > Decimal::ZERO) {
+                if let Err(e) = self
+                    .payment
+                    .record_redemption(id, customer_id, &created.id, created.discount_amount)
+                    .await
+                {
+                    tracing::warn!(error = %e, order_id = %created.id, "gagal mencatat pemakaian promo");
+                }
             }
         }
 

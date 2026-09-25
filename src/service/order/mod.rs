@@ -94,20 +94,23 @@ impl OrderService {
         req: CreateOrderRequest,
         is_premium: bool,
     ) -> AppResult<OrderDetailResponse> {
-        self.create_inner(customer_id, req, is_premium, None).await
+        self.create_inner(customer_id, req, is_premium, None)
+            .await
+            .map(|(v, _is_new)| v)
     }
 
     /// Inti pembuatan order: kunci varian → transaksi → notifikasi.
     ///
     /// `pricing` berisi kanal pembayaran & promo bila order lahir dari halaman
-    /// checkout; `None` untuk jalur yang hanya menyebut tiket.
+    /// checkout; `None` untuk jalur yang hanya menyebut tiket. Balikan
+    /// `(detail, is_new)` — lihat catatan `is_new` di `create_in_tx`.
     pub(super) async fn create_inner(
         &self,
         customer_id: &str,
         req: CreateOrderRequest,
         is_premium: bool,
         pricing: Option<&self::checkout::CheckoutPricing<'_>>,
-    ) -> AppResult<OrderDetailResponse> {
+    ) -> AppResult<(OrderDetailResponse, bool)> {
         req.validate()
             .map_err(|e| AppError::UnprocessableEntity(format!("{e}")))?;
 
@@ -140,11 +143,17 @@ impl OrderService {
             lock.release().await;
 
             match tx_result {
-                Ok(Ok(v)) => {
-                    self.notifier
-                        .notify_order_created(customer_id.to_string(), v.clone());
+                Ok(Ok((v, is_new))) => {
+                    // Notifikasi (WA/push + in-app) HANYA untuk order yang
+                    // BENAR-BENAR baru lahir. `is_new=false` = retry idempoten
+                    // menemukan order lama — mengirim lagi berarti pembeli
+                    // menerima "Pesanan Dibuat" berulang kali untuk satu order
+                    // yang sama tiap client mengulang permintaan (jaringan
+                    // lambat, tombol dobel-klik yang lolos guard FE, dst).
+                    if is_new {
+                        self.notifier
+                            .notify_order_created(customer_id.to_string(), v.clone());
 
-                    {
                         let notif_store = self.notif_store.clone();
                         let uid = customer_id.to_string();
                         let order_id = v.id.clone();
@@ -165,7 +174,7 @@ impl OrderService {
                         });
                     }
 
-                    return Ok(v);
+                    return Ok((v, is_new));
                 }
 
                 Ok(Err(AppError::Internal(ref e))) if is_retryable_pg_error(e) => {
@@ -201,12 +210,17 @@ impl OrderService {
         )))
     }
 
+    /// Balikan `(detail, is_new)` — `is_new=false` berarti ini REPLAY idempoten
+    /// (order sudah ada dari percobaan sebelumnya, `idempotency_key` yang sama
+    /// dikirim ulang). Pemanggil yang melakukan sesuatu yang TAK BOLEH terjadi
+    /// dua kali untuk order yang sama — reservasi kuota promo, pencatatan
+    /// pemakaian promo — WAJIB membaca flag ini (lihat `checkout.rs`).
     pub(super) async fn create_in_tx(
         &self,
         customer_id: &str,
         req: &CreateOrderRequest,
         pricing: Option<&self::checkout::CheckoutPricing<'_>>,
-    ) -> AppResult<OrderDetailResponse> {
+    ) -> AppResult<(OrderDetailResponse, bool)> {
         let mut conn = self
             .pool
             .get()
@@ -304,12 +318,41 @@ impl OrderService {
         let pay_calc = pricing.map(|p| p.compute(subtotal));
         let payable = pay_calc.as_ref().map_or(subtotal, |c| c.total);
 
+        // ── Keranjang tujuan ────────────────────────────────────────────
+        // Jalur checkout membawa keranjang yang sedang dipakai pembeli. Jalur
+        // beli-langsung tidak punya keranjang sama sekali, jadi dibuatkan
+        // keranjang sekali-pakai yang lahir sudah tertutup. Dua-duanya berakhir
+        // sebagai keranjang tertutup dengan baris pesanan di dalamnya, sehingga
+        // sisa sistem hanya perlu mengenal SATU bentuk.
+        //
+        // WAJIB dihitung SEBELUM `spec` di bawah (dulu terbalik): `spec` yang
+        // dibangun dari `OrderPaymentSpec::plain()` menulis `cart_bytes: None`
+        // secara terpisah dari `cart_bytes` di sini, dan `insert_order` cuma
+        // membaca `spec.cart_bytes` — jadi pada jalur beli-langsung (`pricing
+        // = None`), `orders.cart_id` tersimpan NULL walau baris `cart_items`
+        // sungguh-sungguh dibekukan ke keranjang tertutup yang BENAR di bawah.
+        // Setiap join yang bergantung pada `o.cart_id` (cetak tiket saat lunas,
+        // detail/list item, pengembalian stok saat batal) lalu menganggap order
+        // itu tak punya barang sama sekali.
+        let cart_bytes: Vec<u8> = match pricing.and_then(|p| p.cart_bytes.clone()) {
+            Some(b) => b,
+            None => {
+                let id = ulid_to_vec(&new_ulid()).map_err(AppError::Internal)?;
+                OrderTx::insert_closed_cart(&tx, &id, &customer_bytes)
+                    .await
+                    .map_err(AppError::Internal)?;
+                id
+            }
+        };
+
         // Rakit spesifikasi pembayaran di sini agar seluruh pinjaman (&str)
-        // hidup sampai `insert_order` selesai.
+        // hidup sampai `insert_order` selesai. `cart_bytes` di ATAS SUDAH
+        // final untuk kedua jalur — dipakai apa adanya di sini, bukan dibaca
+        // ulang dari `pricing`.
         let reference = pay_calc.as_ref().and_then(|c| c.reference.clone());
         let spec = match (pricing, pay_calc.as_ref()) {
             (Some(p), Some(c)) => OrderPaymentSpec {
-                cart_bytes: p.cart_bytes.as_deref(),
+                cart_bytes: Some(&cart_bytes),
                 subtotal,
                 discount: c.discount,
                 promo_code: c.promo_code.as_deref(),
@@ -322,24 +365,10 @@ impl OrderService {
             },
             // Jalur lama (REST `POST /api/orders`) tak menyebut kanal
             // pembayaran: order lahir polos dan kanalnya tercatat saat `pay()`.
-            _ => OrderPaymentSpec::plain(subtotal),
-        };
-
-        // ── Keranjang tujuan ────────────────────────────────────────────
-        // Jalur checkout membawa keranjang yang sedang dipakai pembeli. Jalur
-        // beli-langsung tidak punya keranjang sama sekali, jadi dibuatkan
-        // keranjang sekali-pakai yang lahir sudah tertutup. Dua-duanya berakhir
-        // sebagai keranjang tertutup dengan baris pesanan di dalamnya, sehingga
-        // sisa sistem hanya perlu mengenal SATU bentuk.
-        let cart_bytes: Vec<u8> = match pricing.and_then(|p| p.cart_bytes.clone()) {
-            Some(b) => b,
-            None => {
-                let id = ulid_to_vec(&new_ulid()).map_err(AppError::Internal)?;
-                OrderTx::insert_closed_cart(&tx, &id, &customer_bytes)
-                    .await
-                    .map_err(AppError::Internal)?;
-                id
-            }
+            _ => OrderPaymentSpec {
+                cart_bytes: Some(&cart_bytes),
+                ..OrderPaymentSpec::plain(subtotal)
+            },
         };
 
         let (order, is_new) = OrderTx::insert_order(
@@ -367,7 +396,7 @@ impl OrderService {
             }
 
             let items = self.repo.list_items(&order.id).await?;
-            return Ok(build_detail_response(order, items));
+            return Ok((build_detail_response(order, items), false));
         }
 
         // Bekukan baris keranjang dengan harga yang baru dikunci, lalu tutup
@@ -444,7 +473,7 @@ impl OrderService {
             })
             .collect();
 
-        Ok(build_detail_response(order, items))
+        Ok((build_detail_response(order, items), true))
     }
 
     // ── Detail ────────────────────────────────────────────────────────────────

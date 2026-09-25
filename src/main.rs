@@ -30,7 +30,9 @@ use e_ticketing::service::telegram::TelegramService;
 use e_ticketing::state::AppState;
 use e_ticketing::utils::error::init_telegram_notifier;
 use e_ticketing::api::rest_router;
-use e_ticketing::web::api::upload::{chat_image_upload, merchant_image_upload, story_upload};
+use e_ticketing::web::api::upload::{
+    chat_image_upload, merchant_image_upload, post_image_upload, story_upload,
+};
 use e_ticketing::web::app::{shell, App};
 use e_ticketing::ws::handler::WsAppState;
 use e_ticketing::ws::routes::chat_router;
@@ -402,20 +404,40 @@ async fn run() -> Result<()> {
     // ── Upload routes ─────────────────────────────────────────────────────────
     // DefaultBodyLimit: tanpa ini axum memakai batas default 2MB — upload video
     // story >2MB ditolak 413 sebelum sampai handler, padahal service mengizinkan
-    // 50MB. Batas 52MB (media 50MB + overhead multipart) sekaligus jadi pagar
-    // RAM per-request karena handler membaca file ke memori.
+    // 50MB.
+    //
+    // Batas per-rute (BUKAN satu 52MB global untuk keempatnya seperti
+    // sebelumnya): `chat_image_upload`/`merchant_image_upload`/`post_image_upload`
+    // membaca badan penuh ke RAM (`field.bytes()`) SEBELUM cek ukuran di
+    // handler — satu limit 52MB global berarti klien bisa mengirim sampai
+    // 52MB ke `/upload/chat-image` (batas asli 300 KB) atau `/upload/post-image`
+    // (batas asli 5 MB) dan tetap SELURUHNYA masuk RAM dulu baru ditolak.
+    // Dikali `recommended_upload_concurrency` (bisa 64 di box 2 CPU, lihat
+    // `utils/capacity.rs`) itu potensi beberapa GB RAM cuma dari satu jenis
+    // upload — persis yang sedang dijaga di box 2GB ini. Angka di bawah = batas
+    // asli handler + sedikit slack untuk overhead multipart (boundary, header
+    // field lain seperti `slug`/`title`), BUKAN cuma disalin dari cap handler.
     let upload_router: axum::Router = axum::Router::new()
         .route("/upload/story", axum::routing::post(story_upload))
-        .route(
-            "/upload/merchant-image",
-            axum::routing::post(merchant_image_upload),
-        )
-        // Batas badan permintaan di sini tetap 52 MB — pagar RAM untuk story.
-        // Batas 300 KB gambar chat ditegakkan di handler-nya sendiri, di mana
-        // ia bisa menyebut ukuran sebenarnya dalam pesan galatnya. Pagar
-        // lapisan ini cuma bisa memutus sambungan tanpa penjelasan apa pun.
-        .route("/upload/chat-image", axum::routing::post(chat_image_upload))
         .layer(axum::extract::DefaultBodyLimit::max(52 * 1024 * 1024))
+        .merge(
+            axum::Router::new()
+                .route(
+                    "/upload/merchant-image",
+                    axum::routing::post(merchant_image_upload),
+                )
+                .layer(axum::extract::DefaultBodyLimit::max(9 * 1024 * 1024)),
+        )
+        .merge(
+            axum::Router::new()
+                .route("/upload/chat-image", axum::routing::post(chat_image_upload))
+                .layer(axum::extract::DefaultBodyLimit::max(400 * 1024)),
+        )
+        .merge(
+            axum::Router::new()
+                .route("/upload/post-image", axum::routing::post(post_image_upload))
+                .layer(axum::extract::DefaultBodyLimit::max(6 * 1024 * 1024)),
+        )
         .layer(axum::Extension(state.clone()));
 
     // ── REST API router (Next.js frontend) ───────────────────────────────────

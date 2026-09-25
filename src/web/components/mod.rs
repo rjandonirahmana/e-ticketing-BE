@@ -23,7 +23,7 @@ pub use banner_slider::BannerSlider;
 pub use cards::{
     ProductCard, ProductCardPub, ProductCardShimmer, ProductGrid, ProductGridShimmer,
     MerchantProductCardShimmer, MerchantRowShimmer, MessageRowShimmer, OrderCardShimmer,
-    TicketCardShimmer,
+    TicketCardShimmer, PostCard, PostCardShimmer,
 };
 pub use common::{gambar_cadangan, EmptyState, ErrorBanner, GridBackground, KineticInput};
 pub use icons::{

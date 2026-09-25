@@ -120,7 +120,24 @@ impl DetailImageDraft {
 // ─── Komponen utama ───────────────────────────────────────────────────────────
 
 #[component]
-pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl IntoView {
+pub fn DetailImagesSection(
+    drafts: RwSignal<Vec<DetailImageDraft>>,
+    /// Plafon jumlah foto. Bawaan 6 — sama dengan perilaku lama, jadi
+    /// pemanggil yang tak menyebutnya (create/edit product) tak berubah sama
+    /// sekali.
+    #[prop(default = 6)]
+    max: usize,
+    /// `true` → unggah ke `/upload/post-image` (marketplace, auth-only, tanpa
+    /// gerbang peran). `false` (bawaan) → `/upload/merchant-image` (perilaku
+    /// lama, perlu peran merchant/admin). Bukan callback generik dengan
+    /// sengaja: komponen ini punya PERSIS dua pemanggil, dan cabang boolean
+    /// lebih jujur daripada plumbing closure untuk dua kasus.
+    #[prop(default = false)]
+    for_marketplace: bool,
+) -> impl IntoView {
+    // Hanya dipakai di jalur unggah `#[cfg(target_arch = "wasm32")]` di bawah;
+    // baris ini menjaganya "terpakai" di build SSR-saja tanpa peduli target.
+    let _ = for_marketplace;
     let active_idx: RwSignal<Option<usize>> = RwSignal::new(None);
     // Index thumbnail yang sedang di-drag (HTML5 drag-and-drop asli).
     let drag_from: RwSignal<Option<usize>> = RwSignal::new(None);
@@ -171,8 +188,8 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
         );
 
         let count = drafts.with(|d| d.len());
-        if count >= 6 {
-            web_sys::console::warn_1(&"[DetailImage] batas 6 foto tercapai".into());
+        if count >= max {
+            web_sys::console::warn_1(&format!("[DetailImage] batas {max} foto tercapai").into());
             return;
         }
 
@@ -213,12 +230,20 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
                     sig.set(p);
                 }
             };
-            match crate::web::pages::merchant::upload_merchant_image_with_progress(
-                &file_for_upload,
-                lapor,
-            )
-            .await
-            {
+            let hasil = if for_marketplace {
+                crate::web::pages::marketplace::upload_post_image_with_progress(
+                    &file_for_upload,
+                    lapor,
+                )
+                .await
+            } else {
+                crate::web::pages::merchant::upload_merchant_image_with_progress(
+                    &file_for_upload,
+                    lapor,
+                )
+                .await
+            };
+            match hasil {
                 Ok(permanent) => {
                     drafts.update(|d| {
                         if let Some(dr) = d.iter_mut().find(|x| x.preview_url == match_key) {
@@ -276,7 +301,7 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
                 </label>
                 <div style="font-size:11px;color:var(--text-muted);line-height:1.5">
                     <p style="margin:0;font-weight:600">"TAMBAH FOTO DETAIL"</p>
-                    <p style="margin:0;opacity:.7">"JPG, PNG, hingga 6 foto · seret untuk urutkan"</p>
+                    <p style="margin:0;opacity:.7">{format!("JPG, PNG, hingga {max} foto · seret untuk urutkan")}</p>
                 </div>
             </div>
 
@@ -581,7 +606,7 @@ pub fn DetailImagesSection(drafts: RwSignal<Vec<DetailImageDraft>>) -> impl Into
                     .then(|| {
                         view! {
                             <p style="font-size:10px;color:var(--text-muted);margin:0;line-height:1.6">
-                                {format!("{}/6 foto", count)}
+                                {format!("{count}/{max} foto")}
                                 {(n_new > 0).then(|| format!(" · {} baru akan di-upload", n_new))}
                                 " — Klik foto untuk edit, ‹ › untuk reorder, scroll ke kanan untuk melihat lebih banyak."
                             </p>

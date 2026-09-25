@@ -47,9 +47,11 @@ static FIND_DETAIL: LazyLock<String> = LazyLock::new(|| {
         {cols},
 
         CASE n.kind
-            WHEN 'story'  THEN (SELECT event_title FROM stories WHERE id = n.target_id)
-            WHEN 'order'  THEN (SELECT order_code  FROM orders  WHERE id = n.target_id)
-            WHEN 'ticket' THEN (SELECT ticket_code FROM tickets WHERE id = n.target_id)
+            WHEN 'story'        THEN (SELECT event_title FROM stories WHERE id = n.target_id)
+            WHEN 'order'        THEN (SELECT order_code  FROM orders  WHERE id = n.target_id)
+            WHEN 'ticket'       THEN (SELECT ticket_code FROM tickets WHERE id = n.target_id)
+            WHEN 'post_like'    THEN (SELECT title FROM posts WHERE id = n.target_id)
+            WHEN 'post_comment' THEN (SELECT title FROM posts WHERE id = n.target_id)
             ELSE NULL
         END AS target_title,
 
@@ -93,6 +95,16 @@ static FIND_DETAIL: LazyLock<String> = LazyLock::new(|| {
                 JOIN product_variants ev ON ev.id = ci.ticket_variant_id
                 JOIN products         e  ON e.id  = ev.event_id
                 WHERE t.id = n.target_id
+            )
+            WHEN 'post_like' THEN (
+                SELECT jsonb_build_object('kind', 'post_like', 'title', p.title)
+                FROM posts p
+                WHERE p.id = n.target_id
+            )
+            WHEN 'post_comment' THEN (
+                SELECT jsonb_build_object('kind', 'post_comment', 'title', p.title)
+                FROM posts p
+                WHERE p.id = n.target_id
             )
             ELSE NULL
         END AS target_data

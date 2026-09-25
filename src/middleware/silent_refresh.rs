@@ -43,7 +43,12 @@ use crate::web::api::server_fns::session::{cookie_from_header, ACCESS_COOKIE, RE
 /// tanpa penyaringan ini SETIAP satunya ikut mengantre rotasi refresh — kerja
 /// database yang tak menghasilkan apa pun, karena tak satu pun dari mereka
 /// membaca identitas penggunanya.
-const TANPA_AUTH: [&str; 5] = ["/pkg/", "/styles/", "/assets/", "/favicon", "/healthz"];
+/// `/vendor/` (leaflet.js/css, `web/assets.rs`) TERTINGGAL dari daftar ini
+/// sebelumnya — padahal `shell.rs` memuatnya di HAMPIR SETIAP halaman
+/// ("selalu ter-load"). Tanpa baris ini, dua request statis embedded itu ikut
+/// mengantre rotasi refresh token tiap kali access token kebetulan mati —
+/// persis alasan daftar ini ada, cuma jalur ini terlewat saat dibuat.
+const TANPA_AUTH: [&str; 6] = ["/pkg/", "/styles/", "/assets/", "/vendor/", "/favicon", "/healthz"];
 
 pub async fn silent_refresh(
     State(state): State<Arc<AppState>>,

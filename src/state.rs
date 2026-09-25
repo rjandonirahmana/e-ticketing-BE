@@ -13,13 +13,14 @@ use crate::repository::{
     banner::PgBannerRepository, cart::PgCartRepository, product::PgProductRepository,
     group_chat::PgGroupChatRepository, merchant::PgMerchantRepository,
     notification::PgNotificationRepository, order::PgOrderRepository,
-    payment::PgPaymentRepository, refresh_token::PgRefreshTokenRepository,
+    payment::PgPaymentRepository, post::PgPostRepository, refresh_token::PgRefreshTokenRepository,
     story::PgStoryRepository, ticket::PgTicketRepository,
     user::PgUserRepository,
 };
 use crate::service::affinity::AffinityService;
 use crate::service::norifications::NotificationService;
 use crate::service::notification_store::NotificationStoreService;
+use crate::service::post::PostService;
 use crate::service::{
     auth::AuthService, banners::BannerService, cart::CartService, product::ProductService,
     group_chat::GroupChatService, merchant::MerchantService, order::OrderService,
@@ -173,6 +174,8 @@ pub struct AppState {
     pub notification_store_svc: Arc<NotificationStoreService>,
     /// Service untuk story & premium subscription.
     pub story_svc: Arc<DefaultStorySvc>,
+    /// Marketplace C2C (jual-beli COD): posting, like, komentar.
+    pub post_svc: Arc<PostService>,
     /// In-process cache untuk data publik (banners, categories).
     pub pub_cache: Arc<PublicCache>,
     /// Live streaming service (WebRTC SFU).
@@ -236,6 +239,7 @@ impl AppState {
         let group_chat_repo = Arc::new(PgGroupChatRepository::new(pool.clone()));
         let notification_repo = Arc::new(PgNotificationRepository::new(pool.clone()));
         let story_repo = Arc::new(PgStoryRepository::new(pool.clone())); // ← NEW
+        let post_repo = Arc::new(PgPostRepository::new(pool.clone())); // ← NEW: marketplace C2C
 
         // ── WS Manager ────────────────────────────────────────────────────────
         let ws_mgr = WsManager::new(redis_client, capacity.recommended_max_ws)
@@ -277,7 +281,7 @@ impl AppState {
         // Kanal pembayaran & keranjang dibuat SEBELUM order: checkout membaca
         // keranjang dan menghitung biaya kanal dari sana.
         let payment_svc = Arc::new(PaymentService::new(payment_repo));
-        let cart_svc = Arc::new(CartService::new(cart_repo, payment_svc.clone()));
+        let cart_svc = Arc::new(CartService::new(cart_repo, payment_svc.clone(), pool.clone()));
         let order_svc = Arc::new(OrderService::new(
             order_repo,
             redis,
@@ -295,12 +299,14 @@ impl AppState {
             story_repo,
             storage.clone(),
             notification_store_svc.clone(),
+            pool.clone(),
         ));
+        let post_svc = Arc::new(PostService::new(post_repo, notification_store_svc.clone(), storage.clone()));
 
         let sfu_addr: std::net::SocketAddr = sfu_bind_addr
             .parse()
             .unwrap_or_else(|_| "0.0.0.0:4000".parse().expect("default SFU addr"));
-        let live_svc = LiveStreamService::new(sfu_addr);
+        let live_svc = LiveStreamService::new(sfu_addr, capacity.cpu_cores);
         let meet_svc = MeetService::new();
         let affinity_svc = AffinityService::new(pool.clone());
         let upload_limit = Arc::new(Semaphore::new(capacity.recommended_upload_concurrency));
@@ -323,6 +329,7 @@ impl AppState {
             banner_svc,
             notification_store_svc,
             story_svc,
+            post_svc,
             pub_cache: Arc::new(PublicCache::new()),
             live_svc,
             meet_svc,

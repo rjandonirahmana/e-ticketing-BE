@@ -72,6 +72,13 @@ async fn get_history(
 }
 
 /// GET /chat/rooms/{room_id}/sent_count — berapa pesan user sudah kirim (untuk UI)
+///
+/// `"limit": 1` dan `"is_merchant": false` dulu DITULIS MATI di sini — sisa
+/// dari desain lama yang sudah dihapus (tak ada satu pun jalur di codebase
+/// ini yang benar-benar menegakkan plafon pesan), jadi `limit` DIBUANG
+/// (bukan diisi angka karangan) alih-alih terus membohongi konsumen REST.
+/// `is_merchant` DIHITUNG SUNGGUHAN dari `auth.role()` — field itu memang ada
+/// untuk dipakai, cuma belum pernah ada pemanggilnya sampai baris ini.
 async fn sent_count(
     auth: AuthUser,
     State(state): State<Arc<WsAppState>>,
@@ -84,7 +91,7 @@ async fn sent_count(
         .map_err(AppError::Internal)?;
 
     Ok(ok(
-        json!({ "count": count, "limit": 1, "is_merchant": false }),
+        json!({ "count": count, "is_merchant": auth.role() == "merchant" }),
     ))
 }
 

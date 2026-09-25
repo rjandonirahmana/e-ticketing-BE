@@ -50,8 +50,14 @@ MAKS_RESTART_PER_JAM="${PULSE_MAKS_RESTART_PER_JAM:-3}"
 # gagal. Migrasi di startup bisa memakan waktu, jadi jangan terlalu pendek.
 VERIFIKASI_DETIK="${PULSE_VERIFIKASI_DETIK:-120}"
 
-AMBANG_MEM_TERSEDIA_MB="${PULSE_AMBANG_MEM_MB:-250}"
-AMBANG_RSS_APP_MB="${PULSE_AMBANG_RSS_MB:-2000}"
+# Ambang bawaan di bawah dipilih untuk box 7,8 GB (Sep 2026 turun ke 2 GB/2
+# CPU — lihat ops/downsize-2gb.md). Proporsional ~4x lebih kecil: mesin
+# tersedia 250MB→150MB, RSS app 2000MB→700MB (app di box 2 GB dibatasi
+# --memory=896m, lihat deploy.example.txt — 700MB memberi jarak sebelum
+# cgroup OOM-kill duluan). Override tetap lewat env di bawah bila box
+# berubah lagi.
+AMBANG_MEM_TERSEDIA_MB="${PULSE_AMBANG_MEM_MB:-150}"
+AMBANG_RSS_APP_MB="${PULSE_AMBANG_RSS_MB:-700}"
 BATAS_MEM_BERTURUT="${PULSE_BATAS_MEM:-5}"
 
 # Bisa ditimpa supaya skrip ini dapat diuji tanpa menyentuh mesin produksi

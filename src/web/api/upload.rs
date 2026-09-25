@@ -318,3 +318,131 @@ pub async fn chat_image_upload(
 
     Ok(Json(json!({ "url": url })))
 }
+
+// ── Gambar postingan marketplace (Pasar) ──────────────────────────────────────
+
+/// Batas gambar postingan marketplace. Di antara chat (300 KB, sekali pakai
+/// tenggelam di riwayat percakapan) dan merchant (8 MB, sedikit pemilik toko).
+/// Posting bisa dibuat SIAPA SAJA (bukan cuma merchant) — lebih dekat ke pola
+/// pemakaian chat (banyak orang, sering) daripada merchant, jadi disiplinkan
+/// lebih dekat ke sana, tapi foto barang butuh detail lebih dari 300 KB.
+const MAX_POST_IMAGE_BYTES: usize = 5 * 1024 * 1024;
+
+/// POST /upload/post-image — unggah SATU foto postingan marketplace → RustFS,
+/// balas `{ "url": "…" }`. Auth-only, TANPA syarat peran (siapa pun boleh
+/// posting jual/cari barang — lihat keputusan plan B1).
+///
+/// STREAMING ke disk (pola `story_upload`), BUKAN baca-penuh-ke-RAM seperti
+/// `chat_image_upload`/`merchant_image_upload`: postingan marketplace dipakai
+/// SEMUA user (bukan segelintir merchant/percakapan aktif), jadi volumenya
+/// berpotensi jauh lebih tinggi — di box RAM kecil (2 GB, lihat
+/// ops/downsize-2gb.md) itu bedanya N upload bersamaan menahan satu chunk
+/// kecil masing-masing vs. menahan seluruh file.
+///
+/// Dipanggil `storage.upload_media_file` langsung (BUKAN
+/// `story_svc.upload_streamed`, yang juga menulis baris `stories` — efek
+/// samping yang tak relevan di sini). Deteksi magic bytes dipakai ulang dari
+/// `service::story` (sama-sama gambar; jangan sampai ada dua salinan daftar
+/// magic bytes yang bisa berselisih).
+pub async fn post_image_upload(
+    Extension(state): Extension<Arc<AppState>>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Result<Json<Value>, Response> {
+    let token = crate::utils::cookie::nilai(&headers, "pulse_token")
+        .ok_or_else(|| err(StatusCode::UNAUTHORIZED, "Tidak terautentikasi"))?;
+    state
+        .jwt
+        .verify(&token)
+        .map_err(|e| err(StatusCode::UNAUTHORIZED, e.to_string()))?;
+
+    let _permit = state
+        .upload_limit
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| {
+            err(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Server sedang sibuk memproses upload, coba lagi sebentar",
+            )
+        })?;
+
+    let tmp_path = state
+        .upload_tmp_dir
+        .join(format!("post-image-upload-{}.tmp", uuid::Uuid::new_v4()));
+    let _tmp_guard = TempFileGuard(tmp_path.clone());
+
+    let mut size: usize = 0;
+    let mut header: Vec<u8> = Vec::with_capacity(HEADER_LEN);
+    let mut has_file = false;
+
+    while let Some(mut field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| err(StatusCode::BAD_REQUEST, format!("Multipart error: {e}")))?
+    {
+        let name = field.name().unwrap_or("").to_string();
+        if name != "file" && name != "image" {
+            continue;
+        }
+        let mut file = tokio::fs::File::create(&tmp_path)
+            .await
+            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Temp file: {e}")))?;
+
+        while let Some(chunk) = field
+            .chunk()
+            .await
+            .map_err(|e| err(StatusCode::BAD_REQUEST, format!("Read error: {e}")))?
+        {
+            size += chunk.len();
+            if size > MAX_POST_IMAGE_BYTES {
+                return Err(err(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    format!(
+                        "Foto maksimal {}MB",
+                        MAX_POST_IMAGE_BYTES / 1024 / 1024
+                    ),
+                ));
+            }
+            if header.len() < HEADER_LEN {
+                let need = HEADER_LEN - header.len();
+                header.extend_from_slice(&chunk[..need.min(chunk.len())]);
+            }
+            file.write_all(&chunk)
+                .await
+                .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Write error: {e}")))?;
+        }
+        file.flush()
+            .await
+            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Flush error: {e}")))?;
+        has_file = true;
+    }
+
+    if !has_file || size == 0 {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "Field 'file' tidak ada dalam request",
+        ));
+    }
+
+    let (mime_type, media_kind) = crate::service::story::detect_media_mime(&header).ok_or_else(|| {
+        err(
+            StatusCode::BAD_REQUEST,
+            "Format file tidak dikenali. Gunakan JPEG/PNG/WebP/GIF.",
+        )
+    })?;
+    if media_kind != "image" || !crate::service::story::ALLOWED_IMAGE_MIME.contains(&mime_type) {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "Hanya gambar (JPEG/PNG/WebP/GIF) yang diperbolehkan untuk foto postingan.",
+        ));
+    }
+
+    let url = state
+        .storage
+        .upload_media_file(&tmp_path, "posts", mime_type)
+        .await
+        .map_err(IntoResponse::into_response)?;
+
+    Ok(Json(json!({ "url": url })))
+}

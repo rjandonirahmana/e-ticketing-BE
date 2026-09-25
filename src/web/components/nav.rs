@@ -239,6 +239,25 @@ pub fn BottomNav(#[prop(default = "")] active: &'static str) -> impl IntoView {
                 <span class="bottom-label">"LIVE"</span>
             </A>
 
+            // 1c. HUB — marketplace C2C (jual/cari barang, COD)
+            <A href="/marketplace" attr:class=cls("marketplace")>
+                <svg
+                    width="22"
+                    height="22"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <path d="M3 9l1.5-5h15L21 9" />
+                    <path d="M3 9h18v10a1 1 0 01-1 1H4a1 1 0 01-1-1V9z" />
+                    <path d="M9 13a3 3 0 006 0" />
+                </svg>
+                <span class="bottom-label">"HUB"</span>
+            </A>
+
 
             // 0. PULSE CHAT
             <A href="/pulse" attr:class=cls("pulse")>

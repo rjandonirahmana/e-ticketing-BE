@@ -61,6 +61,16 @@ pub struct LiveRoom {
     /// panas). CATATAN: AtomicUsize naif TIDAK bisa dipakai di sini karena akan
     /// menghitung ganda user multi-tab; refcount per-user inilah yang benar.
     unique_viewers: DashMap<String, u32>,
+    /// Pernah punya publisher yang BERHASIL `publish_sdp` — dibaca sweeper
+    /// yatim (`service.rs`). Room lahir dari `create_room` (REST, sebelum WS
+    /// publisher manapun konek) — kalau publisher-nya TAK PERNAH konek
+    /// (browser crash, izin kamera ditolak, jaringan putus di tengah), room
+    /// ini menetap di `LiveStreamService.rooms` SELAMANYA tanpa mekanisme
+    /// pembersih apa pun (beda dari `meet`, yang sudah punya sweeper —
+    /// live sebelumnya tidak punya SAMA SEKALI). Di box kecil dengan
+    /// `max_concurrent_broadcasts` rendah (lihat `service.rs`), satu room
+    /// hantu seperti ini menghabiskan SATU-SATUNYA slot siaran permanen.
+    pub has_publisher: std::sync::atomic::AtomicBool,
 }
 
 impl LiveRoom {
@@ -81,6 +91,7 @@ impl LiveRoom {
             subscribers: DashMap::new(),
             products: DashMap::new(),
             unique_viewers: DashMap::new(),
+            has_publisher: std::sync::atomic::AtomicBool::new(false),
         }
     }
 

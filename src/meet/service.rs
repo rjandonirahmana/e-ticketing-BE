@@ -15,9 +15,17 @@ use super::room::{MeetRoom, MeetRoomInfo, Peer, PeerInfo};
 /// Seberapa sering menyapu room yatim (dibuat lewat `POST /api/meet/rooms` tapi
 /// host tak pernah membuka WS, atau edge disconnect yang lolos cleanup).
 const SWEEP_INTERVAL: Duration = Duration::from_secs(60);
-/// Room dengan 0 peserta yang lebih tua dari ini dianggap yatim dan dibuang.
-/// Harus > jendela create→connect agar room yang baru dibuat tidak ikut tersapu.
+/// Room yang SUDAH PERNAH kemasukan peer lalu kosong lagi — kosong lebih tua
+/// dari ini dianggap basi (ditinggal), dibuang.
 const ORPHAN_MAX_AGE_SECS: i64 = 120;
+/// Room yang BELUM PERNAH kemasukan satu peer pun — ambang lebih longgar.
+/// `create_room` (REST) dan `register_peer` (WS, sesudah host mengizinkan
+/// kamera/mic di browser) adalah DUA permintaan terpisah; di perangkat/jaringan
+/// lambat, jeda di antaranya bisa lewat dari `ORPHAN_MAX_AGE_SECS`. Tanpa
+/// ambang terpisah yang lebih panjang, room host disapu SEBELUM WS-nya sempat
+/// konek — `register_peer` lalu gagal (room sudah hilang) dan host tak bisa
+/// masuk meeting miliknya sendiri sama sekali.
+const ORPHAN_MAX_AGE_SECS_BELUM_KEMASUKAN: i64 = 600;
 /// Batas keras jumlah room serentak — cegah OOM dari abuse (spam buat room).
 /// Aman untuk box kecil; naikkan bila perlu.
 const MAX_ROOMS: usize = 500;
@@ -51,7 +59,12 @@ impl MeetService {
                 rooms.retain(|_, room| {
                     let empty = room.peers.is_empty();
                     let age = (now - room.created_at).num_seconds();
-                    !(empty && age > ORPHAN_MAX_AGE_SECS)
+                    let ambang = if room.ever_had_peer.load(std::sync::atomic::Ordering::Relaxed) {
+                        ORPHAN_MAX_AGE_SECS
+                    } else {
+                        ORPHAN_MAX_AGE_SECS_BELUM_KEMASUKAN
+                    };
+                    !(empty && age > ambang)
                 });
                 let removed = before.saturating_sub(rooms.len());
                 if removed > 0 {
@@ -125,6 +138,7 @@ impl MeetService {
                 tx,
             },
         );
+        room.ever_had_peer.store(true, std::sync::atomic::Ordering::Relaxed);
         true
     }
 

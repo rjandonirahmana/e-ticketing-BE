@@ -11,6 +11,7 @@ pub mod merchant;
 pub mod notification;
 pub mod order;
 pub mod payment;
+pub mod post;    // ← NEW: marketplace C2C
 pub mod refresh_token;
 pub mod story;   // ← NEW
 pub mod ticket;

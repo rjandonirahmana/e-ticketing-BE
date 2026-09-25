@@ -3,6 +3,7 @@
 mod helpers;
 pub mod session;
 pub mod auth;
+pub mod post;
 pub mod product;
 pub mod ticket;
 pub mod order;
@@ -20,6 +21,7 @@ pub mod reco;
 
 pub use session::*;
 pub use auth::*;
+pub use post::*;
 pub use product::*;
 pub use ticket::*;
 pub use order::*;

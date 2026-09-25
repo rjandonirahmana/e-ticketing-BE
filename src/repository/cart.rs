@@ -221,6 +221,7 @@ static PRUNE_DEAD_ITEMS: &str = r#"
               NOT ev.is_active
            OR e.status <> 'active'
            OR (ev.quota - ev.sold) <= 0
+           OR e.event_date < NOW()
        )
     RETURNING e.name AS event_name, ev.name AS variant_name
 "#;

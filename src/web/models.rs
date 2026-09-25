@@ -747,6 +747,65 @@ pub struct AdminStats {
     pub total_revenue: f64,
 }
 
+// ── Marketplace C2C (Pasar) ─────────────────────────────────────────────────
+//
+// Posting jual/cari barang baru/bekas oleh SEMUA user terdaftar, COD (tunai
+// saat ketemu langsung) — terpisah dari `Product`/`PaginatedProducts` di atas
+// (yang tetap murni untuk event/tiket merchant). Kategori memakai daftar yang
+// SAMA (`PRODUCT_CATEGORIES`) — lihat validasi di `service/post.rs`.
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Post {
+    pub id: String,
+    pub user_id: String,
+    pub user_name: String,
+    pub user_avatar: String,
+    pub kind: String,      // "jual" | "cari"
+    pub title: String,
+    pub description: String,
+    pub price: Option<i64>,
+    pub condition: Option<String>, // "baru" | "bekas"
+    pub category: Option<String>,
+    pub city: Option<String>,
+    pub images: Vec<String>,       // URL gambar, sudah diratakan dari JSONB [{"url":...}]
+    pub status: String,            // "active" | "sold" | "archived"
+    pub like_count: i32,
+    pub comment_count: i32,
+    #[serde(default)]
+    pub liked_by_viewer: Option<bool>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PostComment {
+    pub id: String,
+    pub post_id: String,
+    pub user_id: String,
+    pub user_name: String,
+    pub user_avatar: String,
+    pub body: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PaginatedPosts {
+    pub data: Vec<Post>,
+    pub total: i64,
+    pub page: i64,
+    pub per_page: i64,
+    pub total_pages: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PaginatedComments {
+    pub data: Vec<PostComment>,
+    pub total: i64,
+    pub page: i64,
+    pub per_page: i64,
+    pub total_pages: i64,
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Harga tampilan. Nol berbunyi "Gratis".

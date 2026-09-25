@@ -132,7 +132,22 @@ async fn create_order(
     // Jalur ini sengaja tak menerima kanal pembayaran maupun promo: keduanya
     // butuh keranjang server untuk dihitung dengan benar. Pemanggil yang
     // memerlukannya lewat `POST /api/checkout` (lihat api/cart.rs).
-    let _ = (body.payment_method, body.promo_code);
+    //
+    // DULU field ini dibuang diam-diam (`let _ = (...)`) — klien yang MENGIRIM
+    // keduanya menerima 200 OK seolah-olah dihormati, padahal order lahir
+    // "polos" tanpa kanal/promo apa pun. TOLAK secara eksplisit sekarang: lebih
+    // baik klien tahu jalurnya salah daripada diam-diam kehilangan diskon yang
+    // dikiranya sudah terpasang.
+    if body.payment_method.as_deref().is_some_and(|s| !s.trim().is_empty())
+        || body.promo_code.as_deref().is_some_and(|s| !s.trim().is_empty())
+    {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({
+                "message": "Endpoint ini tak mendukung payment_method/promo_code — pakai POST /api/checkout"
+            })),
+        ));
+    }
 
     // ── Idempotensi ─────────────────────────────────────────────────────────
     // Jalur ini dipakai klien native, yang justru paling sering berada di

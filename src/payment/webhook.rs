@@ -100,8 +100,27 @@ async fn terima(
     (StatusCode::OK, "ok").into_response()
 }
 
-/// Catat peristiwa. `true` bila BARIS BARU benar-benar lahir (artinya
-/// pemanggil inilah yang berhak memprosesnya).
+/// Catat peristiwa. `true` bila pemanggil inilah yang berhak memprosesnya —
+/// entah karena BARIS BARU benar-benar lahir, ATAU baris LAMA masih
+/// `processed_at IS NULL` (percobaan sebelumnya gagal di tengah `proses()`,
+/// dan gateway ini adalah RETRY-nya).
+///
+/// ── KENAPA BUKAN `ON CONFLICT DO NOTHING` POLOS ─────────────────────────────
+/// Versi lama begitu, dan itulah lubangnya: `catat_peristiwa` mencatat baris
+/// SEBELUM `proses()` dipanggil (baris 85 di atas). Kalau `proses()` gagal
+/// karena sebab sementara (DB sibuk, dsb.) — handler membalas 500 supaya
+/// gateway MENGULANG — percobaan berikutnya menemukan barisnya SUDAH ADA,
+/// `DO NOTHING` tak mengubah apa pun, dan pemanggil membaca "bukan baris
+/// baru" lalu membalas 200 "sudah diproses" TANPA PERNAH memanggil `proses()`
+/// lagi. Gateway berhenti retry karena melihat 200. Uang sudah masuk, tiket
+/// tak pernah terbit, dan tak ada jalur pemulihan otomatis.
+///
+/// `DO UPDATE ... WHERE processed_at IS NULL` membedakan dua keadaan yang
+/// `DO NOTHING` tak bisa: baris lama yang SUDAH selesai (`processed_at`
+/// terisi oleh `tandai_selesai`) vs baris lama yang MASIH menggantung. Hanya
+/// yang menggantung yang di-UPDATE (dan karena itu muncul di `RETURNING`) —
+/// baris yang sudah selesai tak tersentuh, `RETURNING` kosong, dan
+/// pemanggilnya tahu untuk berhenti di situ.
 async fn catat_peristiwa(
     state: &AppState,
     provider: &str,
@@ -123,15 +142,19 @@ async fn catat_peristiwa(
         return false;
     };
     let hasil = client
-        .execute(
+        .query(
             "INSERT INTO payment_webhook_events (id, provider, event_key, signature_ok, payload) \
-             VALUES ($1, $2, $3, $4, $5) ON CONFLICT (provider, event_key) DO NOTHING",
+             VALUES ($1, $2, $3, $4, $5) \
+             ON CONFLICT (provider, event_key) DO UPDATE \
+                 SET signature_ok = EXCLUDED.signature_ok, payload = EXCLUDED.payload \
+                 WHERE payment_webhook_events.processed_at IS NULL \
+             RETURNING 1",
             &[&id, &provider, &event_key, &signature_ok, &payload],
         )
         .await;
 
     match hasil {
-        Ok(n) => n == 1,
+        Ok(rows) => !rows.is_empty(),
         Err(e) => {
             tracing::error!(error = %e, "gagal mencatat peristiwa webhook");
             false
@@ -189,6 +212,31 @@ async fn proses(
         return Ok(());
     }
 
+    // ── Nominal WAJIB dicocokkan SEBELUM status ditulis 'paid' ──────────────
+    // Tanda tangan membuktikan pesannya dari gateway; ia tidak membuktikan
+    // nominalnya cukup. Pada gateway yang mengizinkan pembayaran sebagian —
+    // dan pada Flip, yang callback-nya tak ditandatangani sama sekali —
+    // inilah satu-satunya yang menghentikan tiket terbit untuk pembayaran
+    // yang kurang.
+    //
+    // Urutan ini SENGAJA diletakkan sebelum UPDATE status di bawah (dulu
+    // terbalik): menulis status='paid' dulu baru mengecek nominal berarti
+    // pembayaran yang KURANG tetap tercatat 'paid' di `payment_transactions`
+    // walau order-nya sendiri tak pernah dilunaskan — jejak yang menyesatkan
+    // siapa pun yang rekonsiliasi manual dari tabel itu.
+    if kabar.status == StatusBayar::Lunas {
+        if let Some(dibayar) = kabar.amount {
+            if dibayar < tagihan {
+                tracing::error!(
+                    provider,
+                    %dibayar, %tagihan,
+                    "webhook: nominal KURANG dari tagihan — order TIDAK dilunaskan"
+                );
+                return Ok(());
+            }
+        }
+    }
+
     client
         .execute(
             "UPDATE payment_transactions \
@@ -201,23 +249,6 @@ async fn proses(
 
     if kabar.status != StatusBayar::Lunas {
         return Ok(());
-    }
-
-    // ── Nominal WAJIB dicocokkan ──────────────────────────────────────────
-    // Tanda tangan membuktikan pesannya dari gateway; ia tidak membuktikan
-    // nominalnya cukup. Pada gateway yang mengizinkan pembayaran sebagian —
-    // dan pada Flip, yang callback-nya tak ditandatangani sama sekali —
-    // inilah satu-satunya yang menghentikan tiket terbit untuk pembayaran
-    // yang kurang.
-    if let Some(dibayar) = kabar.amount {
-        if dibayar < tagihan {
-            tracing::error!(
-                provider,
-                %dibayar, %tagihan,
-                "webhook: nominal KURANG dari tagihan — order TIDAK dilunaskan"
-            );
-            return Ok(());
-        }
     }
 
     let order_id = crate::utils::ulid::bin_to_ulid_ref(&order_id_bytes)?;

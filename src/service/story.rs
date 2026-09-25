@@ -8,6 +8,8 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use deadpool_postgres::Pool;
+
 use crate::{
     models::{
         notification::CreateNotificationInput,
@@ -28,12 +30,16 @@ const FREE_DAILY_LIMIT: i64 = 1;
 const MAX_FILE_SIZE: usize = 50 * 1024 * 1024;
 
 /// MIME type yang diizinkan untuk story media.
-const ALLOWED_IMAGE_MIME: &[&str] = &["image/jpeg", "image/png", "image/webp", "image/gif"];
+///
+/// `pub(crate)`: dipakai ulang oleh `web/api/upload.rs::post_image_upload`
+/// (marketplace) — sengaja tak diduplikasi, daftar magic bytes yang sama
+/// tak boleh punya dua salinan yang bisa berselisih.
+pub(crate) const ALLOWED_IMAGE_MIME: &[&str] = &["image/jpeg", "image/png", "image/webp", "image/gif"];
 const ALLOWED_VIDEO_MIME: &[&str] = &["video/mp4", "video/quicktime", "video/webm"];
 
 // ── Magic byte detector (gambar + video) ─────────────────────────────────────
 
-fn detect_media_mime(data: &[u8]) -> Option<(&'static str, &'static str)> {
+pub(crate) fn detect_media_mime(data: &[u8]) -> Option<(&'static str, &'static str)> {
     // Returns (mime_type, media_kind) where media_kind = "image" | "video"
     match data {
         // JPEG
@@ -61,6 +67,7 @@ pub struct StoryService<R: StoryRepository> {
     repo: Arc<R>,
     storage: Arc<StorageService>,
     notif_store: Arc<NotificationStoreService>,
+    pool: Pool,
 }
 
 impl<R: StoryRepository> StoryService<R> {
@@ -68,11 +75,13 @@ impl<R: StoryRepository> StoryService<R> {
         repo: Arc<R>,
         storage: Arc<StorageService>,
         notif_store: Arc<NotificationStoreService>,
+        pool: Pool,
     ) -> Self {
         Self {
             repo,
             storage,
             notif_store,
+            pool,
         }
     }
 
@@ -133,6 +142,38 @@ impl<R: StoryRepository> StoryService<R> {
             .await
             .map_err(AppError::Internal)?;
 
+        // Kunci per-user dipegang dari SINI sampai `repo.create()` di langkah 6
+        // berhasil (dilepas eksplisit sebelum notifikasi latar) — bukan cuma
+        // dilepas di titik ini. `count_today` lalu `create()` dulu DUA
+        // panggilan terpisah tanpa penghalang apa pun: dua upload nyaris
+        // bersamaan dari user gratis yang sama bisa SAMA-SAMA membaca
+        // `count=0` sebelum salah satunya sempat menulis baris story-nya,
+        // dan keduanya lolos — plafon 1x/hari bisa dilewati. Premium tak
+        // perlu kunci ini sama sekali (tak ada plafon untuk dilanggar).
+        let mut lock_conn = if is_premium {
+            None
+        } else {
+            Some(
+                self.pool
+                    .get()
+                    .await
+                    .map_err(|e| AppError::Internal(anyhow::anyhow!("pool: {e}")))?,
+            )
+        };
+        let lock_tx = match lock_conn.as_mut() {
+            Some(c) => {
+                let tx = c
+                    .transaction()
+                    .await
+                    .map_err(|e| AppError::Internal(anyhow::anyhow!("begin lock tx: {e}")))?;
+                tx.execute("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)", &[&user_id])
+                    .await
+                    .map_err(|e| AppError::Internal(anyhow::anyhow!("advisory lock: {e}")))?;
+                Some(tx)
+            }
+            None => None,
+        };
+
         if !is_premium {
             let count = self
                 .repo
@@ -182,6 +223,14 @@ impl<R: StoryRepository> StoryService<R> {
             )
             .await
             .map_err(AppError::Internal)?;
+
+        // Lepas kunci SEKARANG bahwa baris story-nya sudah tertulis — sesudah
+        // ini, `count_today` sesi lain akan melihatnya.
+        if let Some(tx) = lock_tx {
+            tx.commit()
+                .await
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("commit lock tx: {e}")))?;
+        }
 
         // ── 7. Background: notifikasi in-app (fire-and-forget) ────────────────
         // Clone semua data yang dibutuhkan SEBELUM spawn agar future 'static.

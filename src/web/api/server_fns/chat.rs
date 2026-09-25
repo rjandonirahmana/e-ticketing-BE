@@ -167,3 +167,86 @@ pub async fn send_first_chat_message(
 
     Ok(room.id)
 }
+
+// ── Marketplace C2C (Pasar) — chat user-ke-user ───────────────────────────────
+//
+// `group_chat_svc.find_dm`/`ensure_dm` SUDAH generic per pasangan user ID
+// (parameter dinamai `buyer_id`/`merchant_id` cuma karena konvensi penamaan
+// lama, bukan karena ada gerbang peran di bawahnya) — dua fungsi di bawah ini
+// murni CLONE `cari_chat_merchant`/`send_first_chat_message` di atas dengan
+// pengecekan "toko ada" diganti "pengguna ada".
+
+/// Percakapan yang SUDAH ADA dengan user lain (mis. penjual barang
+/// marketplace), berikut pesan terakhirnya. `None` bila belum pernah ada.
+#[server(CariChatUser, "/api-fn")]
+pub async fn cari_chat_user(
+    other_user_id: String,
+) -> Result<Option<(String, Vec<ChatMessage>)>, ServerFnError> {
+    let claims = auth_claims().await?;
+    let state = app_state().await?;
+
+    let Some(room) = state
+        .group_chat_svc
+        .find_dm(&claims.user_id, &other_user_id)
+        .await
+        .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })?
+    else {
+        return Ok(None);
+    };
+
+    let (msgs, _) = state
+        .group_chat_svc
+        .get_history(&room.id, &claims.user_id, 12, None)
+        .await
+        .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })?;
+
+    Ok(Some((
+        room.id,
+        msgs.into_iter().map(srv_group_message_to_web).collect(),
+    )))
+}
+
+/// Kirim pesan PERTAMA ke user lain (mis. "Hubungi Penjual" di postingan
+/// marketplace): room dibuat di sini, lalu pesannya disimpan.
+#[server(SendFirstDm, "/api-fn")]
+pub async fn send_first_dm(
+    other_user_id: String,
+    content: String,
+) -> Result<String, ServerFnError> {
+    let claims = auth_claims().await?;
+    let state = app_state().await?;
+
+    if content.trim().is_empty() {
+        return Err(ServerFnError::ServerError("Pesan tidak boleh kosong".into()));
+    }
+
+    // Pembatas laju SAMA dengan jalur WebSocket & `send_first_chat_message` di
+    // atas — lihat komentar panjang di sana untuk alasannya.
+    if !state.ws_mgr.check_rate_limit(&claims.user_id) {
+        return Err(ServerFnError::ServerError(
+            "Terlalu banyak pesan, coba lagi sebentar.".into(),
+        ));
+    }
+
+    // Pastikan penggunanya ada sebelum apa pun dibuat — padanan
+    // `merchant_svc.public_profile` di atas, tapi utk sembarang user.
+    let _ = state
+        .auth_svc
+        .me(&other_user_id)
+        .await
+        .map_err(map_app_error)?;
+
+    let room = state
+        .group_chat_svc
+        .ensure_dm(&claims.user_id, &other_user_id)
+        .await
+        .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })?;
+
+    state
+        .group_chat_svc
+        .send_text(&room.id, &claims.user_id, &claims.name, &content, None)
+        .await
+        .map_err(|e| -> ServerFnError { ServerFnError::ServerError(e.to_string()) })?;
+
+    Ok(room.id)
+}

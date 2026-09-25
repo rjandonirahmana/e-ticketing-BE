@@ -120,12 +120,25 @@ docker run -d \
   `# swap. Swap-lah yang mengubah "mati cepat" menjadi "beku lama".` \
   `#` \
   `# Ukur dulu sebelum mengubah angkanya: docker stats --no-stream ticketing` \
-  `# saat trafik normal, lalu beri ruang ~2x. 3g dipilih untuk box 7,8 GB yang` \
-  `# juga menjalankan Postgres, RustFS, dan container lain.` \
-  --memory=3g \
-  --memory-swap=3g \
+  `# saat trafik normal, lalu beri ruang ~2x.` \
+  `#` \
+  `# ── Sep 2026: turun ke box 2 GB / 2 CPU ────────────────────────────────` \
+  `# 896m TITIK AWAL, BUKAN angka final — box ini nebeng app+Postgres+Redis+` \
+  `# RustFS (sama seperti box 7,8 GB sebelumnya, cuma total RAM-nya 4x lebih` \
+  `# kecil). Sisa ~1,1 GB dibagi OS+Docker+Postgres+Redis+RustFS. WAJIB ukur` \
+  `# docker stats setelah deploy nyata di server — tak bisa diukur dari sini.` \
+  `# Lihat ops/downsize-2gb.md untuk tuning Postgres/Redis/RustFS di sebelah` \
+  `# container ini.` \
+  --memory=896m \
+  --memory-swap=896m \
   -e WORKER_THREADS=2 \
-  -e DB_POOL_MAX_SIZE=16 \
+  `# Postgres di box 2 GB WAJIB max_connections kecil juga (ops/downsize-2gb.md)` \
+  `# — app tak boleh sendirian minta lebih dari jatahnya.` \
+  -e DB_POOL_MAX_SIZE=8 \
+  `# Purge instan: kembalikan halaman bebas ke OS SEKARANG, bukan menunggu` \
+  `# delay bawaan mimalloc (10ms). Ongkosnya sedikit CPU ekstra saat purge —` \
+  `# di box RAM 2 GB, RAM kembali ke OS lebih berharga daripada siklus CPU itu.` \
+  -e MIMALLOC_PURGE_DELAY=0 \
   -e RUST_LOG='e_ticketing=info,tower_http=warn' \
   `# Opsional: WAHA_BASE_URL / WAHA_SESSION / WAHA_API_KEY,` \
   `#           TELEGRAM_BOT_TOKEN / TELEGRAM_ADMIN_CHAT_ID,` \
