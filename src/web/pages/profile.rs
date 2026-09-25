@@ -444,6 +444,37 @@ pub fn ProfilePage() -> impl IntoView {
                                                         <polyline points="9 18 15 12 9 6" />
                                                     </svg>
                                                 </A>
+                                                <A href="/marketplace/mine" attr:class="menu-item">
+                                                    <div class="menu-item-icon">
+                                                        <svg
+                                                            width="18"
+                                                            height="18"
+                                                            viewBox="0 0 24 24"
+                                                            fill="none"
+                                                            stroke="currentColor"
+                                                            stroke-width="1.8"
+                                                            stroke-linecap="round"
+                                                            stroke-linejoin="round"
+                                                        >
+                                                            <rect x="3" y="3" width="7" height="7" rx="1.2" />
+                                                            <rect x="14" y="3" width="7" height="7" rx="1.2" />
+                                                            <rect x="3" y="14" width="7" height="7" rx="1.2" />
+                                                            <rect x="14" y="14" width="7" height="7" rx="1.2" />
+                                                        </svg>
+                                                    </div>
+                                                    <span class="menu-item-label">"Postingan Saya (Hub)"</span>
+                                                    <svg
+                                                        width="16"
+                                                        height="16"
+                                                        viewBox="0 0 24 24"
+                                                        fill="none"
+                                                        stroke="currentColor"
+                                                        stroke-width="2"
+                                                        stroke-linecap="round"
+                                                    >
+                                                        <polyline points="9 18 15 12 9 6" />
+                                                    </svg>
+                                                </A>
                                             </div>
                                         </div>
 

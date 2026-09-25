@@ -74,6 +74,21 @@ pub async fn list_posts(
     Ok(srv_paginated_posts_to_web(result))
 }
 
+/// Postingan MILIK user yang login, semua status (aktif/terjual/diarsipkan) —
+/// beda dari `list_posts` yang publik dan cuma `status='active'`.
+#[server(ListMyPosts, "/api-fn")]
+pub async fn list_my_posts(page: Option<i64>) -> Result<PaginatedPosts, ServerFnError> {
+    let claims = auth_claims().await?;
+    let state = app_state().await?;
+
+    let result = state
+        .post_svc
+        .list_mine(&claims.user_id, page.unwrap_or(1), 20)
+        .await
+        .map_err(map_app_error)?;
+    Ok(srv_paginated_posts_to_web(result))
+}
+
 #[server(GetPostDetail, "/api-fn")]
 pub async fn get_post_detail(id: String) -> Result<Post, ServerFnError> {
     let viewer = auth_claims().await.ok().map(|c| c.user_id);

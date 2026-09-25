@@ -5,9 +5,11 @@
 
 pub mod create;
 pub mod detail;
+pub mod mine;
 
 pub use create::CreatePostPage;
 pub use detail::PostDetailPage;
+pub use mine::MyPostsPage;
 
 use leptos::prelude::*;
 use leptos_meta::*;
@@ -24,6 +26,14 @@ use wasm_bindgen::JsCast;
 
 #[component]
 pub fn MarketplaceFeed() -> impl IntoView {
+    let auth = use_context::<crate::web::app::AuthResource>();
+    let logged_in = move || {
+        auth.and_then(|a| a.get())
+            .and_then(|r| r.ok())
+            .flatten()
+            .is_some()
+    };
+
     // "" = Semua. Disimpan sebagai String (bukan Option) supaya tombol filter
     // punya satu sumber kebenaran sederhana untuk kelas `--on`.
     let kind = RwSignal::new(String::new());
@@ -157,14 +167,27 @@ pub fn MarketplaceFeed() -> impl IntoView {
         <div class="page pk-page">
             <header class="page-header pk-header">
                 <span class="page-logo">"HUB"</span>
-                <A href="/marketplace/new" attr:class="pk-post-btn">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                         stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="12" y1="5" x2="12" y2="19" />
-                        <line x1="5" y1="12" x2="19" y2="12" />
-                    </svg>
-                    "Posting"
-                </A>
+                <div class="pk-header-actions">
+                    {move || logged_in().then(|| view! {
+                        <A href="/marketplace/mine" attr:class="pk-back-btn" attr:aria-label="Postingan Saya">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="3" width="7" height="7" rx="1.5" />
+                                <rect x="14" y="3" width="7" height="7" rx="1.5" />
+                                <rect x="3" y="14" width="7" height="7" rx="1.5" />
+                                <rect x="14" y="14" width="7" height="7" rx="1.5" />
+                            </svg>
+                        </A>
+                    })}
+                    <A href="/marketplace/new" attr:class="pk-post-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="12" y1="5" x2="12" y2="19" />
+                            <line x1="5" y1="12" x2="19" y2="12" />
+                        </svg>
+                        "Posting"
+                    </A>
+                </div>
             </header>
 
             <div class="pk-searchbar-row">

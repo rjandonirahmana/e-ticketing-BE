@@ -74,6 +74,7 @@
 .pk-page, .pk-detail-page, .pk-create-page { background: var(--bg-page); }
 
 .pk-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.pk-header-actions { display: flex; align-items: center; gap: 8px; }
 .pk-back-btn {
     display: flex; align-items: center; justify-content: center;
     width: 38px; height: 38px; border-radius: 999px;

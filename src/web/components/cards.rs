@@ -444,6 +444,14 @@ pub fn PostCard(post: crate::web::models::Post, #[prop(default = 0)] index: usiz
         Some(p) if p > 0 => crate::web::models::format_price(p as f64),
         _ => "Nego".to_string(),
     };
+    // Status non-aktif hanya relevan di "Postingan Saya" (`list_feed` publik
+    // sudah menyaring `status='active'`, jadi kartu di Hub biasa tak pernah
+    // melihat ini) — pemilik tetap perlu tahu MANA yang sudah terjual/
+    // diarsipkan saat melihat daftar postingannya sendiri.
+    let status = post.status.clone();
+    let status_label = (status != "active").then(|| {
+        if status == "sold" { "TERJUAL" } else { "DIARSIPKAN" }
+    });
     view! {
         <a
             href=href
@@ -466,6 +474,7 @@ pub fn PostCard(post: crate::web::models::Post, #[prop(default = 0)] index: usiz
                 }}
                 <span class=kind_cls><span class="pk-badge-dot"></span>{kind_label}</span>
                 {condition_label.map(|c| view! { <span class="pk-badge pk-badge--kondisi">{c}</span> })}
+                {status_label.map(|s| view! { <span class="pk-badge pk-badge--status">{s}</span> })}
             </div>
             <div class="pk-body">
                 <h3 class="pk-title">{post.title.clone()}</h3>

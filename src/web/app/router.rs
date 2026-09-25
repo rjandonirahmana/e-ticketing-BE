@@ -382,6 +382,13 @@ pub fn App() -> impl IntoView {
                             path=path!("/marketplace/new")
                             view=|| view! { <AuthGuard><CreatePostPage /></AuthGuard> }
                         />
+                        // WAJIB di ATAS "/marketplace/:id" — sama alasannya dengan
+                        // "/marketplace/new": FlatRoutes mencocokkan berurutan,
+                        // ":id" akan menelan "mine" sebagai id postingan.
+                        <Route
+                            path=path!("/marketplace/mine")
+                            view=|| view! { <AuthGuard><MyPostsPage /></AuthGuard> }
+                        />
                         <Route path=path!("/marketplace/:id") view=PostDetailPage />
 
                         // ── AUTH ─────────────────────────────────────────────────

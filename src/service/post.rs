@@ -135,6 +135,13 @@ impl PostService {
             .map_err(AppError::Internal)
     }
 
+    pub async fn list_mine(&self, user_id: &str, page: i64, per_page: i64) -> AppResult<PaginatedPosts> {
+        self.repo
+            .list_mine(user_id, page, per_page)
+            .await
+            .map_err(AppError::Internal)
+    }
+
     pub async fn get_detail(&self, id: &str, viewer_id: Option<&str>) -> AppResult<Post> {
         self.repo
             .get_by_id(id, viewer_id)

@@ -97,6 +97,11 @@ pub trait PostRepository: Send + Sync {
         per_page: i64,
     ) -> Result<PaginatedPosts>;
     async fn get_by_id(&self, id: &str, viewer_id: Option<&str>) -> Result<Option<Post>>;
+    /// Seluruh postingan MILIK `user_id`, SEMUA status (aktif/terjual/
+    /// diarsipkan) — beda dari `list_feed` yang cuma `status='active'`.
+    /// Pemiliknya sendiri harus bisa melihat postingan yang sudah ditandai
+    /// terjual/diarsipkan, bukan cuma yang masih tayang publik.
+    async fn list_mine(&self, user_id: &str, page: i64, per_page: i64) -> Result<PaginatedPosts>;
     /// Toggle like (murni self-contained: INSERT bila belum ada, DELETE bila
     /// sudah ada). Return `true` bila status akhirnya LIKED.
     async fn toggle_like(&self, post_id: &str, user_id: &str) -> Result<bool>;
@@ -220,6 +225,35 @@ impl PostRepository for PgPostRepository {
             &self.pool,
             count_query,
             &[&kind, &category, &city, &q_like],
+        )
+        .await?;
+        let total: i64 = total_row.try_get("n")?;
+
+        let data = rows.iter().map(row_to_post).collect::<Result<Vec<_>>>()?;
+        let total_pages = if total == 0 { 0 } else { (total + per_page - 1) / per_page };
+
+        Ok(PaginatedPosts { data, total, page, per_page, total_pages })
+    }
+
+    async fn list_mine(&self, user_id: &str, page: i64, per_page: i64) -> Result<PaginatedPosts> {
+        let uid = id_to_vec(user_id)?;
+        let per_page = per_page.clamp(1, 50);
+        let page = page.max(1);
+        let offset = (page - 1) * per_page;
+
+        // `$1` (viewer_id di POST_SELECT) dan pemilik yang difilter SAMA di
+        // sini dengan sengaja — pemilik selalu melihat status suka miliknya
+        // sendiri atas postingannya sendiri, dan itu tak masalah.
+        let list_query = format!(
+            "{POST_SELECT} WHERE p.user_id = $1 AND p.deleted_at IS NULL \
+             ORDER BY p.created_at DESC LIMIT $2 OFFSET $3"
+        );
+        let rows = exec_rows(&self.pool, &list_query, &[&uid.as_slice(), &per_page, &offset]).await?;
+
+        let total_row = exec_one(
+            &self.pool,
+            "SELECT COUNT(*) AS n FROM posts WHERE user_id = $1 AND deleted_at IS NULL",
+            &[&uid.as_slice()],
         )
         .await?;
         let total: i64 = total_row.try_get("n")?;

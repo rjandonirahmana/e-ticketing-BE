@@ -59,7 +59,7 @@ pub use edit_profile::EditProfilePage;
 pub use forgot_password::ForgotPasswordPage;
 pub use home::HomePage;
 pub use lives::LivesPage;
-pub use marketplace::{CreatePostPage, MarketplaceFeed, PostDetailPage};
+pub use marketplace::{CreatePostPage, MarketplaceFeed, MyPostsPage, PostDetailPage};
 pub use meet::MeetPage;
 pub use merchant::MerchantPage;
 pub use merchant_create_product::MerchantCreateProductPage;
